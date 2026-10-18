@@ -275,7 +275,7 @@ final class DemoTelevisionTests: XCTestCase {
                                                            cookieReceived: Date().addingTimeInterval(-86_400),
                                                            cookieMaxAge: 1_209_600))
         bench.defaults.set(Self.realMac, forKey: DefaultsKey.tvMac)
-        bench.defaults.set(try JSONEncoder().encode(TVTold(stop: .registration, rows: ["サンプルの行"])),
+        bench.defaults.set(try JSONEncoder().encode(ToldOnce(stop: .registration, rows: ["サンプルの行"])),
                            forKey: DefaultsKey.tvTold)
         let model = bench.model(recorder: DemoRecorder(), television: television, credentials: credentials)
         await model.start()

@@ -293,13 +293,25 @@ extension AppModel {
                 }
             }
             forgetWhatWasTold()
+            // Once more in the queue's turn, not waited for, as the runs with no screen tell and keep it: a run
+            // telling now is over first, and what it kept and posted of the registration before goes after it.
+            // A run waiting for the turn now sends with this registration, or with a cookie the television has
+            // given since, and what it keeps under either stays.
+            if !demo {
+                let registration = credentials.load()?.cookieReceived
+                Task { [weak self] in
+                    _ = await PendingQueue.betweenFlushes { @MainActor in
+                        self?.forgetWhatWasTold(unlessKeptUnder: [registration, credentials.load()?.cookieReceived])
+                    }
+                }
+            }
             makeTVLink()
             await tv?.connect()
             return .registered
         }
     }
 
-    /// What the runs with no screen told of the television (`TVTold`) is not held against the one in play
+    /// What the runs with no screen told of the television (`ToldOnce`) is not held against the one in play
     /// from now on: a registration, or a television taken away, is a change, and the next run tells what it
     /// finds afresh. Their warning of reservations not yet at the television is taken away with it, where
     /// the app asks the system about notifications at all: it can end by telling the reader to register,
@@ -309,11 +321,20 @@ extension AppModel {
     ///
     /// Not in the demo: what was told is of the real television, which the demo's registering or taking away
     /// changes nothing of.
-    private func forgetWhatWasTold() {
+    ///
+    /// Made in the queue's turn by `takeTheTelevisionAway`, and by `registerTV` once more in it after its call at
+    /// once: it cannot take the turn itself, as `takeTheTelevisionAway` holds it already as it calls, and the turn
+    /// is not taken twice. What is kept under one of `registrations` is left (`ToldOnce.registration`): the
+    /// registration's own cookie (`TVCredentials.cookieReceived`) and the one in the store as the turn comes,
+    /// which a later registration or a renewal has given since. A run whose round began under either kept it,
+    /// after the registration.
+    private func forgetWhatWasTold(unlessKeptUnder registrations: [Date?] = []) {
         guard !demo else { return }
-        let stop = defaults.data(forKey: DefaultsKey.tvTold)
-            .flatMap { try? JSONDecoder().decode(TVTold.self, from: $0) }?.stop
-        defaults.removeObject(forKey: DefaultsKey.tvTold)
+        let kept = KeptOnce.television(in: defaults)
+        let told = kept.read()
+        if let under = told?.registration, registrations.contains(under) { return }
+        let stop = told?.stop
+        kept.forget()
         guard surroundings.asksAboutNotifications else { return }
         Notify.withdrawTelevisionNotYet()
         if stop == .registration { Notify.withdrawTelevisionQueue() }
@@ -322,18 +343,23 @@ extension AppModel {
     /// The warning the runs with no screen left of reservations not yet at the television is taken away once
     /// a sending of the app's own, a reservation made by hand, which takes the place of a row that waited for
     /// its programme (`TVHost.reserve`), or a delete leaves none of them waiting to go, and they are told of no
-    /// more (`TVTold.afterTheScreensSent`): the next run with no screen, which would take it away otherwise,
+    /// more (`ToldOnce.afterTheScreensSent`): the next run with no screen, which would take it away otherwise,
     /// may come after their programmes have begun. Read from the phone's queue and not from the one on
     /// screen, which is empty when the queue cannot be read; a queue that cannot be read changes nothing.
-    /// Not in the demo, whose queue is not the one the warning was about.
-    func forgetTheWarningOnceSent() async {
-        guard !demo, let saved = defaults.data(forKey: DefaultsKey.tvTold),
-              let told = try? JSONDecoder().decode(TVTold.self, from: saved),
-              let store, let waiting = try? await store.pendingReservations(),
-              let after = told.afterTheScreensSent(waiting: waiting),
-              let kept = try? JSONEncoder().encode(after) else { return }
-        defaults.set(kept, forKey: DefaultsKey.tvTold)
-        if surroundings.asksAboutNotifications { Notify.withdrawTelevisionNotYet() }
+    /// Not in the demo, whose queue is not the one the warning was about. In the queue's turn and in a task of
+    /// its own, as the recorder's is (`forgetTheRecordersWarningOnceSent`).
+    func forgetTheWarningOnceSent() {
+        Task { [weak self] in
+            _ = await PendingQueue.betweenFlushes { @MainActor in
+                guard let self else { return }
+                let kept = KeptOnce.television(in: self.defaults)
+                guard !self.demo, let told = kept.read(),
+                      let store = self.store, let waiting = try? await store.pendingReservations(),
+                      let after = told.afterTheScreensSent(waiting: waiting) else { return }
+                kept.keep(after)
+                if self.surroundings.asksAboutNotifications { Notify.withdrawTelevisionNotYet() }
+            }
+        }
     }
 
     /// Takes the television away: its link, its address and its registration. What the television itself
@@ -385,7 +411,7 @@ extension AppModel {
     /// are over, which is what the question is there to prevent.
     ///
     /// The first step sees the app's own work only. A run with no screen sends through the same queue with a
-    /// client of its own -- inferred for the action, as `deleteWaiting` says -- so the rest is done in the
+    /// client of its own -- the action in the app's process, as `deleteWaiting` says -- so the rest is done in the
     /// queue's turn (`PendingQueue.betweenFlushes`): a sending under way is over first, and one that made what
     /// was counted leaves a count that no longer holds. Taken away while such a run had its round out, the
     /// registration would go from under it, and the run would tell the reader to register a television that is

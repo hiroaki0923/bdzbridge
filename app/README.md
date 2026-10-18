@@ -325,14 +325,16 @@ reservation or a sending to a television goes step by step, and what each way it
 is tried in RecorderKit (`TVDriverTests`). And the runs with no screen, on the app's side: the Shortcuts
 action's answer for each pair of what the two devices came to; the screens and the action at once making a
 television's reservation once; what a run tells, read from the queue as the run left it; all of it forgotten
-on a registration again and on the television taken away, and the warning of rows not yet there forgotten once
-a sending of the app's own or a reservation made by hand leaves none of them waiting; 外す and the delete of a
-television's row waiting for the action's sending, and a row that sending made said as made and not as deleted
--- with the app's link unable to read the list too, and with the row still waiting after its create's answer was
-lost -- but not one dropped as over, nor one gone with the television; a recorder's row deleted the same way,
-waiting for that sending and said made when the sending made it; and the
-identifiers of the television's two notifications. What such a run asks of a television, in what order, and
-what it tells once, is tried in RecorderKit (`TVNoScreenTests`).
+on a registration again and on the television taken away, but for what a run that waited for the queue's turn
+across one registration or two finds, and no registration asked for in what is told once after a round refused
+for a cookie that had changed under it, registered again or renewed, whose refusal the action's answer still
+says; the warning of rows not yet there forgotten once a sending of the app's own or a reservation made by
+hand leaves none of them waiting; 外す and the delete of a television's row waiting for the action's sending,
+and a row that sending made said as made and not as deleted -- with the app's link unable to read the list
+too, and with the row still waiting after its create's answer was lost -- but not one dropped as over, nor one
+gone with the television; a recorder's row deleted the same way, waiting for that sending and said made when
+the sending made it; and the identifiers of the television's two notifications. What such a run asks of a
+television, in what order, and what it tells once, is tried in RecorderKit (`TVNoScreenTests`).
 
 `SessionRuleTests` holds the rules about being connected, one test to a rule, so that the model can be taken
 apart without any of them changing: only silence is given up on, not a recorder that answers busy; a recorder
@@ -1351,17 +1353,18 @@ held would otherwise be gone. A round that itself stopped at a create's silence 
 that a reservation is held, and where to look. The strip keeps the queue's own clause for such a round, beside
 the line of what went wrong, which says the held sentence.
 
-Two things are told once, by the rule the television's runs have (`TVTold.after`, in the recorder's words,
-`NoScreenWords.recorder`). That another recorder answered is told when something waits and it was not what was
-told last, not every night and every arrival home. And a reservation that starts before the next overnight run,
-carries no reason and has not reached the recorder is warned of in a notification of its own (`not-yet-sent`),
-「レコーダーにまだ届いていない予約があります（…）」, with what stands in its way: another recorder; the recorder not answering -- nobody
-reached, a round that silence stopped, or a recorder that could not be told apart; or nothing known, when
-opening the app sends it. The warning is of every such reservation whenever one is new, the first by its title
-and start and then how many more, and is taken away once none of them waits to go -- by the next run, or at once
-by a sending, a reservation made by hand or a delete of the app's own. What was told is kept between runs
-(`DefaultsKey.recorderTold`, apart from the television's), written whether or not a notification could be heard,
-and forgotten with the cache when another recorder is taken up. Nothing of it is handed over or written once the
+Two things are told once, by the rule the television's runs have (`ToldOnce.after`, in the recorder's words,
+`NoScreenWords.recorder`), decided, posted and kept inside the queue's turn, as the television's are. That another
+recorder answered is told when something waits and it was not what was told last, not every night and every arrival
+home. And a reservation that starts before the next overnight run, carries no reason and has not reached the
+recorder is warned of in a notification of its own (`not-yet-sent`), 「レコーダーにまだ届いていない予約があります（…）」, with what stands
+in its way: another recorder; the recorder not answering -- nobody reached, a round that silence stopped, or a
+recorder that could not be told apart; or nothing known, when opening the app sends it. The warning is of every
+such reservation whenever one is new, the first by its title and start and then how many more, and is taken away
+once none of them waits to go -- by the next run, or in the queue's turn after a sending, a reservation made by
+hand or a delete of the app's own. What was told is kept between runs (`DefaultsKey.recorderTold`, apart from the
+television's), written whether or not a notification could be heard, and forgotten with the cache when another
+recorder is taken up, at once and again in the queue's turn. Nothing of it is handed over or written once the
 night's time is up, or once the cache is another recorder's than it was as the run began.
 
 Permission comes in two steps. Once the app has reached a real recorder it takes provisional permission,
@@ -1659,28 +1662,38 @@ held for the reader. When it has one, the recorder is made sure of first, under 
 has dozed off is woken rather than sent creates it does not hear. A pull-down sends what waits and then reads
 the list once, as a television's does. A row for a television is made by the programme's sheet (below).
 
-The overnight run and the Shortcuts action send a television's rows as well (`TVDriver.sendWithNoScreen`,
-from `BackgroundWork.sendToTheTelevisionNow`), beside the recorder's part and whether or not a recorder is
-saved, with no link and once. The queue is read first, and with no row of the television's that goes by
-itself nothing is asked. Then the MAC, with no cookie, held against the one saved as a connect holds it, and
-the round the screens send. Nothing renews the registration, reads the power, wakes, deletes or writes to the
-Keychain, and a row held for what it would stop from recording waits for the reader. What a run found is
-told in notifications of the television's own (`tv-queue-flushed`, `tv-not-yet-sent`), each thing once
-(`TVTold`, kept under one key of the defaults): what became of the rows, as the recorder's run tells it; the
-disk away, a registration wanted, another television, when that is not what was told last; and a row that
-starts before the next overnight run and has not reached the television, once, with what stands in its way,
-taken away again once none of its rows waits. Whenever such a row is new, that warning names every such row
-still waiting, so that it does not take the place of one about an earlier row that is still late. A sending
-of the app's own, a reservation made by hand or a delete that leaves none of the rows warned of waiting takes
-the warning away at once and tells of them no more (`TVTold.afterTheScreensSent`): the next run may come after
-their programmes have begun. A registration again, and taking the television away, forget all of it and take the
-warning away at once, and the notice of what became of the rows as well when the stop told last was a
-registration wanted, so that a notice asking for the registration does not outlive it. A television that does
-not answer is said only there and in the action's answer, never on its own, as a recorder that does not answer
-is said by its run only at the end of such a warning. A run whose time ran out tells only what the queue says,
-less its sentence for a round that silence cut short, and keeps nothing: a request the suspension cut would read
-as silence, which is inferred and not seen. With a television saved, the settings' footers about notifications
-and arriving home speak of both devices.
+The overnight run and the Shortcuts action send a television's rows as well (`TVDriver.sendWithNoScreen`, from
+`BackgroundWork.sendToTheTelevisionNow`), beside the recorder's part and whether or not a recorder is saved, with
+no link and once. The queue is read first, and with no row of the television's that goes by itself nothing is
+asked. Then the MAC, with no cookie, held against the one saved as a connect holds it, and the round the screens
+send. Nothing renews the registration, reads the power, wakes, deletes or writes to the Keychain, and a row held
+for what it would stop from recording waits for the reader. What a run found is told in notifications of the
+television's own (`tv-queue-flushed`, `tv-not-yet-sent`), each thing once (`ToldOnce`, kept under one key of the
+defaults): what became of the rows, as the recorder's run tells it; the disk away, a registration wanted, another
+television, when that is not what was told last; and a row that starts before the next overnight run and has not
+reached the television, once, with what stands in its way, taken away again once none of its rows waits. Whenever
+such a row is new, that warning names every such row still waiting, so that it does not take the place of one about
+an earlier row that is still late. A sending of the app's own, a reservation made by hand or a delete that leaves
+none of the rows warned of waiting takes the warning away and tells of them no more
+(`ToldOnce.afterTheScreensSent`): the next run may come after their programmes have begun. A registration again,
+and taking the television away, forget all of it and take the warning away at once -- a registration again in the
+queue's turn once more -- and the notice of what became of the rows as well when the stop told last was a
+registration wanted, so that a notice asking for the registration does not outlive it. A television that does not
+answer is said only there and in the action's answer, never on its own, as a recorder that does not answer is said
+by its run only at the end of such a warning. A run whose time ran out tells only what the queue says, less its
+sentence for a round that silence cut short, and keeps nothing: a request the suspension cut would read as silence,
+which is inferred and not seen. What a run tells once is read, decided, posted and kept inside the queue's turn:
+the turn of its round, just after the round (`PendingQueue.flush(client:store:consenting:only:now:then:)`), or one
+of its own where it has none; what the screens forget is forgotten in the turn too, in a task the screens do not
+wait for, since an attach asks for it and is not to stand behind a round of their own on the client it has just
+retired. So a sending or a forgetting of the screens' in the turn, and another run's telling, come wholly before a
+run's telling or wholly after it; a registration again and a cache made over also forget at once, outside the
+turn, and once more in it, which comes after any telling the first fell inside. A registration's forgetting in the
+turn leaves what a run whose round began after the registration has kept, under its cookie or a later one: a run
+keeps, with what it tells, when the cookie its round began under arrived (`ToldOnce.registration`), and a round
+refused for its cookie once the cookie has changed under it, registered again or renewed, asks for no registration
+in what it tells once; the action's answer says the refusal, as it did. With a television saved, the settings'
+footers about notifications and arriving home speak of both devices.
 
 Reserving a programme on a television is the driver's as well (`TVDriver.reserve`), and it makes nothing by
 itself. The reservation is written to the phone's queue first, for the television and in DR, and the queue is
@@ -1801,8 +1814,10 @@ question gave: where that is no longer what waits -- a sending came and went whi
 nothing is taken away, and the question counts again the next time. 外す and the delete of a waiting
 row do their work in the queue's turn (`PendingQueue.betweenFlushes`), so that a sending under way
 is over first, the action's and the overnight run's included, which the television's own busy state does
-not show: the wait is one round at most. That the action shares the queue is inferred, not seen: it is an
-intent in the app's own target, and Apple's article "Creating your first app intent" says only "You can also
+not show: the wait is one round at most. That the action shares the queue is Apple's word, not seen on a
+phone: it is an intent in the app's own target, which Apple's session "Dive into App Intents" (WWDC22) says
+needs no coordinating "across processes" and is run, in the background, by the app itself launched "in a
+special mode without scenes"; its article "Creating your first app intent" has the other way, "You can also
 place your app intent types in an app extension, and run them in a separate process from the rest of your
 app." The delete reads the television's list in its turn, before it deletes anything. Where the list holds the
 row's programme -- though the row still waits, as one does whose create the television took and whose answer

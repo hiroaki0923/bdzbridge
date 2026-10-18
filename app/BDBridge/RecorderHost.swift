@@ -318,16 +318,29 @@ final class RecorderHost: RecorderLinkHost {
 
     /// The guide on screen was the other recorder's, and the rows waiting have a reason on them now. The marks
     /// the defaults keep about its disks and its guide go with it, and so does what the runs with no screen
-    /// told of it (`TVTold`): the next run tells what it finds afresh. Their warning of reservations not yet at
+    /// told of it (`ToldOnce`): the next run tells what it finds afresh. Their warning of reservations not yet at
     /// the recorder is taken away, where the app asks the system about notifications at all: the rows it names
     /// are held for the reader now, and none of them waits to go.
+    ///
+    /// Both go again in the queue's turn, as the runs with no screen tell and keep what they tell once: a run
+    /// telling as the cache is made over, which looked at the cache before it did, is over first, and what it
+    /// kept and posted of the recorder before goes after it. Not waited for: the make-over is part of an
+    /// attach, and the turn can be a round of the screens' own on the client the attach has just retired,
+    /// which ends only once its request on the wire does.
     func cacheMadeOver() async {
         guard let model else { return }
         let defaults = model.defaults, surroundings = model.surroundings
         defaults.removeObject(forKey: DefaultsKey.warnedLowSpace)
         defaults.removeObject(forKey: DefaultsKey.warnedLowSpaceOnUSB)
         defaults.removeObject(forKey: DefaultsKey.lastBackgroundRefresh)
-        defaults.removeObject(forKey: DefaultsKey.recorderTold)
+        let kept = KeptOnce.recorder(in: defaults), withdraws = surroundings.asksAboutNotifications
+        kept.forget()
+        Task {
+            _ = await PendingQueue.betweenFlushes {
+                kept.forget()
+                if withdraws { await Notify.recorder(notYet: nil, withdraws: true) }
+            }
+        }
         await model.reloadFromCache()
         await model.loadPending()
         if surroundings.asksAboutNotifications { await Notify.recorder(notYet: nil, withdraws: true) }
@@ -353,7 +366,7 @@ final class RecorderHost: RecorderLinkHost {
         guard let sent = await recorderDriver?.sendWhatWaits() else { return }
         said.keep(reservations: sent.list)
         tellTheStrip(sent.round)
-        await model?.forgetTheRecordersWarningOnceSent()
+        model?.forgetTheRecordersWarningOnceSent()
     }
 
     func queueWritten() async {
@@ -477,7 +490,7 @@ final class RecorderHost: RecorderLinkHost {
         let deleted = await recorderDriver?.deleteWaiting(waiting)
         said.keep(reservations: deleted?.list)
         await model?.loadPending()
-        await model?.forgetTheRecordersWarningOnceSent()
+        model?.forgetTheRecordersWarningOnceSent()
         return deleted?.made == true
             ? RecorderDriver.madeBeforeItsDelete(waiting, naming: model?.deviceSaid(for: waiting)) : nil
     }
@@ -706,7 +719,7 @@ extension RecorderHost: DeviceHost {
     /// instead of answering, and neither the reservation nor the app's work waits with it. As there, not for one
     /// held with a reason, which waits for the reader, nor in the demo, whose recorder is nobody's to be told of.
     func afterAReservation(_ reserved: Reserved) async {
-        await model?.forgetTheRecordersWarningOnceSent()
+        model?.forgetTheRecordersWarningOnceSent()
         if case .waiting(let row, _) = reserved, row.problem == nil, !demo { await model?.askForNotifications() }
     }
 
@@ -714,6 +727,6 @@ extension RecorderHost: DeviceHost {
     /// left of reservations not yet at the recorder goes once none of them waits to go.
     func tell(_ round: PendingQueue.Outcome?) async {
         tellTheStrip(round)
-        await model?.forgetTheRecordersWarningOnceSent()
+        model?.forgetTheRecordersWarningOnceSent()
     }
 }

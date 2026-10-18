@@ -9,8 +9,8 @@ public enum NightFound: Sendable {
     case queue(PendingQueue.Outcome)
     /// What is told once, as the sending ends: the notice of reservations that have not reached the recorder
     /// in time, nil for none; whether the last such notice is to be taken away; and what has been told from
-    /// now on, for the app to keep and hand to the next run (`TVTold.after`).
-    case told(notYet: String?, withdraws: Bool, kept: TVTold)
+    /// now on, for the app to keep and hand to the next run (`ToldOnce.after`).
+    case told(notYet: String?, withdraws: Bool, kept: ToldOnce)
     /// The internal disk's free space and size, in bytes, with its label while a USB disk beside it takes
     /// recordings.
     case freeSpace(free: Int, total: Int, naming: String?)
@@ -33,7 +33,7 @@ public enum TheOneKnown: Sendable, Equatable {
 }
 
 /// What a run with no screen has to tell once of the recorder, beside what became of what waited: what the
-/// rule the television's runs have (`TVTold.after`) comes to in the recorder's words (`NoScreenWords.recorder`).
+/// rule the television's runs have (`ToldOnce.after`) comes to in the recorder's words (`NoScreenWords.recorder`).
 public struct NoScreenTold: Sendable, Equatable {
     /// Whether it is news that another recorder answered and what waits was not sent: the stop told last was
     /// not this one, and no notice below carries it. With no next run handed in, whenever one answered.
@@ -43,10 +43,10 @@ public struct NoScreenTold: Sendable, Equatable {
     /// The last such notice is to be taken away: none of the reservations it told of waits to go any more.
     public var withdrawsNotYet: Bool
     /// What has been told from now on, for the app to keep; nil when nothing is to be written.
-    public var kept: TVTold?
+    public var kept: ToldOnce?
 
     public init(heldBackIsNews: Bool = false, notYet: String? = nil, withdrawsNotYet: Bool = false,
-                kept: TVTold? = nil) {
+                kept: ToldOnce? = nil) {
         self.heldBackIsNews = heldBackIsNews
         self.notYet = notYet
         self.withdrawsNotYet = withdrawsNotYet
@@ -181,9 +181,15 @@ extension RecorderDriver {
     /// been completed, and a cache made over holds none of it. `sendPacket` is `reachWithNoScreen`'s.
     ///
     /// With `nextRun`, when the next overnight run is asked for, the run tells once what the television's runs
-    /// tell once, by their rule (`TVTold.after`) in the recorder's words (`NoScreenWords.recorder`), against
-    /// what was `told` before, which the app keeps between runs. What the sending came to is settled for that
-    /// rule first: nobody reached, or a recorder that could not be told apart, is the recorder not reached;
+    /// tell once, by their rule (`ToldOnce.after`) in the recorder's words (`NoScreenWords.recorder`), against
+    /// what was told before, which the app keeps between runs and `told` reads. What is told once is decided,
+    /// handed over and kept inside the queue's turn, from what `told` reads there: the turn of the round it
+    /// tells of, with what became of the queue (`PendingQueue.flush(client:store:consenting:only:now:then:)`),
+    /// or, with no round, a turn of its own. So what the screens send, delete or forget in the turn, and what
+    /// another run tells, comes wholly before it or wholly after it; a cache made over also forgets at once,
+    /// outside the turn, which can fall inside a telling, and once more in the turn, which then comes after
+    /// that telling. What the sending came to is settled for that rule
+    /// first: nobody reached, or a recorder that could not be told apart, is the recorder not reached;
     /// another recorder with something waiting that would have gone is another recorder, and with nothing
     /// such it is nothing waiting, so that a stranger is told of only when something waits; a round is the
     /// round as it ran. Then:
@@ -209,14 +215,18 @@ extension RecorderDriver {
     /// take a while. With no `nextRun` none of this is done but for that look: the queue held back is told
     /// whenever something waits and the cache is whose it was, and nothing else.
     public nonisolated static func refreshWithNoScreen(_ client: RecorderClient, store: GuideStore,
-                                                       told: TVTold = TVTold(), nextRun: Date? = nil,
+                                                       told reading: @escaping @Sendable () -> ToldOnce
+                                                           = { ToldOnce() }, nextRun: Date? = nil,
                                                        sendPacket: @escaping @Sendable () -> Bool,
-                                                       found: @Sendable (NightFound) async -> Void) async -> Bool {
+                                                       found: @escaping @Sendable (NightFound) async -> Void)
+        async -> Bool {
         // Whose cache it is as the run begins, for what is told once.
         let owner = try? await store.owner()
         guard await reachWithNoScreen(client, sendPacket: sendPacket) else {
-            _ = await tellOnce(after: .unreachable, told, before: nextRun, of: client, in: store, since: owner,
+            _ = await PendingQueue.inATurnOfItsOwn {
+                await tellOnce(after: .unreachable, reading(), before: nextRun, of: client, in: store, since: owner,
                                to: found)
+            }
             return false
         }
         guard !Task.isCancelled else { return false }
@@ -228,44 +238,54 @@ extension RecorderDriver {
         case .yes:
             break
         case .another:
-            let waits = PendingQueue.hasSomethingToSend((try? await store.pendingReservations()) ?? [])
-            let once = await once(after: waits ? .anotherAnswered : .nothingWaiting, told, before: nextRun,
-                                  in: store)
-            // The cache is another's here by what answered, which keeps nothing back: the time does, and a
-            // make-over while the run was out, which is told by the owner noted as it began.
-            guard !Task.isCancelled, !(await madeOver(store, since: owner)) else { return false }
-            if once.heldBackIsNews { await found(.heldBack) }
-            // Both once more behind that telling, where the app posts its notification.
-            if let kept = once.kept, !Task.isCancelled, !(await madeOver(store, since: owner)) {
-                await found(.told(notYet: once.notYet, withdraws: once.withdrawsNotYet, kept: kept))
+            // Decided and told in a turn of its own, the queue read there.
+            return await PendingQueue.inATurnOfItsOwn {
+                let waits = PendingQueue.hasSomethingToSend((try? await store.pendingReservations()) ?? [])
+                let once = await once(after: waits ? .anotherAnswered : .nothingWaiting, reading(),
+                                      before: nextRun, in: store)
+                // The cache is another's here by what answered, which keeps nothing back: the time does, and a
+                // make-over while the run was out, which is told by the owner noted as it began.
+                guard !Task.isCancelled, !(await madeOver(store, since: owner)) else { return false }
+                if once.heldBackIsNews { await found(.heldBack) }
+                // Both once more behind that telling, where the app posts its notification.
+                if let kept = once.kept, !Task.isCancelled, !(await madeOver(store, since: owner)) {
+                    await found(.told(notYet: once.notYet, withdraws: once.withdrawsNotYet, kept: kept))
+                }
+                return false
             }
-            return false
         case .cannotBeTold:
-            _ = await tellOnce(after: .unreachable, told, before: nextRun, of: client, in: store, since: owner,
+            _ = await PendingQueue.inATurnOfItsOwn {
+                await tellOnce(after: .unreachable, reading(), before: nextRun, of: client, in: store, since: owner,
                                to: found)
+            }
             return false
         }
 
-        var outcome = await PendingQueue.flush(client: client, store: store)
-        // What the sending came to, for what is told once: the round as it ran, before the time being up
-        // takes its stop off below.
-        let came = NoScreenSending.sent(outcome)
-        // The cache made over to another recorder while the round was out: nothing is told from here on.
-        guard await isTheOneKnown(client, to: store) != .another else { return false }
-        // The time ran out while the round was out. What became of what waited is told when it is news, and
-        // the run ends. A round that silence cut short at a read is told as one that was not cut short: the
-        // queue's sentence for that says the rest goes the next time the recorder answers, as of a recorder that
-        // went away. One cut short at a create keeps its stop, which is what says that the reservation is held.
-        if Task.isCancelled {
-            if outcome.stopped == .silent(afterSending: false) { outcome.stopped = nil }
-            if tells(outcome, naming: nil) != nil { await found(.queue(outcome)) }
-            return false
+        // What became of the queue and what is told once, in the round's own turn.
+        let (outcome, goesOn) = await PendingQueue.flush(client: client, store: store) { round -> Bool in
+            var outcome = round
+            // What the sending came to, for what is told once: the round as it ran, before the time being up
+            // takes its stop off below.
+            let came = NoScreenSending.sent(outcome)
+            // The cache made over to another recorder while the round was out: nothing is told from here on.
+            guard await isTheOneKnown(client, to: store) != .another else { return false }
+            // The time ran out while the round was out. What became of what waited is told when it is news, and
+            // the run ends. A round that silence cut short at a read is told as one that was not cut short: the
+            // queue's sentence for that says the rest goes the next time the recorder answers, as of a recorder
+            // that went away. One cut short at a create keeps its stop, which is what says that the reservation
+            // is held.
+            if Task.isCancelled {
+                if outcome.stopped == .silent(afterSending: false) { outcome.stopped = nil }
+                if tells(outcome, naming: nil) != nil { await found(.queue(outcome)) }
+                return false
+            }
+            await found(.queue(outcome))
+            // What is told once, ahead of whatever ends the run next: a round that met silence leaves rows that
+            // may be due before the next run.
+            return await tellOnce(after: came, reading(), before: nextRun, of: client, in: store, since: owner,
+                                  to: found)
         }
-        await found(.queue(outcome))
-        // What is told once, ahead of whatever ends the run next: a round that met silence leaves rows that
-        // may be due before the next run.
-        guard await tellOnce(after: came, told, before: nextRun, of: client, in: store, since: owner,
-                             to: found) else { return false }
+        guard goesOn else { return false }
         // A round that met silence has been told, and ends the run: the slot would wait the silence out next.
         // So does the night's time having run out, or the cache having become another recorder's, while that
         // was told: the two looks a telling makes, made here behind one.
@@ -353,12 +373,12 @@ extension RecorderDriver {
     }
 
     /// What is told once after a sending that came to `sending`, against what was `told` before, by the rule
-    /// the television's runs have (`TVTold.after`) in the recorder's words, the queue read as it stands now.
+    /// the television's runs have (`ToldOnce.after`) in the recorder's words, the queue read as it stands now.
     /// With no next run nothing of it is done: there is nothing to keep, no notice, and another recorder
     /// answering is news each time. The rule's own sentence for the queue is not handed on -- the app posts
     /// what became of the queue from the round itself (`tells`) -- but for whether it has one after another
     /// recorder answered, which is whether that is news.
-    private nonisolated static func once(after sending: NoScreenSending, _ told: TVTold, before nextRun: Date?,
+    private nonisolated static func once(after sending: NoScreenSending, _ told: ToldOnce, before nextRun: Date?,
                                          in store: GuideStore, now: Date = Date()) async -> NoScreenTold {
         guard let nextRun else { return NoScreenTold(heldBackIsNews: sending == .anotherAnswered) }
         let waiting = try? await store.pendingReservations()
@@ -372,7 +392,7 @@ extension RecorderDriver {
     /// whose cache is not another recorder's than `owner`, noted as the night began (`madeOver`). False once
     /// it was kept back, which ends the night; true also with no next run, when there is nothing of it to
     /// hand over.
-    private nonisolated static func tellOnce(after sending: NoScreenSending, _ told: TVTold,
+    private nonisolated static func tellOnce(after sending: NoScreenSending, _ told: ToldOnce,
                                              before nextRun: Date?, of client: RecorderClient,
                                              in store: GuideStore, since owner: String?,
                                              to found: @Sendable (NightFound) async -> Void) async -> Bool {
@@ -407,13 +427,16 @@ extension RecorderDriver {
     public nonisolated static func sendWithNoScreen(_ client: RecorderClient, store: GuideStore, now: Date = Date(),
                                                     sendPacket: @escaping @Sendable () -> Bool) async
         -> NoScreenSending {
-        await sendWithNoScreen(client, store: store, told: TVTold(), nextRun: nil, now: now,
-                               sendPacket: sendPacket).sending
+        await sendWithNoScreen(client, store: store, told: { ToldOnce() }, nextRun: nil, now: now,
+                               sendPacket: sendPacket, tell: { _, _ in }).sending
     }
 
-    /// The same, with what the sending has to tell once beside what it came to: against what was `told`
-    /// before and for the reservations that start before `nextRun`, as the overnight run tells it
-    /// (`refreshWithNoScreen`) and by the same rule, what the sending came to being settled the same way.
+    /// The same, with what the sending has to tell once beside what it came to: against what was told before,
+    /// which `told` reads, and for the reservations that start before `nextRun`, as the
+    /// overnight run tells it (`refreshWithNoScreen`) and by the same rule, what the sending came to being
+    /// settled the same way. What it came to and what it has to tell once are handed to `tell`, which is where
+    /// the app posts and keeps them, and handed back as well. Both are decided and handed over inside the
+    /// queue's turn, from what `told` reads there, as the overnight run's are.
     /// The notice, its withdrawal and what to keep are handed back only by a run that may still tell them: not
     /// one whose task is cancelled, and not one whose round ended over a cache that had become another
     /// recorder's meanwhile. That another recorder answered is told whatever the task says, as the sending
@@ -425,34 +448,60 @@ extension RecorderDriver {
     /// recorder's than it was as the sending began (`madeOver`), whichever way the sending ended: the screens
     /// have taken a recorder up meanwhile and forgotten what was told of the one before, and what this
     /// sending has to tell is of that one. What the sending came to is handed back all the same.
-    public nonisolated static func sendWithNoScreen(_ client: RecorderClient, store: GuideStore, told: TVTold,
+    public nonisolated static func sendWithNoScreen(_ client: RecorderClient, store: GuideStore,
+                                                    told reading: @escaping @Sendable () -> ToldOnce,
                                                     nextRun: Date?, now: Date = Date(),
-                                                    sendPacket: @escaping @Sendable () -> Bool) async
-        -> (sending: NoScreenSending, told: NoScreenTold) {
+                                                    sendPacket: @escaping @Sendable () -> Bool,
+                                                    tell: @escaping @Sendable (_ sending: NoScreenSending,
+                                                                               _ told: NoScreenTold) async -> Void)
+        async -> (sending: NoScreenSending, told: NoScreenTold) {
         let owner = try? await store.owner()
-        let sending = await sendOnce(client, store: store, now: now, sendPacket: sendPacket)
+        return await sendOnce(client, store: store, now: now, sendPacket: sendPacket) { sending in
+            let news = await toldOnce(after: sending, reading(), before: nextRun, of: client, in: store,
+                                      since: owner, now: now)
+            await tell(sending, news)
+            return news
+        }
+    }
+
+    /// What the action's sending that came to `sending` has to tell once (`sendWithNoScreen`), against what was
+    /// `told` before and by the cache's owner as the sending began.
+    private nonisolated static func toldOnce(after sending: NoScreenSending, _ told: ToldOnce,
+                                             before nextRun: Date?, of client: RecorderClient,
+                                             in store: GuideStore, since owner: String?,
+                                             now: Date) async -> NoScreenTold {
         let once = await once(after: sending, told, before: nextRun, in: store, now: now)
-        guard !(await madeOver(store, since: owner)) else { return (sending, NoScreenTold()) }
+        guard !(await madeOver(store, since: owner)) else { return NoScreenTold() }
         // Another recorder's answer is what makes the cache another's here, and is no reason to keep it back.
         let may = sending == .anotherAnswered ? !Task.isCancelled : await mayStillTell(of: client, in: store)
-        guard !may else { return (sending, once) }
-        return (sending, NoScreenTold(heldBackIsNews: sending == .anotherAnswered && told.stop != .another))
+        guard !may else { return once }
+        return NoScreenTold(heldBackIsNews: sending == .anotherAnswered && told.stop != .another)
     }
 
     /// What the action's sending comes to: the queue read first, the recorder reached, and the round run for
-    /// the recorder the queue was made for alone.
+    /// the recorder the queue was made for alone. What it tells once (`toldOnce`) is decided and told in the
+    /// queue's turn: the round's, after the round, or, with no round, a turn of its own.
     private nonisolated static func sendOnce(_ client: RecorderClient, store: GuideStore, now: Date,
-                                             sendPacket: @escaping @Sendable () -> Bool) async -> NoScreenSending {
+                                             sendPacket: @escaping @Sendable () -> Bool,
+                                             then telling: @escaping @Sendable (NoScreenSending) async
+                                                 -> NoScreenTold) async
+        -> (sending: NoScreenSending, told: NoScreenTold) {
+        func alone(_ sending: NoScreenSending) async -> (sending: NoScreenSending, told: NoScreenTold) {
+            (sending, await PendingQueue.inATurnOfItsOwn { await telling(sending) })
+        }
         let waiting = (try? await store.pendingReservations()) ?? []
-        guard PendingQueue.hasSomethingToSend(waiting, now: now) else { return .nothingWaiting }
-        guard await reachWithNoScreen(client, sendPacket: sendPacket) else { return .unreachable }
+        guard PendingQueue.hasSomethingToSend(waiting, now: now) else { return await alone(.nothingWaiting) }
+        guard await reachWithNoScreen(client, sendPacket: sendPacket) else { return await alone(.unreachable) }
         switch await isTheOneKnown(client, to: store) {
         case .yes:
-            return .sent(await PendingQueue.flush(client: client, store: store, now: now))
+            let (outcome, told) = await PendingQueue.flush(client: client, store: store, now: now) { round in
+                await telling(.sent(round))
+            }
+            return (.sent(outcome), told)
         case .another:
-            return .anotherAnswered
+            return await alone(.anotherAnswered)
         case .cannotBeTold:
-            return .unreachable
+            return await alone(.unreachable)
         }
     }
 
@@ -559,7 +608,7 @@ extension RecorderDriver {
     /// of `rows` by its title and its start in Japan, and how many more, as the television's names them
     /// (`TVDriver.notYetAtTheTelevision`).
     nonisolated static func notYetAtTheRecorder(_ rows: [PendingReservation]) -> String {
-        rows.isEmpty ? "" : "レコーダーにまだ届いていない予約があります（\(TVTold.named(rows))）"
+        rows.isEmpty ? "" : "レコーダーにまだ届いていない予約があります（\(ToldOnce.named(rows))）"
     }
 
     /// Said in that notice when the recorder did not answer a run with no screen: what waits goes by itself

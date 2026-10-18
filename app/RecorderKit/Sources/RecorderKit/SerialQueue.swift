@@ -6,10 +6,11 @@ import Foundation
 /// is exactly what a network request does. The recorder answers 503 to concurrent requests, so each piece of
 /// work waits for the previous one to finish.
 ///
-/// Cancelling a caller changes nothing here: the work runs in a task of its own, and the caller goes on waiting
-/// for it. A write the recorder has begun to apply wants that, and a request abandoned half way would look to
-/// the caller like silence, which is read as the recorder gone. Whoever has to stop sooner -- the overnight
-/// run, when the system's time for it is up -- looks at its own cancellation between requests.
+/// Cancelling a caller changes nothing here: `run` runs the work in a task of its own, and the caller goes on
+/// waiting for it (`whileHeld` runs it in the caller's, for work that looks at its cancellation). A write the
+/// recorder has begun to apply wants that, and a request abandoned half way would look to the caller like
+/// silence, which is read as the recorder gone. Whoever has to stop sooner -- the overnight run, when the
+/// system's time for it is up -- looks at its own cancellation between requests.
 ///
 /// What is handed over goes in its turn, unless the device its client was made for has been let go of by then:
 /// a client of a link's asks first, inside its work, whether it is retired (`LinkClients`), and sends nothing
@@ -26,16 +27,31 @@ actor SerialQueue {
         tail = Task { _ = try? await task.value }
         return try await task.value
     }
+
+    /// Takes a turn as `run` does, and runs `work` in the caller's own task rather than in one of its own: so
+    /// that the work sees the caller's cancellation, which work run in a task of the queue's never does. What
+    /// is handed over after it waits until it is over. The wait for the turn is not cut short when the caller is
+    /// cancelled: the work is what looks at that, once the turn is its own.
+    func whileHeld<T: Sendable>(_ work: @Sendable () async -> T) async -> T {
+        let previous = tail
+        let (over, end) = AsyncStream<Void>.makeStream()
+        tail = Task { for await _ in over {} }
+        if let previous { await previous.value }
+        let done = await work()
+        end.finish()
+        return done
+    }
 }
 
 /// One at a time as well, for work that has to stay in the task that asked for it: a turn that is waited for,
 /// taken in the order it was asked for, and given back.
 ///
-/// `SerialQueue` runs each piece of work in a task of its own, which is what makes a caller's cancellation
-/// change nothing there. Work that looks at its own cancellation to stop early would never see it from inside
-/// such a task: the guide's refresh, which the overnight run asks in the task the system cancels when its time
-/// is up, looks before each file (`GuideRefresh.run`), and behind a queue's task it would go on through every
-/// file of a night already ended. So whoever has the turn runs its work itself.
+/// `SerialQueue.run` runs each piece of work in a task of its own, which is what makes a caller's cancellation
+/// change nothing there (`whileHeld` keeps it in the caller's). Work that looks at its own cancellation to stop
+/// early would never see it from inside such a task: the guide's refresh, which the overnight run asks in the
+/// task the system cancels when its time is up, looks before each file (`GuideRefresh.run`), and behind a
+/// queue's task it would go on through every file of a night already ended. So whoever has the turn runs its
+/// work itself.
 ///
 /// The wait for the turn is not cut short when the caller is cancelled: the work is what looks at that, once
 /// the turn is its own, and gives the turn back like any other.

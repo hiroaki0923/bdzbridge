@@ -62,7 +62,7 @@ extension WhichRecorderTests {
     /// its guide: the next run with no screen tells what it finds of the newcomer afresh.
     func testWhatTheRunsWithNoScreenToldOfARecorderGoesWithItsCache() async throws {
         let (bench, recorder, model) = try await atHome()
-        let told = try JSONEncoder().encode(TVTold(stop: .another))
+        let told = try JSONEncoder().encode(ToldOnce(stop: .another))
         bench.defaults.set(told, forKey: DefaultsKey.recorderTold)
 
         await model.connect()

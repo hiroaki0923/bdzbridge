@@ -39,7 +39,7 @@ final class RecorderToldOnceTests: XCTestCase {
 
     /// What a night handed over, in order.
     private enum Handed: Equatable {
-        case heldBack, queue, told(notYet: String?, withdraws: Bool, kept: TVTold), somethingElse
+        case heldBack, queue, told(notYet: String?, withdraws: Bool, kept: ToldOnce), somethingElse
     }
 
     private final class Record: @unchecked Sendable {
@@ -84,13 +84,13 @@ final class RecorderToldOnceTests: XCTestCase {
     /// A night from `told` with the next run at `nextRun`, no packet out: what it handed over. `packet` is run
     /// where its packet would go, and `each` as each thing is handed over, both in the night's own task.
     private static func night(_ transport: StubTransport, _ store: GuideStore,
-                              from told: TVTold = TVTold(),
+                              from told: ToldOnce = ToldOnce(),
                               before nextRun: Date? = RecorderToldOnceTests.afterIt,
                               packet: @escaping @Sendable () -> Void = {},
                               each: @escaping @Sendable (Handed) async -> Void = { _ in }) async -> [Handed] {
         let record = Record()
         _ = await RecorderDriver.refreshWithNoScreen(
-            RecorderClient(host: Stub.host, transport: transport), store: store, told: told, nextRun: nextRun,
+            RecorderClient(host: Stub.host, transport: transport), store: store, told: { told }, nextRun: nextRun,
             sendPacket: {
                 packet()
                 return false
@@ -109,16 +109,16 @@ final class RecorderToldOnceTests: XCTestCase {
 
     /// The Shortcuts action's sending from `told`, no packet out, at the moment the reservation starts.
     private static func action(_ transport: StubTransport, _ store: GuideStore,
-                               from told: TVTold = TVTold(),
+                               from told: ToldOnce = ToldOnce(),
                                before nextRun: Date? = RecorderToldOnceTests.afterIt,
                                packet: @escaping @Sendable () -> Void = {}) async
         -> (sending: NoScreenSending, told: NoScreenTold) {
         await RecorderDriver.sendWithNoScreen(
-            RecorderClient(host: Stub.host, transport: transport), store: store, told: told, nextRun: nextRun,
+            RecorderClient(host: Stub.host, transport: transport), store: store, told: { told }, nextRun: nextRun,
             now: Self.start, sendPacket: {
                 packet()
                 return false
-            })
+            }, tell: { _, _ in })
     }
 
     /// A night that reaches nobody, with a reservation waiting that starts before the next: it hands over what
@@ -132,7 +132,7 @@ final class RecorderToldOnceTests: XCTestCase {
         let theatre = pending("サンプル劇場", eventID: 0x3101, start: Self.start)
         let store = try await cache([theatre])
         let nobody = try recorder(silent: true)
-        let kept = TVTold(rows: [theatre.id])
+        let kept = ToldOnce(rows: [theatre.id])
         let notice = Self.late + Self.notAnswering
 
         var handed = await Self.night(nobody, store)
@@ -150,15 +150,15 @@ final class RecorderToldOnceTests: XCTestCase {
         acted = await Self.action(nobody, store, before: nil)
         XCTAssertEqual(acted.told, NoScreenTold(), "with no next run")
         acted = await Self.action(nobody, store, before: Self.beforeIt)
-        XCTAssertEqual(acted.told, NoScreenTold(kept: TVTold()), "a reservation that starts after the next run")
+        XCTAssertEqual(acted.told, NoScreenTold(kept: ToldOnce()), "a reservation that starts after the next run")
 
         try await store.removePending(theatre.id)
         handed = await Self.night(nobody, store, from: kept)
-        XCTAssertEqual(handed, [.told(notYet: nil, withdraws: true, kept: TVTold())])
+        XCTAssertEqual(handed, [.told(notYet: nil, withdraws: true, kept: ToldOnce())])
         let asked = await nobody.requests.count
         acted = await Self.action(nobody, store, from: kept)
         XCTAssertEqual(acted.sending, .nothingWaiting)
-        XCTAssertEqual(acted.told, NoScreenTold(withdrawsNotYet: true, kept: TVTold()))
+        XCTAssertEqual(acted.told, NoScreenTold(withdrawsNotYet: true, kept: ToldOnce()))
         expectEqual(await nobody.requests.count, asked, "the recorder was asked with nothing waiting")
     }
 
@@ -174,7 +174,7 @@ final class RecorderToldOnceTests: XCTestCase {
         let theatre = pending("サンプル劇場", eventID: 0x3101, start: Self.start)
         let store = try await cache([theatre])
         let stranger = try recorder(Self.stranger)
-        let said = TVTold(stop: .another)
+        let said = ToldOnce(stop: .another)
 
         var handed = await Self.night(stranger, store, before: Self.beforeIt)
         XCTAssertEqual(handed, [.heldBack, .told(notYet: nil, withdraws: false, kept: said)])
@@ -191,7 +191,7 @@ final class RecorderToldOnceTests: XCTestCase {
         acted = await Self.action(stranger, store, from: said, before: nil)
         XCTAssertEqual(acted.told, NoScreenTold(heldBackIsNews: true), "with no next run")
 
-        let late = TVTold(stop: .another, rows: [theatre.id])
+        let late = ToldOnce(stop: .another, rows: [theatre.id])
         handed = await Self.night(stranger, store)
         XCTAssertEqual(handed, [.told(notYet: Self.late + Self.another, withdraws: false, kept: late)])
         acted = await Self.action(stranger, store)
@@ -200,7 +200,7 @@ final class RecorderToldOnceTests: XCTestCase {
         // Held for the reader now: nothing waits that would go.
         try await store.setPendingProblem(theatre.id, "前に断られた理由")
         handed = await Self.night(stranger, store, from: late)
-        XCTAssertEqual(handed, [.told(notYet: nil, withdraws: true, kept: TVTold())],
+        XCTAssertEqual(handed, [.told(notYet: nil, withdraws: true, kept: ToldOnce())],
                        "a stranger with nothing waiting")
         handed = await Self.night(stranger, store, from: late, before: nil)
         XCTAssertEqual(handed, [], "a stranger with nothing waiting, and no next run")
@@ -214,7 +214,7 @@ final class RecorderToldOnceTests: XCTestCase {
     func testARoundThatMetSilenceIsToldAndThenTheReservationBehindItThatIsDue() async throws {
         let first = pending("サンプル寄席", eventID: 0x3110, start: Self.start - 1800)
         let theatre = pending("サンプル劇場", eventID: 0x3101, start: Self.start)
-        let kept = TVTold(rows: [theatre.id])
+        let kept = ToldOnce(rows: [theatre.id])
         for run in ["the night", "the action"] {
             let store = try await cache([first, theatre])
             let description = try Vectors.descriptionXML()
@@ -246,8 +246,8 @@ final class RecorderToldOnceTests: XCTestCase {
     func testWhatIsToldOnceIsHandedOverRightAfterWhatBecameOfTheQueue() async throws {
         let store = try await cache([pending("サンプル劇場", eventID: 0x3101, start: Self.start)])
         let transport = try recorder()
-        let handed = await Self.night(transport, store, from: TVTold(stop: .another))
-        XCTAssertEqual(handed, [.queue, .told(notYet: nil, withdraws: false, kept: TVTold())])
+        let handed = await Self.night(transport, store, from: ToldOnce(stop: .another))
+        XCTAssertEqual(handed, [.queue, .told(notYet: nil, withdraws: false, kept: ToldOnce())])
         expectTrue(await transport.requests.count > 3, "the night ended at what it told once")
     }
 
@@ -290,7 +290,7 @@ final class RecorderToldOnceTests: XCTestCase {
         XCTAssertEqual(heldBack.sending, .anotherAnswered)
         XCTAssertEqual(heldBack.told, NoScreenTold(heldBackIsNews: true), "the action cancelled, another recorder")
         let saidBefore = await Task { [store] in
-            await Self.action(stranger, store, from: TVTold(stop: .another), packet: cancel)
+            await Self.action(stranger, store, from: ToldOnce(stop: .another), packet: cancel)
         }.value
         XCTAssertEqual(saidBefore.told, NoScreenTold(), "the action cancelled, another recorder told of before")
         handed = await Task { [store] in
@@ -365,7 +365,7 @@ final class RecorderToldOnceTests: XCTestCase {
     /// meanwhile: whose it was cannot be said, and no other recorder is known to have taken it.
     func testNothingIsToldOnceOrKeptOnceTheCacheIsAnothersThanItWasAsTheRunBegan() async throws {
         let theatre = pending("サンプル劇場", eventID: 0x3101, start: Self.start)
-        let told = TVTold(stop: .another, rows: [theatre.id])
+        let told = ToldOnce(stop: .another, rows: [theatre.id])
         func describing(_ udn: String?) async throws -> RecorderDescription {
             try await RecorderClient(host: Stub.host, transport: recorder(udn)).describe()
         }
@@ -414,13 +414,185 @@ final class RecorderToldOnceTests: XCTestCase {
         store = try temporaryStore()
         try await store.queue(theatre)
         handed = await Self.night(try madeOver(store, to: first, silent: true), store)
-        XCTAssertEqual(handed, [.told(notYet: notice, withdraws: false, kept: TVTold(rows: [theatre.id]))],
+        XCTAssertEqual(handed, [.told(notYet: notice, withdraws: false, kept: ToldOnce(rows: [theatre.id]))],
                        "a cache nobody had claimed, claimed by the first meanwhile")
         expectEqual(try await store.owner(), first.udn, "the cache was meant to be claimed")
         store = try temporaryStore()
         try await store.queue(theatre)
         acted = await Self.action(try madeOver(store, to: first, silent: true), store)
-        XCTAssertEqual(acted.told, NoScreenTold(notYet: notice, kept: TVTold(rows: [theatre.id])),
+        XCTAssertEqual(acted.told, NoScreenTold(notYet: notice, kept: ToldOnce(rows: [theatre.id])),
                        "the action, a cache nobody had claimed, claimed by the first meanwhile")
+    }
+
+    /// The overnight run and the Shortcuts action at one arrival home, over one kept value, one reservation
+    /// waiting that starts before the next night. What is told once is decided, handed over and kept inside the
+    /// queue's turn, from what is kept as the turn has it: the night's handing over, held here by the test once
+    /// the night is in it, keeps the action from deciding anything meanwhile, and once the night has kept what
+    /// it told, the action decides from that.
+    ///
+    /// Nobody answering: the night tells of the reservation; the action finds it told of, and tells nothing
+    /// of it again. The notice is handed over once across both, and what both leave kept holds the
+    /// reservation. A recorder that answers: the night's round makes the reservation and nothing is late; the
+    /// action, begun while the night tells after its round, finds nothing waiting, and nothing is kept.
+    func testANightTellingKeepsTheActionAtTheSameArrivalFromDecidingMeanwhile() async throws {
+        let theatre = pending("サンプル劇場", eventID: 0x3101, start: Self.start)
+        for answering in [false, true] {
+            let name = answering ? "a recorder that answers" : "nobody answering"
+            let store = try await cache([theatre])
+            let transport = try recorder(silent: !answering)
+            let kept = Kept()
+            let latch = Latch()
+            addTeardownBlock { await latch.open() }
+            let night = Task {
+                await Self.night(transport, store, told: kept, holdingAt: latch)
+            }
+            try await within(10, "\(name): the night never came to hand over what it tells once") {
+                await kept.noted(1)
+            }
+            let action = Task { await Self.action(transport, store, told: kept) }
+
+            for _ in 0..<100_000 where kept.notices.count < 2 { await Task.yield() }
+            XCTAssertEqual(kept.notices.count, 1, "\(name): the action told what it tells once while the night told")
+            await latch.open()
+            _ = try await within(10, "\(name): the night never ended") { await night.value }
+            let acted = try await within(10, "\(name): the action never ended") { await action.value }
+            if answering {
+                XCTAssertEqual(acted.sending, .nothingWaiting, name)
+                XCTAssertEqual(kept.notices, [nil, nil], name)
+                XCTAssertEqual(kept.value, ToldOnce(), "\(name): what both left kept")
+            } else {
+                XCTAssertEqual(kept.notices, [Self.late + Self.notAnswering, nil],
+                               "\(name): the notice was not handed over once")
+                XCTAssertEqual(acted.told, NoScreenTold(kept: ToldOnce(rows: [theatre.id])), name)
+                XCTAssertEqual(kept.value, ToldOnce(rows: [theatre.id]), "\(name): what both left kept")
+            }
+        }
+    }
+
+    /// The same the other way round: the action, nobody answering it, held as it tells, and the night begun
+    /// meanwhile, which decides nothing until the action has kept what it told, and then tells nothing of the
+    /// reservation again.
+    func testAnActionTellingKeepsTheNightFromDecidingMeanwhile() async throws {
+        let theatre = pending("サンプル劇場", eventID: 0x3101, start: Self.start)
+        let store = try await cache([theatre])
+        let nobody = try recorder(silent: true)
+        let kept = Kept()
+        let latch = Latch()
+        addTeardownBlock { await latch.open() }
+        let action = Task { await Self.action(nobody, store, told: kept, holdingAt: latch) }
+        try await within(10, "the action never came to tell what it tells once") { await kept.noted(1) }
+        let night = Task { await Self.night(nobody, store, told: kept) }
+
+        for _ in 0..<100_000 where kept.notices.count < 2 { await Task.yield() }
+        XCTAssertEqual(kept.notices.count, 1, "the night told what it tells once while the action told")
+        await latch.open()
+        _ = try await within(10, "the action never ended") { await action.value }
+        _ = try await within(10, "the night never ended") { await night.value }
+        XCTAssertEqual(kept.notices, [Self.late + Self.notAnswering, nil], "the notice was not handed over once")
+        XCTAssertEqual(kept.value, ToldOnce(rows: [theatre.id]), "what both left kept")
+    }
+
+    /// A night handed `told` to read and keep what is told once by, the next run an hour after the reservation,
+    /// no packet out: what it tells once is noted on `told` as it is handed over, and kept there once `latch`,
+    /// if one is given, lets it go.
+    private static func night(_ transport: StubTransport, _ store: GuideStore, told: Kept,
+                              holdingAt latch: Latch? = nil) async -> Bool {
+        await RecorderDriver.refreshWithNoScreen(
+            RecorderClient(host: Stub.host, transport: transport), store: store, told: { told.value },
+            nextRun: Self.afterIt, sendPacket: { false }, found: { found in
+                guard case .told(let notYet, _, let kept) = found else { return }
+                told.note(notYet)
+                await latch?.wait()
+                told.value = kept
+            })
+    }
+
+    /// The Shortcuts action's sending, the same way, at the moment the reservation starts.
+    private static func action(_ transport: StubTransport, _ store: GuideStore, told: Kept,
+                               holdingAt latch: Latch? = nil) async
+        -> (sending: NoScreenSending, told: NoScreenTold) {
+        await RecorderDriver.sendWithNoScreen(
+            RecorderClient(host: Stub.host, transport: transport), store: store, told: { told.value },
+            nextRun: Self.afterIt, now: Self.start, sendPacket: { false }, tell: { _, news in
+                told.note(news.notYet)
+                await latch?.wait()
+                if let kept = news.kept { told.value = kept }
+            })
+    }
+
+    /// Runs `work` and hands back what it returns, failing the test if it has not returned within `seconds`:
+    /// what is tested here is a run that waits for another's turn, and a test of it has to fail rather than
+    /// wait with it.
+    private func within<T: Sendable>(_ seconds: TimeInterval, _ what: String,
+                                     _ work: @escaping @MainActor () async -> T) async throws -> T {
+        let returned = expectation(description: what)
+        let task = Task { @MainActor in
+            let value = await work()
+            returned.fulfill()
+            return value
+        }
+        guard await XCTWaiter().fulfillment(of: [returned], timeout: seconds) == .completed else {
+            XCTFail("\(what): still waiting after \(Int(seconds)) seconds")
+            throw StillWaiting()
+        }
+        return await task.value
+    }
+}
+
+/// Thrown to end a test whose wait was given up on, once the failure is recorded.
+private struct StillWaiting: Error {}
+
+/// One kept value between two runs, as the app keeps it between the night and the action, and the notices
+/// they handed over, in order, with a wait for so many to have been.
+private final class Kept: @unchecked Sendable {
+    private let lock = NSLock()
+    private var kept = ToldOnce()
+    private var handed: [String?] = []
+    private var waiting: (count: Int, test: CheckedContinuation<Void, Never>)?
+
+    var value: ToldOnce {
+        get { lock.withLock { kept } }
+        set { lock.withLock { kept = newValue } }
+    }
+
+    var notices: [String?] { lock.withLock { handed } }
+
+    func note(_ notice: String?) {
+        let resume: CheckedContinuation<Void, Never>? = lock.withLock {
+            handed.append(notice)
+            guard let waiting, handed.count >= waiting.count else { return nil }
+            self.waiting = nil
+            return waiting.test
+        }
+        resume?.resume()
+    }
+
+    /// Returns once `count` notices have been handed over.
+    func noted(_ count: Int) async {
+        await withCheckedContinuation { test in
+            let now: Bool = lock.withLock {
+                guard handed.count < count else { return true }
+                waiting = (count, test)
+                return false
+            }
+            if now { test.resume() }
+        }
+    }
+}
+
+/// Holds whoever waits on it until it is opened.
+private actor Latch {
+    private var opened = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !opened else { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    func open() {
+        opened = true
+        waiting.forEach { $0.resume() }
+        waiting = []
     }
 }

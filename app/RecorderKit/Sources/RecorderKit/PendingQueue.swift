@@ -124,6 +124,38 @@ public enum PendingQueue {
         }) ?? Outcome(slot: Target.slot)
     }
 
+    /// The same, and `then` after the round in the same turn, handed what the round came to: no other flush,
+    /// and no work between flushes (`betweenFlushes`), comes between the two. For what a run tells of its round
+    /// and keeps, from what is kept as the turn has it (`ToldOnce`), so that nothing the screens do to what
+    /// waits, or to what was told, lands between the round and its telling. The round runs in a task of its
+    /// own, as a flush's does, which the caller's cancellation does not reach; `then` runs in the caller's task,
+    /// and sees it. What `then` hands back is handed back beside the round. The rule of `betweenFlushes` holds
+    /// for it: nothing in it may go through a link's check, nor take the queue's turn again.
+    public static func flush<Target: QueueTarget, After: Sendable>(
+        client: Target, store: GuideStore, consenting: [String: String] = [:], only: String? = nil,
+        now: Date = Date(), then: @escaping @Sendable (Outcome) async -> After
+    ) async -> (outcome: Outcome, after: After) {
+        await flush(client: client, store: store, consenting: consenting, only: only, now: now,
+                    asItBegins: {}) { outcome, _ in await then(outcome) }
+    }
+
+    /// The same, with `asItBegins` read in the turn just before the round and handed to `then` beside what the
+    /// round came to: for what a run holds its telling against as it stood when its round began, not when the
+    /// run was begun (`TVDriver.sendWithNoScreen(_:store:knownAs:now:then:)`).
+    static func flush<Target: QueueTarget, Begun: Sendable, After: Sendable>(
+        client: Target, store: GuideStore, consenting: [String: String] = [:], only: String? = nil,
+        now: Date = Date(), asItBegins: @escaping @Sendable () -> Begun,
+        then: @escaping @Sendable (Outcome, Begun) async -> After
+    ) async -> (outcome: Outcome, after: After) {
+        await oneAtATime.whileHeld {
+            let begun = asItBegins()
+            let outcome = await Task {
+                await oneRound(client: client, store: store, consenting: consenting, only: only, now: now)
+            }.value
+            return (outcome, await then(outcome, begun))
+        }
+    }
+
     /// Whether a flush for `slot` would send anything: one that waits for that device, has not been refused
     /// and whose programme is not over. What is worth asking before a recorder is woken for the queue's sake.
     /// The rest of what waits for it needs no device: the refused ones wait for the reader, and the finished
@@ -145,6 +177,13 @@ public enum PendingQueue {
     /// device it asks of the client in hand, as `RecorderDriver.deleteWaiting` reads the recorder's list.
     public static func betweenFlushes<T: Sendable>(_ work: @escaping @Sendable () async -> T) async -> T? {
         try? await oneAtATime.run(work)
+    }
+
+    /// Runs `work` between two flushes in the caller's own task, which it sees the cancellation of: for a run
+    /// with no screen that tells what it came to without a round (`flush(client:store:consenting:only:now:then:)`).
+    /// The same rule as `betweenFlushes`.
+    static func inATurnOfItsOwn<T: Sendable>(_ work: @escaping @Sendable () async -> T) async -> T {
+        await oneAtATime.whileHeld(work)
     }
 
     private static let oneAtATime = SerialQueue()

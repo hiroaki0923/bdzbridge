@@ -1056,7 +1056,7 @@ final class NoScreenGateTests: XCTestCase {
     /// held while `meanwhile` runs, handed the night's task, and then let go with whatever else is held.
     /// `asTheQueueIsTold` is run in the night's own task once what became of the queue has been told, as the app
     /// would be posting its notification.
-    private func nightTellingOnce(of recorder: NamedRecorder, _ store: GuideStore, from told: TVTold = TVTold(),
+    private func nightTellingOnce(of recorder: NamedRecorder, _ store: GuideStore, from told: ToldOnce = ToldOnce(),
                                   heldAt kind: String? = nil,
                                   _ meanwhile: (Task<Bool, Never>) async throws -> Void = { _ in },
                                   asTheQueueIsTold: (@Sendable () async -> Void)? = nil) async throws
@@ -1079,7 +1079,7 @@ final class NoScreenGateTests: XCTestCase {
             addTeardownBlock { await recorder.letGo() }
         }
         let run = Task {
-            await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tell, told: told,
+            await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tell, told: { told },
                                          nextRun: Self.nextRun)
         }
         if let kind {
@@ -1105,7 +1105,7 @@ final class NoScreenGateTests: XCTestCase {
         let (recorder, store, path) = try await home()
         let evening = due("夕方の番組", programme: 4331)
         try await store.queue(evening)
-        let kept = TVTold(rows: [evening.id])
+        let kept = ToldOnce(rows: [evening.id])
         let notice = Self.notYet("夕方の番組") + Self.notAnswering
 
         await recorder.goQuiet(for: 1000)
@@ -1146,7 +1146,7 @@ final class NoScreenGateTests: XCTestCase {
         ran = try await nightTellingOnce(of: recorder, store, from: kept)
         XCTAssertEqual(ran.told.names, ["flushed", "told", "freeSpace", "fetched"],
                        "what is told once was not handed over ahead of the free space and the guide")
-        XCTAssertEqual(ran.told.said.dropFirst().first, .told(notYet: nil, withdraws: true, kept: TVTold()))
+        XCTAssertEqual(ran.told.said.dropFirst().first, .told(notYet: nil, withdraws: true, kept: ToldOnce()))
         expectEqual(try await rows(in: store), [])
     }
 
@@ -1160,7 +1160,7 @@ final class NoScreenGateTests: XCTestCase {
         let later = due("翌日の番組", programme: 4332, at: Self.nextRun + 3600)
         try await store.queue(later)
         await recorder.become(2)
-        let said = TVTold(stop: .another)
+        let said = ToldOnce(stop: .another)
 
         var ran = try await nightTellingOnce(of: recorder, store)
         XCTAssertEqual(ran.told.said, [.heldBack, .told(notYet: nil, withdraws: false, kept: said)])
@@ -1171,11 +1171,11 @@ final class NoScreenGateTests: XCTestCase {
         try await store.queue(evening)
         ran = try await nightTellingOnce(of: recorder, store)
         XCTAssertEqual(ran.told.said, [.told(notYet: Self.notYet("夕方の番組") + Said.anotherAnsweredWithNoScreen,
-                                             withdraws: false, kept: TVTold(stop: .another, rows: [evening.id]))])
+                                             withdraws: false, kept: ToldOnce(stop: .another, rows: [evening.id]))])
 
         for row in [later, evening] { try await store.setPendingProblem(row.id, "前に断られた理由") }
         ran = try await nightTellingOnce(of: recorder, store, from: said)
-        XCTAssertEqual(ran.told.said, [.told(notYet: nil, withdraws: false, kept: TVTold())],
+        XCTAssertEqual(ran.told.said, [.told(notYet: nil, withdraws: false, kept: ToldOnce())],
                        "a stranger with nothing waiting that would go")
         XCTAssertEqual(ran.heard, [Ask.description])
     }
@@ -1256,11 +1256,11 @@ final class NoScreenGateTests: XCTestCase {
         let (recorder, store, _) = try await home()
         let evening = due("夕方の番組", programme: 4331)
         try await store.queue(evening)
-        let kept = TVTold(rows: [evening.id])
-        func action(from told: TVTold = TVTold(), before nextRun: Date? = Self.nextRun) async
+        let kept = ToldOnce(rows: [evening.id])
+        func action(from told: ToldOnce = ToldOnce(), before nextRun: Date? = Self.nextRun) async
             -> (sending: BackgroundWork.Sending, news: NoScreenTold) {
-            await BackgroundWork.sendWaiting(client: aClient(of: recorder), store: store, mac: nil, told: told,
-                                             nextRun: nextRun, now: Self.dueAt)
+            await BackgroundWork.sendWaiting(client: aClient(of: recorder), store: store, mac: nil, told: { told },
+                                             nextRun: nextRun, now: Self.dueAt, tell: { _, _ in })
         }
 
         await recorder.goQuiet(for: 1000)
@@ -1272,28 +1272,28 @@ final class NoScreenGateTests: XCTestCase {
         await recorder.goQuiet(for: 0)
 
         let stranger = NamedRecorder(2)
-        func asked(of stranger: NamedRecorder, from told: TVTold, before nextRun: Date?) async -> NoScreenTold {
-            await BackgroundWork.sendWaiting(client: aClient(of: stranger), store: store, mac: nil, told: told,
-                                             nextRun: nextRun, now: Self.dueAt).news
+        func asked(of stranger: NamedRecorder, from told: ToldOnce, before nextRun: Date?) async -> NoScreenTold {
+            await BackgroundWork.sendWaiting(client: aClient(of: stranger), store: store, mac: nil, told: { told },
+                                             nextRun: nextRun, now: Self.dueAt, tell: { _, _ in }).news
         }
-        let late = TVTold(stop: .another, rows: [evening.id])
+        let late = ToldOnce(stop: .another, rows: [evening.id])
         expectEqual(await asked(of: stranger, from: kept, before: Self.nextRun),
                     NoScreenTold(heldBackIsNews: true, kept: late), "another recorder, the reservation told of before")
-        expectEqual(await asked(of: stranger, from: TVTold(), before: Self.nextRun),
+        expectEqual(await asked(of: stranger, from: ToldOnce(), before: Self.nextRun),
                     NoScreenTold(notYet: Self.notYet("夕方の番組") + Said.anotherAnsweredWithNoScreen, kept: late))
-        expectEqual(await asked(of: stranger, from: TVTold(), before: Self.dueAt - 3600),
-                    NoScreenTold(heldBackIsNews: true, kept: TVTold(stop: .another)),
+        expectEqual(await asked(of: stranger, from: ToldOnce(), before: Self.dueAt - 3600),
+                    NoScreenTold(heldBackIsNews: true, kept: ToldOnce(stop: .another)),
                     "another recorder, the reservation not due before the next night")
-        expectEqual(await asked(of: stranger, from: TVTold(stop: .another), before: Self.dueAt - 3600),
-                    NoScreenTold(kept: TVTold(stop: .another)), "another recorder, told before")
-        expectEqual(await asked(of: stranger, from: TVTold(stop: .another), before: nil),
+        expectEqual(await asked(of: stranger, from: ToldOnce(stop: .another), before: Self.dueAt - 3600),
+                    NoScreenTold(kept: ToldOnce(stop: .another)), "another recorder, told before")
+        expectEqual(await asked(of: stranger, from: ToldOnce(stop: .another), before: nil),
                     NoScreenTold(heldBackIsNews: true), "another recorder, with no next night")
         expectEqual(await stranger.asked(Ask.create), 0)
 
         came = await action(from: late)
         guard case .sent(let outcome) = came.sending else { return XCTFail("not sent: \(came.sending)") }
         XCTAssertEqual(outcome.sent.map(\.id), [evening.id])
-        XCTAssertEqual(came.news, NoScreenTold(withdrawsNotYet: true, kept: TVTold()))
+        XCTAssertEqual(came.news, NoScreenTold(withdrawsNotYet: true, kept: ToldOnce()))
         came = await action(before: nil)
         XCTAssertEqual(came.sending, .nothingWaiting)
         XCTAssertEqual(came.news, NoScreenTold(), "with no next night")
@@ -1313,53 +1313,196 @@ final class NoScreenGateTests: XCTestCase {
         let (bench, recorder, model) = try await connectedHome()
         let store = try GuideStore(path: bench.guidePath)
         let evening = due("夕方の番組", programme: 4331), night = due("夜の番組", programme: 4333, at: Self.dueAt + 1800)
-        func keep(_ told: TVTold) throws {
+        func keep(_ told: ToldOnce) throws {
             bench.defaults.set(try JSONEncoder().encode(told), forKey: DefaultsKey.recorderTold)
         }
-        func kept() throws -> TVTold? {
+        func kept() throws -> ToldOnce? {
             try bench.defaults.data(forKey: DefaultsKey.recorderTold).map {
-                try JSONDecoder().decode(TVTold.self, from: $0)
+                try JSONDecoder().decode(ToldOnce.self, from: $0)
             }
         }
 
         try await store.queue(evening)
         try await store.queue(night)
-        let warned = TVTold(stop: .another, rows: [evening.id, night.id])
+        let warned = ToldOnce(stop: .another, rows: [evening.id, night.id])
         try keep(warned)
         await recorder.beBusy(with: Ask.create, after: 1)
         await model.connect()
         try await untilIdle(model)
         XCTAssertEqual(model.pending.map(\.id), [night.id], "the second reservation was meant to wait still")
+        try await afterTheQueuesTurn()
         XCTAssertEqual(try kept(), warned, "the reservations warned of forgotten while one still waits")
 
         await model.deleteWaiting(try XCTUnwrap(model.pending.first))
         XCTAssertEqual(model.pending, [])
-        XCTAssertEqual(try kept(), TVTold(stop: .another), "the reservations warned of still told of once deleted")
+        try await afterTheQueuesTurn(until: { try kept() == ToldOnce(stop: .another) })
+        XCTAssertEqual(try kept(), ToldOnce(stop: .another), "the reservations warned of still told of once deleted")
 
         let morning = due("朝の番組", programme: 4336)
         try await store.queue(morning)
-        try keep(TVTold(rows: [morning.id]))
+        try keep(ToldOnce(rows: [morning.id]))
         await model.loadPending()
         await model.resend(try XCTUnwrap(model.pending.first))
         XCTAssertEqual(model.pending, [])
-        XCTAssertEqual(try kept(), TVTold(), "the reservation warned of still told of once sent again")
+        try await afterTheQueuesTurn(until: { try kept() == ToldOnce() })
+        XCTAssertEqual(try kept(), ToldOnce(), "the reservation warned of still told of once sent again")
 
         try keep(warned)
         try await store.queue(due("昼の番組", programme: 4337))
         await model.connect()
         try await untilIdle(model)
-        XCTAssertEqual(try kept(), TVTold(stop: .another), "the reservations warned of still told of once sent")
+        try await afterTheQueuesTurn(until: { try kept() == ToldOnce(stop: .another) })
+        XCTAssertEqual(try kept(), ToldOnce(stop: .another), "the reservations warned of still told of once sent")
 
         // One waiting that the attach's sending passed over, the recorder too busy, and was told of since.
         let program = try await programmesNotReserved(model, 1)[0]
         let request = try XCTUnwrap(ReservationRequest(program: program, quality: "DR", repeating: "none"))
         let byHand = PendingReservation(request: request, serviceName: program.serviceName)
         try await store.queue(byHand)
-        try keep(TVTold(rows: [byHand.id]))
+        try keep(ToldOnce(rows: [byHand.id]))
         await model.loadPending()
         let reserved = await model.reserve(program, on: .recorder, quality: "DR", repeating: "none")
         XCTAssertEqual(reserved, .made(saying: nil))
         XCTAssertEqual(model.pending, [], "the reservation made by hand still waits")
-        XCTAssertEqual(try kept(), TVTold(), "the reservation warned of still told of once reserved by hand")
+        try await afterTheQueuesTurn(until: { try kept() == ToldOnce() })
+        XCTAssertEqual(try kept(), ToldOnce(), "the reservation warned of still told of once reserved by hand")
+    }
+
+    /// The Shortcuts action telling as the app, opened at the same arrival, sends what waits itself: what is
+    /// told once is decided, posted and kept inside the queue's turn, and the screens' sending waits for that.
+    /// The action, the recorder not answering it, tells of a reservation that has not reached the recorder,
+    /// and is held there by the test. The screens' sending -- a pull-down -- is begun meanwhile, its line up,
+    /// and its round does not begin while the action is telling. Let go, the action keeps the reservation as
+    /// told of; the screens then send it and take it off what is kept. So nothing kept names the reservation,
+    /// and the action told of it once, before it was sent; the withdrawal that follows the forgetting is not
+    /// seen on the bench, whose notifications are off.
+    func testTheScreensSendingWaitsForTheActionsTellingAndTakesItsNoticeAway() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        try await afterTheQueuesTurn()
+        let store = try GuideStore(path: bench.guidePath)
+        let evening = due("夕方の番組", programme: 4331)
+        try await store.queue(evening)
+        await model.loadPending()
+        let kept = KeptIn(bench.defaults, DefaultsKey.recorderTold)
+        let held = Held()
+        addTeardownBlock { await held.letGo() }
+        let notices = Notices()
+        let action = Task {
+            await BackgroundWork.sendWaiting(client: aClient(of: SilentRecorder()), store: store, mac: nil,
+                                             told: { kept.value ?? ToldOnce() }, nextRun: Self.nextRun,
+                                             now: Self.dueAt, tell: { _, news in
+                notices.note(news.notYet)
+                await held.wait()
+                if let news = news.kept { kept.value = news }
+            })
+        }
+        try await within(10, "the action never came to tell what it tells once") { await held.untilCome() }
+        let count = await recorder.heard.count
+        let ended = Flag()
+        let sending = Task {
+            await model.refreshReservations()
+            ended.yes = true
+        }
+        // Up while the sending waits for its round; over already where nothing held it back.
+        try await until("the screens' sending never put its line up") {
+            model.busy == RecorderDriver.sendingLine || ended.yes
+        }
+
+        var turns = 0
+        while turns < 20_000, await recorder.heard(since: count).allSatisfy({ $0 == Ask.description }) {
+            turns += 1
+            await Task.yield()
+        }
+        expectEqual(await recorder.heard(since: count).filter { $0 != Ask.description }, [],
+                    "the screens' round began while the action was telling")
+        await held.letGo()
+        let acted = try await within(10, "the action never ended") { await action.value }
+        try await within(10, "the screens' sending never ended") { await sending.value }
+        try await afterTheQueuesTurn(until: { kept.value == ToldOnce() })
+
+        XCTAssertEqual(acted.sending, .unreachable)
+        XCTAssertEqual(model.pending, [], "the screens' sending did not send the reservation")
+        XCTAssertEqual(kept.value, ToldOnce(), "the reservation the screens sent is still told of")
+        XCTAssertEqual(notices.all, [Self.notYet("夕方の番組") + Self.notAnswering],
+                       "the action did not tell of the reservation once, before it was sent")
+    }
+
+    /// A pull-down while the Shortcuts action is telling, with nothing to send: what follows the screens'
+    /// sending -- what the runs told once of reservations that no longer wait, forgotten -- is made in the
+    /// queue's turn, and so not while the action is telling, never from what was kept before it and written
+    /// over what it kept. Kept before: another recorder told of, and a reservation told of that has gone since.
+    /// What waits is held with a reason, so that the action has nothing to send and the pull-down nothing to
+    /// send either. The action is held as it tells; the pull-down is made meanwhile, and what was kept is not
+    /// written while the action is telling. Let go, the action keeps that nothing is told of, the stop with it,
+    /// which a forgetting made from what was kept before would have kept.
+    func testThePullDownForgetsWhatWasToldOnceOnlyAfterARunHasToldIt() async throws {
+        let (bench, _, model) = try await connectedHome()
+        try await afterTheQueuesTurn()
+        let store = try GuideStore(path: bench.guidePath)
+        let gone = due("朝の番組", programme: 4336)
+        var held = due("夕方の番組", programme: 4331)
+        held.problem = "前に断られた理由"
+        try await store.queue(held)
+        await model.loadPending()
+        let kept = KeptIn(bench.defaults, DefaultsKey.recorderTold)
+        let before = ToldOnce(stop: .another, rows: [gone.id])
+        kept.value = before
+        let telling = Held()
+        addTeardownBlock { await telling.letGo() }
+        let action = Task {
+            await BackgroundWork.sendWaiting(client: aClient(of: SilentRecorder()), store: store, mac: nil,
+                                             told: { kept.value ?? ToldOnce() }, nextRun: Self.nextRun,
+                                             now: Self.dueAt, tell: { _, news in
+                await telling.wait()
+                if let news = news.kept { kept.value = news }
+            })
+        }
+        try await within(10, "the action never came to tell what it tells once") { await telling.untilCome() }
+
+        try await within(10, "the pull-down never came back") { await model.refreshReservations() }
+        for _ in 0..<100_000 where kept.value == before { await Task.yield() }
+        XCTAssertEqual(kept.value, before,
+                       "what follows the screens' sending was made while the action was telling")
+        await telling.letGo()
+        let acted = try await within(10, "the action never ended") { await action.value }
+        try await afterTheQueuesTurn()
+
+        XCTAssertEqual(acted.sending, .nothingWaiting)
+        XCTAssertEqual(kept.value, ToldOnce(), "what the action kept was not what is kept")
+    }
+
+    /// The cache made over to another recorder while a night is telling what it tells once of the recorder
+    /// before: what the make-over forgets of what was told is forgotten in the queue's turn as well, after the
+    /// telling, so that nothing the night kept of the recorder before stays. The night, nobody answering it,
+    /// tells of a reservation that has not reached the recorder, and is held as it keeps that; the screens
+    /// take up another recorder at the address meanwhile. Once the night has ended and the queue's turn has come
+    /// round, nothing is kept.
+    func testACacheMadeOverWhileANightIsTellingKeepsNothingOfTheRecorderBefore() async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        let store = try GuideStore(path: bench.guidePath)
+        try await store.queue(due("夕方の番組", programme: 4331))
+        let kept = KeptIn(bench.defaults, DefaultsKey.recorderTold)
+        let held = Held()
+        addTeardownBlock { await held.letGo() }
+        var tell = telling(Tellings())
+        tell.kept = { _, _, told in
+            await held.wait()
+            kept.value = told
+        }
+        let night = Task { [tell] in
+            await BackgroundWork.refresh(client: aClient(of: SilentRecorder()), store: store, mac: nil,
+                                         telling: tell, told: { kept.value ?? ToldOnce() }, nextRun: Self.nextRun)
+        }
+        try await within(10, "the night never came to keep what it told once") { await held.untilCome() }
+
+        await recorder.become(2)
+        try await within(10, "the connect to the second recorder never came back") { await model.connect() }
+        try await untilIdle(model)
+        expectEqual(try await store.owner(), NamedRecorder.udn(2), "the cache was meant to be made over")
+        await held.letGo()
+        _ = try await within(10, "the night never ended") { await night.value }
+        try await afterTheQueuesTurn(until: { kept.value == nil })
+
+        XCTAssertNil(kept.value, "what the night told of the recorder before is kept over the cache made over")
     }
 }

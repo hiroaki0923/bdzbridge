@@ -78,13 +78,13 @@ Android 版はないか、という問い合わせを受けての調査です。
 
 ## RecorderKit の中身
 
-57 ファイル、17,291 行（空行とコメントを含み、`Package.swift` を除く）。テストは 31,471 行。
+58 ファイル、17,449 行（空行とコメントを含み、`Package.swift` を除く）。テストは 31,705 行。
 
 | 区分 | 行数 | ファイル |
 |---|---|---|
 | 入出力を持たないロジック | 3,908 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, ByProgram, TVSchedule, TVReservation, DemoLineUp |
 | SQLite の上のもの | 1,092 | GuideStore, Sqlite |
-| 非同期の段取り | 11,370 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, Discovery, TVDiscovery, DeviceSearch, ScanTally, Waking, Reach, DeviceLink, LinkOperation, ReservationDriver, RecorderDriver, RecorderRecordings, RecorderConditions, RecorderRuns, RecorderGuide, RecorderNoScreen, ScalarClient, TVDriver, TVNoScreen, DemoTV, DemoRecorder |
+| 非同期の段取り | 11,528 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, Discovery, TVDiscovery, DeviceSearch, ScanTally, Waking, Reach, DeviceLink, LinkOperation, ReservationDriver, RecorderDriver, RecorderRecordings, RecorderConditions, RecorderRuns, RecorderGuide, RecorderNoScreen, ScalarClient, TVDriver, TVNoScreen, NoScreen, DemoTV, DemoRecorder |
 | OS に縛られるもの | 921 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http, ScanLog |
 
 本当に OS に縛られるのは 921 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ
@@ -566,13 +566,14 @@ ID が別の番組に付いていたら送らない。録画中と放送の終�
 り、期限が来たあとは送信待ちがどうなったかだけを知らせ、キャッシュが別のレコーダーのものになったあとは何も知
 らせない。見分けられなかったレコーダーを、別のレコーダーとは言わない。作成が無応答だった予約は、止まっている
 と通知とアクションで言う。別のレコーダーが答えたことと、届かないまま始まりそうな予約は、テレビと同じ規則で 1
-度だけ言う（`TVTold.after` に機器の言葉を渡します）。送信待ちの回は、どちらの機器でも、行を、読んだときのま
-まのときにだけ送り、外す。終わった確認には誰も加わらない（`DeviceLink.check`）。画面は、処理のボタンをレコー
-ダーの作業中に、レコーダーのボタンを処理の間に止め、「番組表を更新」はレコーダーの作業中だけ止める。アプリに
-残ったのは、処理の繰り返しと進捗と「中止」、前面に戻るまでの待ち、一覧と画面の状態、それに画面の無い処理の入
-口（タスクの登録と期限、マジックパケット、通知を出すこと、言ったことの控え）です。その入口には、どのテストも
-届きません（公開の経路が無く、通れば本物のパケットと通知が出るためです）。入口の後ろにあるものは、周りを渡し
-て確かめます。揃えずに残した違いは、`porting.md` の同じ段落にまとめました。
+度だけ言う（`ToldOnce.after` に機器の言葉を渡し、送信待ちの番の中で決め、出し、書きます）。送信待ちの回は、
+どちらの機器でも、行を、読んだときのままのときにだけ送り、外す。終わった確認には誰も加わらない
+（`DeviceLink.check`）。画面は、処理のボタンをレコーダーの作業中に、レコーダーのボタンを処理の間に止め、「番
+組表を更新」はレコーダーの作業中だけ止める。アプリに残ったのは、処理の繰り返しと進捗と「中止」、前面に戻るま
+での待ち、一覧と画面の状態、それに画面の無い処理の入口（タスクの登録と期限、マジックパケット、通知を出すこと、
+言ったことの控え）です。その入口には、どのテストも届きません（公開の経路が無く、通れば本物のパケットと通知が
+出るためです）。入口の後ろにあるものは、周りを渡して確かめます。揃えずに残した違いは、`porting.md` の同じ段
+落にまとめました。
 
 この段で、アプリのテストは 345 件から 433 件に、RecorderKit のテストは 710 件から 775 件になりました
 （`BulkWork` の 13 件はドライバーのテストに移りました）。足したテストも書き直したテストも、公開の API だけを

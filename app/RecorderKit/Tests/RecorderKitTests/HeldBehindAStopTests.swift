@@ -204,9 +204,9 @@ final class HeldBehindAStopTests: XCTestCase {
         XCTAssertEqual(said?.hasPrefix("テレビ宛の「終わった番組」は放送が終わっていたため、送らずに削除しました。"), true,
                        "the round was meant to have news: \(said ?? "nothing said")")
         let nextRun = Self.now + 6 * 3600
-        let told = TVTold().after(.sent(came.outcome), waiting: came.waits, before: nextRun, now: Self.now,
+        let told = ToldOnce().after(.sent(came.outcome), waiting: came.waits, before: nextRun, now: Self.now,
                                   naming: "テレビ")
-        let toldWithNoneHeld = TVTold().after(.sent(withNoneHeld), waiting: came.waits, before: nextRun,
+        let toldWithNoneHeld = ToldOnce().after(.sent(withNoneHeld), waiting: came.waits, before: nextRun,
                                               now: Self.now, naming: "テレビ")
         XCTAssertEqual(told.notices, toldWithNoneHeld.notices, "what the television's runs tell once")
         XCTAssertEqual(told.told, toldWithNoneHeld.told)
