@@ -1036,7 +1036,9 @@ final class DeviceLinkTests: XCTestCase {
     // MARK: - a connect held off
 
     /// A connect the host holds off -- asked for on a return to the app, or by hand, each on a link of its own --
-    /// asks nothing, and is owed: made once the host says the hold has lifted, and only once.
+    /// asks nothing, and is owed: made once the host says the hold has lifted, and only once. Once too when the
+    /// recorder refuses it before its attach -- busy with somebody else through every try -- though no attach
+    /// has gone through to drop what was owed: a refusal is no silence, and the link has not given up.
     func testAConnectHeldOffIsMadeOnceTheHoldLifts() async {
         let asks: [(what: String, ask: @MainActor (DeviceLink) async -> Void)] = [
             ("on a return to the app", { await $0.returned(wasAway: true, busy: false) }),
@@ -1060,6 +1062,22 @@ final class DeviceLinkTests: XCTestCase {
             await link.connectIfOwed()
             XCTAssertEqual(world.count("ask description.xml"), 1, "the connect asked for \(what) was made twice")
         }
+
+        let world = LinkWorld()
+        let recorder = place(in: world)
+        await recorder.goBusy()
+        let link = makeLink(world)
+        world.holdsOffConnect = true
+        await link.connect()
+        XCTAssertEqual(world.count("ask description.xml"), 0, "a connect asked for by hand was made while held off")
+        world.holdsOffConnect = false
+        await link.connectIfOwed()
+        let asked = world.count("ask description.xml")
+        XCTAssertGreaterThan(asked, 0, "the connect refused was not made once the hold lifted")
+        XCTAssertFalse(link.session.connected, "a recorder busy with somebody else was connected")
+        XCTAssertFalse(link.session.gaveUp, "a refusal was given up on as silence")
+        await link.connectIfOwed()
+        XCTAssertEqual(world.count("ask description.xml"), asked, "the connect refused was made twice")
     }
 
     /// A connect held off is owed no more once something has done what it would have, or made it pointless: an
