@@ -2062,10 +2062,19 @@ public struct SlotSettling: Sendable, Equatable {
     /// waking, answered the disk it had first answered as none (`RecorderDriver.slotReadAgainAfter`).
     public static let afterAWaking = SlotSettling(every: .seconds(2), for: .seconds(10))
 
-    /// About as long as a connect, or a check, takes to reach a recorder that has to be woken: its probe's timeout,
-    /// the screens' waking, and the attach's first ask after it, added up. Not counted: a wait of the connect's
-    /// requests for the wire, behind what the client before still has out at the address (`RecorderClient`).
-    public static let aConnect: Duration = .seconds(2 * RecorderClient.probeTimeout + Waking.screenLimit)
+    /// About as long as a connect, or a check, takes to reach a recorder that has to be woken, each ask counted
+    /// with as long again for its wait for the wire, behind what the client before still has out at the address
+    /// (`RecorderClient`): the connect's probe; the screens' waking; the waking's last probe, which can begin just
+    /// before the waking's time is up, the clock being read only before each probe (`Waking.waitForAnswer`); and
+    /// the attach's first ask after it, its describe. Ten, thirty, four and ten seconds: 54. Not counted: the
+    /// attach's asks after its describe and before it attaches the recorder -- the firmware, the network
+    /// settings, the storage -- which a recorder that has just described itself answers at once. Past it the wait
+    /// gives up, and a reservation is kept on the phone (`RecorderDriver.reserve`).
+    public static let aConnect: Duration = .seconds(
+        2 * RecorderClient.probeTimeout         // the connect's probe, and its wait for the wire
+        + Waking.screenLimit                    // the screens' waking
+        + 2 * RecorderClient.wakeProbeTimeout   // the waking's last probe, and its wait for the wire
+        + 2 * RecorderClient.probeTimeout)      // the attach's describe, and its wait for the wire
 
     /// How many times the slot is read at most: once, and once more after each interval the limit holds.
     var reads: Int { interval > .zero ? 1 + max(0, Int(limit / interval)) : 1 }

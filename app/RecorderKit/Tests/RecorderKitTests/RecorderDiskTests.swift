@@ -103,6 +103,13 @@ final class RecorderDiskTests: XCTestCase {
 
     // MARK: - one disk and another
 
+    /// How long a screen's wait for the slot waits for a connect under way, or a check out, to attach the recorder:
+    /// a connect that wakes it, each ask with its wait for the wire -- the connect's probe, the waking, the
+    /// waking's last probe and the attach's describe.
+    func testAWaitForTheSlotWaitsForAConnectThatWakesTheRecorderWithEachAsksWaitForTheWire() {
+        XCTAssertEqual(SlotSettling.aConnect, .seconds(54))
+    }
+
     func testADiskTakesRecordingsWhenItIsThereAndHasASize() {
         XCTAssertTrue(Self.disk().takesRecordings)
         XCTAssertFalse(Self.disk(mounted: false).takesRecordings)
