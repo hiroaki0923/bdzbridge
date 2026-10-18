@@ -314,6 +314,33 @@ final class ClientQueueTests: XCTestCase {
                        "the permission was asked about for the recorder let go of")
     }
 
+    /// A check that has come to wake the recorder -- silent to its ask of who answers, with a MAC kept -- whose
+    /// client is retired while it waits for an answer, the recorder let go of: the waking ends at its next probe,
+    /// and the check comes to the let-go. Nothing is written on the line -- not that the recorder did not answer,
+    /// which is the newcomer's line by then -- and no packet goes after the let-go. The waking's own clock gives
+    /// it three seconds; it is to end well before them.
+    func testAWakingWhoseClientIsRetiredEndsAndSaysNothing() async throws {
+        let driver = RecorderDriver(wakingLimit: 3, wakingInterval: .milliseconds(100), busyRetryDelay: 0...0)
+        let (world, link, recorder) = try await connected(mac: DeviceLinkTests.mac, driver: driver)
+        await recorder.sayNothingOfWhoItIs()
+        let checking = Task { await link.check(evenIfRecent: true) }
+        for _ in 0..<100_000 where !link.session.waking { await Task.yield() }
+        XCTAssertTrue(link.session.waking, "the check never came to wake the recorder")
+        // The check's own probe, and one of the waking's.
+        func asked() async -> Int { await recorder.actions.filter { $0 == "description.xml" }.count }
+        for _ in 0..<100_000 where await asked() < 2 { await Task.yield() }
+        expectTrue(await asked() >= 2, "the waking never asked who answers")
+        let packets = world.count("packet")
+
+        link.forgetTheDevice()
+        let checked = try await within(10, "the check never came back") { await checking.value }
+
+        guard case .notUp(.letGo) = checked else { return XCTFail("the check came to \(checked)") }
+        XCTAssertNil(world.problem, "the waking wrote on the line after its client was retired")
+        XCTAssertFalse(link.session.waking, "the waking still stands")
+        XCTAssertEqual(world.count("packet"), packets, "a packet went for the recorder let go of")
+    }
+
     /// A reservation's change, queued on the link's client behind a request out when the link lets go of its
     /// device, is not sent, and says what a let-go says, as a delete does.
     func testARecordersChangeQueuedAcrossALetGoIsNotSent() async throws {
@@ -961,15 +988,17 @@ final class ClientQueueTests: XCTestCase {
     /// A link of the test's own to a recorder at the bench's address that answers as `answers` says and can hold
     /// a request (`PlayingRecorder`), connected a moment ago; the recorder has put down nothing yet. Whatever it
     /// holds is let go as the test is torn down. A request waits for the wire as long as its own timeout, as in
-    /// the app. With a `mac` the session keeps one for waking the recorder, whose packets the world puts down.
-    private func connected(_ answers: [String: [HTTPResponse]] = ClientQueueTests.answers,
-                           mac: String? = nil) async throws -> (LinkWorld, DeviceLink, PlayingRecorder) {
+    /// the app. With a `mac` the session keeps one for waking the recorder, whose packets the world puts down;
+    /// with a `driver` of the test's own, its waking takes as long as that one says.
+    private func connected(_ answers: [String: [HTTPResponse]] = ClientQueueTests.answers, mac: String? = nil,
+                           driver: RecorderDriver? = nil) async throws -> (LinkWorld, DeviceLink, PlayingRecorder) {
         let world = LinkWorld()
         world.wireWaitLimit = nil
         let recorder = try PlayingRecorder(answers, udn: DeviceLinkTests.udn)
         world.devices[Stub.host] = recorder
         addTeardownBlock { await recorder.letGo() }
-        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
+        let driver = driver
+            ?? RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
         let link = DeviceLink(host: Stub.host, session: SessionState(mac: mac), driver: driver,
                               environment: world.environment)
         link.owner = world
