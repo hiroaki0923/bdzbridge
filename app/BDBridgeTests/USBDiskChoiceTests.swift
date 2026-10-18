@@ -863,9 +863,10 @@ final class USBDiskChoiceTests: XCTestCase {
     }
 
     /// A reservation to a kept disk, waiting for the slot beside a connect held at its probe for longer than the
-    /// wait waits for a connect: the wait gives up, which the result says, nothing read on the connect's client,
-    /// nothing sent or kept, and the line left to the connect.
-    func testAWaitForTheSlotGivesUpOnAConnectStillUnderWayPastItsTime() async throws {
+    /// wait waits for a connect: the wait gives up, nothing read on the connect's client and nothing sent, and
+    /// the reservation is kept on the phone, as one pressed during the connect is kept at the door, the line left
+    /// to the connect. Once the slot answers the disk, the connect's attach sends it, once.
+    func testAReservationWhoseWaitForTheSlotGivesUpOnAConnectStillUnderWayPastItsTimeIsKept() async throws {
         let (_, recorder, model, reserving, connecting, scene) =
             try await waitingForTheSlotBesideAConnectHeldAtItsProbe(connectFor: .milliseconds(100)) { model, program in
                 await model.reserve(program, on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD")
@@ -874,23 +875,32 @@ final class USBDiskChoiceTests: XCTestCase {
             await reserving.value
         }
 
-        XCTAssertEqual(came, .notDone(Said.slotWaitGivenUp))
+        guard case .waiting(let row, _) = came else {
+            return XCTFail("a reservation whose wait gave up by itself was not kept: \(came)")
+        }
+        XCTAssertEqual(row.request.destination, "USBHDD")
+        XCTAssertEqual(model.pending.map(\.id), [row.id], "the reservation kept is not what waits")
         XCTAssertTrue(isConnecting(model), "the connect was meant to be under way still")
         XCTAssertEqual(model.problem(for: .recorder), lineLeft, "something was said over the connect's line")
-        XCTAssertTrue(model.pending.isEmpty, "a reservation the wait gave up on was kept")
-        expectEqual(await recorder.asked(Ask.create, since: scene.before), 0)
+        expectEqual(await recorder.asked(Ask.create, since: scene.before), 0, "sent while the connect was held")
         expectEqual(await scene.sent.clients(sending: Ask.slot, since: scene.sentBefore), [],
                     "the slot was read on the client of a connect still under way")
+
+        // The slot answers the disk from here on, and the connect goes through.
+        await recorder.answer(Ask.slot, with: .result(USBDiskTests.slot()), times: 1000)
         await recorder.letGo()
         try await within(10, "the connect never ended") { await connecting.value }
+        expectEqual(await recorder.asked(Ask.create, since: scene.before), 1,
+                    "the connect's attach did not send the reservation kept, or sent it twice")
+        XCTAssertTrue(model.pending.isEmpty, "the reservation sent still waits")
     }
 
     /// A reservation to a kept disk whose wait for the slot has its last read out when a connect to the same
     /// recorder replaces the client it went on, the connect's own read of the slot answering none with the disk
     /// kept: the six reads are spent, the last of them on a client the link has left, so the slot was never heard
-    /// to answer none to the last of them. The wait ends as given up, which the result says, and not as a disk
-    /// that cannot be had; nothing is sent or kept.
-    func testAWaitForTheSlotWhoseLastReadAConnectOvertookEndsAsGivenUp() async throws {
+    /// to answer none to the last of them. The wait ends as given up, and not as a disk that cannot be had; the
+    /// reservation is kept on the phone, nothing sent.
+    func testAReservationWhoseWaitForTheSlotHasItsLastReadOvertakenByAConnectIsKept() async throws {
         let (_, recorder, model) = try await connected(times: 1)
         addTeardownBlock { await recorder.letGo() }
         // The demo's answer of none from here on: the disk is kept, and waited for before anything names it.
@@ -914,11 +924,14 @@ final class USBDiskChoiceTests: XCTestCase {
         let came = try await within(10, "the reservation never came back") { await reserving.value }
         try await within(10, "the connect never ended") { await connecting.value }
 
-        XCTAssertEqual(came, .notDone(Said.slotWaitGivenUp))
+        // What it says is not asked: the connect's own round, whose slot answers none, can refuse the row before
+        // or after it is kept.
+        guard case .waiting(let row, _) = came else {
+            return XCTFail("a reservation whose last read a connect overtook was not kept: \(came)")
+        }
+        XCTAssertEqual(row.request.destination, "USBHDD")
         XCTAssertNil(model.diskNotHad, "the disk was taken as not had on a read the link had left")
-        XCTAssertTrue(model.pending.isEmpty, "a reservation the wait gave up on was kept")
         expectEqual(await recorder.asked(Ask.create, since: before), 0)
-        expectEqual(await recorder.asked(Ask.slot, since: before), 7, "the slot was read after the six")
     }
 
     /// A clash check for a kept disk, waiting for the slot, while the check before another operation -- a look at
@@ -976,9 +989,9 @@ final class USBDiskChoiceTests: XCTestCase {
     }
 
     /// A reservation to a kept disk, waiting for the slot while the check before another operation is out on the
-    /// client it reads on, its probe held for longer than the wait waits for one: the wait gives up, which the
-    /// result says, with nothing more read, sent or kept.
-    func testAWaitForTheSlotGivesUpOnAnotherCheckStillOutPastItsTime() async throws {
+    /// client it reads on, its probe held for longer than the wait waits for one: the wait gives up, with nothing
+    /// more read or sent, and the reservation is kept on the phone.
+    func testAReservationWhoseWaitForTheSlotGivesUpOnAnotherCheckStillOutPastItsTimeIsKept() async throws {
         let (_, recorder, model) = try await connected(times: 1, connectFor: .milliseconds(100))
         addTeardownBlock { await recorder.letGo() }
         // The demo's answer of none from here on: the disk is kept, and waited for before anything names it.
@@ -998,9 +1011,12 @@ final class USBDiskChoiceTests: XCTestCase {
             await reserving.value
         }
 
-        XCTAssertEqual(came, .notDone(Said.slotWaitGivenUp))
+        guard case .waiting(let row, _) = came else {
+            return XCTFail("a reservation whose wait gave up by itself was not kept: \(came)")
+        }
+        XCTAssertEqual(row.request.destination, "USBHDD")
+        XCTAssertEqual(model.pending.map(\.id), [row.id], "the reservation kept is not what waits")
         XCTAssertTrue(isMakingSure(model), "the other check was meant to be out still")
-        XCTAssertTrue(model.pending.isEmpty, "a reservation the wait gave up on was kept")
         expectEqual(await recorder.asked(Ask.create, since: before), 0)
         expectEqual(await recorder.asked(Ask.slot, since: before), 1, "the slot was read beside the other check")
         await recorder.letGo()

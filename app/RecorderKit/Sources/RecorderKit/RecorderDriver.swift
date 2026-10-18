@@ -513,6 +513,8 @@ public final class RecorderDriver: LinkDriver {
         case silence
         /// Whoever waited gave up first, or the wait did: on a connect or a check still under way past its time,
         /// or with its last read met on a client the link had left, the slot still unanswered. Nothing is said.
+        /// A reservation keeps what it asked, unless its asker gave up (`reserve`); a change and a condition,
+        /// which cannot be kept, are not done.
         case givenUp
     }
 
@@ -1396,7 +1398,9 @@ public final class RecorderDriver: LinkDriver {
 
     /// Said when the wait for the slot before something that names the USB disk was given up on, by whoever
     /// waited or by the wait itself, on a connect or a check still under way past its time, or with its last read
-    /// met on a client the link had left, the slot still unanswered (`Withheld.givenUp`): nothing was sent.
+    /// met on a client the link had left, the slot still unanswered (`Withheld.givenUp`): nothing was sent. A
+    /// change's and a condition's answer, and a reservation's only when its asker gave up first: a reservation
+    /// whose wait gave up by itself is kept on the phone (`reserve`).
     public static let slotWaitGivenUp = "録画先のディスクの確認を中断したため、送っていません。"
 
     /// Said when the recorder answered a change as taken and the list read after it lists the reservation in
@@ -1719,7 +1723,11 @@ public final class RecorderDriver: LinkDriver {
     /// lately the recorder answered when the one before heard such a thing (`DeviceLink.checksAgain`). The slot
     /// is waited for when the reservation names a USB disk the slot has not answered since the recorder last
     /// answered (`withholds`): a disk not had is refused as one no longer offered is; silence is kept, as when
-    /// the recorder could not be made sure of; a wait given up on ends it (`slotWaitGivenUp`).
+    /// the recorder could not be made sure of; so is a wait that gave up by itself -- on a connect or a check
+    /// still under way past its time, or on a last read a connect overtook -- as a reservation pressed during a
+    /// connect is kept at the door, to go with the next round, which waits for the slot itself. One whose asker
+    /// gave up first, its task cancelled, ends it (`slotWaitGivenUp`): nothing is kept for an ask nobody waits
+    /// for.
     ///
     /// Whatever the slot came to, the recorder let go of since the reservation began (`DeviceLink.letGo(since:)`)
     /// -- not for a connect to the same recorder, whose client is new and which lets go of nothing -- the
@@ -1841,7 +1849,10 @@ public final class RecorderDriver: LinkDriver {
                 // Nothing was sent, as when the recorder could not be made sure of.
                 return (await keptForIt(), nil)
             case .givenUp?:
-                return (.notDone(Self.slotWaitGivenUp), nil)
+                // Whoever asked gave up first: nothing is kept for an ask nobody waits for. A wait that gave up by
+                // itself sent nothing either, and keeps it, as the door keeps one pressed during a connect.
+                if Task.isCancelled { return (.notDone(Self.slotWaitGivenUp), nil) }
+                return (await keptForIt(), nil)
             }
             guard link.mayBeSent else { return await keptAfterTheCheck() }
             let kept = await keptForIt()
