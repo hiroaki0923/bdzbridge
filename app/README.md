@@ -1253,9 +1253,11 @@ condition back erases them. A condition on every wave carries the chosen mode fo
 where the recorder otherwise records at DR, and its row shows that mode. The screen says 読み込み中 while the
 list is on its way and 条件を読み込めませんでした with the reason when it could not be read, rather than that
 there are none; with nothing read and the recorder not to be asked, the reason is that the app is not
-connected. A condition's add or delete keeps its line up until the list read after it is in, and a delete the
-recorder refused has the list read after it all the same, since the recorder renumbers a condition its own
-screen edits; the refusal is said in the alert. For the same reason a delete reads the list first and sends
+connected. A condition's add or delete keeps its line up until the list read after it is in. A delete the
+recorder refused with 892 -- what it answers for a number it holds no condition under, as when its own screen has
+edited and renumbered one -- has the list read after it and says the condition was not in it; any other refusal
+reads nothing after it and is said in the alert and on the line. Since the recorder renumbers a condition its own
+screen edits, a delete also reads the list first and sends
 nothing for a condition not in it as the screen showed it -- by its number and everything else -- saying so,
 the list on screen being the one just read, or for a list that could not be read.
 
@@ -1457,8 +1459,12 @@ recordings. Silence loses the recorder, as a read's does, and a reservation then
 been sent. The slot is read only on the client the recorder was attached on (`DeviceLink.clientIsAttached`): a
 connect made meanwhile (a return to the app, 再接続) makes a client of its own that has yet to hear which recorder
 answers it, and while a connect is under way whose own client has yet to attach the recorder, the wait reads
-nothing, looking every two seconds for about forty -- the probe's timeout, the screens' waking and the first ask
-after it (`SlotSettling.connect`) -- and gives up on one still under way past that. It waits the same way while the
+nothing, looking every two seconds for about fifty-four -- the connect's probe, the screens' waking, the waking's
+last probe and the attach's describe, each with as long again for its wait for the wire behind the client before
+(`SlotSettling.connect`) -- and gives up on one still under way past that. A wait that gives up by itself keeps a
+reservation on the phone, as one pressed during a connect is kept, to go with the next round that sends what
+waits, which waits for the slot itself; a change and a condition are not sent and say the wait was given up, and so
+does a reservation whose asker gave up first. It waits the same way while the
 check before another operation is out, whose probe can meet silence and go on to wake the recorder. What a read met
 on the old client is not the recorder's answer and is neither kept nor said; it counts among the reads all the same,
 and when the last of them was met so, the wait, the slot still unanswered once the connect has attached the
@@ -1467,14 +1473,18 @@ one request at a time with that attach's own -- unless the slot has answered by 
 confirmed, which is then the slot's answer. A connect or a check that does not attach the recorder (silence, a
 waking that gets no answer, something else at the address, the permission), or a connect that loses it after, has
 said why: the wait ends there as silence, with nothing read or said, and its caller says nothing over that line; a
-reservation goes to the queue, as when the recorder is silent at that moment. A let-go ends the wait too, nothing of
-it put down for the newcomer. With the disk answered since, and in a home with no USB disk, the slot is not waited
-for and no request is added. A clash check, whatever the disk, then asks on the client the link holds, and only
-once the recorder has been attached on it: the check before it lets a connect under way through at once, so while
-a connect has yet to attach the recorder, or the check before another operation is out, it waits as the slot's
-wait does, for about forty seconds at most, and asks once the connect has attached the recorder. A connect or a
-check that does not attach the recorder, or loses it after, has it ask nothing and say nothing, as that time going
-by does; nothing is asked once the recorder has been let go of.
+reservation goes to the queue, as when the recorder is silent at that moment. A check by another operation that
+hears something in place of the recorder saying which it is -- busy with somebody else, a fault, something else at
+the address -- ends the wait with nothing more read and nothing withheld, and each then answers as after such a
+check: a reservation is kept with what was heard on the line, a change and a condition are not sent and say it. A
+let-go ends the wait too, nothing of it put down for the newcomer. With the disk answered since, and in a home with
+no USB disk, the slot is not waited for and no request is added. A clash check, whatever the disk, then asks on the
+client the link holds, and only once the recorder has been attached on it: the check before it lets a connect under
+way through at once, so while a connect has yet to attach the recorder, or the check before another operation is out,
+it waits as the slot's wait does, for about fifty-four seconds at most, and asks once the connect has attached the
+recorder. For the USB disk it asks nothing while the slot has still not answered it. A connect or a check that does
+not attach the recorder, or loses it after, has it ask nothing and say nothing, as that time going by does; nothing
+is asked once the recorder has been let go of.
 
 Each sheet hands the model the disk the reader picked, and it is sent as picked or not at all. A USB disk
 let go of between the choice and the press -- or one the slot did not answer while it was waited for (above) -- is
@@ -1777,12 +1787,12 @@ One entry reserves for both devices (`AppModel.reserve(_:on:quality:repeating:)`
 either device -- a reservation, a row sent again, a delete of a reservation -- nothing on the sheet can be
 pressed and the sheet cannot be closed, and the request's line (テレビに予約を登録中, 予約を登録中, 予約を削除中 and
 the rest) is a section of its own: what the request came to is said in the sheet's one alert and nowhere else.
-On the recorder that can be up to about forty seconds, through a waking and a wait for the USB slot. A delete of
-a waiting row waits for the queue's turn with no line up, so the sheet counts those, and while the count is not
-nought it cannot be closed, and either device's 録画予約する, もう一度送る and 予約を変更する and the recorder's
-予約を削除 wait: a reservation on the recorder waits for the same turn as the delete, which would come back first
-and close the sheet under it. Made closes the sheet, after what the device had to say of it
-(レコーダーの予約 or テレビの予約). A reservation that would
+On the recorder that can be more than a minute: a waking, or a wait of about fifty-four seconds for a connect or a
+check, and the slot's reads after it. A delete of a waiting row waits for the queue's turn with no line up, so the
+sheet counts those, and while the count is not nought it cannot be closed, and either device's 録画予約する,
+もう一度送る and 予約を変更する and the recorder's 予約を削除 wait: a reservation on the recorder waits for the same
+turn as the delete, which would come back first and close the sheet under it. Made closes the sheet, after what the
+device had to say of it (レコーダーの予約 or テレビの予約). A reservation that would
 stop others from recording comes back as a question, それでも予約しますか？, put as the row's reason without its sentence
 about もう一度送る. それでも予約 is the held row sent again (`AppModel.consent`): the consent to that sentence, with
 nothing said on the strip, since the row never waited, and an answer that names others asks again. キャンセル takes

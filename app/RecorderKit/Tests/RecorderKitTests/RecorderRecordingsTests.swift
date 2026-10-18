@@ -122,6 +122,43 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertTrue(silent.link?.session.unreachable == true, "silence on the list did not lose the recorder")
     }
 
+    /// A keyword condition's delete the recorder refuses has the list read again only when the refusal says the
+    /// recorder holds no condition under that number -- 892, as a BDZ-FBT4100 answers the delete of one it no
+    /// longer has -- and the result then says the condition was not in the list, the read clearing the line.
+    /// Any other refusal, 402 among them, is said in the recorder's words, on the line and in the result, with
+    /// nothing read after it.
+    func testAConditionsDeleteReadsTheListAgainOnlyWhenTheRecorderHoldsNoSuchCondition() async throws {
+        let rule = try await Self.rule()
+        let list = try Vectors.load("xsrs.json").dictionary("recorder_rules").string("list_result")
+        let listed = Stub.soap("X_GetPrefRecSettingList", result: list)
+        let refusal = RecorderError.soap(action: "X_DeletePrefRecSetting", status: 500, code: "402", body: "")
+
+        let (refusedWorld, refusing, refusedRecorder) = try await Self.playing([
+            "X_GetPrefRecSettingList": [listed],
+            "X_DeletePrefRecSetting": [Stub.fault("402")],
+        ])
+        var readsAfterTheRefusal = 0
+        let refused = await refusing.removeRule(rule) { _ in readsAfterTheRefusal += 1 }
+        expectEqual(await refusedRecorder.actions, ["X_GetPrefRecSettingList", "X_DeletePrefRecSetting"],
+                    "the list was not read before the delete alone")
+        XCTAssertEqual(refused, .notDone(refusal.explanation))
+        XCTAssertEqual(refusedWorld.problem, refusal.explanation)
+        XCTAssertEqual(readsAfterTheRefusal, 1, "a list was handed over but the one read before the delete")
+
+        let (notHeldWorld, notHolding, notHoldingRecorder) = try await Self.playing([
+            "X_GetPrefRecSettingList": [listed],
+            "X_DeletePrefRecSetting": [Stub.fault("892")],
+        ])
+        var reads = 0
+        let notHeld = await notHolding.removeRule(rule) { _ in reads += 1 }
+        expectEqual(await notHoldingRecorder.actions,
+                    ["X_GetPrefRecSettingList", "X_DeletePrefRecSetting", "X_GetPrefRecSettingList"],
+                    "the list was not read again after the recorder said it held no such condition")
+        XCTAssertEqual(notHeld, .notDone(RecorderDriver.conditionNotInList))
+        XCTAssertNil(notHeldWorld.problem, "the read after it left a line")
+        XCTAssertEqual(reads, 2, "the list read after it was not handed over")
+    }
+
     // MARK: - playing, and turning the recorder on for it
 
     /// One tap on 再生 in standby: the 880 turns the recorder on, the status is asked until it says it is on,

@@ -786,11 +786,123 @@ extension LiveRecorderTests {
         XCTAssertEqual(after.count, before.count, "the recorder holds as many conditions as before")
     }
 
+    /// **Writes to the recorder.** A keyword condition made to the internal disk under a keyword of its own (so
+    /// that it records nothing while it lives, terrestrial alone, LSR), deleted, seen off the list, and deleted
+    /// again by the same id: what the recorder answers to the delete of a condition it no longer has, which is
+    /// what decides whether the list must be read again after a refused delete.
+    ///
+    ///     RECORDER_HOST=192.0.2.63 RECORDER_MAC=<the recorder's MAC> RECORDER_WRITE=1 \
+    ///         swift test --filter LiveRecorderTests/testAConditionDeletedTwice
+    ///
+    /// It prints the second delete's answer -- "succeeded", or the action, the HTTP status, the code and what the
+    /// app makes of it -- and asserts what a BDZ-FBT4100 answered when this was first run: refused, HTTP 500, UPnP
+    /// error 892, which the driver reads as a condition the recorder no longer holds (`RecorderDriver.removeRule`).
+    /// It deletes what it made on any failure, and prints counts and codes, never a condition's name or keywords
+    /// but its own. A condition on its keyword left by an earlier run is named and left alone.
+    func testAConditionDeletedTwice() async throws {
+        guard ProcessInfo.processInfo.environment["RECORDER_WRITE"] == "1" else {
+            throw XCTSkip("set RECORDER_WRITE=1 to let this write to the recorder")
+        }
+        let client = try liveClient()
+        _ = try await client.describe()
+        let before = try await client.recorderRules()
+        print("keyword conditions: \(before.count)")
+        // One read lists at most 200: past that, one with this keyword left by an earlier run could be missed.
+        guard before.count < 200 else { throw XCTSkip("more conditions than one read lists") }
+
+        let keyword = Self.ownKeywordDeletedTwice
+        let leftOver = before.filter { $0.keywords == [keyword] }.count
+        if leftOver > 0 {
+            print("left by an earlier run: \(leftOver) condition(s) on 「\(keyword)」, not touched here; delete them on"
+                  + " the recorder's おまかせ・まる録 screen")
+        }
+        let request = RecorderRuleRequest(keywords: [keyword], broadcastingScope: "TRD",
+                                          qualityCode: try XCTUnwrap(Codes.quality["LSR"]),
+                                          destination: RecorderDisk.internalID)
+        // Only a condition that was not there before: never one the recorder already held, whatever its keyword.
+        let held = Set(before.map(\.id))
+        // And only one on the test's own keyword, under whichever id: one the recorder renumbered meanwhile could
+        // have taken the id asked for.
+        func mine(_ id: String) async throws -> RecorderRule? {
+            let rules = try await client.recorderRules()
+            return rules.first { $0.id == id && !held.contains($0.id) && $0.keywords == [keyword] }
+                ?? rules.first { !held.contains($0.id) && $0.keywords == [keyword] }
+        }
+        func deleteMine(_ id: String) async {
+            do {
+                if let left = try await mine(id) { try await client.deleteRecorderRule(id: left.id) }
+            } catch {
+                print("may be left on the recorder: the condition on 「\(keyword)」 (\(Self.code(error)))")
+            }
+        }
+
+        let id: String
+        do {
+            id = try await client.createRecorderRule(request)
+        } catch {
+            await deleteMine("")
+            guard Self.refusedWithACode(error) else { throw error }
+            print("the recorder turned the condition down: \(Self.code(error))")
+            throw XCTSkip("the recorder turned the condition down")
+        }
+        print("created")
+        let deleted: String
+        do {
+            let found = try await mine(id)
+            let made = try XCTUnwrap(found, "the condition should be in the list")
+            print("listed under \(made.id == id ? "the id answered" : "another id")")
+            deleted = made.id
+            try await client.deleteRecorderRule(id: deleted)
+        } catch {
+            await deleteMine(id)
+            throw error
+        }
+        expectNil(try await mine(deleted), "and it is off the recorder again")
+        // Another condition's id is never left the second delete: other writes keep the ids the recorder holds.
+        guard try await !client.recorderRules().contains(where: { $0.id == deleted }) else {
+            print("the id deleted is listed again, so it was not deleted twice")
+            // The test's own condition, still there because the first delete did not take, is deleted again as
+            // clean-up; anything else under the id is left alone.
+            let mayBeLeft = "may be left on the recorder: the condition on 「\(keyword)」"
+            if let left = try? await mine(deleted), left.id == deleted {
+                await deleteMine(deleted)
+                do {
+                    print(try await mine(deleted) == nil ? "deleted again: the first delete did not take" : mayBeLeft)
+                } catch {
+                    print("\(mayBeLeft) (\(Self.code(error)))")
+                }
+            } else {
+                print(mayBeLeft)
+            }
+            throw XCTSkip("the id deleted is listed again")
+        }
+
+        do {
+            try await client.deleteRecorderRule(id: deleted)
+            print("the second delete: succeeded")
+            XCTFail("the recorder took the delete of a condition it no longer holds")
+        } catch {
+            let failure = (error as? RecorderError).map { "\($0.failure)" } ?? "-"
+            print("the second delete: \(Self.code(error)); taken as \(failure)")
+            guard case RecorderError.soap(let action, let status, let code, _) = error else {
+                return XCTFail("the second delete was not refused with a code: \(Self.code(error))")
+            }
+            XCTAssertEqual(action, "X_DeletePrefRecSetting")
+            XCTAssertEqual(status, 500)
+            XCTAssertEqual(code, "892", "the recorder refused a condition it no longer holds with another code")
+        }
+        let after = try await client.recorderRules()
+        print("keyword conditions before \(before.count), after \(after.count)")
+        XCTAssertEqual(after.count, before.count, "the recorder holds as many conditions as before")
+    }
+
     /// The title of the test's own reservation, which a time-only reservation keeps: what tells it apart on the
     /// recorder's screen, and the only title these tests print.
     fileprivate static let ownTitle = "BD Bridge 検証 USB"
     /// A keyword no programme carries, so that the test's own condition records nothing while it lives.
     fileprivate static let ownKeyword = "BDBridge検証USB"
+    /// The same for the condition deleted twice, so that one left by either test is told apart.
+    fileprivate static let ownKeywordDeletedTwice = "BDBridge検証削除"
 
     /// Five minutes tomorrow from two in the morning, Japan time, moved on five minutes at a time until no
     /// reservation overlaps them; nil when none are clear by five. A repeating reservation is listed once, at its

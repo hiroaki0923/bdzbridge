@@ -107,6 +107,11 @@ extension RecorderDriver {
                 case .givenUp?:
                     return .notDone(Self.slotWaitGivenUp)
                 }
+                // What a check heard in place of the recorder while the slot was waited for, which ended the wait
+                // with the slot unanswered, stops it here, in the turn the wait ended in: the check below asks
+                // again, and the recorder answering that one would send a condition naming a disk the slot has not
+                // answered.
+                guard link.mayBeSent else { return .notDone(self.whyNotSent(on: link)) }
             }
             // Asked again whether it may be sent, after the slot: another operation's check may have heard
             // something in place of the recorder meanwhile. On the client the check is asked with then: a connect
@@ -123,7 +128,9 @@ extension RecorderDriver {
 
     /// Said when a condition asked to be deleted is not in the list just read as the screen showed it: gone from
     /// the recorder, or changed there -- the recorder renumbers a condition its own screen edits, so the two
-    /// are seldom told apart. Nothing was sent, and the list on screen is the one just read.
+    /// are seldom told apart. Nothing was sent; or the delete was sent and the recorder answered that it holds no
+    /// condition under that number (`conditionNotHeld`), and the list was read after it. Either way the list on
+    /// screen is the one just read.
     public nonisolated static let conditionNotInList = "この条件はレコーダーのおまかせ・まる録の一覧に見つかりませんでした。"
         + "レコーダーで変更された場合も含みます。一覧を更新しました。"
 
@@ -131,7 +138,7 @@ extension RecorderDriver {
     /// recorder's own screen can set, and writing it back would erase that. What it came to, with its sentence;
     /// the lists read before and after it go to `keep` (`readAgain`). Turned away at the door as a condition
     /// added is, the result saying that the app is not connected and the line left as it was. Otherwise under one
-    /// line until the list read after it is in.
+    /// line until it is answered, and the list read after it, when one is read, is in.
     ///
     /// The id a condition was read with is not to be trusted later: the recorder renumbers a condition its own
     /// screen edits (docs/xsrs-api.md). So the list is read again first, with no line of its own, and the delete
@@ -145,11 +152,16 @@ extension RecorderDriver {
     /// that the delete may have arrived, and what the check or a failure said is in the result as well as on the
     /// line (`altered`).
     ///
-    /// The list is read after a delete the recorder answered, whether it went through or was refused: the
-    /// recorder renumbers a condition whenever its own screen edits one, so a refusal may be of a number it no
-    /// longer has, and which code it answers to one has not been seen. Not after one that was not sent -- turned
-    /// away at the door, by the read before it, or after the check -- nor after silence: nothing has changed
-    /// that the reader did, or the recorder is not there to read.
+    /// The list is read after a delete that went through, and after one the recorder refused because it holds no
+    /// condition under that number (`conditionNotHeld`): gone since the read before it, or renumbered by the
+    /// recorder's own screen, which renumbers a condition whenever it edits one. That one the result then says
+    /// was not in the list (`conditionNotInList`), the list on screen being the one just read, as a reservation's
+    /// delete that met a number the recorder no longer has says it was renumbered (`cancel`); when that read does
+    /// not go through, what it failed with; and answered so once the recorder has been let go of, nothing is read
+    /// and the result says why (`whyLetGo`), the answer being about the recorder let go of. Not after any other
+    /// refusal, which is said in the recorder's words, nothing having changed that the reader did; nor after one
+    /// that was not sent -- turned away at the door, by the read before it, or after the check -- nor after
+    /// silence, the recorder not being there to read.
     public func removeRule(_ rule: RecorderRule, keep: @MainActor (ConditionsRead) -> Void) async -> Altered {
         guard let link else { return .notDone(Self.notConnected) }
         guard link.client is RecorderClient, !link.session.unreachable, canBeAsked(on: link) else {
@@ -162,14 +174,33 @@ extension RecorderDriver {
             }
             guard let list = read.list else { return .notDone(read.why ?? self.whyNotConnected) }
             guard list.contains(rule) else { return .notDone(Self.conditionNotInList) }
+            // Whether the recorder held it: a refusal that says it does not is an answer, as a delete's is.
             let came = await self.asked(nil, .aWrite(sending: Self.mayHaveArrived), on: link,
-                                        since: began) { _, client in
-                try await client.deleteRecorderRule(id: rule.id)
+                                        since: began) { _, client -> Bool in
+                do {
+                    try await client.deleteRecorderRule(id: rule.id)
+                    return true
+                } catch let error as RecorderError where Self.saysItHoldsNoSuchCondition(error) {
+                    return false
+                }
             }
-            let altered = self.altered(came, on: link)
-            if came.answered { await self.readAgain(on: link, since: began, keep: keep) }
-            return altered
+            guard case .went(let held) = came else { return self.altered(came, on: link) }
+            let after = await self.readAgain(on: link, since: began, keep: keep)
+            if held { return .done(saying: nil) }
+            guard let after else { return .notDone(self.whyLetGo(on: link)) }
+            return .notDone(after.list == nil ? after.why ?? self.whyNotConnected : Self.conditionNotInList)
         }
+    }
+
+    /// What a BDZ-FBT4100 answers to the delete of a number it holds no condition under: HTTP 500 with UPnP
+    /// error 892 (docs/xsrs-api.md). The delete's alone: no other action has been seen to answer it, and what it
+    /// means there is not known.
+    static let conditionNotHeld = "892"
+
+    /// Whether `error` is the recorder's answer that it holds no condition under the number deleted.
+    private static func saysItHoldsNoSuchCondition(_ error: RecorderError) -> Bool {
+        guard case .soap(_, _, let code, _) = error else { return false }
+        return code == conditionNotHeld
     }
 
     /// The list read again as a step of a condition's add or delete -- before a delete, and after either -- under

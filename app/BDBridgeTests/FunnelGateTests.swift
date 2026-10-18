@@ -139,8 +139,9 @@ final class FunnelGateTests: XCTestCase {
     ///
     /// The free space is read after a delete and with the list, and is only shown: silence on it loses the
     /// recorder like any other and fails neither, and is said as a read's silence is, on the line the delete or
-    /// the list cleared, where it stays. And a condition's delete that was turned down is followed by
-    /// a read, whose silence is the newer thing to say.
+    /// the list cleared, where it stays. And a condition's delete the recorder answers as holding no such
+    /// condition is followed by a read, whose silence is the newer thing to say; one turned down for anything
+    /// else reads nothing after it.
     ///
     /// Playing, pausing, stopping and powering on are sent too, and say that they may have arrived in a sentence
     /// of their own, which sends the reader to the television's screen rather than to a list: on the line and in
@@ -213,29 +214,42 @@ final class FunnelGateTests: XCTestCase {
         XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "silence on the free space was not said")
         XCTAssertTrue(model.gaveUp)
 
-        // A condition's delete turned down, and silence on the read that follows it.
+        // A condition's delete the recorder answers as holding no such condition, and silence on the read that
+        // follows it.
         await reconnect(model)
         await model.loadRecorderRules()
         XCTAssertNil(model.recorderRulesFailure)
+        await recorder.answer(Kind.removeCondition, with: .fault(892))
+        await recorder.answer(Kind.conditions, with: .silence, after: 1)
+        expectFalse(await removeACondition(model, subjects.rule))
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer,
+                       "the delete's answer was put back over the newer silence")
+        XCTAssertEqual(whyNotJustNow(model), Said.noAnswer, "the delete did not say what the read after it met")
+        XCTAssertTrue(model.gaveUp)
+        XCTAssertEqual(model.recorderRulesFailure, Said.noAnswer)
+
+        // Turned down for anything else, it reads nothing after it: the silence set for that read is never met.
+        await reconnect(model)
+        await model.loadRecorderRules()
+        let refusing = await recorder.asked
         await recorder.answer(Kind.removeCondition, with: .fault(402))
         await recorder.answer(Kind.conditions, with: .silence, after: 1)
         expectFalse(await removeACondition(model, subjects.rule))
-        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the refusal was put back over the newer silence")
-        XCTAssertTrue(model.gaveUp)
-        XCTAssertEqual(model.recorderRulesFailure, Said.noAnswer)
+        XCTAssertEqual(model.problem(for: .recorder), Said.fault(402, Kind.removeCondition))
+        XCTAssertFalse(model.gaveUp, "the conditions were read after a refusal of the delete")
+        expectEqual(await recorder.asked(Kind.conditions, since: refusing), 1, "read after the delete was refused")
+        await recorder.stopAnswering(Kind.conditions)
     }
 
     /// A recorder that answers and refuses is there: what it said is on screen in its own words, the app is
     /// still connected, nothing is sent again and the lists are as they were. Busy through both tries after the
     /// first is said as busy. An answer that cannot be read is said too, and loses nothing.
     ///
-    /// A condition's delete that is refused has the list read again all the same -- the recorder renumbers a
-    /// condition whenever its own screen edits one, so the refusal may be of a number it no longer has -- and its
-    /// reason is said in what it hands back, while the read, going through, clears the line, as the read after
-    /// a reservation's delete refused for such a number does; an add that is refused reads nothing. A recording still being
-    /// written is turned down before anything is sent, which the delete says in what it hands back, the line
-    /// left as it was. And a recorder that will not say how much room it has,
-    /// after a delete, leaves the delete done and the room unknown.
+    /// A condition's delete or add that is refused reads nothing after it, as a refused recording's delete reads
+    /// nothing either: only a delete the recorder answers as holding no such condition has the list read again
+    /// (the row above). A recording still being written is turned down before anything is sent, which the
+    /// delete says in what it hands back, the line left as it was. And a recorder that will not say how much
+    /// room it has, after a delete, leaves the delete done and the room unknown.
     ///
     /// Where the sentence of an answer that cannot be read is put may change: it is not the recorder's.
     func testARefusalIsSaidAndTheRecorderIsKept() async throws {
@@ -253,12 +267,7 @@ final class FunnelGateTests: XCTestCase {
             XCTAssertTrue(model.connected, "a refusal of \(row.name) was taken for the recorder going")
             XCTAssertFalse(model.gaveUp, row.name)
             XCTAssertNil(model.busy, row.name)
-            if row.kind == Kind.removeCondition {
-                XCTAssertNil(model.problem(for: .recorder), "the refusal was put back over the read after it")
-                XCTAssertEqual(whyNotJustNow(model), refusal, row.name)
-            } else {
-                XCTAssertEqual(model.problem(for: .recorder), refusal, row.name)
-            }
+            XCTAssertEqual(model.problem(for: .recorder), refusal, row.name)
             expectEqual(await recorder.asked(row.kind, since: before), 1, "\(row.name) was sent again")
             XCTAssertTrue(Lists(model) == lists, "\(row.name) was refused and a list changed")
             XCTAssertTrue(model.titlesLoaded, row.name)
@@ -268,8 +277,9 @@ final class FunnelGateTests: XCTestCase {
             case Kind.addCondition:
                 expectEqual(await recorder.asked(Kind.conditions, since: before), 0, "read after an add refused")
             case Kind.removeCondition:
-                expectEqual(await recorder.asked(Kind.conditions, since: before), 2,
-                            "not read before the delete, or not after it was refused")
+                expectEqual(await recorder.asked(Kind.conditions, since: before), 1,
+                            "not read before the delete, or read after it was refused")
+                XCTAssertEqual(whyNotJustNow(model), refusal, row.name)
                 XCTAssertNil(model.recorderRulesFailure, "the list was read, and its screen says it was not")
                 XCTAssertTrue(model.recorderRules.contains { $0.id == subjects.rule.id })
             case Kind.deleteRecording:
