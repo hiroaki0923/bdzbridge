@@ -430,6 +430,11 @@ public final class RecorderDriver: LinkDriver {
     /// the permission -- or a connect that lost it after, has said why: the wait ends there as silence, with
     /// nothing read, kept or said, and its caller says nothing over that line. A let-go ends it as given up, with
     /// nothing kept or said, for a caller that asks whether the recorder was let go of before it says anything.
+    /// A check that heard something in place of the recorder saying which it is -- busy with somebody else, a
+    /// fault, something else at its address (`DeviceLink.heardInstead`) -- ends it with nothing more read and
+    /// nothing withheld, nil, and before its first read when what an earlier check heard still stands: an answer
+    /// that does not say which device gave it says nothing of the device asked next, and each caller then answers
+    /// as it does after such a check (`DeviceLink.mayBeSent`).
     public func settleTheSlot(for destination: String) async -> SlotSettled? {
         guard destination == RecorderDisk.usbID, let link, link.session.usbDiskUnanswered, !link.offline,
               link.client is RecorderClient else { return nil }
@@ -450,6 +455,8 @@ public final class RecorderDriver: LinkDriver {
             guard await Self.waitForAConnectOrACheck(of: link, by: settling), !link.letGo(since: began) else {
                 return .cancelled
             }
+            // What a check heard in place of the recorder says nothing of its slot: nothing more is read.
+            guard link.heardInstead == nil else { return nil }
             guard !link.offline, link.clientIsAttached, let client = link.client as? RecorderClient else {
                 return .silent
             }
@@ -522,7 +529,9 @@ public final class RecorderDriver: LinkDriver {
     /// answered the USB disk known since the recorder last answered -- from the attach on, a waking one above all --
     /// the slot is waited for (`settleTheSlot`). Nil when it may go: nothing had to be waited for -- another disk, a
     /// disk answered, a home with no USB disk, where nothing is asked -- or the slot answered a disk that is
-    /// offered, which is taken. Otherwise why not, with a disk not had put down in the session for the sheets
+    /// offered, which is taken. Nil too when a check heard something in place of the recorder while the slot was
+    /// waited for: nothing more was read, and the caller, asking whether it may send (`DeviceLink.mayBeSent`),
+    /// sends nothing. Otherwise why not, with a disk not had put down in the session for the sheets
     /// (`SessionState.diskNotHad`): a disk answered that takes no recordings is not had either. Nothing is put
     /// down when the recorder was let go of while the slot was waited for: the session is the newcomer's.
     public func withholds(_ disk: String) async -> Withheld? {
@@ -1615,7 +1624,11 @@ public final class RecorderDriver: LinkDriver {
     /// recorder is made sure of first, and woken if it is asleep (`DeviceLink.ensureUp`); when it cannot be, the
     /// check has said why. A USB disk the slot has not answered since the recorder last answered is waited for
     /// (`withholds`), and one not had is said as a reservation to it is, with no clashes asked; the slot
-    /// silent or given up on says nothing more.
+    /// silent or given up on says nothing more. Nor is the USB disk named while the slot has still not answered
+    /// it -- a check heard something in place of the recorder while it was waited for, or an earlier operation's
+    /// check did and nothing has heard the recorder since, which the make-sure here does not ask again: the slot
+    /// is not read, and nothing is asked or said, as for a slot given up on. That is looked at as the wait for
+    /// the slot ends, not again after the wait below for a connect or a check.
     ///
     /// No line of its own: it is asked as a programme's sheet opens, before anybody has asked for anything, and
     /// the line of what went wrong is left as it was by an answer. It is asked on the client the link holds once
@@ -1651,6 +1664,8 @@ public final class RecorderDriver: LinkDriver {
             }
             return nil
         }
+        // No clash check names the USB disk the slot has not answered as its wait for the slot ends.
+        guard disk != RecorderDisk.usbID || !link.session.usbDiskUnanswered else { return nil }
         // On the client the recorder was attached on, as the slot is read: a connect the check let through, still
         // to hear which recorder answers it, would meet a recorder it may be waking, and lose it mid-connect.
         guard await Self.waitForAConnectOrACheck(of: link, by: link.environment.slotSettling),
@@ -1957,7 +1972,8 @@ public final class RecorderDriver: LinkDriver {
     /// Unlike a television's, the check writes nothing on the line: what it heard is said by the operation it
     /// stops -- a read through the link, which says how it failed (`DeviceLink.say`), a write at its door. The
     /// recorder has a request the television has not, the question of what a reservation would clash with,
-    /// which goes on after such a check, reads nothing of what it heard, and leaves the line as it was.
+    /// which goes on after such a check, reads nothing of what it heard and leaves the line as it was -- but
+    /// asks nothing for a USB disk the slot has still not answered (`conflicts`).
     public func check(_ link: DeviceLink, client: any LinkClient) async -> (failure: DeviceFailure?, stranger: Bool) {
         guard let client = client as? RecorderClient else { return (.unexpected("not a recorder's client"), false) }
         do {

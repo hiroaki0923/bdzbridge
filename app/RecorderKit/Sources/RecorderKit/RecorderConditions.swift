@@ -107,6 +107,11 @@ extension RecorderDriver {
                 case .givenUp?:
                     return .notDone(Self.slotWaitGivenUp)
                 }
+                // What a check heard in place of the recorder while the slot was waited for, which ended the wait
+                // with the slot unanswered, stops it here, in the turn the wait ended in: the check below asks
+                // again, and the recorder answering that one would send a condition naming a disk the slot has not
+                // answered.
+                guard link.mayBeSent else { return .notDone(self.whyNotSent(on: link)) }
             }
             // Asked again whether it may be sent, after the slot: another operation's check may have heard
             // something in place of the recorder meanwhile. On the client the check is asked with then: a connect
