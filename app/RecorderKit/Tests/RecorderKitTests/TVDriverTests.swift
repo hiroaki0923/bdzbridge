@@ -343,7 +343,8 @@ final class TVDriverTests: XCTestCase {
 
     // MARK: - its reservations, after the attach
 
-    private nonisolated static let start = Date(timeIntervalSince1970: 1_793_534_400)
+    /// Nine in the evening in Japan on Sunday 23 October 2033, far ahead: a change's door reads the real clock.
+    private nonisolated static let start = Date(timeIntervalSince1970: 2_013_681_600)
     /// What the invented television holds here: a reservation that follows its programme, a reminder to watch
     /// that programme, and a newer reservation made by its times on another station.
     private nonisolated static let drama = DemoTV.Schedule(id: "recording.41", title: "サンプル劇場", start: start,
@@ -1044,10 +1045,10 @@ final class TVDriverTests: XCTestCase {
                                          serviceID: DemoTV.Station().serviceID, qualityCode: 100, eventID: 50102)
         // Held for what it would stop from recording, in the television's own sentence, so that sending it again
         // carries the reader's consent and is not left to a connect.
-        let reason = "この予約を入れると、次の予約は録画されません: サンプル劇場（サンプルテレビ 11/1（日）21:00）。"
+        let reason = "この予約を入れると、次の予約は録画されません: サンプル劇場（サンプルテレビ 10/23（日）21:00）。"
             + "「もう一度送る」を選ぶと、それでも予約します。"
         let held = PendingReservation(request: request, serviceName: DemoTV.Station().name,
-                                      queuedAt: Date(timeIntervalSince1970: 1_793_000_000), problem: reason,
+                                      queuedAt: Date(timeIntervalSince1970: 2_013_147_200), problem: reason,
                                       target: .tv)
         try await store.queue(held)
         XCTAssertEqual(driver.whyNotConnected, TVDriver.notConnected)
@@ -1278,7 +1279,7 @@ final class TVDriverTests: XCTestCase {
                                          broadcastingType: Codes.broadcasting["td"] ?? 0,
                                          serviceID: station.serviceID, qualityCode: 100, eventID: programme)
         return PendingReservation(request: request, serviceName: station.name,
-                                  queuedAt: Date(timeIntervalSince1970: 1_793_000_000), problem: reason,
+                                  queuedAt: Date(timeIntervalSince1970: 2_013_147_200), problem: reason,
                                   target: target)
     }
 
@@ -2333,8 +2334,8 @@ final class TVDriverTests: XCTestCase {
     /// anything else, and one with no reason, has nothing to ask. And what a screen says a reservation on
     /// the television will do, before the reader confirms it, to the letter.
     func testWhatIsAskedBeforeAHeldReservationIsMadeIsItsReasonWithoutItsLastSentence() {
-        let named = "この予約を入れると、次の予約は録画されません: 「サンプル天気」（サンプル放送 11/1 22:00）、"
-            + "視聴予約「サンプル番組」（サンプルテレビ 11/1 21:00）。"
+        let named = "この予約を入れると、次の予約は録画されません: 「サンプル天気」（サンプル放送 10/23 22:00）、"
+            + "視聴予約「サンプル番組」（サンプルテレビ 10/23 21:00）。"
         let tail = "「もう一度送る」を選ぶと、それでも予約します。"
         var held = waiting("サンプル劇場", 50101)
         held.problem = ScalarClient.wouldStop(naming: [Self.weather.row, Self.reminder.row])
@@ -2345,7 +2346,7 @@ final class TVDriverTests: XCTestCase {
         titled.title = tail
         held.problem = ScalarClient.wouldStop(naming: [titled.row])
         XCTAssertEqual(TVDriver.asks(of: held), "この予約を入れると、次の予約は録画されません: "
-                       + "「「もう一度送る」を選ぶと、それでも予約します。」（サンプル放送 11/1 22:00）。")
+                       + "「「もう一度送る」を選ぶと、それでも予約します。」（サンプル放送 10/23 22:00）。")
 
         held.problem = "テレビのチャンネル一覧にこの局が見つかりませんでした。"
         XCTAssertNil(TVDriver.asks(of: held), "a row held for its station")
