@@ -28,9 +28,9 @@ struct TitleSheet: View {
     private var listed: Bool { model.titles.contains { $0.id == title.id } }
 
     /// Whether the sheet is to close for a recording gone from the list: once nothing of its own is out or up --
-    /// a request, or an alert, whose closing closes it then.
+    /// a request, or an alert, the delete's question among them, whose closing closes it then.
     private var goneFromTheList: Bool {
-        !listed && !asking && !deleted && failure == nil && told == nil
+        !listed && !asking && !deleted && failure == nil && told == nil && !confirmingDelete
     }
 
     /// What the sheet asked for and did not come to pass, said in its alert: the recorder's answer, or why
