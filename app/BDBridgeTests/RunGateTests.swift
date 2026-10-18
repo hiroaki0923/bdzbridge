@@ -1496,14 +1496,19 @@ final class RunGateTests: XCTestCase {
         var before = await recorder.asked
         try await waiting(.delete, [idle[0].id, idle[1].id])
         expectTrue(await deleteARecording(model, idle[1]), model.problem(for: .recorder) ?? "no reason given")
+        // The run still waits for the app's return, and has asked nothing.
+        expectEqual(await recorder.asked(Ask.details, since: before), 1,
+                    "the single delete did not ask first, or asked twice")
+        expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 1, "the single delete's own")
+        let afterTheDelete = await recorder.asked
         await model.returnedToForeground()
         try await untilTheRunEnds(model)
         XCTAssertEqual(model.job?.changed, [idle[0].id])
         XCTAssertEqual(model.job?.skipped, [skip(idle[1], "一覧に見つかりません")])
-        expectEqual(await recorder.asked(Ask.details, since: before), 2,
-                    "the run asked about a recording that had left the list, or the single delete did not ask first")
-        expectEqual(await recorder.asked(Ask.deleteRecording, since: before), 2,
-                    "the single delete and the run's first, and no other")
+        expectEqual(await recorder.asked(Ask.details, since: afterTheDelete), 1,
+                    "the run asked about a recording that had left the list, or not about the one still there")
+        expectEqual(await recorder.asked(Ask.deleteRecording, since: afterTheDelete), 1,
+                    "the run's first, and no other")
 
         // Protected from its sheet meanwhile.
         before = await recorder.asked

@@ -872,6 +872,37 @@ final class HostGateTests: XCTestCase {
         bench.theLinksPermissionComes()
     }
 
+    /// A television that wants registering again, and is then kept off the local network, its connect waiting
+    /// for the permission: the strip says the permission, with the way to the switch, ahead of the registration,
+    /// as it does ahead of a television given up on; the registration still stands, the connect having reached
+    /// no attach, and Settings shows the permission's notice.
+    func testATelevisionKeptOffTheLocalNetworkWhileItWantsRegisteringSaysThePermissionFirst() async throws {
+        let home = try await atHomeWithATelevision()
+        let (bench, television, model, link) = (home.bench, home.television, home.model, home.link)
+        let registered = try XCTUnwrap(home.credentials.load(), "the television was meant to be registered")
+        home.credentials.save(TVCredentials(clientID: "BDBridge:test", cookie: "run out"))
+        await home.host.loadReservations()
+        XCTAssertEqual(model.tvDriver?.facts.needsPairing, true, "the television was meant to want registering again")
+        bench.linksAreKeptOff = true
+        await television.goSilent()
+
+        await link.connect()
+
+        guard link.session.connectBlocked else {
+            return XCTFail("a television silent behind the permission was not waited for")
+        }
+        XCTAssertEqual(model.tvDriver?.facts.needsPairing, true, "the registration wanted was forgotten with no attach")
+        XCTAssertEqual(model.strip(), .blocked, "the registration was said ahead of the permission")
+        XCTAssertTrue(model.lanBlocked, "Settings shows no notice for a television kept off")
+
+        // Ended by a connect that went through, so that nothing is left waiting after the test.
+        home.credentials.save(registered)
+        await television.goSilent(false)
+        await link.connect()
+        XCTAssertTrue(link.session.connected, "the television did not come back")
+        bench.theLinksPermissionComes()
+    }
+
     /// Lets what the end of a wait for the permission sets going -- a connect, from a wait nobody ended -- come as
     /// far as making its client: the wait's task resumes on the main actor after a turn elsewhere, and is given
     /// that many turns, as the gates of a run give one to get to its wait.
