@@ -795,9 +795,10 @@ extension LiveRecorderTests {
     ///         swift test --filter LiveRecorderTests/testAConditionDeletedTwice
     ///
     /// It prints the second delete's answer -- "succeeded", or the action, the HTTP status, the code and what the
-    /// app makes of it -- and asserts nothing of it. It deletes what it made on any failure, and prints counts and
-    /// codes, never a condition's name or keywords but its own. A condition on its keyword left by an earlier run
-    /// is named and left alone.
+    /// app makes of it -- and asserts what a BDZ-FBT4100 answered when this was first run: refused, HTTP 500, UPnP
+    /// error 892, which the driver reads as a condition the recorder no longer holds (`RecorderDriver.removeRule`).
+    /// It deletes what it made on any failure, and prints counts and codes, never a condition's name or keywords
+    /// but its own. A condition on its keyword left by an earlier run is named and left alone.
     func testAConditionDeletedTwice() async throws {
         guard ProcessInfo.processInfo.environment["RECORDER_WRITE"] == "1" else {
             throw XCTSkip("set RECORDER_WRITE=1 to let this write to the recorder")
@@ -879,9 +880,16 @@ extension LiveRecorderTests {
         do {
             try await client.deleteRecorderRule(id: deleted)
             print("the second delete: succeeded")
+            XCTFail("the recorder took the delete of a condition it no longer holds")
         } catch {
             let failure = (error as? RecorderError).map { "\($0.failure)" } ?? "-"
             print("the second delete: \(Self.code(error)); taken as \(failure)")
+            guard case RecorderError.soap(let action, let status, let code, _) = error else {
+                return XCTFail("the second delete was not refused with a code: \(Self.code(error))")
+            }
+            XCTAssertEqual(action, "X_DeletePrefRecSetting")
+            XCTAssertEqual(status, 500)
+            XCTAssertEqual(code, "892", "the recorder refused a condition it no longer holds with another code")
         }
         let after = try await client.recorderRules()
         print("keyword conditions before \(before.count), after \(after.count)")

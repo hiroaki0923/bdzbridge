@@ -333,6 +333,35 @@ final class ClientQueueTests: XCTestCase {
         XCTAssertEqual(cancelled.deleted, .notDone(RecorderDriver.anotherAnswered))
     }
 
+    /// A keyword condition's delete the recorder answers as holding no such condition (892) once it has been let
+    /// go of -- forgotten while the delete was out -- reads nothing after it, the list to read being the
+    /// newcomer's, and says why it was let go of (`whyLetGo`), not what the recorder let go of answered: that
+    /// another recorder answered, with nothing written on the line.
+    func testAConditionsDeleteAnsweredAsNotHeldAcrossALetGoSaysWhyItWasLetGoOf() async throws {
+        let list = try Vectors.load("xsrs.json").dictionary("recorder_rules").string("list_result")
+        var answers = Self.answers
+        answers["X_GetPrefRecSettingList"] = [Stub.soap("X_GetPrefRecSettingList", result: list)]
+        answers["X_DeletePrefRecSetting"] = [Stub.fault("892")]
+        let (world, link, recorder) = try await connected(answers)
+        let driver = try XCTUnwrap(link.driver as? RecorderDriver)
+        let listed = await driver.recorderRules().list
+        let rule = try XCTUnwrap(listed?.first, world.problem ?? "no list read")
+        await recorder.forget()
+        world.problem = nil
+        await recorder.holdTheNext("X_DeletePrefRecSetting")
+        let deleting = Task { await driver.removeRule(rule) { _ in } }
+        try await recorder.whenHeld()
+
+        link.forgetTheDevice()
+        await recorder.letGo()
+        let deleted = try await within(10, "the delete never came back") { await deleting.value }
+
+        expectEqual(await recorder.actions, ["X_GetPrefRecSettingList", "X_DeletePrefRecSetting"],
+                    "the list was read after a delete answered once the recorder was let go of")
+        XCTAssertEqual(deleted, .notDone(RecorderDriver.anotherAnswered))
+        XCTAssertNil(world.problem, "the delete wrote on the line")
+    }
+
     // MARK: - what still goes
 
     /// A connect to the same recorder makes a client of its own and lets go of nothing: a request held on the

@@ -674,11 +674,12 @@ final class RecorderHost: RecorderLinkHost {
     }
 
     /// Delete only, never edit (`RecorderDriver.removeRule`), which reads the list first, sending nothing for a
-    /// condition not in it as shown (`RecorderDriver.conditionNotInList`), and again after any answer, both kept
-    /// as a condition added has its list kept: a refusal may be of a number the recorder no longer has. What it
-    /// came to, for the screen to say: a refusal is said there, and the read after it clears the line when it
-    /// goes through, as the read after a reservation's delete refused so does, or says its own failure when it
-    /// does not. Counted while it is out, both reads among it, as a condition added is.
+    /// condition not in it as shown (`RecorderDriver.conditionNotInList`), and again after a delete that went
+    /// through or that the recorder refused as holding no such condition, both kept as a condition added has its
+    /// list kept. What it came to, for the screen to say: any other refusal is said there and stays on the line,
+    /// nothing being read after it; after the recorder's "no such condition" the read after it clears the line
+    /// when it goes through, or says its own failure when it does not. Counted while it is out, both reads among
+    /// it, as a condition added is.
     func removeRecorderRule(_ rule: RecorderRule) async -> Altered {
         let said = self.said
         await model?.start()
