@@ -784,6 +784,13 @@ public final class TVDriver: LinkDriver {
     /// (`listing`) -- whether a television is in play (`inPlay`), and, once the row has been taken out, that
     /// the queue on screen is to be read again (`queueWritten`).
     ///
+    /// Handed these rather than reading a link of its own, as the recorder's delete does
+    /// (`RecorderDriver.deleteWaiting`), because a television's link is replaced -- taken away, registered
+    /// again, the demo begun or ended -- and can be gone while the delete waits for the turn: what counts is
+    /// the television in play as the turn comes. A step that read its own link would say of a television
+    /// taken away meanwhile that the row was sent to it (`madeBeforeItsDelete`), where nothing is said. The
+    /// recorder's link is never replaced, only let go of, so its step reads its own.
+    ///
     /// What it cannot tell: a row whose create the television took and whose answer was lost is deleted
     /// unsent, with nothing said, when the list cannot be read -- as it often cannot, a television that was
     /// silent to the action being silent to the app as well -- and the television keeps the reservation.

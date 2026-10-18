@@ -56,7 +56,8 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `TVDriver.swift` | What is particular to a television in a link: asked whether it is on and never woken, told apart by the MAC it wakes on, renewed while registered; and its reservations -- read, made, changed and deleted, what waits for it sent, sent again and deleted |
 | `TVSchedule.swift` | One row of a television's schedule list as read, kept in the television's own spellings, and the rule that finds it again before a change or a delete |
 | `TVReservation.swift` | A station as a television lists it, and what the two reservation requests send for one reservation on it |
-| `TVNoScreen.swift` | The television's runs with no screen, which have no link: the one attempt at the television, what a sending came to, for either device, and what is said of it; and the rule of what is told once and kept between runs (`TVTold.after`), with a device's own words for it (`NoScreenWords`), which the recorder's runs tell by as well |
+| `TVNoScreen.swift` | The television's runs with no screen, which have no link: the one attempt at the television, what is said of what it came to, and the television's words for what is told once (`NoScreenWords.television`) |
+| `NoScreen.swift` | What the runs with no screen of either device share: what a sending came to (`NoScreenSending`), and the rule of what is told once and kept between runs (`ToldOnce.after`), with a device's own words for it (`NoScreenWords`) and the notices it comes to (`NoScreenNotices`) |
 | `DemoTV.swift` | An invented BRAVIA that answers in the real one's shapes, for the tests and the demo |
 | `DemoRecorder.swift` | An invented BDZ-FBT4100 that answers in the real one's XML and remembers what is done to it, for the demo and the tests |
 | `DemoLineUp.swift` | The invented stations and their days the demo's guide, recorder and television are made of |
