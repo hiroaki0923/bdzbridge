@@ -619,6 +619,12 @@ actor NamedRecorder: HTTPTransport {
         told[what] = (answer, times, skipping)
     }
 
+    /// Answers requests of one kind as the demo's would from now on: what `answer` told it for that kind is
+    /// forgotten, however many times were left.
+    func stopAnswering(_ what: String) {
+        told[what] = nil
+    }
+
     /// Busy with somebody else for one whole call of one kind: a 503 to the request and to both tries the client
     /// makes after it, which is three in `asked`. Fewer than three is a call that goes through late.
     func beBusy(with what: String, after skipping: Int = 0) {
