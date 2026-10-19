@@ -89,7 +89,8 @@ public protocol LinkHost: AnyObject, Sendable {
     /// A bulk job is under way, its requests going on the client in hand, or something else the host's requests
     /// are out for over many turns -- the recorder's guide after a connect: no connect starts beside it, which
     /// would put a client that has yet to hear which device answers in that one's place. A connect turned away
-    /// for it is owed, and made once the host says the hold has lifted (`DeviceLink.connectIfOwed`).
+    /// for it is owed, and made once the host says the hold has lifted (`DeviceLink.connectIfOwed`), unless
+    /// silence met the device meanwhile (`DeviceLink.lost`).
     var holdsOffConnect: Bool { get }
     /// The invented device of the demo is in play.
     var isDemo: Bool { get }
@@ -288,7 +289,7 @@ public final class DeviceLink {
     @ObservationIgnored private var settling: Task<Void, Never>?
     /// A connect the hold-off turned away (`LinkHost.holdsOffConnect`), noted by the device it was for
     /// (`generation`): owed, and made once the hold lifts (`connectIfOwed`). Nil when none is owed: none was
-    /// turned away, or an attach, a let-go or the app's leaving has since dropped it.
+    /// turned away, or an attach, a let-go, silence met since (`lost`) or the app's leaving has dropped it.
     @ObservationIgnored private var owedSince: Int?
     @ObservationIgnored public weak var owner: (any LinkHost)?
     @ObservationIgnored public let driver: any LinkDriver
@@ -328,8 +329,11 @@ public final class DeviceLink {
     /// would be two conversations with a device that answers the second with 503 -- and a check already waking
     /// this device is waited for rather than started again. One turned away so is owed, and made once the hold
     /// lifts (`connectIfOwed`): whatever asked for it -- a return to the app, a look that found another network --
-    /// asked for what it does, the lists read again and what waits sent among it. The reader's 再接続 is not
-    /// offered while a job runs.
+    /// asked for what it does, the lists read again and what waits sent among it. Unless a silence meets the
+    /// device first (`lost`): a link that has given up asks again only when the network changes or the reader
+    /// asks, and what asked for the connect came before the silence. The reader's 再接続 is not offered while a
+    /// job runs; pressed after such a silence, while the guide a connect started is still out, it is owed again,
+    /// and made.
     public func connect() async {
         guard !host.isEmpty, !session.connecting else { return }
         if owner?.holdsOffConnect ?? false {
@@ -410,17 +414,21 @@ public final class DeviceLink {
     }
 
     /// Leaves the app where a connect that got no answer leaves it: not connected, given up until the network
-    /// changes or the reader asks. Every request that meets silence comes here. Where the app tried is left as it
-    /// was; when the network did move meanwhile, the looks that followed its report are set going again.
+    /// changes or the reader asks. Every request that meets silence comes here. A connect owed is owed no more:
+    /// whatever asked for it came before the silence, and is not the network changing or the reader asking. Where
+    /// the app tried is left as it was; when the network did move meanwhile, the looks that followed its report
+    /// are set going again, with a connect of their own.
     public func lost() {
+        owedSince = nil
         session.lost()
         if session.link.sawAnotherNetwork { networkReported() }
     }
 
     /// The hold-off has lifted (`LinkHost.holdsOffConnect`): the connect it turned away is made now, once, unless
     /// something has dropped it since -- an attach, which did what it would have done; a let-go, after which the
-    /// device it was asked for is not the one in play; the app's leaving (`dropTheConnectOwed`). Nothing when
-    /// none is owed.
+    /// device it was asked for is not the one in play; silence met by whatever held it off or by anything else
+    /// (`lost`), after which the link has given up; the app's leaving (`dropTheConnectOwed`). Nothing when none
+    /// is owed.
     public func connectIfOwed() async {
         guard let owed = owedSince else { return }
         owedSince = nil

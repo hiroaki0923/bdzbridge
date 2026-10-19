@@ -1081,9 +1081,9 @@ final class DeviceLinkTests: XCTestCase {
     }
 
     /// A connect held off is owed no more once something has done what it would have, or made it pointless: an
-    /// attach meanwhile, a let-go of the device it was asked for, the app's leaving. The hold lifted, nothing is
-    /// asked.
-    func testAConnectHeldOffIsDroppedByAnAttachALetGoOrTheAppsLeaving() async {
+    /// attach meanwhile, a let-go of the device it was asked for, the app's leaving, silence met after it was
+    /// owed. The hold lifted, nothing is asked.
+    func testAConnectHeldOffIsDroppedByAnAttachALetGoTheAppsLeavingOrASilence() async {
         let world = LinkWorld()
         place(in: world)
         let link = makeLink(world)
@@ -1094,6 +1094,7 @@ final class DeviceLinkTests: XCTestCase {
             }),
             ("a let-go", { link.forgetTheDevice() }),
             ("the app's leaving", { link.dropTheConnectOwed() }),
+            ("a silence after it was owed", { link.lost() }),
         ]
         for (what, drop) in ways {
             world.holdsOffConnect = true
