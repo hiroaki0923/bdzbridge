@@ -354,6 +354,36 @@ final class TVNoScreenTests: XCTestCase {
         expectEqual(await gate.asked.filter { $0 == Self.disk }.count, 2, "the newer cookie was not tried")
     }
 
+    /// A run with no round is handed when the cookie in the store arrived as the run began, not as its turn
+    /// came: what it found -- here, another television answering -- was found of the television as registered
+    /// then, before it asked for the turn. The cookie in the store changes as the MAC is read: a registration
+    /// made as the run reads it.
+    func testARunWithNoRoundIsHandedTheCookieInTheStoreAsItBegan() async throws {
+        let arrived = Date(timeIntervalSince1970: 1_793_000_000)
+        let later = Date(timeIntervalSince1970: 1_793_000_600)
+        let television = DemoTV(mac: "f8:4e:17:00:00:0b")
+        await television.knows(Self.kept.clientID, cookie: "kept")
+        await television.receives([DemoTV.Station()])
+        let gate = TVGate(television)
+        let store = try temporaryStore()
+        try await store.queue(row("サンプル劇場", 50101, at: 60))
+        let credentials = MemoryTVCredentials(TVCredentials(clientID: Self.kept.clientID, cookie: "kept",
+                                                            cookieReceived: arrived))
+        await gate.before(Self.mac) {
+            credentials.save(TVCredentials(clientID: Self.kept.clientID, cookie: "kept again", cookieReceived: later))
+        }
+        let client = ScalarClient(host: Stub.host, transport: gate, credentials: credentials)
+
+        let ran = await TVDriver.sendWithNoScreen(client, store: store, knownAs: DemoTV.mac, now: Self.now) {
+            sending, registration, before in (sending, registration, before)
+        }
+
+        XCTAssertEqual(ran.sending, .anotherAnswered, "the run was meant to find another television")
+        XCTAssertEqual(ran.after.0, .anotherAnswered)
+        XCTAssertEqual(ran.after.1, arrived, "a run with no round was handed the cookie of its turn, not its own")
+        XCTAssertFalse(ran.after.2, "a run with no round was handed as refused for the cookie before")
+    }
+
     /// One attempt from a home of `rows`, bent first as a test says.
     private func run(_ rows: [PendingReservation], credentials: TVCredentials? = TVNoScreenTests.kept,
                      _ bend: (Home) async -> Void = { _ in }) async -> NoScreenSending {

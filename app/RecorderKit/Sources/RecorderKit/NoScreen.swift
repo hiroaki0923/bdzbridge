@@ -98,10 +98,10 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     public var rows: Set<String>
     /// The television's alone: the registration what is kept was learnt under -- when the cookie of the
     /// registration that the round of the run that learnt it began under arrived, or, with no round, the one in
-    /// the store as that run's own turn began (`TVCredentials.cookieReceived`, handed on by
-    /// `TVDriver.sendWithNoScreen`) -- nil for none. A run that learnt nothing carries it on as it was. A
-    /// registration made again forgets once more in the queue's turn, after a run that was telling then, only
-    /// what is kept under a cookie from before it.
+    /// the store as that run began (`TVCredentials.cookieReceived`, handed on by `TVDriver.sendWithNoScreen`) --
+    /// nil for none. A run that learnt nothing carries it on as it was. A registration made again forgets
+    /// once more in the queue's turn, after a run that was telling then, only what is kept under a cookie
+    /// from before it.
     public var registration: Date?
 
     public init(stop: Stop? = nil, rows: Set<String> = [], registration: Date? = nil) {

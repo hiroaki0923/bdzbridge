@@ -1740,6 +1740,71 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertNil(kept.value, "what was told under the registration before is kept after the registration")
     }
 
+    /// A run with no round -- another television answering at the address -- that found that before the
+    /// television was registered again, and waits for the queue's turn behind a sending of the screens' as it
+    /// is: what it found was of the registration before, and the registration's forgetting in the turn, which
+    /// comes after the run's telling, forgets it, and takes its notices away, as it does what a round begun
+    /// before the registration found. The screens' sending is held at the disk's read, in the turn; the run,
+    /// begun meanwhile on a way of its own to another television, reads the MAC and is given the main actor's
+    /// turns to have asked for the queue's turn behind it. The television is registered again, whose connect
+    /// does not come back while the screens' sending is held. Something is set as kept after the
+    /// registration's forgetting at once, for the run to read in its turn. Once the registration is back and
+    /// the queue's turn has come round, nothing the run found is kept.
+    func testARunWithNoRoundWaitingForTheTurnAsTheTelevisionIsRegisteredAgainKeepsNothing() async throws {
+        let home = try await launch(with: NamedRecorder(1))
+        let (model, door) = (home.model, home.door)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        try await afterTheQueuesTurn()
+        let host = try XCTUnwrap(model.tvHost)
+        try await home.store.queue(forTheTelevision(Self.dueRow))
+        let kept = KeptIn(model.defaults, DefaultsKey.tvTold)
+        let another = DemoTV(mac: "f8:4e:17:00:00:0b")
+        let client = ScalarClient(host: Bench.tvHost, transport: another, credentials: model.surroundings.tvCredentials)
+        let theirs = try GuideStore(path: try model.guidePath())
+        let readsTheMAC = "getSystemSupportedFunction cookie=no pin=no"
+        await door.hold(only: Self.tvDiskRead)
+
+        let screens = Task { await host.refreshReservations() }
+        try await until("the screens' sending never reached the disk") { await door.isHolding }
+        let read = Read()
+        let run = Task {
+            await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: DemoTV.mac,
+                                                     told: {
+                let told = kept.value
+                read.note(told)
+                return told ?? ToldOnce()
+            }, nextRun: Self.nextRun, tell: { _, _, told in kept.value = told })
+        }
+        try await until("the run never read the MAC") { await another.calls.contains(readsTheMAC) }
+        // Turns for the run, its MAC read, to have asked for the queue's turn behind the screens' sending.
+        for _ in 0..<10_000 { await Task.yield() }
+
+        kept.value = ToldOnce(stop: .registration)
+        let returned = Returned()
+        let registering = Task {
+            let registered = await model.registerTV(at: Bench.tvHost, pin: nil)
+            returned.yes = true
+            return registered
+        }
+        try await until("the registration never forgot what was told") { kept.value == nil }
+        let marker = ToldOnce(stop: .disk)
+        kept.value = marker
+        for _ in 0..<100_000 where !returned.yes { await Task.yield() }
+        XCTAssertFalse(returned.yes, "the registration's connect sent what waits while the screens' sending was held")
+        await door.letGo()
+        try await within(10, "the screens' sending never ended") { await screens.value }
+        let ran = try await within(10, "the run never ended") { await run.value }
+        let registered = try await within(10, "the registration never came back") { await registering.value }
+        try await afterTheQueuesTurn(until: { kept.value == nil })
+
+        XCTAssertEqual(read.value, marker,
+                       "set up wrong: the registration's forgetting in the turn came before the run's telling")
+        XCTAssertEqual(ran.sending, .anotherAnswered, "the run was meant to find another television")
+        XCTAssertEqual(registered, .registered)
+        XCTAssertNil(kept.value, "what a run with no round found before the registration is kept after it")
+    }
+
     /// A registration made while a run with no screen has its round out, the round then stopping for want of
     /// a registration: what it heard was of the cookie before, and what the run tells once asks for no
     /// registration -- not 「…登録…」 posted, to be taken away a moment later by the registration's forgetting

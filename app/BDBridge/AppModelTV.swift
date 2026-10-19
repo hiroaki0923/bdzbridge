@@ -298,7 +298,8 @@ extension AppModel {
             // A run waiting for the turn now whose round sends with this registration, or with a cookie the
             // television has given since, and learns something keeps what it finds under either, and that stays;
             // a run that learns nothing carries on the registration of what was told before, none after the
-            // forgetting at once, and what it keeps goes.
+            // forgetting at once, and what it keeps goes. So does what a run with no round found before the
+            // registration.
             if !demo {
                 let registration = credentials.load()?.cookieReceived
                 Task { [weak self] in
