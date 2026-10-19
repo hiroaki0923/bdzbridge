@@ -267,7 +267,8 @@ final class RecorderHost: RecorderLinkHost {
     /// it is out for the recorder still in play: a second connect would put a client of its own beside the
     /// refresh's files. A let-go lifts the refresh's hold at once, so that the connect whoever let go makes is
     /// not kept behind a refresh of the recorder let go of, which may still be waiting its turn behind another.
-    /// A connect turned away for either is made once it ends (`DeviceLink.connectIfOwed`).
+    /// A connect turned away for either is made once it ends (`DeviceLink.connectIfOwed`), unless silence met the
+    /// recorder after it was turned away (`DeviceLink.lost`).
     var holdsOffConnect: Bool {
         jobRunning || guideAfterAConnect.map { !link.letGo(since: $0) } ?? false
     }
@@ -412,11 +413,12 @@ final class RecorderHost: RecorderLinkHost {
     /// fetched again. Started in the connect's last turn, so that the connect's end and the refresh being out are
     /// never apart (`refreshesTheGuideAfterAConnect`), and asked for in the task's first turn, for the recorder it
     /// was started for or not at all: its line goes up there. While it is out for the recorder still in play it
-    /// holds a second connect off (`holdsOffConnect`), and a connect turned away meanwhile is made once it ends.
-    /// From the screens that is, in practice, 再接続 or a pull-down in the few turns after a refresh that met
-    /// silence has taken its line down. A return in the turn before its line is up, or after a refresh that went
-    /// through, finds the recorder's last answer fresh and asks for nothing; while 番組表を取得中 stands, no 再接続
-    /// is offered, and a return or a look at the network only looks, as beside any line.
+    /// holds a second connect off (`holdsOffConnect`), and a connect turned away meanwhile is made once it ends,
+    /// unless silence met the recorder after it was turned away (`DeviceLink.lost`). From the screens that is, in
+    /// practice, 再接続 or a pull-down in the few turns after a refresh that met silence has taken its line down.
+    /// A return in the turn before its line is up, or after a refresh that went through, finds the recorder's
+    /// last answer fresh and asks for nothing; while 番組表を取得中 stands, no 再接続 is offered, and a return or a
+    /// look at the network only looks, as beside any line.
     private func refreshTheGuideAfterTheConnect(_ model: AppModel) {
         guideRefreshesStarted += 1
         let this = guideRefreshesStarted

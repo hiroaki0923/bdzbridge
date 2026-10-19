@@ -544,7 +544,7 @@ final class QueueGateTests: XCTestCase {
             leaveALine(on: model)
             if silent { await recorder.goQuiet(on: Kind.create) } else { await recorder.beBusy(with: Kind.create) }
             await recorder.letGo()
-            let came = await asking.value
+            let came = try await within(10, "\(name): the row sent again never came back") { await asking.value }
             try await untilIdle(model)
 
             XCTAssertEqual(came, .notDone(silent ? Said.mayHaveArrived : Said.anotherAnswered), name)

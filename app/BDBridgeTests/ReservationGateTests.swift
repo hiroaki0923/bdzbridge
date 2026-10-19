@@ -699,10 +699,12 @@ final class ReservationGateTests: XCTestCase {
                 await recorder.letGo()
 
                 if let deleting {
-                    expectFalse(await deleting.value, "a delete asked of the recorder let go of went to the newcomer")
+                    expectFalse(try await within(10, "\(what): the delete never came back") { await deleting.value },
+                                "a delete asked of the recorder let go of went to the newcomer")
                 }
                 if let changing {
-                    expectEqual(await changing.value, .notDone(Said.anotherAnswered), what)
+                    expectEqual(try await within(10, "\(what): the change never came back") { await changing.value },
+                                .notDone(Said.anotherAnswered), what)
                 }
                 expectEqual(await recorder.asked(write.rawValue, since: sent), 0, "\(what) was sent")
                 XCTAssertEqual(model.problem(for: .recorder), lineLeft, "\(what) wrote on the newcomer's line")
@@ -727,6 +729,8 @@ final class ReservationGateTests: XCTestCase {
 
             await recorder.become(2)
             await model.connect()
+            // And the newcomer's guide, which its connect started and did not wait for.
+            try await until("\(write.name): the newcomer's guide was never fetched") { !isConnecting(model) }
             XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
             await recorder.goQuiet(on: write.rawValue)
             await recorder.letGo()
@@ -756,6 +760,8 @@ final class ReservationGateTests: XCTestCase {
 
             await recorder.become(2)
             await model.connect()
+            // And the newcomer's guide, which its connect started and did not wait for.
+            try await until("\(write.name): the newcomer's guide was never fetched") { !isConnecting(model) }
             XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
             leaveALine(on: model)
             await recorder.letGo()
@@ -899,7 +905,7 @@ final class ReservationGateTests: XCTestCase {
         XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
         await recorder.goQuiet(on: Kind.create)
         await recorder.letGo()
-        let came = await reserving.value
+        let came = try await within(10, "the reservation across the arrival never came back") { await reserving.value }
         try await untilIdle(model)
 
         XCTAssertEqual(came, .notDone(Said.mayHaveArrived))

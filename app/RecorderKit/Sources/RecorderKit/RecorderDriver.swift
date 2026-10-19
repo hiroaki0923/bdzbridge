@@ -568,8 +568,14 @@ public final class RecorderDriver: LinkDriver {
     /// way must not leave the app given up on a recorder that is coming up. The line of what went wrong is
     /// cleared as it begins and says so when the recorder does not answer, but for a line that says something
     /// sent may have arrived, which stays as it is.
+    ///
+    /// It ends at the next probe once its client is retired -- the recorder let go of: another chosen, another
+    /// that described itself on a connect -- and says nothing, since what let go of the recorder says why and the
+    /// line is the newcomer's; no packet goes for the recorder let go of from then on. Its task is never
+    /// cancelled, so a waking that comes to nothing so is one whose client was retired.
     public func wakeAndAttach(_ link: DeviceLink, client: any LinkClient) async -> Bool {
         guard link.session.unreachable, link.session.mac != nil else { return false }
+        let began = link.generation
         sendPacket(link)   // again: the attempt sends one too, and a second costs nothing
         let owner = link.owner
         // Nothing is wrong yet, so nothing on screen should say there is; but that something sent may have arrived
@@ -584,7 +590,9 @@ public final class RecorderDriver: LinkDriver {
         let limit = wakingLimit, interval = wakingInterval
         let outcome = await Task {
             await Waking.waitForAnswer(from: client, limit: limit, interval: interval,
-                                       resend: { @MainActor in self.sendPacket(link) },
+                                       resend: { @MainActor in
+                                           if !link.letGo(since: began) { self.sendPacket(link) }
+                                       },
                                        waited: { @MainActor seconds in
                                            guard let activity else { return }
                                            owner?.updateActivity(activity, to: Self.wakingLine(seconds))
@@ -593,6 +601,8 @@ public final class RecorderDriver: LinkDriver {
         if outcome == .answered {
             return await attach(link, client: client, what: "接続中", timeout: probeTimeout, quiet: false)
         }
+        // The client retired: the recorder was let go of, and whatever let go of it has said why.
+        if outcome == .cancelled { return false }
         if !Self.saysItMayHaveArrived(owner?.problem) {
             owner?.problem = "レコーダーが応答しません。電源とネットワーク接続を確認してください。"
         }

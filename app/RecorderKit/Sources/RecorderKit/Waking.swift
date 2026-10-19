@@ -16,7 +16,9 @@ public enum Waking {
         /// The limit passed with no answer. An error is no answer either: a 503 is the recorder busy with
         /// somebody else, and one still starting up may answer anything.
         case silent
-        /// The caller's task was cancelled. A request already under way was finished first (`SerialQueue`).
+        /// The caller's task was cancelled -- a request already under way was finished first (`SerialQueue`) -- or
+        /// the client is one a link has retired, its device let go of: it sends nothing more, and what answers
+        /// at its address is not the device it was made for (`DeviceLetGo`).
         case cancelled
     }
 
@@ -49,7 +51,12 @@ public enum Waking {
         while Date().timeIntervalSince(started) < limit {
             if Task.isCancelled { return .cancelled }
             await waited(Int(Date().timeIntervalSince(started)))
-            if (try? await client.probe(timeout: probeTimeout)) != nil { return .answered }
+            do {
+                try await client.probe(timeout: probeTimeout)
+                return .answered
+            } catch is DeviceLetGo {
+                return .cancelled
+            } catch {}
             // A cancelled sleep throws at once. Passed over with `try?`, a cancelled wait went round without
             // sleeping, a probe after a probe, with the overnight task already completed.
             do {

@@ -185,6 +185,41 @@ final class SessionRuleTests: XCTestCase {
         expectEqual(try await store.pendingReservations(), [], "the reservation waiting is waiting still")
     }
 
+    /// Nor if the job met silence meanwhile: the recorder is given up on, and a link that has given up asks again
+    /// only when the network changes or the reader asks, which what asked for the connect, coming before the
+    /// silence, is not. The job's line stands once it has ended, with no 接続中 after it and nothing asked; 再接続
+    /// is the reader's, as on any link given up.
+    func testAConnectAskedForDuringAJobIsNotMadeOnceTheJobHasMetSilence() async throws {
+        let bench = try aBench()
+        let recorder = NamedRecorder(1)
+        let model = try await started(bench, recorder: recorder)
+        XCTAssertTrue(model.connected)
+        addTeardownBlock { await recorder.letGo() }
+        await model.loadTitles()
+        let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+        await recorder.hold(only: "X_GetTitleDetail")
+        model.startBulk(.delete, ids: [title.id])
+        try await until("the job never asked about the recording") { await recorder.asked("X_GetTitleDetail") > 0 }
+        let before = await recorder.asked
+
+        try await within(5, "a connect waited on the job") { await model.connect() }
+        expectEqual(await recorder.asked("description.xml", since: before), 0, "a connect started beside the job")
+
+        await recorder.goQuiet(on: "X_GetTitleDetail")
+        await recorder.letGo()
+        try await until("the job never finished") { model.job?.finished == true }
+        XCTAssertTrue(model.gaveUp, "the job's silence did not give the recorder up")
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the job's silence was not said")
+        // A connect owed would begin in the turn the job is marked finished in, so idle is after it.
+        try await untilIdle(model, "a connect made once the job had ended never ended")
+        for _ in 0..<10_000 { await Task.yield() }
+        expectEqual(await recorder.asked("description.xml", since: before), 0,
+                    "the connect asked for during the job was made after the job met silence")
+        XCTAssertTrue(model.gaveUp, "the recorder given up on was taken up again unasked")
+        XCTAssertEqual(model.problem(for: .recorder), Said.noAnswer, "the job's silence was written over")
+        XCTAssertFalse(model.connected)
+    }
+
     /// A connect asked for during a job is not made once the job has ended if the app has left meanwhile: iOS
     /// suspends it soon after, and the connect would meet silence. Coming back asks afresh what that is worth.
     func testAConnectAskedForDuringAJobIsNotMadeOnceItHasEndedWithTheAppAway() async throws {

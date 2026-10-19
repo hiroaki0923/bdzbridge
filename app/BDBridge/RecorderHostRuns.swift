@@ -162,7 +162,8 @@ extension RecorderHost {
 
     /// The job is over: it no longer holds a connect off (`holdsOffConnect`), and a connect turned away while it
     /// ran -- a return to the app, a look that found another network -- is made now (`DeviceLink.connectIfOwed`),
-    /// as it would have been without the job. The last thing either loop does.
+    /// as it would have been without the job: unless the job, or anything else, met silence after it was turned
+    /// away, which has given the recorder up (`DeviceLink.lost`). The last thing either loop does.
     private func jobEnded() async {
         job?.finished = true
         jobTask = nil

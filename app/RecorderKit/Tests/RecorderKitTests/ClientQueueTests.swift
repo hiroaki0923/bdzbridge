@@ -216,6 +216,52 @@ final class ClientQueueTests: XCTestCase {
         expectEqual(try await store.pendingReservations(), [ahead], "the row was not left as it waited")
     }
 
+    /// A refresh of the guide, its first request queued on the link's client behind one out when the link lets go
+    /// of its device, stops as let go of: nothing fetched, nothing failed, nothing answered for, and nothing
+    /// asked after the read that was out.
+    func testARefreshOfTheGuideQueuedAcrossALetGoStopsAsLetGoOf() async throws {
+        let (_, link, recorder) = try await connected()
+        let store = try temporaryStore()
+        let last = try XCTUnwrap(link.client as? RecorderClient)
+        await recorder.holdTheNext("X_GetTitleList")
+        let reading = Task { try await last.titles() }
+        try await recorder.whenHeld()
+        let refreshing = Task { await GuideRefresh.run(client: last, store: store, types: ["td"]) }
+        await yield()
+
+        link.forgetTheDevice()
+        await recorder.letGo()
+        _ = try await within(10, "the held read never came back") { await reading.result }
+        let refreshed = try await within(10, "the refresh never came back") { await refreshing.value }
+
+        XCTAssertEqual(refreshed.stopped, .letGo, "the refresh did not stop as let go of")
+        XCTAssertEqual(refreshed.failed, [], "a type was taken for one that failed")
+        XCTAssertEqual(refreshed.answered, [])
+        expectEqual(await recorder.actions, ["X_GetTitleList"], "the refresh asked the recorder let go of")
+    }
+
+    /// The same of the wait for the USB slot, as a round makes it before a row that names the slot: it ends as
+    /// cancelled, and reads nothing.
+    func testAWaitForTheSlotQueuedAcrossALetGoEndsAsCancelled() async throws {
+        let (_, link, recorder) = try await connected()
+        let last = try XCTUnwrap(link.client as? RecorderClient)
+        await recorder.holdTheNext("X_GetTitleList")
+        let reading = Task { try await last.titles() }
+        try await recorder.whenHeld()
+        let settling = Task {
+            await RecorderDriver.settle(last, by: SlotSettling(every: .milliseconds(2), for: .milliseconds(10)))
+        }
+        await yield()
+
+        link.forgetTheDevice()
+        await recorder.letGo()
+        _ = try await within(10, "the held read never came back") { await reading.result }
+        let settled = try await within(10, "the wait for the slot never came back") { await settling.value }
+
+        XCTAssertEqual(settled, .cancelled)
+        expectEqual(await recorder.actions, ["X_GetTitleList"], "the slot of the recorder let go of was read")
+    }
+
     /// An attach whose client is retired part way -- the device let go of while one of its reads is out -- asks
     /// nothing after that read and ends as one let go of, writing nothing on the line: what let go of the
     /// device is the one to say why.
@@ -237,16 +283,21 @@ final class ClientQueueTests: XCTestCase {
     }
 
     /// A check whose ask of who answers waited behind a request out when the link let go of its device asks
-    /// nothing, and comes to the let-go: nothing written on the line, nobody lost.
+    /// nothing, and comes to the let-go: nothing written on the line, nobody lost, and nothing woken -- with a
+    /// MAC kept, no packet after the one the check began with, and the permission not asked about. The waking's
+    /// own guard on the let-go is not what this sees: a recorder the let-go has left not lost is not woken.
     func testACheckQueuedAcrossALetGoComesToTheLetGo() async throws {
-        let (world, link, recorder) = try await connected()
+        let (world, link, recorder) = try await connected(mac: DeviceLinkTests.mac)
         let last = try XCTUnwrap(link.client as? RecorderClient)
         world.problem = Self.left
         await recorder.holdTheNext("X_GetTitleList")
         let reading = Task { try await last.titles() }
         try await recorder.whenHeld()
         let checking = Task { await link.check(evenIfRecent: true) }
+        for _ in 0..<100_000 where world.count("packet") == 0 { await Task.yield() }
+        XCTAssertEqual(world.count("packet"), 1, "the check's packet never went")
         await yield()
+        let before = world.events.count
 
         link.forgetTheDevice()
         await recorder.letGo()
@@ -257,6 +308,37 @@ final class ClientQueueTests: XCTestCase {
         expectEqual(await recorder.actions, ["X_GetTitleList"], "the check asked who answers on a retired client")
         XCTAssertEqual(world.problem, Self.left, "the check wrote on the line")
         XCTAssertFalse(link.session.unreachable, "the recorder let go of was lost")
+        let after = world.events.dropFirst(before)
+        XCTAssertFalse(after.contains { $0.hasPrefix("packet") }, "the recorder let go of was woken")
+        XCTAssertFalse(after.contains { $0.hasPrefix("permission at") },
+                       "the permission was asked about for the recorder let go of")
+    }
+
+    /// A check that has come to wake the recorder -- silent to its ask of who answers, with a MAC kept -- whose
+    /// client is retired while it waits for an answer, the recorder let go of: the waking ends at its next probe,
+    /// and the check comes to the let-go. Nothing is written on the line -- not that the recorder did not answer,
+    /// which is the newcomer's line by then -- and no packet goes after the let-go. The waking's own clock gives
+    /// it three seconds; it is to end well before them.
+    func testAWakingWhoseClientIsRetiredEndsAndSaysNothing() async throws {
+        let driver = RecorderDriver(wakingLimit: 3, wakingInterval: .milliseconds(100), busyRetryDelay: 0...0)
+        let (world, link, recorder) = try await connected(mac: DeviceLinkTests.mac, driver: driver)
+        await recorder.sayNothingOfWhoItIs()
+        let checking = Task { await link.check(evenIfRecent: true) }
+        for _ in 0..<100_000 where !link.session.waking { await Task.yield() }
+        XCTAssertTrue(link.session.waking, "the check never came to wake the recorder")
+        // The check's own probe, and one of the waking's.
+        func asked() async -> Int { await recorder.actions.filter { $0 == "description.xml" }.count }
+        for _ in 0..<100_000 where await asked() < 2 { await Task.yield() }
+        expectTrue(await asked() >= 2, "the waking never asked who answers")
+        let packets = world.count("packet")
+
+        link.forgetTheDevice()
+        let checked = try await within(10, "the check never came back") { await checking.value }
+
+        guard case .notUp(.letGo) = checked else { return XCTFail("the check came to \(checked)") }
+        XCTAssertNil(world.problem, "the waking wrote on the line after its client was retired")
+        XCTAssertFalse(link.session.waking, "the waking still stands")
+        XCTAssertEqual(world.count("packet"), packets, "a packet went for the recorder let go of")
     }
 
     /// A reservation's change, queued on the link's client behind a request out when the link lets go of its
@@ -572,6 +654,47 @@ final class ClientQueueTests: XCTestCase {
         XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
     }
 
+    /// A request met by silence gives back the wire as it throws: a read of another client's at the address goes
+    /// at once after it, and does not wait out its own timeout.
+    func testASilentRequestGivesTheWireBack() async throws {
+        let (_, link, recorder) = try await connected()
+        let last = try XCTUnwrap(link.client as? RecorderClient)
+        await recorder.sayNothing(to: "X_UpdateTitle")
+        let silent = try await within(10, "the protect met by silence never came back") {
+            await Task { try await last.updateTitle(id: "0x1", protected: true) }.result
+        }
+        XCTAssertThrowsError(try silent.get(), "the protect was meant to meet silence")
+
+        let another = try XCTUnwrap(link.driver.makeClient(for: link) as? RecorderClient)
+        let reading = Task { try await another.titles() }
+        for _ in 0..<100_000 where !recorder.heard.contains("X_GetTitleList") { await Task.yield() }
+        XCTAssertTrue(recorder.heard.contains("X_GetTitleList"), "the read waited for the wire a silent request left")
+        _ = try await within(10, "the read never came back") { await reading.result }
+    }
+
+    /// A connect answered by something that is not a recorder gives back the wire its description would have
+    /// kept: the connect says so, its client attaches nothing, and a read of a fresh client's at the address,
+    /// the recorder back there, goes at once.
+    func testADescriptionThatDoesNotReadGivesTheWireBack() async throws {
+        let (world, link, recorder) = try await connected()
+        let last = try XCTUnwrap(link.client as? RecorderClient)
+        world.devices[Stub.host] = StubTransport(always: HTTPResponse(statusCode: 404))
+        try await within(10, "the connect to something that is not a recorder never came back") {
+            await link.connect()
+        }
+        XCTAssertFalse(link.client === last, "the connect was meant to make a client of its own")
+        XCTAssertFalse(link.clientIsAttached, "something that is not a recorder was attached")
+        XCTAssertNotNil(world.problem, "the connect to something that is not a recorder said nothing")
+
+        world.devices[Stub.host] = recorder
+        let fresh = try XCTUnwrap(link.driver.makeClient(for: link) as? RecorderClient)
+        let reading = Task { try await fresh.titles() }
+        for _ in 0..<100_000 where !recorder.heard.contains("X_GetTitleList") { await Task.yield() }
+        XCTAssertTrue(recorder.heard.contains("X_GetTitleList"),
+                      "the read waited for the wire a description that did not read kept")
+        _ = try await within(10, "the read never came back") { await reading.result }
+    }
+
     /// Requests that wait for the wire at an address go in the order their waits began.
     func testWaitsForTheWireEndInTheOrderTheyBegan() async throws {
         let (_, link, recorder) = try await connected()
@@ -582,9 +705,9 @@ final class ClientQueueTests: XCTestCase {
         let first = try XCTUnwrap(link.driver.makeClient(for: link) as? RecorderClient)
         let second = try XCTUnwrap(link.driver.makeClient(for: link) as? RecorderClient)
         let protecting = Task { try await first.updateTitle(id: "0x1", protected: true) }
-        await yield()
+        for _ in 0..<100_000 { await Task.yield() }
         let deleting = Task { try await second.deleteTitle(id: "0x2") }
-        await yield()
+        for _ in 0..<100_000 { await Task.yield() }
 
         await recorder.letGo()
         _ = try await within(10, "the held read never came back") { await reading.result }
@@ -605,7 +728,7 @@ final class ClientQueueTests: XCTestCase {
         try await recorder.whenHeld()
         let another = try XCTUnwrap(link.driver.makeClient(for: link) as? RecorderClient)
         let reading = Task { try await another.titles() }
-        await yield()
+        for _ in 0..<100_000 { await Task.yield() }
 
         await recorder.holdTheNext("X_GetTitleList")
         await recorder.letGo()
@@ -771,6 +894,48 @@ final class ClientQueueTests: XCTestCase {
         expectEqual(try await store.pendingReservations(), [ahead], "the row was not left as it waited")
     }
 
+    /// A television's reservation whose round is let go of -- the television forgotten while the round's first
+    /// read is out -- waits on the phone, and says that the app is not connected to the television: nothing is
+    /// asked after that read, the row is the one the reservation queued, and the line is left as it was.
+    func testATelevisionsReservationWhoseRoundIsLetGoOfWaitsOnThePhone() async throws {
+        let bench = await television()
+        let store = try temporaryStore()
+        bench.world.cache = store
+        bench.world.problem = Self.left
+        // The programme as the cache gives it, years ahead on the invented television's station.
+        let station = DemoTV.Station()
+        let start = Date(timeIntervalSince1970: 2_000_000_000)
+        let guide = GuideService(serviceID: station.serviceID, name: station.name, programs: [
+            GuideProgram(serviceID: station.serviceID, eventID: 50101, start: start,
+                         end: start.addingTimeInterval(1800), title: "サンプル劇場"),
+        ])
+        try await store.replace([guide], broadcasting: "td", at: start.addingTimeInterval(-86_400))
+        let stored = try await store.program(broadcasting: "td", serviceID: station.serviceID, eventID: 50101)
+        let programme = try XCTUnwrap(stored, "the programme was not stored")
+        let latch = Latch()
+        addTeardownBlock { await latch.open() }
+        await bench.gate.before("getStorageList") { await latch.wait() }
+        let reserving = Task { await bench.driver.reserve(programme, repeating: "none") }
+        try await within(10, "the round's first read never came to be held") { await latch.whenWaiting() }
+        let asked = await bench.gate.asked.count
+        let queued = try await store.pendingReservations()
+        XCTAssertEqual(queued.count, 1, "the reservation was not queued before it was sent")
+
+        bench.link.forgetTheDevice()
+        await latch.open()
+        let reserved = try await within(10, "the reservation never came back") { await reserving.value }.reserved
+
+        guard case .waiting(let kept, let saying) = reserved else {
+            return XCTFail("the reservation came to \(reserved)")
+        }
+        XCTAssertNotEqual(saying, TVDriver.waitsForTheDisk, "the round stopped at the disk, not at the let-go")
+        XCTAssertEqual(saying, TVDriver.waitsNotConnected)
+        XCTAssertEqual(kept.id, queued.first?.id, "the row handed back is not the one queued")
+        expectEqual(Array(await bench.gate.asked.dropFirst(asked)), [], "the round asked the television let go of")
+        expectEqual(try await store.pendingReservations().map(\.id), queued.map(\.id), "the row did not wait")
+        XCTAssertEqual(bench.world.problem, Self.left, "the reservation wrote on the line")
+    }
+
     /// A television's attach whose client is retired part way asks nothing after the read that was out, and
     /// writes nothing on the line, as a recorder's does.
     func testATelevisionsAttachWhoseClientIsRetiredPartWayWritesNothing() async throws {
@@ -823,16 +988,18 @@ final class ClientQueueTests: XCTestCase {
     /// A link of the test's own to a recorder at the bench's address that answers as `answers` says and can hold
     /// a request (`PlayingRecorder`), connected a moment ago; the recorder has put down nothing yet. Whatever it
     /// holds is let go as the test is torn down. A request waits for the wire as long as its own timeout, as in
-    /// the app.
-    private func connected(_ answers: [String: [HTTPResponse]] = ClientQueueTests.answers) async throws
-        -> (LinkWorld, DeviceLink, PlayingRecorder) {
+    /// the app. With a `mac` the session keeps one for waking the recorder, whose packets the world puts down;
+    /// with a `driver` of the test's own, its waking takes as long as that one says.
+    private func connected(_ answers: [String: [HTTPResponse]] = ClientQueueTests.answers, mac: String? = nil,
+                           driver: RecorderDriver? = nil) async throws -> (LinkWorld, DeviceLink, PlayingRecorder) {
         let world = LinkWorld()
         world.wireWaitLimit = nil
         let recorder = try PlayingRecorder(answers, udn: DeviceLinkTests.udn)
         world.devices[Stub.host] = recorder
         addTeardownBlock { await recorder.letGo() }
-        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
-        let link = DeviceLink(host: Stub.host, session: SessionState(mac: nil), driver: driver,
+        let driver = driver
+            ?? RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
+        let link = DeviceLink(host: Stub.host, session: SessionState(mac: mac), driver: driver,
                               environment: world.environment)
         link.owner = world
         await link.connect()
