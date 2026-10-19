@@ -1368,6 +1368,60 @@ final class NoScreenGateTests: XCTestCase {
         XCTAssertEqual(try kept(), ToldOnce(), "the reservation warned of still told of once reserved by hand")
     }
 
+    /// The recorder's warning, the same way: a forgetting of it asked for real -- a reservation made by hand, the
+    /// recorder given up on, so that it is kept to go by itself and takes no turn of the queue's -- that waits
+    /// for the queue's turn while the demo begins is made all the same, of the real queue, as it was asked. Told
+    /// of: another recorder answering, and a reservation no longer in the queue, which is told of no more once
+    /// the queue's turn has come round. The test holds the queue's turn while the reservation is made and the
+    /// demo begun, and lets it go once the demo's cache has taken the real one's place.
+    func testTheRecordersForgettingAskedBeforeTheDemoBeganIsMadeOfTheRealQueue() async throws {
+        try await theRecordersForgettingAcrossTheDemo(toldOfTheRowKept: false)
+    }
+
+    /// The same with the reservation just kept told of: it still waits in the real queue, and nothing changes,
+    /// though the demo's queue, the one in play by the turn, has none of it.
+    func testTheRecordersForgettingAskedBeforeTheDemoBeganReadsTheRealQueue() async throws {
+        try await theRecordersForgettingAcrossTheDemo(toldOfTheRowKept: true)
+    }
+
+    /// The two rows above.
+    private func theRecordersForgettingAcrossTheDemo(toldOfTheRowKept: Bool) async throws {
+        let (bench, recorder, model) = try await connectedHome()
+        let kept = KeptIn(bench.defaults, DefaultsKey.recorderTold)
+        let programme = try await programmesNotReserved(model, 1)[0]
+        await recorder.goQuiet(for: 1000)
+        await model.connect()
+        try await untilGivenUp(model)
+        let real = try XCTUnwrap(model.store)
+        let turn = Held()
+        addTeardownBlock { await turn.letGo() }
+        let holding = Task { await PendingQueue.betweenFlushes { await turn.wait() } }
+        try await within(10, "the queue's turn was never had") { await turn.untilCome() }
+
+        let reserved = try await within(10, "the reservation never came back while the queue's turn was held") {
+            await model.reserve(programme, on: .recorder, quality: "DR", repeating: "none")
+        }
+        guard case .waiting(let row, _) = reserved else {
+            return XCTFail("set up wrong: the reservation was meant to be kept to go by itself: \(reserved)")
+        }
+        let told = ToldOnce(stop: .another, rows: [toldOfTheRowKept ? row.id : "サンプルの行"])
+        kept.value = told
+        let entering = Task { await model.enterDemo() }
+        try await until("the demo's cache never took the real one's place") { model.store !== real }
+        await turn.letGo()
+        _ = try await within(10, "the queue's turn held was never over") { await holding.value }
+        try await within(10, "the demo was never entered") { await entering.value }
+
+        if toldOfTheRowKept {
+            try await afterTheQueuesTurn()
+            XCTAssertEqual(kept.value, told, "forgotten while the reservation told of still waits in the real queue")
+        } else {
+            try await afterTheQueuesTurn(until: { kept.value == ToldOnce(stop: .another) })
+            XCTAssertEqual(kept.value, ToldOnce(stop: .another),
+                           "a reservation no longer in the queue still told of once the demo began")
+        }
+    }
+
     /// The Shortcuts action telling as the app, opened at the same arrival, sends what waits itself: what is
     /// told once is decided, posted and kept inside the queue's turn, and the screens' sending waits for that.
     /// The action, the recorder not answering it, tells of a reservation that has not reached the recorder,

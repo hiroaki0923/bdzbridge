@@ -350,14 +350,15 @@ extension AppModel {
     /// may come after their programmes have begun. Read from the phone's queue and not from the one on
     /// screen, which is empty when the queue cannot be read; a queue that cannot be read changes nothing.
     /// Not in the demo, whose queue is not the one the warning was about. In the queue's turn and in a task of
-    /// its own, as the recorder's is (`forgetTheRecordersWarningOnceSent`).
+    /// its own, as the recorder's is (`forgetTheRecordersWarningOnceSent`), and, as there, whether it is the demo
+    /// and the queue read are as when it is asked.
     func forgetTheWarningOnceSent() {
+        guard !demo, let store else { return }
         Task { [weak self] in
             _ = await PendingQueue.betweenFlushes { @MainActor in
                 guard let self else { return }
                 let kept = KeptOnce.television(in: self.defaults)
-                guard !self.demo, let told = kept.read(),
-                      let store = self.store, let waiting = try? await store.pendingReservations(),
+                guard let told = kept.read(), let waiting = try? await store.pendingReservations(),
                       let after = told.afterTheScreensSent(waiting: waiting) else { return }
                 kept.keep(after)
                 if self.surroundings.asksAboutNotifications { Notify.withdrawTelevisionNotYet() }

@@ -2585,6 +2585,66 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertEqual(try told(), warned, "forgotten while the reservation warned of still waits")
     }
 
+    /// A forgetting of the warning the runs with no screen left, asked for real -- a reservation made by hand,
+    /// the television given up on, so that it is kept to go by itself and takes no turn of the queue's -- that
+    /// waits for the queue's turn while the demo begins: it is made all the same, of the real queue, as it was
+    /// asked. Told of: a reservation no longer in the queue. The test holds the queue's turn while the
+    /// reservation is made and the demo begun, and lets it go once the demo's cache has taken the real one's
+    /// place; the demo's connect, whose sending waits for the turn, ends after it. Once the queue's turn has come
+    /// round, the reservation is told of no more.
+    func testAForgettingAskedBeforeTheDemoBeganIsMadeOfTheRealQueue() async throws {
+        try await aForgettingAcrossTheDemo(toldOfTheRowKept: false)
+    }
+
+    /// The same with the reservation just kept told of: it still waits in the real queue, and nothing changes,
+    /// though the demo's queue, the one in play by the turn, has none of it.
+    func testAForgettingAskedBeforeTheDemoBeganReadsTheRealQueue() async throws {
+        try await aForgettingAcrossTheDemo(toldOfTheRowKept: true)
+    }
+
+    /// The two rows above.
+    private func aForgettingAcrossTheDemo(toldOfTheRowKept: Bool) async throws {
+        let home = try await launch(with: NamedRecorder(1))
+        let (model, television) = (home.model, home.television)
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let link = try XCTUnwrap(model.tv)
+        let programme = try await programmesNotReserved(model, 1)[0]
+        await television.receives([station(of: programme)])
+        await television.goSilent()
+        _ = await link.ensureUp(evenIfRecent: true)
+        XCTAssertTrue(link.session.gaveUp, "set up wrong: the television was meant to be given up on")
+        let real = try XCTUnwrap(model.store)
+        let kept = KeptIn(model.defaults, DefaultsKey.tvTold)
+        let turn = Held()
+        addTeardownBlock { await turn.letGo() }
+        let holding = Task { await PendingQueue.betweenFlushes { await turn.wait() } }
+        try await within(10, "the queue's turn was never had") { await turn.untilCome() }
+
+        let reserved = try await within(10, "the reservation never came back while the queue's turn was held") {
+            await model.reserve(programme, on: .tv, quality: "DR", repeating: "none")
+        }
+        guard case .waiting(let row, _) = reserved else {
+            return XCTFail("set up wrong: the reservation was meant to be kept to go by itself: \(reserved)")
+        }
+        let told = ToldOnce(stop: .disk, rows: [toldOfTheRowKept ? row.id : "サンプルの行"])
+        kept.value = told
+        let entering = Task { await model.enterDemo() }
+        try await until("the demo's cache never took the real one's place") { model.store !== real }
+        await turn.letGo()
+        _ = try await within(10, "the queue's turn held was never over") { await holding.value }
+        try await within(10, "the demo was never entered") { await entering.value }
+
+        if toldOfTheRowKept {
+            try await afterTheQueuesTurn()
+            XCTAssertEqual(kept.value, told, "forgotten while the reservation told of still waits in the real queue")
+        } else {
+            try await afterTheQueuesTurn(until: { kept.value == ToldOnce(stop: .disk) })
+            XCTAssertEqual(kept.value, ToldOnce(stop: .disk),
+                           "a reservation no longer in the queue still told of once the demo began")
+        }
+    }
+
     /// Whether something begun in a task of its own has come back, for a test to look at meanwhile.
     @MainActor
     private final class Returned {
