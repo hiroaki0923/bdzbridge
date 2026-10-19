@@ -96,10 +96,12 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     public var stop: Stop?
     /// The ids of the rows told of, while they still wait, are not over and are due before the next run.
     public var rows: Set<String>
-    /// The television's alone: when the cookie of the registration that the run's round began under arrived,
-    /// or, with no round, the one in the store as the run's own turn began (`TVCredentials.cookieReceived`,
-    /// handed on by `TVDriver.sendWithNoScreen`), nil for none. A registration made again forgets once more in
-    /// the queue's turn, after a run that was telling then, only what is kept under a cookie from before it.
+    /// The television's alone: the registration what is kept was learnt under -- when the cookie of the
+    /// registration that the round of the run that learnt it began under arrived, or, with no round, the one in
+    /// the store as that run's own turn began (`TVCredentials.cookieReceived`, handed on by
+    /// `TVDriver.sendWithNoScreen`) -- nil for none. A run that learnt nothing carries it on as it was. A
+    /// registration made again forgets once more in the queue's turn, after a run that was telling then, only
+    /// what is kept under a cookie from before it.
     public var registration: Date?
 
     public init(stop: Stop? = nil, rows: Set<String> = [], registration: Date? = nil) {
@@ -132,7 +134,9 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     /// The stop told last is forgotten once nothing waits, and after a round that got as far as a row; a run
     /// that learnt nothing of the television leaves it as it was. Silence at a create is no lasting state: it
     /// is said each time and never kept. What is told from then on carries `registration`, the television's
-    /// registration its round began under (`ToldOnce.registration`).
+    /// registration its round began under (`ToldOnce.registration`); after a run that learnt nothing, the one
+    /// it was kept under before, which the stop it carries on was learnt under: a registration made since
+    /// forgets it, and takes its notices away, as it does what a run told under the registration before.
     public func after(_ sending: NoScreenSending, waiting: [PendingReservation]?, before nextRun: Date,
                       now: Date, naming device: String?, words: NoScreenWords = .television,
                       registration: Date? = nil) -> (notices: NoScreenNotices, told: ToldOnce) {
@@ -155,7 +159,7 @@ public struct ToldOnce: Codable, Sendable, Equatable {
         notices.queue = queue.isEmpty ? nil : queue.joined(separator: "。")
 
         var told = self
-        told.registration = registration
+        if !sending.learntNothing { told.registration = registration }
         if sending == .nothingWaiting {
             told.stop = nil
         } else if !sending.learntNothing {

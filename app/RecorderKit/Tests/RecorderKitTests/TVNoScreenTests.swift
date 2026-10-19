@@ -573,4 +573,32 @@ final class TVNoScreenTests: XCTestCase {
             XCTAssertEqual(before.afterTheScreensSent(waiting: waiting, now: Self.now), after, name)
         }
     }
+
+    /// What is told from then on carries the registration it was learnt under. A run that learnt something of
+    /// the television -- a stop, a round that went, nothing waiting, another television -- carries the one it
+    /// is handed, its round's or its turn's. A run that learnt nothing -- nobody answering, silence or answers
+    /// that say nothing before any row -- carries on what was told before under the registration that was
+    /// learnt under: a registration made since forgets it, as it forgets what was told under the one before.
+    func testWhatIsToldOnceCarriesTheRegistrationItWasLearntUnder() {
+        let first = Date(timeIntervalSince1970: 1_793_000_000), again = Date(timeIntervalSince1970: 1_793_000_600)
+        let told = ToldOnce(stop: .registration, registration: first)
+        let morning = row("サンプル天気", 50103, at: 420)
+        let cases: [(String, NoScreenSending, ToldOnce.Stop?, Date)] = [
+            ("nobody answering", .unreachable, .registration, first),
+            ("silence before any row",
+             .sent(PendingQueue.Outcome(slot: .tv, stopped: .silent(afterSending: false))), .registration, first),
+            ("nothing that reads", .sent(PendingQueue.Outcome(slot: .tv, stopped: .saysNothing)), .registration, first),
+            ("the disk", .sent(PendingQueue.Outcome(slot: .tv, stopped: .cannotRecord(reason: ScalarClient.diskNotFound))),
+             .disk, again),
+            ("a round that went", .sent(PendingQueue.Outcome(slot: .tv, sent: [morning])), nil, again),
+            ("nothing waiting", .nothingWaiting, nil, again),
+            ("another television", .anotherAnswered, .another, again),
+        ]
+        for (name, sending, stop, registration) in cases {
+            let (_, next) = told.after(sending, waiting: [], before: Self.nextRun, now: Self.now, naming: "テレビ",
+                                       registration: again)
+            XCTAssertEqual(next.registration, registration, name)
+            XCTAssertEqual(next.stop, stop, name)
+        }
+    }
 }
