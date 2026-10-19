@@ -1007,10 +1007,12 @@ turn behind the one that is out -- a connect's after the connect, under 番組�
 still behind. The connect ends once its reservations and lists are in, so that Settings says 接続済み and the
 first screen's choice is over while the guide is still to come. It starts none where its reads lost the recorder.
 The refresh it started holds a second connect off while it is out, as a job does, and one asked for meanwhile is
-made once it ends -- unless the recorder is let go of first, which lifts that hold at once. From the screens that
-is, in practice, 再接続 or a pull-down in the few turns after a refresh that met silence has taken its line down;
-a return before its line is up, or after a refresh that went through, finds the recorder's last answer fresh and
-asks for nothing, and while 番組表を取得中 stands, no 再接続 is offered and a return only looks at the network.
+made once it ends -- unless the recorder is let go of first, which lifts that hold at once, or silence meets it
+first, which gives the recorder up and drops what was owed. From the screens that is, in practice, 再接続 or a
+pull-down in the few turns after a refresh that met silence has taken its line down, which, asked for after that
+silence, is made; a return before its line is up, or after a refresh that went through, finds the recorder's
+last answer fresh and asks for nothing, and while 番組表を取得中 stands, no 再接続 is offered and a return only
+looks at the network.
 The wait can be as long as the refresh in front and a file can take minutes, so the recorder is made sure of once
 the turn has come and again before each later file, a type's logos included, by the asking a bulk run makes before
 each recording (below), a connect's refresh as any other. The night looks at its time and at whose cache it is as
@@ -1108,10 +1110,12 @@ the job waits before the next one until the app is back, makes sure of the recor
 time to fall asleep, and goes on. The job bar says so. Nothing reconnects while a job or the duplicate scan
 is running, since a second client beside the one in hand would be answered 503; a connect asked for meanwhile --
 a return to the app after more than a minute away, or a look that finds another network while not connected;
-再接続 is grey during a job -- is made once the job has ended, unless an attach, a let-go of the recorder or the
-app's leaving has come in between. Nor does a run begin while a connect is under way, and the entries behind the
-buttons that start one ask what the buttons ask: a press from a confirm or a menu left open after its button went
-grey starts nothing and says nothing.
+再接続 is grey during a job -- is made once the job has ended, unless an attach, a let-go of the recorder, silence
+met by the job or by anything else, or the app's leaving has come in between. After silence the job's line
+stands and the recorder stays given up, as after any silence, until the network changes or the reader presses
+再接続. Nor does a run begin while a connect is under way, and the entries behind the buttons that start one ask
+what the buttons ask: a press from a confirm or a menu left open after its button went grey starts nothing and
+says nothing.
 
 What a run asks of the recorder, and when, is the recorder driver's (`RecorderKit/RecorderRuns.swift`), by the
 rules a single delete or protect keeps. Before each recording, and before the delete that follows the question

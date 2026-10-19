@@ -247,7 +247,8 @@ struct RecorderActivityBar: View {
                     Image(systemName: "wifi.exclamationmark").font(.footnote)
                     Text("レコーダーに接続していません").font(.footnote)
                     Spacer()
-                    // Not while a bulk job runs, when connecting does nothing: see `connect()`.
+                    // Not while a bulk job runs, when a connect is only owed until it ends, and dropped if it
+                    // meets silence first (`DeviceLink.connect`).
                     Button { Task { await model.connect() } } label: {
                         Text("再接続").hitArea(horizontal: 13, vertical: Self.rim)
                     }
