@@ -137,9 +137,13 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     /// registration its round began under (`ToldOnce.registration`); after a run that learnt nothing, the one
     /// it was kept under before, which the stop it carries on was learnt under: a registration made since
     /// forgets it, and takes its notices away, as it does what a run told under the registration before.
+    /// A round refused for the cookie before the one in the store (`refusedForTheCookieBefore`, handed on by
+    /// `TVDriver.sendWithNoScreen`) learnt nothing of the television as it is registered now, unless it got as
+    /// far as a row: it carries the stop told before on as such a run does.
     public func after(_ sending: NoScreenSending, waiting: [PendingReservation]?, before nextRun: Date,
                       now: Date, naming device: String?, words: NoScreenWords = .television,
-                      registration: Date? = nil) -> (notices: NoScreenNotices, told: ToldOnce) {
+                      registration: Date? = nil,
+                      refusedForTheCookieBefore: Bool = false) -> (notices: NoScreenNotices, told: ToldOnce) {
         var outcome: PendingQueue.Outcome?
         if case .sent(let round) = sending { outcome = round }
         let settled = Set(((outcome?.sent ?? []) + (outcome?.alreadyThere ?? [])).map(\.id))
@@ -158,11 +162,13 @@ public struct ToldOnce: Codable, Sendable, Equatable {
         if notices.notYet == nil, let stop = sending.stop, stop != self.stop { queue.append(words.stop(stop)) }
         notices.queue = queue.isEmpty ? nil : queue.joined(separator: "。")
 
+        let learntNothing = sending.learntNothing || refusedForTheCookieBefore
+            && (outcome.map { ($0.sent + $0.alreadyThere + $0.refused + $0.deferred).isEmpty } ?? false)
         var told = self
-        if !sending.learntNothing { told.registration = registration }
+        if !learntNothing { told.registration = registration }
         if sending == .nothingWaiting {
             told.stop = nil
-        } else if !sending.learntNothing {
+        } else if !learntNothing {
             told.stop = sending.stop
         }
         if let late {

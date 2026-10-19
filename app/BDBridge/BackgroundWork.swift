@@ -262,10 +262,11 @@ enum BackgroundWork {
                                         -> Void)
         async -> (sending: NoScreenSending, notices: NoScreenNotices, told: ToldOnce) {
         let (sending, told) = await TVDriver.sendWithNoScreen(client, store: store, knownAs: mac,
-                                                              now: now) { sending, registration in
+                                                              now: now) { sending, registration, refusedBefore in
             let waiting = try? await store.pendingReservations()
             let (notices, after) = reading().after(sending, waiting: waiting, before: nextRun, now: now,
-                                                   naming: DeviceSlot.tv.label, registration: registration)
+                                                   naming: DeviceSlot.tv.label, registration: registration,
+                                                   refusedForTheCookieBefore: refusedBefore)
             await tell(sending, notices, after)
             return (notices: notices, after: after)
         }
