@@ -51,6 +51,19 @@ final class TVCredentialStoreTests: XCTestCase {
         XCTAssertEqual(kept.store.load(), Self.another)
     }
 
+    /// A registration made through the client is found kept when the client reads it back from the Keychain: the
+    /// store holds, for its client id, a cookie and a time it did not hold before (`ScalarClient.register`).
+    func testARegistrationMadeThroughTheClientIsFoundKeptWhenReadBack() async throws {
+        let kept = try aKeychain()
+        let client = ScalarClient(host: "192.0.2.30", transport: DemoTV(power: "active"), credentials: kept.store)
+
+        let enrolled = await client.enrol(clientID: Self.registration.clientID, nickname: "BD Bridge",
+                                          pin: DemoTV.pin)
+
+        XCTAssertEqual(enrolled, .registered(mac: DemoTV.mac))
+        XCTAssertEqual(kept.store.load()?.clientID, Self.registration.clientID)
+    }
+
     /// The key's folder is made where it is not there yet: on a phone, Application Support is made only when the
     /// guide first opens, and a registration may come before that.
     func testAKeyIsKeptInAFolderNotYetMade() throws {

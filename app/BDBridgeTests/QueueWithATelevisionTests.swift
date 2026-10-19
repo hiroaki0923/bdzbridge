@@ -1925,6 +1925,37 @@ final class QueueWithATelevisionTests: XCTestCase {
                        "what was told before is not kept under the registration it was told under")
     }
 
+    /// A registration the phone could not keep -- the store the app keeps it in keeps nothing, as a Keychain that
+    /// cannot write keeps nothing and says nothing -- is not answered as made: the registration sheet says so,
+    /// and nothing of the registration before changes. Every request still sends the cookie kept before, so
+    /// what the runs with no screen told of the television under it still holds, and is not forgotten; the
+    /// television stays on the link it was on, connected.
+    func testARegistrationThePhoneCouldNotKeepIsSaidSoAndChangesNothing() async throws {
+        let home = try await launch(with: NamedRecorder(1), shaped: true)
+        let model = home.model
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let store = try XCTUnwrap(model.surroundings.tvCredentials as? ShapedTVCredentials)
+        let before = store.load()
+        let link = try XCTUnwrap(model.tv)
+        let kept = KeptIn(model.defaults, DefaultsKey.tvTold)
+        let told = ToldOnce(stop: .registration, rows: ["サンプルの行"])
+        kept.value = told
+        store.keepsNothing = true
+
+        let registered = try await within(10, "the registration never came back") {
+            await model.registerTV(at: Bench.tvHost, pin: nil)
+        }
+        try await afterTheQueuesTurn()
+
+        XCTAssertNotEqual(registered, .registered, "a registration the phone did not keep was answered as made")
+        XCTAssertEqual(registered, .failed(ScalarClient.registrationNotKept))
+        XCTAssertEqual(kept.value, told, "what was told under the registration still kept is forgotten")
+        XCTAssertEqual(store.load(), before, "what was kept before changed")
+        XCTAssertTrue(model.tv === link, "the television's link was made afresh")
+        XCTAssertEqual(model.tv?.session.connected, true, "the television is no longer connected")
+    }
+
     /// A sending of the screens' own whose turn a run with no screen has waited for, the run then telling as
     /// the screens forget: what the screens forget of what was told once, once their sending leaves none of
     /// it waiting, is made in the queue's turn, and so after the run's telling and not while it is out. Kept
