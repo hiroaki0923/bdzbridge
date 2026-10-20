@@ -193,13 +193,16 @@ extension AppModel {
     /// screen tell and keep it: a run telling meanwhile is over first, and what it kept is what is read here.
     /// In a task of its own, which nothing here waits for: an attach asks for this after its sending, and is not
     /// to be held behind a round of the screens' own that has the turn, on the client the attach has retired.
+    /// Whether it is the demo, and the queue read, are as when it is asked, not as when the turn comes: one
+    /// asked for real that waits for the turn while the demo begins is made all the same, of the real queue, and
+    /// one asked in the demo is not made, though the demo has ended by the turn.
     func forgetTheRecordersWarningOnceSent() {
+        guard !demo, let store else { return }
         Task { [weak self] in
             _ = await PendingQueue.betweenFlushes { @MainActor in
                 guard let self else { return }
                 let kept = KeptOnce.recorder(in: self.defaults)
-                guard !self.demo, let told = kept.read(),
-                      let store = self.store, let waiting = try? await store.pendingReservations(),
+                guard let told = kept.read(), let waiting = try? await store.pendingReservations(),
                       let after = told.afterTheScreensSent(waiting: waiting, words: .recorder) else { return }
                 kept.keep(after)
                 if self.surroundings.asksAboutNotifications { await Notify.recorder(notYet: nil, withdraws: true) }

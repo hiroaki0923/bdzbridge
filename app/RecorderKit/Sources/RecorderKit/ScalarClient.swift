@@ -235,7 +235,8 @@ public actor ScalarClient {
     // MARK: - registration
 
     public enum Registration: Sendable, Equatable {
-        /// A cookie came with the answer, and has been saved.
+        /// A cookie came with the answer, and has been saved: the store holds a cookie for the client id that it
+        /// did not hold before, this one or a renewal of the same registration saved since.
         case registered
         /// The television asked for its PIN (HTTP 401), which it shows on its screen when it can.
         case pinNeeded
@@ -249,13 +250,21 @@ public actor ScalarClient {
     /// PIN, in standby as well, and the cookies given before stay good: which is why nothing else is sent, a
     /// cookie included -- a renewal carrying one ends it before its answer arrives, and a request already out
     /// with it would then be refused as if nothing had been registered.
+    ///
+    /// A save after which the store holds no cookie for `clientID` that it did not hold before (`keep`) throws
+    /// `NotKept`: the television has registered the app, but every request still sends what the store held before.
     public func register(clientID: String, nickname: String, pin: String?) async throws -> Registration {
         guard let cookie = try await actRegister(clientID: clientID, nickname: nickname, pin: pin) else {
             return .pinNeeded
         }
-        keep(cookie, for: clientID)
+        guard keep(cookie, for: clientID) else { throw NotKept() }
         return .registered
     }
+
+    /// Once the cookie a registration was answered with is saved, the store holds no cookie for its client id
+    /// that it did not hold before: it kept nothing, as a Keychain that cannot write keeps nothing and says
+    /// nothing (`TVCredentialStore.save`).
+    public struct NotKept: Error, Equatable {}
 
     /// The steps of registering, and what each failure is said as: with no PIN at first, when the television
     /// answers by putting its PIN on its screen, and then with the PIN the reader read there, under the same
@@ -280,6 +289,8 @@ public actor ScalarClient {
             case .pinNeeded: return .pinNeeded
             case .registered: return .registered(mac: mac)
             }
+        } catch is NotKept {
+            return .failed(Self.registrationNotKept)
         } catch let error as any DeviceError {
             // Its display went off after it was found on: it shows no PIN then, and turns the request down.
             return .failed(error.failure == .needsPower ? Self.screenIsOff : error.explanation)
@@ -292,6 +303,10 @@ public actor ScalarClient {
     public static let screenIsOff = "テレビの画面が消えているため、登録できませんでした。"
         + "テレビの電源を入れて、放送を映してから、もう一度お試しください。"
 
+    /// Said when the television registered the app and the phone could not keep what it gave (`NotKept`):
+    /// nothing of the registration kept before has changed.
+    public static let registrationNotKept = "テレビへの登録をこの端末に保存できませんでした。もう一度登録してください。"
+
     /// Said when the television at the address is not the one saved, and nothing was registered. "Answered as
     /// another" and not "is another": which MAC a television gives on Wi-Fi rather than a cable has not been
     /// seen, so the one saved may be refused after it moved from the one to the other.
@@ -299,14 +314,15 @@ public actor ScalarClient {
         + "別のテレビを使うときは、先に「テレビを外す」でいまのテレビを外してください。"
 
     /// A new cookie for the registration in the store: `register` with no PIN. Kept only while the store still
-    /// holds that registration, so that one taken away while the request was out stays away. Whether it was kept.
+    /// holds that registration, so that one taken away while the request was out stays away. Whether it was kept:
+    /// not when the store holds no cookie for the client id that it did not hold before the save, which leaves the
+    /// cookie before in hand, renewed again at the next connect.
     @discardableResult
     public func renew(nickname: String) async throws -> Bool {
         guard let clientID = credentials.load()?.clientID,
               let cookie = try await actRegister(clientID: clientID, nickname: nickname, pin: nil),
               credentials.load()?.clientID == clientID else { return false }
-        keep(cookie, for: clientID)
-        return true
+        return keep(cookie, for: clientID)
     }
 
     /// The request itself: the cookie it was answered with, or nil when the television asked for its PIN.
@@ -328,9 +344,20 @@ public actor ScalarClient {
         return cookie
     }
 
-    private func keep(_ cookie: (value: String, maxAge: TimeInterval?), for clientID: String) {
+    /// Saves the cookie with when it arrived, and whether the store holds it then: read back, a cookie for this
+    /// client id that the store did not hold before the save, by the cookie or by when it arrived, the two
+    /// written anew here. Not by the cookie alone, which a television answering with the value it gave before
+    /// would match after a save that kept nothing; a save that kept nothing leaves what was held before. Not by
+    /// what was saved alone either: the store is shared, and another client may renew the same registration
+    /// between the save and the read, whose cookie is as good as this one.
+    /// A save says nothing of how it went (`TVCredentialStore.save`); this is how one that kept nothing is found.
+    private func keep(_ cookie: (value: String, maxAge: TimeInterval?), for clientID: String) -> Bool {
+        let before = credentials.load()
         credentials.save(TVCredentials(clientID: clientID, cookie: cookie.value, cookieReceived: Date(),
                                        cookieMaxAge: cookie.maxAge))
+        guard let held = credentials.load(), held.clientID == clientID, held.cookie != nil,
+              held.cookieReceived != nil else { return false }
+        return held.cookie != before?.cookie || held.cookieReceived != before?.cookieReceived
     }
 
     /// The `auth` cookie of a `Set-Cookie` value, and its Max-Age. The Expires beside it is in a form of the

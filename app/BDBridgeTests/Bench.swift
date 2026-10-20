@@ -868,6 +868,13 @@ actor HeldTelevision: HTTPTransport {
         held = []
     }
 
+    /// Lets the request held longest go, alone: the others stay held, and what comes next is held as before.
+    /// For a test that holds two at once and lets them go one at a time, in the order they came.
+    func letGoFirst() {
+        guard !held.isEmpty else { return }
+        held.removeFirst().resume()
+    }
+
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         if holding, holdingOnly == nil || holdingOnly == Self.method(of: request) {
             await withCheckedContinuation { held.append($0) }
@@ -880,6 +887,44 @@ actor HeldTelevision: HTTPTransport {
         let body = try? JSONSerialization.jsonObject(with: request.body ?? Data())
         return (body as? [String: Any])?["method"] as? String
     }
+}
+
+/// A television's registration kept in memory as `MemoryTVCredentials` keeps it, through a save shaped the way a
+/// test turns it: one that drops the cookie's Max-Age, so that every cookie saved from then on is due for a
+/// renewal at once (`TVCredentials.renewalDue`), and one that keeps nothing, as a Keychain that could not write
+/// keeps nothing and says nothing. What is kept is read as it is.
+final class ShapedTVCredentials: TVCredentialStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private let kept: MemoryTVCredentials
+    private var dropping: Bool
+    private var keepingNothing = false
+
+    init(_ kept: MemoryTVCredentials, dropsMaxAge: Bool = false) {
+        self.kept = kept
+        dropping = dropsMaxAge
+    }
+
+    var dropsMaxAge: Bool {
+        get { lock.withLock { dropping } }
+        set { lock.withLock { dropping = newValue } }
+    }
+
+    var keepsNothing: Bool {
+        get { lock.withLock { keepingNothing } }
+        set { lock.withLock { keepingNothing = newValue } }
+    }
+
+    func load() -> TVCredentials? { kept.load() }
+
+    func save(_ credentials: TVCredentials) {
+        let (dropping, keepingNothing) = lock.withLock { (dropping, keepingNothing) }
+        guard !keepingNothing else { return }
+        var credentials = credentials
+        if dropping { credentials.cookieMaxAge = nil }
+        kept.save(credentials)
+    }
+
+    func remove() { kept.remove() }
 }
 
 /// Another connection writing to the cache, until it lets go: a write of the app's waits behind it for as

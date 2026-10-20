@@ -15,7 +15,7 @@ public extension TVDriver {
     /// once, the question, the create and the list again.
     nonisolated static func sendWithNoScreen(_ client: ScalarClient, store: GuideStore, knownAs mac: String?,
                                              now: Date = Date()) async -> NoScreenSending {
-        await sendWithNoScreen(client, store: store, knownAs: mac, now: now, then: { _, _ in }).sending
+        await sendWithNoScreen(client, store: store, knownAs: mac, now: now, then: { _, _, _ in }).sending
     }
 
     /// The same, and `then` inside the queue's turn, handed what the sending came to: after the round, in the
@@ -23,20 +23,26 @@ public extension TVDriver {
     /// turn of its own. For what the run tells once, decided from what is kept as the turn has it and posted
     /// and kept there (`ToldOnce.after`). What `then` hands back is handed back beside what the sending came to.
     ///
-    /// `then` is handed too when the cookie in `client`'s store arrived as the round began, or as the turn
-    /// began with no round, for what is kept to carry (`ToldOnce.registration`): a run that waited for the
-    /// turn while the television was registered again sends with the new registration, and what it finds is
-    /// of the television as registered now. A round that stopped for want of a registration while the cookie
-    /// in the store changed -- registered again since the round began, or renewed -- heard that of the cookie
-    /// before: `then` is handed it without that stop, so that what the run tells once does not ask for a
-    /// registration that has just been made. It is handed back as it came, for the Shortcuts action to say
-    /// what the television answered the cookie it was sent.
+    /// `then` is handed too when the cookie in `client`'s store arrived as the round began, or, with no round,
+    /// as the run began, for what is kept to carry (`ToldOnce.registration`): a run that waited for the turn
+    /// while the television was registered again sends with the new registration, and what its round finds is of
+    /// the television as registered now; what a run with no round found, it found before it asked for the turn,
+    /// of the television as registered then, and a registration made while it waits forgets it. A round that
+    /// stopped for want of a registration while the cookie in the store changed -- registered again since the
+    /// round began, or renewed -- heard that of the cookie before: `then` is handed it without that stop, so
+    /// that what the run tells once does not ask for a registration that has just been made, and is told that it
+    /// was so refused (`refusedForTheCookieBefore`), so that what was told before is not taken for what the
+    /// round learnt (`ToldOnce.after`). It is handed back as it came, for the Shortcuts action to say what the
+    /// television answered the cookie it was sent.
     nonisolated static func sendWithNoScreen<After: Sendable>(
         _ client: ScalarClient, store: GuideStore, knownAs mac: String?, now: Date = Date(),
-        then: @escaping @Sendable (NoScreenSending, _ registration: Date?) async -> After
+        then: @escaping @Sendable (NoScreenSending, _ registration: Date?, _ refusedForTheCookieBefore: Bool) async
+            -> After
     ) async -> (sending: NoScreenSending, after: After) {
+        // The registration a run with no round finds what it finds under: the one in the store as it begins.
+        let found = client.cookieReceived
         func alone(_ sending: NoScreenSending) async -> (sending: NoScreenSending, after: After) {
-            (sending, await PendingQueue.inATurnOfItsOwn { await then(sending, client.cookieReceived) })
+            (sending, await PendingQueue.inATurnOfItsOwn { await then(sending, found, false) })
         }
         let waiting = (try? await store.pendingReservations()) ?? []
         guard PendingQueue.hasSomethingToSend(waiting, for: ScalarClient.slot, now: now) else {
@@ -56,8 +62,9 @@ public extension TVDriver {
                                                         asItBegins: { client.cookieReceived }) { came, registration in
             var round = came
             // Registered again or renewed since the round began: the refusal was of the cookie before.
-            if round.stopped == .needsPairing, client.cookieReceived != registration { round.stopped = nil }
-            return await then(.sent(round), registration)
+            let refusedBefore = round.stopped == .needsPairing && client.cookieReceived != registration
+            if refusedBefore { round.stopped = nil }
+            return await then(.sent(round), registration, refusedBefore)
         }
         return (.sent(outcome), after)
     }

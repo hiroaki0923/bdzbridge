@@ -241,6 +241,75 @@ final class ScalarClientTests: XCTestCase {
         XCTAssertEqual(same.load(), kept)
     }
 
+    /// A registration the phone could not keep -- the store keeps nothing, as a Keychain that cannot write keeps
+    /// nothing and says nothing -- is not answered as made: what the store holds is read back once the cookie
+    /// is saved, by the cookie and when it arrived, and the registration fails with a sentence of its own, what
+    /// was kept before left as it was. So with nothing kept before, and with the same client id kept before
+    /// with the very cookie the television gives again. A renewal the phone could not keep says it was not
+    /// kept, the cookie before left in hand.
+    func testARegistrationThePhoneCouldNotKeepIsNotAnsweredAsMade() async throws {
+        let mac = ok(#"[[{"option":"WOL","value":"\#(DemoTV.mac)"}]]"#)
+        let given = HTTPResponse(statusCode: 200, body: Data(#"{"result":[],"id":2}"#.utf8),
+                                 headers: ["Set-Cookie": "auth=invented-cookie; Path=/sony/; Max-Age=1209600"])
+        let before = TVCredentials(clientID: "BDBridge:test", cookie: "invented-cookie",
+                                   cookieReceived: Date(timeIntervalSince1970: 1_793_000_000), cookieMaxAge: 1_209_600)
+        for (name, kept) in [("nothing kept before", nil), ("the same cookie kept before", before)] {
+            let store = KeepsNothing(kept)
+            let tv = ScalarClient(host: Stub.host, transport: StubTransport { _, index in index == 0 ? mac : given },
+                                  credentials: store)
+
+            let enrolled = await tv.enrol(clientID: "BDBridge:test", nickname: "BD Bridge", pin: "1234")
+
+            XCTAssertNotEqual(enrolled, .registered(mac: DemoTV.mac), "\(name): answered as registered")
+            XCTAssertEqual(enrolled, .failed(ScalarClient.registrationNotKept), name)
+            XCTAssertEqual(store.load(), kept, "\(name): what was kept before changed")
+        }
+
+        let renewing = KeepsNothing(before)
+        let tv = ScalarClient(host: Stub.host, transport: StubTransport(always: given), credentials: renewing)
+        let renewed = try await tv.renew(nickname: "BD Bridge")
+        XCTAssertFalse(renewed, "a renewal the phone could not keep was said to be kept")
+        XCTAssertEqual(renewing.load(), before)
+    }
+
+    /// What is read back once the cookie is saved is a cookie for the registration's client id that the store did
+    /// not hold before: this one, the same value given again with when it arrived, or a renewal of the same
+    /// registration another client saved between the save and the read, as the app's link renews through a
+    /// client of its own on the same store. Not one of another client id's saved in between, nor a cookie or a
+    /// time the store left out.
+    func testWhatIsReadBackIsACookieForTheClientIDTheStoreDidNotHoldBefore() async throws {
+        let mac = ok(#"[[{"option":"WOL","value":"\#(DemoTV.mac)"}]]"#)
+        let given = HTTPResponse(statusCode: 200, body: Data(#"{"result":[],"id":2}"#.utf8),
+                                 headers: ["Set-Cookie": "auth=invented-cookie; Path=/sony/; Max-Age=1209600"])
+        let before = TVCredentials(clientID: "BDBridge:test", cookie: "invented-cookie",
+                                   cookieReceived: Date(timeIntervalSince1970: 1_793_000_000), cookieMaxAge: 1_209_600)
+        let renewal = TVCredentials(clientID: "BDBridge:test", cookie: "renewed-cookie",
+                                    cookieReceived: Date(timeIntervalSince1970: 1_793_000_600), cookieMaxAge: 1_209_600)
+        let another = TVCredentials(clientID: "BDBridge:another", cookie: "another-cookie",
+                                    cookieReceived: Date(timeIntervalSince1970: 1_793_000_600))
+        let ways: [(String, TVEnrolment, @Sendable (TVCredentials) -> [TVCredentials])] = [
+            ("the same value given again", .registered(mac: DemoTV.mac), { [$0] }),
+            ("renewed by another client in between", .registered(mac: DemoTV.mac), { [$0, renewal] }),
+            ("another client id's saved in between", .failed(ScalarClient.registrationNotKept), { [$0, another] }),
+            ("the cookie left out", .failed(ScalarClient.registrationNotKept), { saved in
+                [TVCredentials(clientID: saved.clientID, cookieReceived: saved.cookieReceived)] }),
+            ("the time left out", .failed(ScalarClient.registrationNotKept), { saved in
+                [TVCredentials(clientID: saved.clientID, cookie: saved.cookie)] }),
+        ]
+        for (name, expected, saving) in ways {
+            let tv = ScalarClient(host: Stub.host, transport: StubTransport { _, index in index == 0 ? mac : given },
+                                  credentials: SavesOver(before, saving))
+            let enrolled = await tv.enrol(clientID: "BDBridge:test", nickname: "BD Bridge", pin: "1234")
+            XCTAssertEqual(enrolled, expected, name)
+        }
+
+        let renewing = SavesOver(before) { [$0, renewal] }
+        let tv = ScalarClient(host: Stub.host, transport: StubTransport(always: given), credentials: renewing)
+        let renewed = try await tv.renew(nickname: "BD Bridge")
+        XCTAssertTrue(renewed, "a renewal renewed again in between was said not to be kept")
+        XCTAssertEqual(renewing.load(), renewal)
+    }
+
     /// What asking to be registered comes to, as the steps of it, each on an invented television. One that is
     /// on and does not list the app wants its PIN; the same request with the PIN registers, the cookie is kept
     /// and the MAC it wakes on is handed back in the form the app keeps, or none when it gives none. One whose
@@ -1315,4 +1384,34 @@ final class ScalarClientTests: XCTestCase {
         expectEqual(await television.schedules.map(\.repeatType), ["w7", "w7"])
         expectEqual(await television.schedules.map(\.id), ["recording.24", "recording.25"])
     }
+}
+
+/// A television's registration kept in memory, through a save that keeps nothing: as a Keychain that cannot write
+/// keeps nothing and says nothing. What it held from the first is read as it is.
+private struct KeepsNothing: TVCredentialStore {
+    let kept: MemoryTVCredentials
+
+    init(_ credentials: TVCredentials?) {
+        kept = MemoryTVCredentials(credentials)
+    }
+
+    func load() -> TVCredentials? { kept.load() }
+    func save(_ credentials: TVCredentials) {}
+    func remove() { kept.remove() }
+}
+
+/// A television's registration kept in memory, each save made into what `saving` says is held after it: as a
+/// store that leaves part of it out, or one another client saves into between a save and the read after it.
+private struct SavesOver: TVCredentialStore {
+    let kept: MemoryTVCredentials
+    let saving: @Sendable (TVCredentials) -> [TVCredentials]
+
+    init(_ credentials: TVCredentials?, _ saving: @escaping @Sendable (TVCredentials) -> [TVCredentials]) {
+        kept = MemoryTVCredentials(credentials)
+        self.saving = saving
+    }
+
+    func load() -> TVCredentials? { kept.load() }
+    func save(_ credentials: TVCredentials) { saving(credentials).forEach(kept.save) }
+    func remove() { kept.remove() }
 }

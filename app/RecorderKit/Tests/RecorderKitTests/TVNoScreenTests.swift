@@ -288,34 +288,41 @@ final class TVNoScreenTests: XCTestCase {
 
     /// What a run tells once is handed when the cookie in hand arrived (`TVCredentials.cookieReceived`): as
     /// its own turn begins with no round -- nothing waiting -- and as its round begins. A round refused for
-    /// its cookie while the cookie in the store stays as it was is handed on with its stop, and back as it
-    /// came.
+    /// its cookie while the cookie in the store stays as it was is handed on with its stop, not as refused for
+    /// the cookie before, and back as it came; so is a run with no round.
     func testWhatIsToldOnceIsHandedTheCookieItsTurnOrItsRoundBeganUnder() async throws {
         let arrived = Date(timeIntervalSince1970: 1_793_000_000)
         let given = TVCredentials(clientID: Self.kept.clientID, cookie: "never given", cookieReceived: arrived)
 
         let idle = try await home(credentials: given)
         let alone = await TVDriver.sendWithNoScreen(idle.client, store: idle.store, knownAs: DemoTV.mac,
-                                                    now: Self.now) { sending, registration in (sending, registration) }
+                                                    now: Self.now) { sending, registration, before in
+            (sending, registration, before)
+        }
         XCTAssertEqual(alone.sending, .nothingWaiting)
         XCTAssertEqual(alone.after.0, .nothingWaiting)
         XCTAssertEqual(alone.after.1, arrived, "a run with no round was not handed when its cookie arrived")
+        XCTAssertFalse(alone.after.2, "a run with no round was handed as refused for the cookie before")
 
         let refused = try await home([row("サンプル劇場", 50101, at: 60)], credentials: given)
         let ran = await TVDriver.sendWithNoScreen(refused.client, store: refused.store, knownAs: DemoTV.mac,
-                                                  now: Self.now) { sending, registration in (sending, registration) }
+                                                  now: Self.now) { sending, registration, before in
+            (sending, registration, before)
+        }
         guard case .sent(let told) = ran.after.0, case .sent(let came) = ran.sending else {
             return XCTFail("no round ran: \(ran)")
         }
         XCTAssertEqual(told.stopped, .needsPairing, "a refusal of the cookie in hand was not handed on")
         XCTAssertEqual(came.stopped, .needsPairing)
         XCTAssertEqual(ran.after.1, arrived, "a round was not handed when its cookie arrived")
+        XCTAssertFalse(ran.after.2, "a refusal of the cookie in hand was handed as one of the cookie before")
     }
 
     /// A round refused for its cookie after the cookie in the store has changed under it -- the television
     /// registered again, or the cookie renewed, as the round's first request that needs one goes -- heard
-    /// that of the cookie before: what the run tells once is handed the round without that stop, and when
-    /// the cookie it began with arrived. The round is handed back as it came, refused.
+    /// that of the cookie before: what the run tells once is handed the round without that stop, as refused
+    /// for the cookie before, and when the cookie it began with arrived. The round is handed back as it came,
+    /// refused.
     func testARoundRefusedOnceItsCookieHasChangedIsHandedOnWithoutTheStop() async throws {
         let arrived = Date(timeIntervalSince1970: 1_793_000_000)
         let later = Date(timeIntervalSince1970: 1_793_000_600)
@@ -334,16 +341,47 @@ final class TVNoScreenTests: XCTestCase {
         let client = ScalarClient(host: Stub.host, transport: gate, credentials: credentials)
 
         let ran = await TVDriver.sendWithNoScreen(client, store: store, knownAs: DemoTV.mac, now: Self.now) {
-            sending, registration in (sending, registration)
+            sending, registration, before in (sending, registration, before)
         }
 
         guard case .sent(let told) = ran.after.0, case .sent(let came) = ran.sending else {
             return XCTFail("no round ran: \(ran)")
         }
         XCTAssertNil(told.stopped, "a refusal of the cookie before was handed on as a registration wanted")
+        XCTAssertTrue(ran.after.2, "a refusal of the cookie before was not handed on as such")
         XCTAssertEqual(ran.after.1, arrived, "the round was not handed when the cookie it began with arrived")
         XCTAssertEqual(came.stopped, .needsPairing, "the round was not handed back as it came")
         expectEqual(await gate.asked.filter { $0 == Self.disk }.count, 2, "the newer cookie was not tried")
+    }
+
+    /// A run with no round is handed when the cookie in the store arrived as the run began, not as its turn
+    /// came: what it found -- here, another television answering -- was found of the television as registered
+    /// then, before it asked for the turn. The cookie in the store changes as the MAC is read: a registration
+    /// made as the run reads it.
+    func testARunWithNoRoundIsHandedTheCookieInTheStoreAsItBegan() async throws {
+        let arrived = Date(timeIntervalSince1970: 1_793_000_000)
+        let later = Date(timeIntervalSince1970: 1_793_000_600)
+        let television = DemoTV(mac: "f8:4e:17:00:00:0b")
+        await television.knows(Self.kept.clientID, cookie: "kept")
+        await television.receives([DemoTV.Station()])
+        let gate = TVGate(television)
+        let store = try temporaryStore()
+        try await store.queue(row("サンプル劇場", 50101, at: 60))
+        let credentials = MemoryTVCredentials(TVCredentials(clientID: Self.kept.clientID, cookie: "kept",
+                                                            cookieReceived: arrived))
+        await gate.before(Self.mac) {
+            credentials.save(TVCredentials(clientID: Self.kept.clientID, cookie: "kept again", cookieReceived: later))
+        }
+        let client = ScalarClient(host: Stub.host, transport: gate, credentials: credentials)
+
+        let ran = await TVDriver.sendWithNoScreen(client, store: store, knownAs: DemoTV.mac, now: Self.now) {
+            sending, registration, before in (sending, registration, before)
+        }
+
+        XCTAssertEqual(ran.sending, .anotherAnswered, "the run was meant to find another television")
+        XCTAssertEqual(ran.after.0, .anotherAnswered)
+        XCTAssertEqual(ran.after.1, arrived, "a run with no round was handed the cookie of its turn, not its own")
+        XCTAssertFalse(ran.after.2, "a run with no round was handed as refused for the cookie before")
     }
 
     /// One attempt from a home of `rows`, bent first as a test says.
@@ -571,6 +609,65 @@ final class TVNoScreenTests: XCTestCase {
         ]
         for (name, before, waiting, after) in cases {
             XCTAssertEqual(before.afterTheScreensSent(waiting: waiting, now: Self.now), after, name)
+        }
+    }
+
+    /// What is told from then on carries the registration it was learnt under. A run that learnt something of
+    /// the television -- a stop, a round that went, nothing waiting, another television -- carries the one it
+    /// is handed, its round's or its turn's. A run that learnt nothing -- nobody answering, silence or answers
+    /// that say nothing before any row -- carries on what was told before under the registration that was
+    /// learnt under: a registration made since forgets it, as it forgets what was told under the one before.
+    func testWhatIsToldOnceCarriesTheRegistrationItWasLearntUnder() {
+        let first = Date(timeIntervalSince1970: 1_793_000_000), again = Date(timeIntervalSince1970: 1_793_000_600)
+        let told = ToldOnce(stop: .registration, registration: first)
+        let morning = row("サンプル天気", 50103, at: 420)
+        let cases: [(String, NoScreenSending, ToldOnce.Stop?, Date)] = [
+            ("nobody answering", .unreachable, .registration, first),
+            ("silence before any row",
+             .sent(PendingQueue.Outcome(slot: .tv, stopped: .silent(afterSending: false))), .registration, first),
+            ("nothing that reads", .sent(PendingQueue.Outcome(slot: .tv, stopped: .saysNothing)), .registration, first),
+            ("the disk", .sent(PendingQueue.Outcome(slot: .tv, stopped: .cannotRecord(reason: ScalarClient.diskNotFound))),
+             .disk, again),
+            ("a round that went", .sent(PendingQueue.Outcome(slot: .tv, sent: [morning])), nil, again),
+            ("nothing waiting", .nothingWaiting, nil, again),
+            ("another television", .anotherAnswered, .another, again),
+        ]
+        for (name, sending, stop, registration) in cases {
+            let (_, next) = told.after(sending, waiting: [], before: Self.nextRun, now: Self.now, naming: "テレビ",
+                                       registration: again)
+            XCTAssertEqual(next.registration, registration, name)
+            XCTAssertEqual(next.stop, stop, name)
+        }
+    }
+
+    /// A round refused for the cookie before the one in the store -- handed on without its stop -- learnt
+    /// nothing of the television as it is registered now: the stop told before is carried on, under the
+    /// registration it was told under, and is not told again. One that got as far as a row before it was
+    /// refused -- sent, found there, turned down or passed over -- learnt that much, and forgets the stop as any
+    /// round that got as far as a row does.
+    func testARoundRefusedForTheCookieBeforeCarriesTheStopToldBefore() {
+        let first = Date(timeIntervalSince1970: 1_793_000_000), again = Date(timeIntervalSince1970: 1_793_000_600)
+        let morning = row("サンプル天気", 50103, at: 420)
+        let disk = ToldOnce(stop: .disk, registration: first)
+        let refused = NoScreenSending.sent(PendingQueue.Outcome(slot: .tv))
+        let (notices, next) = disk.after(refused, waiting: [morning], before: Self.nextRun, now: Self.now,
+                                         naming: "テレビ", registration: again, refusedForTheCookieBefore: true)
+        XCTAssertEqual(next, ToldOnce(stop: .disk, registration: first), "nothing sent")
+        XCTAssertEqual(notices, NoScreenNotices(), "nothing sent")
+
+        let went = NoScreenSending.sent(PendingQueue.Outcome(slot: .tv, sent: [morning]))
+        let (_, afterARow) = disk.after(went, waiting: [], before: Self.nextRun, now: Self.now, naming: "テレビ",
+                                        registration: again, refusedForTheCookieBefore: true)
+        XCTAssertEqual(afterARow, ToldOnce(registration: again), "a row sent")
+
+        let lists: [(String, WritableKeyPath<PendingQueue.Outcome, [PendingReservation]>)] =
+            [("a row found there", \.alreadyThere), ("a row turned down", \.refused), ("a row passed over", \.deferred)]
+        for (name, list) in lists {
+            var round = PendingQueue.Outcome(slot: .tv)
+            round[keyPath: list] = [morning]
+            let (_, afterIt) = disk.after(.sent(round), waiting: [], before: Self.nextRun, now: Self.now,
+                                          naming: "テレビ", registration: again, refusedForTheCookieBefore: true)
+            XCTAssertEqual(afterIt, ToldOnce(registration: again), name)
         }
     }
 }

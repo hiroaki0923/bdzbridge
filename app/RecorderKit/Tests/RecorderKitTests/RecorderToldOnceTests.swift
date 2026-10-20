@@ -1,5 +1,6 @@
 import Foundation
 import RecorderKit
+import SQLite3
 import XCTest
 
 /// What the recorder's runs with no screen tell once, through the two runs themselves
@@ -73,9 +74,9 @@ final class RecorderToldOnceTests: XCTestCase {
         }
     }
 
-    /// A cache the first recorder has claimed, with `rows` waiting in it.
-    private func cache(_ rows: [PendingReservation] = []) async throws -> GuideStore {
-        let store = try temporaryStore()
+    /// A cache the first recorder has claimed, with `rows` waiting in it, in the file at `path` when one is given.
+    private func cache(_ rows: [PendingReservation] = [], at path: String? = nil) async throws -> GuideStore {
+        let store = try GuideStore(path: path ?? temporaryPath())
         try await store.claim(for: RecorderClient(host: Stub.host, transport: recorder()).describe())
         for row in rows { try await store.queue(row) }
         return store
@@ -434,12 +435,29 @@ final class RecorderToldOnceTests: XCTestCase {
     /// of it again. The notice is handed over once across both, and what both leave kept holds the
     /// reservation. A recorder that answers: the night's round makes the reservation and nothing is late; the
     /// action, begun while the night tells after its round, finds nothing waiting, and nothing is kept.
+    /// Another recorder answering: the night hands over that the queue was held back and tells of the
+    /// reservation with that, and the action, answered by the same one, tells nothing of either again. A
+    /// recorder that cannot be told from the one the cache is of -- its owner cannot be read -- is told of as
+    /// nobody answering, by both.
+    ///
+    /// An owner that cannot be read is made here by putting the cache's `meta` table out of the store's
+    /// reach from a connection of the test's own, once the cache has been claimed, and putting it back at the
+    /// end, nothing opened on the file meanwhile: a store opened then would make itself an empty table of that
+    /// name. No other way gives it. The cache is kept in WAL mode, where a lock another connection holds stops
+    /// no read; and a run's own describe sets what the recorder said it is, so a recorder that did not
+    /// describe itself does not arise inside a run.
     func testANightTellingKeepsTheActionAtTheSameArrivalFromDecidingMeanwhile() async throws {
         let theatre = pending("サンプル劇場", eventID: 0x3101, start: Self.start)
-        for answering in [false, true] {
-            let name = answering ? "a recorder that answers" : "nobody answering"
-            let store = try await cache([theatre])
-            let transport = try recorder(silent: !answering)
+        for way in Answering.allCases {
+            let name = "\(way)"
+            let path = temporaryPath()
+            let store = try await cache([theatre], at: path)
+            let transport = switch way {
+            case .nobody: try recorder(silent: true)
+            case .answering, .cannotBeTold: try recorder()
+            case .another: try recorder(Self.stranger)
+            }
+            let away = way == .cannotBeTold ? MetaAway(in: path) : nil
             let kept = Kept()
             let latch = Latch()
             addTeardownBlock { await latch.open() }
@@ -456,15 +474,39 @@ final class RecorderToldOnceTests: XCTestCase {
             await latch.open()
             _ = try await within(10, "\(name): the night never ended") { await night.value }
             let acted = try await within(10, "\(name): the action never ended") { await action.value }
-            if answering {
+            away?.putBack()
+            switch way {
+            case .answering:
                 XCTAssertEqual(acted.sending, .nothingWaiting, name)
                 XCTAssertEqual(kept.notices, [nil, nil], name)
                 XCTAssertEqual(kept.value, ToldOnce(), "\(name): what both left kept")
-            } else {
+            case .nobody, .cannotBeTold:
+                XCTAssertEqual(acted.sending, .unreachable, name)
                 XCTAssertEqual(kept.notices, [Self.late + Self.notAnswering, nil],
                                "\(name): the notice was not handed over once")
                 XCTAssertEqual(acted.told, NoScreenTold(kept: ToldOnce(rows: [theatre.id])), name)
                 XCTAssertEqual(kept.value, ToldOnce(rows: [theatre.id]), "\(name): what both left kept")
+            case .another:
+                XCTAssertEqual(acted.sending, .anotherAnswered, name)
+                XCTAssertEqual(kept.notices, [Self.late + Self.another, nil],
+                               "\(name): the notice was not handed over once")
+                XCTAssertEqual(acted.told, NoScreenTold(kept: ToldOnce(stop: .another, rows: [theatre.id])), name)
+                XCTAssertEqual(kept.value, ToldOnce(stop: .another, rows: [theatre.id]),
+                               "\(name): what both left kept")
+            }
+        }
+    }
+
+    /// Who answers the night and the action of the row above.
+    private enum Answering: CaseIterable, CustomStringConvertible {
+        case nobody, answering, another, cannotBeTold
+
+        var description: String {
+            switch self {
+            case .nobody: "nobody answering"
+            case .answering: "a recorder that answers"
+            case .another: "another recorder"
+            case .cannotBeTold: "a recorder that cannot be told"
             }
         }
     }
@@ -578,6 +620,24 @@ private final class Kept: @unchecked Sendable {
             if now { test.resume() }
         }
     }
+}
+
+/// A connection of the test's own, through the system's SQLite, that has put a cache's `meta` table out of its
+/// store's reach until it puts it back: whose cache it is cannot be read meanwhile, each read failing at once.
+/// The queue beside it is read and written as ever.
+private final class MetaAway {
+    private var connection: OpaquePointer?
+
+    init(in path: String) {
+        XCTAssertEqual(sqlite3_open(path, &connection), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(connection, "ALTER TABLE meta RENAME TO meta_away", nil, nil, nil), SQLITE_OK)
+    }
+
+    func putBack() {
+        XCTAssertEqual(sqlite3_exec(connection, "ALTER TABLE meta_away RENAME TO meta", nil, nil, nil), SQLITE_OK)
+    }
+
+    deinit { sqlite3_close(connection) }
 }
 
 /// Holds whoever waits on it until it is opened.

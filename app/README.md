@@ -328,13 +328,16 @@ television's reservation once; what a run tells, read from the queue as the run 
 on a registration again and on the television taken away, but for what a run that waited for the queue's turn
 across one registration or two finds, and no registration asked for in what is told once after a round refused
 for a cookie that had changed under it, registered again or renewed, whose refusal the action's answer still
-says; the warning of rows not yet there forgotten once a sending of the app's own or a reservation made by
-hand leaves none of them waiting; 外す and the delete of a television's row waiting for the action's sending,
-and a row that sending made said as made and not as deleted -- with the app's link unable to read the list
-too, and with the row still waiting after its create's answer was lost -- but not one dropped as over, nor one
-gone with the television; a recorder's row deleted the same way, waiting for that sending and said made when
-the sending made it; and the identifiers of the television's two notifications. What such a run asks of a
-television, in what order, and what it tells once, is tried in RecorderKit (`TVNoScreenTests`).
+says and after which the stop told before is carried on; what a run that learnt nothing carried on, and what a
+run with no round found, before a registration forgotten with it; a registration the phone could not keep said
+so, with nothing forgotten; the warning of rows not yet there forgotten once a sending of the app's own or a
+reservation made by hand leaves none of them waiting, a forgetting asked for real before the demo began made of
+the real queue; 外す and the delete of a television's row waiting for the action's sending, and a row that sending
+made said as made and not as deleted -- with the app's link unable to read the list too, and with the row still
+waiting after its create's answer was lost -- but not one dropped as over, nor one gone with the television; a
+recorder's row deleted the same way, waiting for that sending and said made when the sending made it; and the
+identifiers of the television's two notifications. What such a run asks of a television, in what order, and what it
+tells once, is tried in RecorderKit (`TVNoScreenTests`).
 
 `SessionRuleTests` holds the rules about being connected, one test to a rule, so that the model can be taken
 apart without any of them changing: only silence is given up on, not a recorder that answers busy; a recorder
@@ -1214,7 +1217,14 @@ Another television is never taken for the one saved: not at a connect or at the 
 which reads the MAC first and refuses another before anything that registers is sent to it
 (`ScalarClient.enrol(expecting:)`), so no PIN comes up on its panel. The sheet says that another television is
 added after テレビを外す, which asks about what waits for the one saved and deletes it. A television that gives
-no MAC is taken for the one saved, as a connect takes it. And the tutorial comes up at a launch only while
+no MAC is taken for the one saved, as a connect takes it. A registration the phone could not keep is not taken
+for one made: the Keychain's save says nothing of how it went, so the client reads back, for its client id, a
+cookie the store did not hold before the save, by the cookie or when it arrived (`ScalarClient.keep`; not the
+cookie alone, which a television giving the same value again would match, nor only the one saved, as the link's
+own client may renew the same registration in between), and the sheet says
+「テレビへの登録をこの端末に保存できませんでした。もう一度登録してください。」, with nothing
+forgotten, saved or connected afresh: every request still sends the cookie kept before. A renewal not kept leaves
+that cookie in hand, renewed again at the next connect. And the tutorial comes up at a launch only while
 nothing is set up (`AppModel.welcomes`): a home with a television and no recorder is not shown it every time.
 
 Which recorder is answering is decided by its description, not by the address: the recorder says which it is
@@ -1368,10 +1378,12 @@ in its way: another recorder; the recorder not answering -- nobody reached, a ro
 recorder that could not be told apart; or nothing known, when opening the app sends it. The warning is of every
 such reservation whenever one is new, the first by its title and start and then how many more, and is taken away
 once none of them waits to go -- by the next run, or in the queue's turn after a sending, a reservation made by
-hand or a delete of the app's own. What was told is kept between runs (`DefaultsKey.recorderTold`, apart from the
-television's), written whether or not a notification could be heard, and forgotten with the cache when another
-recorder is taken up, at once and again in the queue's turn. Nothing of it is handed over or written once the
-night's time is up, or once the cache is another recorder's than it was as the run began.
+hand or a delete of the app's own, made in the demo or not and of the cache in play as it was asked, so that one
+asked before the demo began is made of the real queue. What was told is kept between runs
+(`DefaultsKey.recorderTold`, apart from the television's), written whether or not a notification could be heard, and
+forgotten with the cache when another recorder is taken up, at once and again in the queue's turn. Nothing of it is
+handed over or written once the night's time is up, or once the cache is another recorder's than it was as the run
+began.
 
 Permission comes in two steps. Once the app has reached a real recorder it takes provisional permission,
 which shows no dialog -- so nothing lands on the local network question that comes up around the first
@@ -1700,14 +1712,21 @@ which is inferred and not seen. What a run tells once is read, decided, posted a
 the turn of its round, just after the round (`PendingQueue.flush(client:store:consenting:only:now:then:)`), or one
 of its own where it has none; what the screens forget is forgotten in the turn too, in a task the screens do not
 wait for, since an attach asks for it and is not to stand behind a round of their own on the client it has just
-retired. So a sending or a forgetting of the screens' in the turn, and another run's telling, come wholly before a
-run's telling or wholly after it; a registration again and a cache made over also forget at once, outside the
-turn, and once more in it, which comes after any telling the first fell inside. A registration's forgetting in the
-turn leaves what a run whose round began after the registration has kept, under its cookie or a later one: a run
-keeps, with what it tells, when the cookie its round began under arrived (`ToldOnce.registration`), and a round
-refused for its cookie once the cookie has changed under it, registered again or renewed, asks for no registration
-in what it tells once; the action's answer says the refusal, as it did. With a television saved, the settings'
-footers about notifications and arriving home speak of both devices.
+retired, in the demo or not and of the cache in play as it was asked. So a sending or a forgetting of the screens'
+in the turn, and another run's telling, come wholly before a run's telling or wholly after it; a registration again
+and a cache made over also forget at once, outside the turn, and once more in it, which comes after any telling the
+first fell inside. A registration's forgetting in the turn leaves what a run whose round began after the
+registration and learnt something has kept, under its cookie or a later one: a run keeps, with what it tells, when
+the cookie its round began under arrived (`ToldOnce.registration`), and a round refused for its cookie once the
+cookie has changed under it, registered again or renewed, asks for no registration in what it tells once; the
+action's answer says the refusal, as it did. Such a round, if it got no further than a row -- nothing sent, found
+there, turned down or passed over -- has learnt nothing of the television as registered now, and carries on the
+stop told before. A run with no round keeps the cookie in the store as it began, before the queue was read, so that
+what it found before a registration is forgotten with it; and a run that learnt nothing carries on what was told
+before under the registration it was told under, so that a registration made since forgets it and takes its notices
+away; so it does for one whose round began after the registration, when nothing was kept since the forgetting at
+once, its own warning of reservations not yet there going with it, to be told afresh by the next run. With a
+television saved, the settings' footers about notifications and arriving home speak of both devices.
 
 Reserving a programme on a television is the driver's as well (`TVDriver.reserve`), and it makes nothing by
 itself. The reservation is written to the phone's queue first, for the television and in DR, and the queue is

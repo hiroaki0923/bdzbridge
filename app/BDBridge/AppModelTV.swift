@@ -295,8 +295,11 @@ extension AppModel {
             forgetWhatWasTold()
             // Once more in the queue's turn, not waited for, as the runs with no screen tell and keep it: a run
             // telling now is over first, and what it kept and posted of the registration before goes after it.
-            // A run waiting for the turn now sends with this registration, or with a cookie the television has
-            // given since, and what it keeps under either stays.
+            // A run waiting for the turn now whose round sends with this registration, or with a cookie the
+            // television has given since, and learns something keeps what it finds under either, and that stays;
+            // a run that learns nothing carries on the registration of what was told before, none after the
+            // forgetting at once, and what it keeps goes. So does what a run with no round found before the
+            // registration.
             if !demo {
                 let registration = credentials.load()?.cookieReceived
                 Task { [weak self] in
@@ -326,8 +329,8 @@ extension AppModel {
     /// once: it cannot take the turn itself, as `takeTheTelevisionAway` holds it already as it calls, and the turn
     /// is not taken twice. What is kept under one of `registrations` is left (`ToldOnce.registration`): the
     /// registration's own cookie (`TVCredentials.cookieReceived`) and the one in the store as the turn comes,
-    /// which a later registration or a renewal has given since. A run whose round began under either kept it,
-    /// after the registration.
+    /// which a later registration or a renewal has given since. A run whose round began under either, and learnt
+    /// something, kept it, after the registration.
     private func forgetWhatWasTold(unlessKeptUnder registrations: [Date?] = []) {
         guard !demo else { return }
         let kept = KeptOnce.television(in: defaults)
@@ -347,14 +350,15 @@ extension AppModel {
     /// may come after their programmes have begun. Read from the phone's queue and not from the one on
     /// screen, which is empty when the queue cannot be read; a queue that cannot be read changes nothing.
     /// Not in the demo, whose queue is not the one the warning was about. In the queue's turn and in a task of
-    /// its own, as the recorder's is (`forgetTheRecordersWarningOnceSent`).
+    /// its own, as the recorder's is (`forgetTheRecordersWarningOnceSent`), and, as there, whether it is the demo
+    /// and the queue read are as when it is asked.
     func forgetTheWarningOnceSent() {
+        guard !demo, let store else { return }
         Task { [weak self] in
             _ = await PendingQueue.betweenFlushes { @MainActor in
                 guard let self else { return }
                 let kept = KeptOnce.television(in: self.defaults)
-                guard !self.demo, let told = kept.read(),
-                      let store = self.store, let waiting = try? await store.pendingReservations(),
+                guard let told = kept.read(), let waiting = try? await store.pendingReservations(),
                       let after = told.afterTheScreensSent(waiting: waiting) else { return }
                 kept.keep(after)
                 if self.surroundings.asksAboutNotifications { Notify.withdrawTelevisionNotYet() }
