@@ -726,7 +726,9 @@ final class TVNoScreenTests: XCTestCase {
     /// nothing of the television as it is registered now: the stop told before is carried on, under the
     /// registration it was told under, and is not told again. One that got as far as a row before it was
     /// refused -- sent, found there, turned down or passed over -- learnt that much, and forgets the stop as any
-    /// round that got as far as a row does.
+    /// round that got as far as a row does. The want of a registration told before is not carried on: the
+    /// cookie in the store has changed, and a renewal shows that registration good. It is forgotten, the
+    /// notice that asked for it goes, and what is kept carries the registration the round is handed.
     func testARoundRefusedForTheCookieBeforeCarriesTheStopToldBefore() {
         let first = Date(timeIntervalSince1970: 1_793_000_000), again = Date(timeIntervalSince1970: 1_793_000_600)
         let morning = row("サンプル天気", 50103, at: 420)
@@ -736,6 +738,17 @@ final class TVNoScreenTests: XCTestCase {
                                          naming: "テレビ", registration: again, refusedForTheCookieBefore: true)
         XCTAssertEqual(next, ToldOnce(stop: .disk, registration: first), "nothing sent")
         XCTAssertEqual(notices, NoScreenNotices(), "nothing sent")
+        let another = ToldOnce(stop: .another, registration: first)
+        let (_, afterAnother) = another.after(refused, waiting: [morning], before: Self.nextRun, now: Self.now,
+                                              naming: "テレビ", registration: again, refusedForTheCookieBefore: true)
+        XCTAssertEqual(afterAnother, another, "nothing sent, another television told before")
+
+        let unregistered = ToldOnce(stop: .registration, registration: first)
+        let (asked, renewed) = unregistered.after(refused, waiting: [morning], before: Self.nextRun, now: Self.now,
+                                                  naming: "テレビ", registration: again,
+                                                  refusedForTheCookieBefore: true)
+        XCTAssertEqual(renewed, ToldOnce(registration: again), "nothing sent, a registration wanted told before")
+        XCTAssertEqual(asked, NoScreenNotices(withdrawsQueue: true), "nothing sent, a registration wanted told before")
 
         let went = NoScreenSending.sent(PendingQueue.Outcome(slot: .tv, sent: [morning]))
         let (_, afterARow) = disk.after(went, waiting: [], before: Self.nextRun, now: Self.now, naming: "テレビ",
