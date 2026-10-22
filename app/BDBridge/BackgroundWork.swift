@@ -254,7 +254,7 @@ enum BackgroundWork {
     /// what the screens send or forget in the turn comes wholly before it or wholly after it; a registration
     /// also forgets at once, outside the turn, which can fall inside a telling, and once more in the turn,
     /// which then comes after that telling and takes away only what is kept under a registration before it:
-    /// what is kept carries the one the round began under (`ToldOnce.registration`).
+    /// what is kept carries the registration it was learnt under (`ToldOnce.registration`).
     static func sendToTheTelevision(client: ScalarClient, store: GuideStore, mac: String?,
                                     told reading: @escaping @Sendable () -> ToldOnce, nextRun: Date,
                                     now: Date = Date(),
