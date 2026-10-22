@@ -94,7 +94,8 @@ enum Notify {
 
     /// What a run with no screen has to tell of the television (`NoScreenNotices`), each under an identifier of its
     /// own: neither takes the place of the recorder's two (`queue-flushed`, `recorderNotYet`) nor of the
-    /// other. What became of the queue is replaced by the next run's, as the recorder's is; a notice of
+    /// other. What became of the queue is replaced by the next run's, as the recorder's is, or taken away when
+    /// a run finds that what it said is no longer so (`NoScreenNotices.withdrawsQueue`); a notice of
     /// reservations not yet there stays until one of its kind replaces it or none of the reservations it told
     /// of waits to go, so that the news of a sending does not take away a warning that may still hold.
     ///
@@ -104,9 +105,17 @@ enum Notify {
     /// (`UNNotificationRequest.init(identifier:content:trigger:)`). So is taking a delivered one away by its
     /// identifier.
     static func television(_ notices: NoScreenNotices) async {
-        if notices.withdrawsNotYet { withdrawTelevisionNotYet() }
+        withdrawTelevision(notices)
         if let queue = notices.queue { await post(id: televisionQueue, title: "送信待ちの予約", body: queue) }
         if let notYet = notices.notYet { await post(id: televisionNotYet, title: "送信待ちの予約", body: notYet) }
+    }
+
+    /// Takes away what `notices` says is to go of what the runs with no screen told of the television: by a run
+    /// (`television`), or as what was told is forgotten by a registration or the television taken away
+    /// (`ToldOnce.withdrawn`).
+    static func withdrawTelevision(_ notices: NoScreenNotices) {
+        if notices.withdrawsNotYet { withdrawTelevisionNotYet() }
+        if notices.withdrawsQueue { withdrawTelevisionQueue() }
     }
 
     /// Takes away the warning of reservations not yet at the television, once none of them waits: sent since,
@@ -116,7 +125,10 @@ enum Notify {
     }
 
     /// Takes away what became of what waited for the television, when it asked for a registration: once one
-    /// has been made, or the television taken away.
+    /// has been made, the television taken away, or a run with no screen has forgotten the want of one and
+    /// has nothing of the queue to say in its place (`NoScreenNotices.withdrawsQueue`). Also when it said that
+    /// another device answered, once a registration has been made, the television taken away in between or
+    /// not (`ToldOnce.withdrawn`, `ToldOnce.kept`).
     static func withdrawTelevisionQueue() {
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [televisionQueue])
     }

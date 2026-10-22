@@ -1388,7 +1388,7 @@ final class NoScreenGateTests: XCTestCase {
     private func theRecordersForgettingAcrossTheDemo(toldOfTheRowKept: Bool) async throws {
         let (bench, recorder, model) = try await connectedHome()
         let kept = KeptIn(bench.defaults, DefaultsKey.recorderTold)
-        let programme = try await programmesNotReserved(model, 1)[0]
+        let programme = try await theDemosProgramme(model, in: try XCTUnwrap(model.store))
         await recorder.goQuiet(for: 1000)
         await model.connect()
         try await untilGivenUp(model)

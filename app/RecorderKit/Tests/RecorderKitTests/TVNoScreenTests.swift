@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import XCTest
 @testable import RecorderKit
 
@@ -357,7 +358,10 @@ final class TVNoScreenTests: XCTestCase {
     /// A run with no round is handed when the cookie in the store arrived as the run began, not as its turn
     /// came: what it found -- here, another television answering -- was found of the television as registered
     /// then, before it asked for the turn. The cookie in the store changes as the MAC is read: a registration
-    /// made as the run reads it.
+    /// made as the run reads it. And it changes as the queue is read, before the MAC: the queue is out of the
+    /// run's reach until the cookie in the store is first read, and is put back then, with a cookie that
+    /// arrived later saved in its place. A run that read the cookie only after the queue would find nothing
+    /// waiting; one that read it again after the queue would be handed the later one.
     func testARunWithNoRoundIsHandedTheCookieInTheStoreAsItBegan() async throws {
         let arrived = Date(timeIntervalSince1970: 1_793_000_000)
         let later = Date(timeIntervalSince1970: 1_793_000_600)
@@ -382,6 +386,30 @@ final class TVNoScreenTests: XCTestCase {
         XCTAssertEqual(ran.after.0, .anotherAnswered)
         XCTAssertEqual(ran.after.1, arrived, "a run with no round was handed the cookie of its turn, not its own")
         XCTAssertFalse(ran.after.2, "a run with no round was handed as refused for the cookie before")
+
+        let path = temporaryPath()
+        let queued = try GuideStore(path: path)
+        try await queued.queue(row("サンプル劇場", 50101, at: 60))
+        let behind = QueueBehindTheCookie(TVCredentials(clientID: Self.kept.clientID, cookie: "kept",
+                                                        cookieReceived: arrived),
+                                          then: TVCredentials(clientID: Self.kept.clientID, cookie: "kept again",
+                                                              cookieReceived: later),
+                                          queueIn: path)
+        let another = DemoTV(mac: "f8:4e:17:00:00:0b")
+        await another.knows(Self.kept.clientID, cookie: "kept")
+        let reading = ScalarClient(host: Stub.host, transport: another, credentials: behind)
+
+        let asTheQueueIsRead = await TVDriver.sendWithNoScreen(reading, store: queued, knownAs: DemoTV.mac,
+                                                               now: Self.now) {
+            sending, registration, before in (sending, registration, before)
+        }
+
+        XCTAssertEqual(behind.moved, [SQLITE_OK, SQLITE_OK],
+                       "set up wrong: the queue was not put out of the run's reach and back")
+        XCTAssertEqual(asTheQueueIsRead.sending, .anotherAnswered,
+                       "the run read the queue before the cookie in the store: \(asTheQueueIsRead.sending)")
+        XCTAssertEqual(asTheQueueIsRead.after.1, arrived,
+                       "a run with no round was handed a cookie read after the queue, not the one as it began")
     }
 
     /// One attempt from a home of `rows`, bent first as a test says.
@@ -416,6 +444,7 @@ final class TVNoScreenTests: XCTestCase {
         var queue: String?
         var notYet: String?
         var withdraws = false
+        var withdrawsQueue = false
     }
 
     /// The runs one after another from `told`, each held to what it is to tell. What is told after the last.
@@ -432,7 +461,8 @@ final class TVNoScreenTests: XCTestCase {
         for run in runs {
             let (notices, next) = told.after(run.sending, waiting: run.waiting, before: Self.nextRun, now: Self.now,
                                              naming: "テレビ")
-            XCTAssertEqual(notices, NoScreenNotices(queue: run.queue, notYet: run.notYet, withdrawsNotYet: run.withdraws),
+            XCTAssertEqual(notices, NoScreenNotices(queue: run.queue, notYet: run.notYet, withdrawsNotYet: run.withdraws,
+                                                    withdrawsQueue: run.withdrawsQueue),
                            run.name)
             told = next
         }
@@ -511,6 +541,98 @@ final class TVNoScreenTests: XCTestCase {
                                                                                 stopped: .silent(afterSending: true)))
         tell([Run(name: "silent at the second create", sending: madeThenSilentAtACreate, waiting: [],
                   queue: "送信待ちだった「サンプル天気」をテレビに登録しました。" + cutShort)])
+    }
+
+    /// The notice that asked for a registration goes once the want of one is forgotten: after a run with
+    /// nothing waiting, after a round that got as far as a row with nothing of its own to say, and after
+    /// another stop that the late notice carries. A run that says something of the queue puts its own notice
+    /// in that one's place instead, and one that learnt nothing of the television, or was refused again,
+    /// leaves it. No other stop forgotten takes the queue's notice away.
+    func testTheNoticeAskingForARegistrationGoesOnceTheWantOfOneIsForgotten() {
+        let theatre = row("サンプル劇場", 50101, at: 60), morning = row("サンプル天気", 50103, at: 420)
+        let unregistered = NoScreenSending.sent(PendingQueue.Outcome(slot: .tv, stopped: .needsPairing))
+        let asked = Run(name: "no registration", sending: unregistered, waiting: [morning],
+                        queue: "テレビへの登録が必要です。設定の「テレビ」から登録してください")
+        let disk = NoScreenSending.sent(PendingQueue.Outcome(slot: .tv,
+                                                             stopped: .cannotRecord(reason: ScalarClient.diskNotFound)))
+        let theDisk = "録画用の USB HDD が見つからないため、テレビへの予約は送っていません"
+
+        tell([asked, Run(name: "nothing waiting", sending: .nothingWaiting, waiting: [], withdrawsQueue: true)])
+        tell([asked, Run(name: "a row passed over, with nothing of its own to say",
+                         sending: .sent(PendingQueue.Outcome(slot: .tv, deferred: [morning])), waiting: [morning],
+                         withdrawsQueue: true)])
+        tell([asked, Run(name: "the disk, carried by the late notice", sending: disk, waiting: [theatre],
+                         notYet: "テレビにまだ届いていない予約があります（「サンプル劇場」21:00 から）。" + theDisk,
+                         withdrawsQueue: true)])
+
+        tell([asked, Run(name: "the disk", sending: disk, waiting: [morning], queue: theDisk)])
+        tell([asked, Run(name: "a round that went", sending: .sent(PendingQueue.Outcome(slot: .tv, sent: [morning])),
+                         waiting: [], queue: "送信待ちだった「サンプル天気」をテレビに登録しました")])
+        tell([asked, Run(name: "silent", sending: .unreachable, waiting: [morning])])
+        tell([asked, Run(name: "no registration again", sending: unregistered, waiting: [morning])])
+        tell([Run(name: "the disk", sending: disk, waiting: [morning], queue: theDisk),
+              Run(name: "nothing waiting after the disk", sending: .nothingWaiting, waiting: [])])
+    }
+
+    /// What the runs with no screen told is forgotten by a registration and by the television taken away, and
+    /// their notices go with it: the warning of reservations not yet there always, whether anything was kept or
+    /// not, and the notice of what became of the queue when the stop told last is the want of a registration,
+    /// which that notice asked for. At a registration that notice goes as well when the stop told last is another
+    /// television answering: it asked for the television to be added again, and only the one saved can be
+    /// registered. With the television taken away it stays, as it does for any other stop told last, or none.
+    func testWhatIsForgottenAtARegistrationOrARemovalTakesItsNoticesAway() {
+        let first = Date(timeIntervalSince1970: 1_793_000_000)
+        let theatre = row("サンプル劇場", 50101, at: 60)
+        let cases: [(String, ToldOnce?, atARegistration: Bool, atARemoval: Bool)] = [
+            ("nothing kept", nil, false, false),
+            ("nothing told", ToldOnce(), false, false),
+            ("rows alone", ToldOnce(rows: [theatre.id], registration: first), false, false),
+            ("a registration wanted", ToldOnce(stop: .registration, registration: first), true, true),
+            ("a registration wanted, with rows", ToldOnce(stop: .registration, rows: [theatre.id]), true, true),
+            ("the disk", ToldOnce(stop: .disk, registration: first), false, false),
+            ("another television", ToldOnce(stop: .another, registration: first), true, false),
+        ]
+        for (name, told, atARegistration, atARemoval) in cases {
+            XCTAssertEqual(ToldOnce.withdrawn(forgetting: told, by: .registration),
+                           NoScreenNotices(withdrawsNotYet: true, withdrawsQueue: atARegistration),
+                           "\(name), at a registration")
+            XCTAssertEqual(ToldOnce.withdrawn(forgetting: told, by: .removal),
+                           NoScreenNotices(withdrawsNotYet: true, withdrawsQueue: atARemoval),
+                           "\(name), at the television taken away")
+        }
+    }
+
+    /// What a registration or the television taken away leaves kept of what the runs with no screen told, for
+    /// the next run and the next forgetting to read: nothing, but for another television answering told last
+    /// as the television is taken away. That stop is kept alone, with no rows and under no registration: its
+    /// notice, which asked for the television to be added again, stays as the television is taken away, and
+    /// the registration that adds it reads the stop and takes the notice away. After any other stop, or none,
+    /// a registration after the television was taken away reads nothing, and the queue's notice that the
+    /// television taken away left stays.
+    func testWhatIsKeptOnceARegistrationOrARemovalForgetsWhatWasTold() {
+        let first = Date(timeIntervalSince1970: 1_793_000_000)
+        let theatre = row("サンプル劇場", 50101, at: 60)
+        let wanted = ToldOnce(stop: .registration, rows: [theatre.id], registration: first)
+        let another = ToldOnce(stop: .another, rows: [theatre.id], registration: first)
+        let cases: [(String, ToldOnce?, atARegistration: ToldOnce?, atARemoval: ToldOnce?, queueGoesAfter: Bool)] = [
+            ("nothing kept", nil, nil, nil, false),
+            ("nothing told", ToldOnce(), nil, nil, false),
+            ("rows alone", ToldOnce(rows: [theatre.id], registration: first), nil, nil, false),
+            ("a registration wanted", wanted, nil, nil, false),
+            ("the disk", ToldOnce(stop: .disk, registration: first), nil, nil, false),
+            ("another television", another, nil, ToldOnce(stop: .another), true),
+        ]
+        for (name, told, atARegistration, atARemoval, queueGoesAfter) in cases {
+            XCTAssertEqual(ToldOnce.kept(forgetting: told, by: .registration), atARegistration,
+                           "\(name), at a registration")
+            let removed = ToldOnce.kept(forgetting: told, by: .removal)
+            XCTAssertEqual(removed, atARemoval, "\(name), at the television taken away")
+            XCTAssertEqual(ToldOnce.withdrawn(forgetting: removed, by: .registration),
+                           NoScreenNotices(withdrawsNotYet: true, withdrawsQueue: queueGoesAfter),
+                           "\(name), at a registration after the television was taken away")
+            XCTAssertNil(ToldOnce.kept(forgetting: removed, by: .registration),
+                         "\(name), kept after a registration after the television was taken away")
+        }
     }
 
     /// A row that starts before the next run and has not reached the television is told once, by the run
@@ -617,6 +739,9 @@ final class TVNoScreenTests: XCTestCase {
     /// is handed, its round's or its turn's. A run that learnt nothing -- nobody answering, silence or answers
     /// that say nothing before any row -- carries on what was told before under the registration that was
     /// learnt under: a registration made since forgets it, as it forgets what was told under the one before.
+    /// With no stop told before to carry on -- nothing told, or only rows -- what it keeps is the late rows it
+    /// read, under the one it is handed: a registration made before its round began leaves them. So does a
+    /// round refused for the cookie before the one in the store that got as far as no row.
     func testWhatIsToldOnceCarriesTheRegistrationItWasLearntUnder() {
         let first = Date(timeIntervalSince1970: 1_793_000_000), again = Date(timeIntervalSince1970: 1_793_000_600)
         let told = ToldOnce(stop: .registration, registration: first)
@@ -638,13 +763,52 @@ final class TVNoScreenTests: XCTestCase {
             XCTAssertEqual(next.registration, registration, name)
             XCTAssertEqual(next.stop, stop, name)
         }
+
+        let theatre = row("サンプル劇場", 50101, at: 60)
+        let learntNothing: [(String, NoScreenSending, Bool)] = [
+            ("nobody answering", .unreachable, false),
+            ("silence before any row",
+             .sent(PendingQueue.Outcome(slot: .tv, stopped: .silent(afterSending: false))), false),
+            ("nothing that reads", .sent(PendingQueue.Outcome(slot: .tv, stopped: .saysNothing)), false),
+            ("a round refused for the cookie before", .sent(PendingQueue.Outcome(slot: .tv)), true),
+        ]
+        for (name, sending, refusedBefore) in learntNothing {
+            for before in [ToldOnce(), ToldOnce(rows: [theatre.id], registration: first)] {
+                let (_, next) = before.after(sending, waiting: [theatre], before: Self.nextRun, now: Self.now,
+                                             naming: "テレビ", registration: again,
+                                             refusedForTheCookieBefore: refusedBefore)
+                XCTAssertEqual(next, ToldOnce(rows: [theatre.id], registration: again),
+                               "\(name), with no stop told before: \(before)")
+            }
+        }
+    }
+
+    /// A run that learnt nothing, with no stop told before to carry on, keeps what it read under the later of
+    /// the registration it is handed and the one kept before. A run with no round -- nobody answering -- reads
+    /// its cookie as it begins, and can come to its turn after a run whose round began under a later
+    /// registration: what that run kept stays under its own, and a registration's forgetting that leaves it
+    /// leaves this too. Handed none, it keeps the one kept before. Told only of a television that did not
+    /// answer, the one such run a test can hand the rule by the package's public API alone.
+    func testARunThatLearntNothingKeepsTheLaterRegistration() {
+        let first = Date(timeIntervalSince1970: 1_793_000_000), again = Date(timeIntervalSince1970: 1_793_000_600)
+        let theatre = row("サンプル劇場", 50101, at: 60)
+        for before in [ToldOnce(registration: again), ToldOnce(rows: [theatre.id], registration: again)] {
+            for handed in [first, nil] {
+                let (_, next) = before.after(.unreachable, waiting: [theatre], before: Self.nextRun, now: Self.now,
+                                             naming: "テレビ", registration: handed)
+                XCTAssertEqual(next, ToldOnce(rows: [theatre.id], registration: again),
+                               "handed \(String(describing: handed)): \(before)")
+            }
+        }
     }
 
     /// A round refused for the cookie before the one in the store -- handed on without its stop -- learnt
     /// nothing of the television as it is registered now: the stop told before is carried on, under the
     /// registration it was told under, and is not told again. One that got as far as a row before it was
     /// refused -- sent, found there, turned down or passed over -- learnt that much, and forgets the stop as any
-    /// round that got as far as a row does.
+    /// round that got as far as a row does. The want of a registration told before is not carried on: the
+    /// cookie in the store has changed, and a renewal shows that registration good. It is forgotten, the
+    /// notice that asked for it goes, and what is kept carries the registration the round is handed.
     func testARoundRefusedForTheCookieBeforeCarriesTheStopToldBefore() {
         let first = Date(timeIntervalSince1970: 1_793_000_000), again = Date(timeIntervalSince1970: 1_793_000_600)
         let morning = row("サンプル天気", 50103, at: 420)
@@ -654,6 +818,17 @@ final class TVNoScreenTests: XCTestCase {
                                          naming: "テレビ", registration: again, refusedForTheCookieBefore: true)
         XCTAssertEqual(next, ToldOnce(stop: .disk, registration: first), "nothing sent")
         XCTAssertEqual(notices, NoScreenNotices(), "nothing sent")
+        let another = ToldOnce(stop: .another, registration: first)
+        let (_, afterAnother) = another.after(refused, waiting: [morning], before: Self.nextRun, now: Self.now,
+                                              naming: "テレビ", registration: again, refusedForTheCookieBefore: true)
+        XCTAssertEqual(afterAnother, another, "nothing sent, another television told before")
+
+        let unregistered = ToldOnce(stop: .registration, registration: first)
+        let (asked, renewed) = unregistered.after(refused, waiting: [morning], before: Self.nextRun, now: Self.now,
+                                                  naming: "テレビ", registration: again,
+                                                  refusedForTheCookieBefore: true)
+        XCTAssertEqual(renewed, ToldOnce(registration: again), "nothing sent, a registration wanted told before")
+        XCTAssertEqual(asked, NoScreenNotices(withdrawsQueue: true), "nothing sent, a registration wanted told before")
 
         let went = NoScreenSending.sent(PendingQueue.Outcome(slot: .tv, sent: [morning]))
         let (_, afterARow) = disk.after(went, waiting: [], before: Self.nextRun, now: Self.now, naming: "テレビ",
@@ -670,4 +845,47 @@ final class TVNoScreenTests: XCTestCase {
             XCTAssertEqual(afterIt, ToldOnce(registration: again), name)
         }
     }
+}
+
+/// A television's registration kept in memory, beside a cache whose queue it keeps out of its store's reach
+/// until the registration is first read: then the queue is put back, through a connection of the test's own and
+/// the system's SQLite, and a cookie that arrived later is saved in place of the one read. Until then each read
+/// of the queue fails at once. What the two renames answered is in `moved`.
+private final class QueueBehindTheCookie: TVCredentialStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private let kept: MemoryTVCredentials
+    private let later: TVCredentials
+    private var connection: OpaquePointer?
+    private var away = false
+    private var answered: [Int32] = []
+
+    init(_ credentials: TVCredentials, then later: TVCredentials, queueIn path: String) {
+        kept = MemoryTVCredentials(credentials)
+        self.later = later
+        if sqlite3_open(path, &connection) == SQLITE_OK {
+            answered.append(sqlite3_exec(connection, "ALTER TABLE pending_reservations RENAME TO pending_away",
+                                         nil, nil, nil))
+            away = answered.last == SQLITE_OK
+        }
+    }
+
+    var moved: [Int32] { lock.withLock { answered } }
+
+    func load() -> TVCredentials? {
+        lock.withLock {
+            let read = kept.load()
+            if away {
+                away = false
+                answered.append(sqlite3_exec(connection, "ALTER TABLE pending_away RENAME TO pending_reservations",
+                                             nil, nil, nil))
+                kept.save(later)
+            }
+            return read
+        }
+    }
+
+    func save(_ credentials: TVCredentials) { kept.save(credentials) }
+    func remove() { kept.remove() }
+
+    deinit { sqlite3_close(connection) }
 }

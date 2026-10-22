@@ -99,9 +99,9 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     /// The television's alone: the registration what is kept was learnt under -- when the cookie of the
     /// registration that the round of the run that learnt it began under arrived, or, with no round, the one in
     /// the store as that run began (`TVCredentials.cookieReceived`, handed on by `TVDriver.sendWithNoScreen`) --
-    /// nil for none. A run that learnt nothing carries it on as it was. A registration made again forgets
-    /// once more in the queue's turn, after a run that was telling then, only what is kept under a cookie
-    /// from before it.
+    /// nil for none. A run that learnt nothing carries it on as it was with a stop told before, and with none
+    /// takes its own, or the one before where that is later. A registration made again forgets once more in
+    /// the queue's turn, after a run that was telling then, only what is kept under a cookie from before it.
     public var registration: Date?
 
     public init(stop: Stop? = nil, rows: Set<String> = [], registration: Date? = nil) {
@@ -132,14 +132,26 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     /// which its run tells of only at the end of a late notice.
     ///
     /// The stop told last is forgotten once nothing waits, and after a round that got as far as a row; a run
-    /// that learnt nothing of the television leaves it as it was. Silence at a create is no lasting state: it
-    /// is said each time and never kept. What is told from then on carries `registration`, the television's
-    /// registration its round began under (`ToldOnce.registration`); after a run that learnt nothing, the one
-    /// it was kept under before, which the stop it carries on was learnt under: a registration made since
-    /// forgets it, and takes its notices away, as it does what a run told under the registration before.
-    /// A round refused for the cookie before the one in the store (`refusedForTheCookieBefore`, handed on by
-    /// `TVDriver.sendWithNoScreen`) learnt nothing of the television as it is registered now, unless it got as
-    /// far as a row: it carries the stop told before on as such a run does.
+    /// that learnt nothing of the television leaves it as it was. The want of a registration, once forgotten,
+    /// takes the queue's notice with it, unless this run posts one of its own in its place: that notice is the
+    /// one that asked for the registration whenever the late notice did not, and it is no longer so -- nothing
+    /// waits, a row went, something else stands in the way, or the registration was renewed or made again.
+    /// Silence at a create is no lasting state: it is said each time and never kept. What is told from then on
+    /// carries `registration`, the television's registration its round began under (`ToldOnce.registration`);
+    /// after a run that learnt nothing and carries on a stop told before, the one it was kept under before, which
+    /// that stop was learnt under: a registration made since forgets it, and takes its notices away, as it does
+    /// what a run told under the registration before. With no stop to carry on, what such a run keeps is the late
+    /// rows it read, and it keeps them under its own: what was told before had nothing in it that a registration
+    /// makes untrue. Under the one kept before, where that is the later: such a run can have begun before a run
+    /// whose round began under a later registration and come to its turn after it, and its own would put what
+    /// that run kept and posted, true of the television as registered now, under the one before, for that
+    /// registration's forgetting to take away. A round refused for the cookie before the one in the store
+    /// (`refusedForTheCookieBefore`, handed on by `TVDriver.sendWithNoScreen`) learnt nothing of the television
+    /// as it is registered now, unless it got as far as a row: it carries the stop told before on as such a run
+    /// does -- but not the want of a registration. The cookie in the store changed under the round, registered
+    /// again or renewed, and a renewal is the television taking the registration as good: that stop is forgotten,
+    /// as a round that got as far as a row forgets it, the queue's notice that asked for it goes with it, and the
+    /// next want of one is told.
     public func after(_ sending: NoScreenSending, waiting: [PendingReservation]?, before nextRun: Date,
                       now: Date, naming device: String?, words: NoScreenWords = .television,
                       registration: Date? = nil,
@@ -162,15 +174,20 @@ public struct ToldOnce: Codable, Sendable, Equatable {
         if notices.notYet == nil, let stop = sending.stop, stop != self.stop { queue.append(words.stop(stop)) }
         notices.queue = queue.isEmpty ? nil : queue.joined(separator: "。")
 
-        let learntNothing = sending.learntNothing || refusedForTheCookieBefore
+        let learntNothing = sending.learntNothing || refusedForTheCookieBefore && self.stop != .registration
             && (outcome.map { ($0.sent + $0.alreadyThere + $0.refused + $0.deferred).isEmpty } ?? false)
         var told = self
-        if !learntNothing { told.registration = registration }
+        if !learntNothing {
+            told.registration = registration
+        } else if self.stop == nil {
+            told.registration = [self.registration, registration].compactMap { $0 }.max()
+        }
         if sending == .nothingWaiting {
             told.stop = nil
         } else if !learntNothing {
             told.stop = sending.stop
         }
+        notices.withdrawsQueue = self.stop == .registration && told.stop != .registration && notices.queue == nil
         if let late {
             told.rows = Set(late.map(\.id))
             // A notice of this run's has rows, so it never comes with a withdrawal.
@@ -192,6 +209,39 @@ public struct ToldOnce: Codable, Sendable, Equatable {
             rows.contains($0.id) && Self.waitsToGo($0, to: words.slot, now: now)
         }) else { return nil }
         return ToldOnce(stop: stop, registration: registration)
+    }
+
+    /// What forgets, from the screens, what the runs with no screen told of the television: a registration made,
+    /// or the television taken away (テレビを外す). Either is a change, and the next run tells what it finds afresh.
+    public enum Forgetting: Sendable {
+        case registration, removal
+    }
+
+    /// What is kept of what the runs with no screen told of the television, `told` (nil when nothing is), once
+    /// `forgetting` forgets it, for the next run and the next forgetting to read: nothing, but for another
+    /// television answering told last as the television is taken away. Its notice stays then (`withdrawn`),
+    /// asking for the television to be added again, and adding it is a registration: that stop is kept alone,
+    /// with no rows and under no registration, for that registration's forgetting to read and take the notice
+    /// away, as it does when the stop was told of the television still saved. Nil for nothing kept.
+    public static func kept(forgetting told: ToldOnce?, by forgetting: Forgetting) -> ToldOnce? {
+        forgetting == .removal && told?.stop == .another ? ToldOnce(stop: .another) : nil
+    }
+
+    /// The notices of the runs with no screen that go when what they told of the television, `told` (nil when
+    /// nothing is kept), is forgotten by `forgetting`. Their warning of reservations not yet at the television
+    /// goes always: it can end by telling the reader to register, which must not outlive the registration, and
+    /// the reservations it names went unsent with a television taken away. Their notice of what became of the
+    /// queue goes when the stop told last is the want of a registration: it is the one that asked for the
+    /// registration whenever the warning did not. At a registration it goes as well when that stop is another
+    /// television answering, which asked for the television to be added again: only the television saved can
+    /// be registered, and the one that answers the registration is saved as it, so that is no longer so. With
+    /// the television taken away it stays: it is still to be added again, and the registration that adds it
+    /// takes it away (`kept`). What is kept does not say which notice carried the stop: one told with late
+    /// rows was in the warning alone, and the queue's notice taken away is then an earlier one, which may
+    /// still be true, as it may be after the want of a registration told the same way.
+    public static func withdrawn(forgetting told: ToldOnce?, by forgetting: Forgetting) -> NoScreenNotices {
+        let queue = told?.stop == .registration || forgetting == .registration && told?.stop == .another
+        return NoScreenNotices(withdrawsNotYet: true, withdrawsQueue: queue)
     }
 
     /// Whether a row is still to go to the device in `slot` by itself: one of its, with no reason on it,
@@ -221,13 +271,18 @@ public struct NoScreenNotices: Sendable, Equatable {
     /// The rows that start before the next overnight run and have not reached it, all of them whenever one is
     /// new, and what stands in their way. Nil for nothing.
     public var notYet: String?
-    /// None of the rows the last such notice told of waits to go any more: it is to be taken away. Never with
-    /// a `notYet` of this run, which takes its place.
+    /// None of the rows the last such notice told of waits to go any more, or what was told is forgotten
+    /// (`ToldOnce.withdrawn`): it is to be taken away. Never with a `notYet` of this run, which takes its place.
     public var withdrawsNotYet: Bool
+    /// The last notice of what became of the queue is to be taken away, for what it said is no longer so, or
+    /// what was told is forgotten (`ToldOnce.withdrawn`). Never with a `queue` of this run, which takes its place.
+    public var withdrawsQueue: Bool
 
-    public init(queue: String? = nil, notYet: String? = nil, withdrawsNotYet: Bool = false) {
+    public init(queue: String? = nil, notYet: String? = nil, withdrawsNotYet: Bool = false,
+                withdrawsQueue: Bool = false) {
         self.queue = queue
         self.notYet = notYet
         self.withdrawsNotYet = withdrawsNotYet
+        self.withdrawsQueue = withdrawsQueue
     }
 }
