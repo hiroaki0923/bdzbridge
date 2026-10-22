@@ -218,9 +218,13 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     }
 
     /// What is kept of what the runs with no screen told of the television, `told` (nil when nothing is), once
-    /// `forgetting` forgets it, for the next run and the next forgetting to read: nothing. Nil for nothing kept.
+    /// `forgetting` forgets it, for the next run and the next forgetting to read: nothing, but for another
+    /// television answering told last as the television is taken away. Its notice stays then (`withdrawn`),
+    /// asking for the television to be added again, and adding it is a registration: that stop is kept alone,
+    /// with no rows and under no registration, for that registration's forgetting to read and take the notice
+    /// away, as it does when the stop was told of the television still saved. Nil for nothing kept.
     public static func kept(forgetting told: ToldOnce?, by forgetting: Forgetting) -> ToldOnce? {
-        nil
+        forgetting == .removal && told?.stop == .another ? ToldOnce(stop: .another) : nil
     }
 
     /// The notices of the runs with no screen that go when what they told of the television, `told` (nil when
@@ -228,9 +232,16 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     /// goes always: it can end by telling the reader to register, which must not outlive the registration, and
     /// the reservations it names went unsent with a television taken away. Their notice of what became of the
     /// queue goes when the stop told last is the want of a registration: it is the one that asked for the
-    /// registration whenever the warning did not.
+    /// registration whenever the warning did not. At a registration it goes as well when that stop is another
+    /// television answering, which asked for the television to be added again: only the television saved can
+    /// be registered, and the one that answers the registration is saved as it, so that is no longer so. With
+    /// the television taken away it stays: it is still to be added again, and the registration that adds it
+    /// takes it away (`kept`). What is kept does not say which notice carried the stop: one told with late
+    /// rows was in the warning alone, and the queue's notice taken away is then an earlier one, which may
+    /// still be true, as it may be after the want of a registration told the same way.
     public static func withdrawn(forgetting told: ToldOnce?, by forgetting: Forgetting) -> NoScreenNotices {
-        NoScreenNotices(withdrawsNotYet: true, withdrawsQueue: told?.stop == .registration)
+        let queue = told?.stop == .registration || forgetting == .registration && told?.stop == .another
+        return NoScreenNotices(withdrawsNotYet: true, withdrawsQueue: queue)
     }
 
     /// Whether a row is still to go to the device in `slot` by itself: one of its, with no reason on it,

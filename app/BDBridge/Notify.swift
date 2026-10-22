@@ -126,7 +126,9 @@ enum Notify {
 
     /// Takes away what became of what waited for the television, when it asked for a registration: once one
     /// has been made, the television taken away, or a run with no screen has forgotten the want of one and
-    /// has nothing of the queue to say in its place (`NoScreenNotices.withdrawsQueue`).
+    /// has nothing of the queue to say in its place (`NoScreenNotices.withdrawsQueue`). Also when it said that
+    /// another device answered, once a registration has been made, the television taken away in between or
+    /// not (`ToldOnce.withdrawn`, `ToldOnce.kept`).
     static func withdrawTelevisionQueue() {
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [televisionQueue])
     }

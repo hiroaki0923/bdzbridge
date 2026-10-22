@@ -367,8 +367,8 @@ extension AppModel {
 
     /// Takes the television away: its link, its address and its registration. What the television itself
     /// lists as registered is left; it can be removed from the list in the television's settings. What the
-    /// runs with no screen told of it goes too (`forgetWhatWasTold`). In the demo, the demo's, in memory, and
-    /// nothing of the real one's.
+    /// runs with no screen told of it goes too, but for what the package keeps for the registration that adds
+    /// it again (`forgetWhatWasTold`). In the demo, the demo's, in memory, and nothing of the real one's.
     func removeTV() {
         dropTVLink()
         televisionCredentials().remove()

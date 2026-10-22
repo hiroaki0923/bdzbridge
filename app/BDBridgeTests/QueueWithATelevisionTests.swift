@@ -1377,6 +1377,30 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertNil(model.defaults.data(forKey: DefaultsKey.tvTold), "kept after the television was taken away")
     }
 
+    /// Another device answering, told last, and the television then taken away: the notice that said so stays,
+    /// asking for the television to be added again, and the stop alone is kept for the registration that adds
+    /// it, which forgets it. As the package answers (`ToldOnce.kept`), here through the app's own registration
+    /// and テレビを外す, each passing its own kind of forgetting.
+    func testAnotherDeviceToldBeforeTheTelevisionIsTakenAwayIsForgottenByTheRegistrationAfter() async throws {
+        let home = try await launch(with: NamedRecorder(1))
+        let model = home.model
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        let kept = KeptIn(model.defaults, DefaultsKey.tvTold)
+        kept.value = ToldOnce(stop: .another, rows: ["サンプルの行"], registration: Date(timeIntervalSince1970: 1_793_000_000))
+
+        model.removeTV()
+        XCTAssertEqual(kept.value, ToldOnce(stop: .another), "what is kept after the television was taken away")
+
+        // Its registration went with it: the television, its screen on to show the PIN, asks for it, and a
+        // registration not made forgets nothing.
+        await home.television.turn("active")
+        expectEqual(await model.registerTV(at: Bench.tvHost, pin: nil), .pinNeeded)
+        XCTAssertEqual(kept.value, ToldOnce(stop: .another), "forgotten by a registration not made")
+        expectEqual(await model.registerTV(at: Bench.tvHost, pin: DemoTV.pin), .registered)
+        XCTAssertNil(kept.value, "kept over the registration that added the television again")
+    }
+
     /// A registration made while a run with no screen is out for the television, the run then hearing nothing
     /// of it: what is told once is decided from what is kept as the queue's turn has it, so the run keeps
     /// nothing of the registration before. Kept before: that the television wanted a registration. The run is

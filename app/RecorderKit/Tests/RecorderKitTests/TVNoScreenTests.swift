@@ -577,7 +577,9 @@ final class TVNoScreenTests: XCTestCase {
     /// What the runs with no screen told is forgotten by a registration and by the television taken away, and
     /// their notices go with it: the warning of reservations not yet there always, whether anything was kept or
     /// not, and the notice of what became of the queue when the stop told last is the want of a registration,
-    /// which that notice asked for. Any other stop told last, or none, leaves that notice.
+    /// which that notice asked for. At a registration that notice goes as well when the stop told last is another
+    /// television answering: it asked for the television to be added again, and only the one saved can be
+    /// registered. With the television taken away it stays, as it does for any other stop told last, or none.
     func testWhatIsForgottenAtARegistrationOrARemovalTakesItsNoticesAway() {
         let first = Date(timeIntervalSince1970: 1_793_000_000)
         let theatre = row("サンプル劇場", 50101, at: 60)
@@ -588,7 +590,7 @@ final class TVNoScreenTests: XCTestCase {
             ("a registration wanted", ToldOnce(stop: .registration, registration: first), true, true),
             ("a registration wanted, with rows", ToldOnce(stop: .registration, rows: [theatre.id]), true, true),
             ("the disk", ToldOnce(stop: .disk, registration: first), false, false),
-            ("another television", ToldOnce(stop: .another, registration: first), false, false),
+            ("another television", ToldOnce(stop: .another, registration: first), true, false),
         ]
         for (name, told, atARegistration, atARemoval) in cases {
             XCTAssertEqual(ToldOnce.withdrawn(forgetting: told, by: .registration),
@@ -601,9 +603,12 @@ final class TVNoScreenTests: XCTestCase {
     }
 
     /// What a registration or the television taken away leaves kept of what the runs with no screen told, for
-    /// the next run and the next forgetting to read: nothing, whatever was told. A registration after the
-    /// television was taken away reads that, and the notice of what became of the queue that the television
-    /// taken away left stays.
+    /// the next run and the next forgetting to read: nothing, but for another television answering told last
+    /// as the television is taken away. That stop is kept alone, with no rows and under no registration: its
+    /// notice, which asked for the television to be added again, stays as the television is taken away, and
+    /// the registration that adds it reads the stop and takes the notice away. After any other stop, or none,
+    /// a registration after the television was taken away reads nothing, and the queue's notice that the
+    /// television taken away left stays.
     func testWhatIsKeptOnceARegistrationOrARemovalForgetsWhatWasTold() {
         let first = Date(timeIntervalSince1970: 1_793_000_000)
         let theatre = row("サンプル劇場", 50101, at: 60)
@@ -615,7 +620,7 @@ final class TVNoScreenTests: XCTestCase {
             ("rows alone", ToldOnce(rows: [theatre.id], registration: first), nil, nil, false),
             ("a registration wanted", wanted, nil, nil, false),
             ("the disk", ToldOnce(stop: .disk, registration: first), nil, nil, false),
-            ("another television", another, nil, nil, false),
+            ("another television", another, nil, ToldOnce(stop: .another), true),
         ]
         for (name, told, atARegistration, atARemoval, queueGoesAfter) in cases {
             XCTAssertEqual(ToldOnce.kept(forgetting: told, by: .registration), atARegistration,
@@ -625,6 +630,8 @@ final class TVNoScreenTests: XCTestCase {
             XCTAssertEqual(ToldOnce.withdrawn(forgetting: removed, by: .registration),
                            NoScreenNotices(withdrawsNotYet: true, withdrawsQueue: queueGoesAfter),
                            "\(name), at a registration after the television was taken away")
+            XCTAssertNil(ToldOnce.kept(forgetting: removed, by: .registration),
+                         "\(name), kept after a registration after the television was taken away")
         }
     }
 
