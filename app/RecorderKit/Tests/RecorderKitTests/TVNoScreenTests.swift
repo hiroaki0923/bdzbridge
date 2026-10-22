@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import XCTest
 @testable import RecorderKit
 
@@ -357,7 +358,10 @@ final class TVNoScreenTests: XCTestCase {
     /// A run with no round is handed when the cookie in the store arrived as the run began, not as its turn
     /// came: what it found -- here, another television answering -- was found of the television as registered
     /// then, before it asked for the turn. The cookie in the store changes as the MAC is read: a registration
-    /// made as the run reads it.
+    /// made as the run reads it. And it changes as the queue is read, before the MAC: the queue is out of the
+    /// run's reach until the cookie in the store is first read, and is put back then, with a cookie that
+    /// arrived later saved in its place. A run that read the cookie only after the queue would find nothing
+    /// waiting; one that read it again after the queue would be handed the later one.
     func testARunWithNoRoundIsHandedTheCookieInTheStoreAsItBegan() async throws {
         let arrived = Date(timeIntervalSince1970: 1_793_000_000)
         let later = Date(timeIntervalSince1970: 1_793_000_600)
@@ -382,6 +386,30 @@ final class TVNoScreenTests: XCTestCase {
         XCTAssertEqual(ran.after.0, .anotherAnswered)
         XCTAssertEqual(ran.after.1, arrived, "a run with no round was handed the cookie of its turn, not its own")
         XCTAssertFalse(ran.after.2, "a run with no round was handed as refused for the cookie before")
+
+        let path = temporaryPath()
+        let queued = try GuideStore(path: path)
+        try await queued.queue(row("サンプル劇場", 50101, at: 60))
+        let behind = QueueBehindTheCookie(TVCredentials(clientID: Self.kept.clientID, cookie: "kept",
+                                                        cookieReceived: arrived),
+                                          then: TVCredentials(clientID: Self.kept.clientID, cookie: "kept again",
+                                                              cookieReceived: later),
+                                          queueIn: path)
+        let another = DemoTV(mac: "f8:4e:17:00:00:0b")
+        await another.knows(Self.kept.clientID, cookie: "kept")
+        let reading = ScalarClient(host: Stub.host, transport: another, credentials: behind)
+
+        let asTheQueueIsRead = await TVDriver.sendWithNoScreen(reading, store: queued, knownAs: DemoTV.mac,
+                                                               now: Self.now) {
+            sending, registration, before in (sending, registration, before)
+        }
+
+        XCTAssertEqual(behind.moved, [SQLITE_OK, SQLITE_OK],
+                       "set up wrong: the queue was not put out of the run's reach and back")
+        XCTAssertEqual(asTheQueueIsRead.sending, .anotherAnswered,
+                       "the run read the queue before the cookie in the store: \(asTheQueueIsRead.sending)")
+        XCTAssertEqual(asTheQueueIsRead.after.1, arrived,
+                       "a run with no round was handed a cookie read after the queue, not the one as it began")
     }
 
     /// One attempt from a home of `rows`, bent first as a test says.
@@ -670,4 +698,47 @@ final class TVNoScreenTests: XCTestCase {
             XCTAssertEqual(afterIt, ToldOnce(registration: again), name)
         }
     }
+}
+
+/// A television's registration kept in memory, beside a cache whose queue it keeps out of its store's reach
+/// until the registration is first read: then the queue is put back, through a connection of the test's own and
+/// the system's SQLite, and a cookie that arrived later is saved in place of the one read. Until then each read
+/// of the queue fails at once. What the two renames answered is in `moved`.
+private final class QueueBehindTheCookie: TVCredentialStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private let kept: MemoryTVCredentials
+    private let later: TVCredentials
+    private var connection: OpaquePointer?
+    private var away = false
+    private var answered: [Int32] = []
+
+    init(_ credentials: TVCredentials, then later: TVCredentials, queueIn path: String) {
+        kept = MemoryTVCredentials(credentials)
+        self.later = later
+        if sqlite3_open(path, &connection) == SQLITE_OK {
+            answered.append(sqlite3_exec(connection, "ALTER TABLE pending_reservations RENAME TO pending_away",
+                                         nil, nil, nil))
+            away = answered.last == SQLITE_OK
+        }
+    }
+
+    var moved: [Int32] { lock.withLock { answered } }
+
+    func load() -> TVCredentials? {
+        lock.withLock {
+            let read = kept.load()
+            if away {
+                away = false
+                answered.append(sqlite3_exec(connection, "ALTER TABLE pending_away RENAME TO pending_reservations",
+                                             nil, nil, nil))
+                kept.save(later)
+            }
+            return read
+        }
+    }
+
+    func save(_ credentials: TVCredentials) { kept.save(credentials) }
+    func remove() { kept.remove() }
+
+    deinit { sqlite3_close(connection) }
 }

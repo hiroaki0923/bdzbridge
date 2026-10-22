@@ -1148,6 +1148,20 @@ extension XCTestCase {
                              "the cached guide had only \(free.count) programmes ahead that are not reserved")
     }
 
+    /// One programme of the demo's guide, as the bench caches it (`Bench.cacheAGuide`) and as the demo's own cache
+    /// holds it, found in `store` by its id and not by the clock: the 19:00 programme on the first station two
+    /// broadcast days on, a day and more ahead whatever the hour, which neither the demo's recorder nor its
+    /// television holds a reservation of. For a test that reserves it across the demo, where the guide in play
+    /// changes under it. That the model holds no reservation of it and none waits for it is held first.
+    @MainActor
+    func theDemosProgramme(_ model: AppModel, in store: GuideStore) async throws -> GuideProgramRow {
+        let found = try await store.programs(serviceID: 1024).first { $0.eventID == 1212 }
+        let programme = try XCTUnwrap(found, "the demo's guide had no programme 1212 on its first station")
+        XCTAssertNil(model.reservation(for: programme), "set up wrong: the demo's programme is reserved")
+        XCTAssertNil(model.pending(for: programme), "set up wrong: the demo's programme waits")
+        return programme
+    }
+
     /// The usual start of a gate: a bench, the first recorder at `Bench.host`, and a model started and connected
     /// to it with nothing under way. `guide: false` leaves the cache empty, for a gate that needs no programme:
     /// the first connect then asks for the four guide files, which the demo answers with none. `wakeable` saves
