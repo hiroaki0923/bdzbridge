@@ -226,10 +226,15 @@ public struct NoScreenNotices: Sendable, Equatable {
     /// None of the rows the last such notice told of waits to go any more: it is to be taken away. Never with
     /// a `notYet` of this run, which takes its place.
     public var withdrawsNotYet: Bool
+    /// The last notice of what became of the queue is to be taken away, for what it said is no longer so.
+    /// Never with a `queue` of this run, which takes its place.
+    public var withdrawsQueue: Bool
 
-    public init(queue: String? = nil, notYet: String? = nil, withdrawsNotYet: Bool = false) {
+    public init(queue: String? = nil, notYet: String? = nil, withdrawsNotYet: Bool = false,
+                withdrawsQueue: Bool = false) {
         self.queue = queue
         self.notYet = notYet
         self.withdrawsNotYet = withdrawsNotYet
+        self.withdrawsQueue = withdrawsQueue
     }
 }

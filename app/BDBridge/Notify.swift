@@ -94,7 +94,8 @@ enum Notify {
 
     /// What a run with no screen has to tell of the television (`NoScreenNotices`), each under an identifier of its
     /// own: neither takes the place of the recorder's two (`queue-flushed`, `recorderNotYet`) nor of the
-    /// other. What became of the queue is replaced by the next run's, as the recorder's is; a notice of
+    /// other. What became of the queue is replaced by the next run's, as the recorder's is, or taken away when
+    /// a run finds that what it said is no longer so (`NoScreenNotices.withdrawsQueue`); a notice of
     /// reservations not yet there stays until one of its kind replaces it or none of the reservations it told
     /// of waits to go, so that the news of a sending does not take away a warning that may still hold.
     ///
@@ -105,6 +106,7 @@ enum Notify {
     /// identifier.
     static func television(_ notices: NoScreenNotices) async {
         if notices.withdrawsNotYet { withdrawTelevisionNotYet() }
+        if notices.withdrawsQueue { withdrawTelevisionQueue() }
         if let queue = notices.queue { await post(id: televisionQueue, title: "送信待ちの予約", body: queue) }
         if let notYet = notices.notYet { await post(id: televisionNotYet, title: "送信待ちの予約", body: notYet) }
     }
