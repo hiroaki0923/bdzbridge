@@ -132,7 +132,10 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     /// which its run tells of only at the end of a late notice.
     ///
     /// The stop told last is forgotten once nothing waits, and after a round that got as far as a row; a run
-    /// that learnt nothing of the television leaves it as it was. Silence at a create is no lasting state: it
+    /// that learnt nothing of the television leaves it as it was. The want of a registration, once forgotten,
+    /// takes the queue's notice with it, unless this run posts one of its own in its place: that notice is the
+    /// one that asked for the registration whenever the late notice did not, and it is no longer so -- nothing
+    /// waits, a row went, or something else stands in the way. Silence at a create is no lasting state: it
     /// is said each time and never kept. What is told from then on carries `registration`, the television's
     /// registration its round began under (`ToldOnce.registration`); after a run that learnt nothing and
     /// carries on a stop told before, the one it was kept under before, which that stop was learnt under: a
@@ -173,6 +176,7 @@ public struct ToldOnce: Codable, Sendable, Equatable {
         } else if !learntNothing {
             told.stop = sending.stop
         }
+        notices.withdrawsQueue = self.stop == .registration && told.stop != .registration && notices.queue == nil
         if let late {
             told.rows = Set(late.map(\.id))
             // A notice of this run's has rows, so it never comes with a withdrawal.

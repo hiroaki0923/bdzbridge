@@ -444,6 +444,7 @@ final class TVNoScreenTests: XCTestCase {
         var queue: String?
         var notYet: String?
         var withdraws = false
+        var withdrawsQueue = false
     }
 
     /// The runs one after another from `told`, each held to what it is to tell. What is told after the last.
@@ -460,7 +461,8 @@ final class TVNoScreenTests: XCTestCase {
         for run in runs {
             let (notices, next) = told.after(run.sending, waiting: run.waiting, before: Self.nextRun, now: Self.now,
                                              naming: "テレビ")
-            XCTAssertEqual(notices, NoScreenNotices(queue: run.queue, notYet: run.notYet, withdrawsNotYet: run.withdraws),
+            XCTAssertEqual(notices, NoScreenNotices(queue: run.queue, notYet: run.notYet, withdrawsNotYet: run.withdraws,
+                                                    withdrawsQueue: run.withdrawsQueue),
                            run.name)
             told = next
         }
@@ -539,6 +541,37 @@ final class TVNoScreenTests: XCTestCase {
                                                                                 stopped: .silent(afterSending: true)))
         tell([Run(name: "silent at the second create", sending: madeThenSilentAtACreate, waiting: [],
                   queue: "送信待ちだった「サンプル天気」をテレビに登録しました。" + cutShort)])
+    }
+
+    /// The notice that asked for a registration goes once the want of one is forgotten: after a run with
+    /// nothing waiting, after a round that got as far as a row with nothing of its own to say, and after
+    /// another stop that the late notice carries. A run that says something of the queue puts its own notice
+    /// in that one's place instead, and one that learnt nothing of the television, or was refused again,
+    /// leaves it. No other stop forgotten takes the queue's notice away.
+    func testTheNoticeAskingForARegistrationGoesOnceTheWantOfOneIsForgotten() {
+        let theatre = row("サンプル劇場", 50101, at: 60), morning = row("サンプル天気", 50103, at: 420)
+        let unregistered = NoScreenSending.sent(PendingQueue.Outcome(slot: .tv, stopped: .needsPairing))
+        let asked = Run(name: "no registration", sending: unregistered, waiting: [morning],
+                        queue: "テレビへの登録が必要です。設定の「テレビ」から登録してください")
+        let disk = NoScreenSending.sent(PendingQueue.Outcome(slot: .tv,
+                                                             stopped: .cannotRecord(reason: ScalarClient.diskNotFound)))
+        let theDisk = "録画用の USB HDD が見つからないため、テレビへの予約は送っていません"
+
+        tell([asked, Run(name: "nothing waiting", sending: .nothingWaiting, waiting: [], withdrawsQueue: true)])
+        tell([asked, Run(name: "a row passed over, with nothing of its own to say",
+                         sending: .sent(PendingQueue.Outcome(slot: .tv, deferred: [morning])), waiting: [morning],
+                         withdrawsQueue: true)])
+        tell([asked, Run(name: "the disk, carried by the late notice", sending: disk, waiting: [theatre],
+                         notYet: "テレビにまだ届いていない予約があります（「サンプル劇場」21:00 から）。" + theDisk,
+                         withdrawsQueue: true)])
+
+        tell([asked, Run(name: "the disk", sending: disk, waiting: [morning], queue: theDisk)])
+        tell([asked, Run(name: "a round that went", sending: .sent(PendingQueue.Outcome(slot: .tv, sent: [morning])),
+                         waiting: [], queue: "送信待ちだった「サンプル天気」をテレビに登録しました")])
+        tell([asked, Run(name: "silent", sending: .unreachable, waiting: [morning])])
+        tell([asked, Run(name: "no registration again", sending: unregistered, waiting: [morning])])
+        tell([Run(name: "the disk", sending: disk, waiting: [morning], queue: theDisk),
+              Run(name: "nothing waiting after the disk", sending: .nothingWaiting, waiting: [])])
     }
 
     /// A row that starts before the next run and has not reached the television is told once, by the run
