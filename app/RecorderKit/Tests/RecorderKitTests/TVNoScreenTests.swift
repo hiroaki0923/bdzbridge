@@ -722,6 +722,25 @@ final class TVNoScreenTests: XCTestCase {
         }
     }
 
+    /// A run that learnt nothing, with no stop told before to carry on, keeps what it read under the later of
+    /// the registration it is handed and the one kept before. A run with no round -- nobody answering -- reads
+    /// its cookie as it begins, and can come to its turn after a run whose round began under a later
+    /// registration: what that run kept stays under its own, and a registration's forgetting that leaves it
+    /// leaves this too. Handed none, it keeps the one kept before. Told only of a television that did not
+    /// answer, the one such run a test can hand the rule by the package's public API alone.
+    func testARunThatLearntNothingKeepsTheLaterRegistration() {
+        let first = Date(timeIntervalSince1970: 1_793_000_000), again = Date(timeIntervalSince1970: 1_793_000_600)
+        let theatre = row("サンプル劇場", 50101, at: 60)
+        for before in [ToldOnce(registration: again), ToldOnce(rows: [theatre.id], registration: again)] {
+            for handed in [first, nil] {
+                let (_, next) = before.after(.unreachable, waiting: [theatre], before: Self.nextRun, now: Self.now,
+                                             naming: "テレビ", registration: handed)
+                XCTAssertEqual(next, ToldOnce(rows: [theatre.id], registration: again),
+                               "handed \(String(describing: handed)): \(before)")
+            }
+        }
+    }
+
     /// A round refused for the cookie before the one in the store -- handed on without its stop -- learnt
     /// nothing of the television as it is registered now: the stop told before is carried on, under the
     /// registration it was told under, and is not told again. One that got as far as a row before it was

@@ -299,7 +299,9 @@ extension AppModel {
             // television has given since, and learns something keeps what it finds under either, and that stays;
             // so does what such a run keeps that learns nothing with no stop told before to carry on, as after the
             // forgetting at once. One that carries a stop told before on carries on the registration it was told
-            // under, and what it keeps goes. So does what a run with no round found before the registration.
+            // under, and what it keeps goes. So does what a run with no round found before the registration, unless
+            // it learnt nothing and a run whose round began under this one or later told first: what is kept stays
+            // under that run's.
             if !demo {
                 let registration = credentials.load()?.cookieReceived
                 Task { [weak self] in

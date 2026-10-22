@@ -100,8 +100,8 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     /// registration that the round of the run that learnt it began under arrived, or, with no round, the one in
     /// the store as that run began (`TVCredentials.cookieReceived`, handed on by `TVDriver.sendWithNoScreen`) --
     /// nil for none. A run that learnt nothing carries it on as it was with a stop told before, and with none
-    /// takes its own. A registration made again forgets once more in the queue's turn, after a run that was
-    /// telling then, only what is kept under a cookie from before it.
+    /// takes its own, or the one before where that is later. A registration made again forgets once more in
+    /// the queue's turn, after a run that was telling then, only what is kept under a cookie from before it.
     public var registration: Date?
 
     public init(stop: Stop? = nil, rows: Set<String> = [], registration: Date? = nil) {
@@ -142,12 +142,16 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     /// that stop was learnt under: a registration made since forgets it, and takes its notices away, as it does
     /// what a run told under the registration before. With no stop to carry on, what such a run keeps is the late
     /// rows it read, and it keeps them under its own: what was told before had nothing in it that a registration
-    /// makes untrue. A round refused for the cookie before the one in the store (`refusedForTheCookieBefore`,
-    /// handed on by `TVDriver.sendWithNoScreen`) learnt nothing of the television as it is registered now, unless
-    /// it got as far as a row: it carries the stop told before on as such a run does -- but not the want of a
-    /// registration. The cookie in the store changed under the round, registered again or renewed, and a renewal
-    /// is the television taking the registration as good: that stop is forgotten, as a round that got as far as a
-    /// row forgets it, the queue's notice that asked for it goes with it, and the next want of one is told.
+    /// makes untrue. Under the one kept before, where that is the later: such a run can have begun before a run
+    /// whose round began under a later registration and come to its turn after it, and its own would put what
+    /// that run kept and posted, true of the television as registered now, under the one before, for that
+    /// registration's forgetting to take away. A round refused for the cookie before the one in the store
+    /// (`refusedForTheCookieBefore`, handed on by `TVDriver.sendWithNoScreen`) learnt nothing of the television
+    /// as it is registered now, unless it got as far as a row: it carries the stop told before on as such a run
+    /// does -- but not the want of a registration. The cookie in the store changed under the round, registered
+    /// again or renewed, and a renewal is the television taking the registration as good: that stop is forgotten,
+    /// as a round that got as far as a row forgets it, the queue's notice that asked for it goes with it, and the
+    /// next want of one is told.
     public func after(_ sending: NoScreenSending, waiting: [PendingReservation]?, before nextRun: Date,
                       now: Date, naming device: String?, words: NoScreenWords = .television,
                       registration: Date? = nil,
@@ -173,7 +177,11 @@ public struct ToldOnce: Codable, Sendable, Equatable {
         let learntNothing = sending.learntNothing || refusedForTheCookieBefore && self.stop != .registration
             && (outcome.map { ($0.sent + $0.alreadyThere + $0.refused + $0.deferred).isEmpty } ?? false)
         var told = self
-        if !learntNothing || self.stop == nil { told.registration = registration }
+        if !learntNothing {
+            told.registration = registration
+        } else if self.stop == nil {
+            told.registration = [self.registration, registration].compactMap { $0 }.max()
+        }
         if sending == .nothingWaiting {
             told.stop = nil
         } else if !learntNothing {
