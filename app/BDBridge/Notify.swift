@@ -105,10 +105,17 @@ enum Notify {
     /// (`UNNotificationRequest.init(identifier:content:trigger:)`). So is taking a delivered one away by its
     /// identifier.
     static func television(_ notices: NoScreenNotices) async {
-        if notices.withdrawsNotYet { withdrawTelevisionNotYet() }
-        if notices.withdrawsQueue { withdrawTelevisionQueue() }
+        withdrawTelevision(notices)
         if let queue = notices.queue { await post(id: televisionQueue, title: "送信待ちの予約", body: queue) }
         if let notYet = notices.notYet { await post(id: televisionNotYet, title: "送信待ちの予約", body: notYet) }
+    }
+
+    /// Takes away what `notices` says is to go of what the runs with no screen told of the television: by a run
+    /// (`television`), or as what was told is forgotten by a registration or the television taken away
+    /// (`ToldOnce.withdrawn`).
+    static func withdrawTelevision(_ notices: NoScreenNotices) {
+        if notices.withdrawsNotYet { withdrawTelevisionNotYet() }
+        if notices.withdrawsQueue { withdrawTelevisionQueue() }
     }
 
     /// Takes away the warning of reservations not yet at the television, once none of them waits: sent since,

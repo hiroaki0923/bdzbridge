@@ -292,7 +292,7 @@ extension AppModel {
                     defaults.removeObject(forKey: DefaultsKey.tvMac)
                 }
             }
-            forgetWhatWasTold()
+            forgetWhatWasTold(by: .registration)
             // Once more in the queue's turn, not waited for, as the runs with no screen tell and keep it: a run
             // telling now is over first, and what it kept and posted of the registration before goes after it.
             // A run waiting for the turn now whose round sends with this registration, or with a cookie the
@@ -306,7 +306,8 @@ extension AppModel {
                 let registration = credentials.load()?.cookieReceived
                 Task { [weak self] in
                     _ = await PendingQueue.betweenFlushes { @MainActor in
-                        self?.forgetWhatWasTold(unlessKeptUnder: [registration, credentials.load()?.cookieReceived])
+                        self?.forgetWhatWasTold(by: .registration,
+                                                unlessKeptUnder: [registration, credentials.load()?.cookieReceived])
                     }
                 }
             }
@@ -318,11 +319,9 @@ extension AppModel {
 
     /// What the runs with no screen told of the television (`ToldOnce`) is not held against the one in play
     /// from now on: a registration, or a television taken away, is a change, and the next run tells what it
-    /// finds afresh. Their warning of reservations not yet at the television is taken away with it, where
-    /// the app asks the system about notifications at all: it can end by telling the reader to register,
-    /// which must not outlive the registration, and the reservations it names went unsent with a television
-    /// taken away. When the stop told last is the registration, their notice of what became of the queue
-    /// goes too: it is the one that asked for the registration whenever the warning did not.
+    /// finds afresh. The notices of theirs that go with it, and what of it is kept on, are the package's to
+    /// say (`ToldOnce.withdrawn`, `ToldOnce.kept`); the notices are taken away where the app asks the system
+    /// about notifications at all.
     ///
     /// Not in the demo: what was told is of the real television, which the demo's registering or taking away
     /// changes nothing of.
@@ -333,16 +332,14 @@ extension AppModel {
     /// registration's own cookie (`TVCredentials.cookieReceived`) and the one in the store as the turn comes,
     /// which a later registration or a renewal has given since. A run whose round began under either kept it,
     /// after the registration, when it learnt something or had no stop told before to carry on.
-    private func forgetWhatWasTold(unlessKeptUnder registrations: [Date?] = []) {
+    private func forgetWhatWasTold(by forgetting: ToldOnce.Forgetting, unlessKeptUnder registrations: [Date?] = []) {
         guard !demo else { return }
         let kept = KeptOnce.television(in: defaults)
         let told = kept.read()
         if let under = told?.registration, registrations.contains(under) { return }
-        let stop = told?.stop
-        kept.forget()
+        if let left = ToldOnce.kept(forgetting: told, by: forgetting) { kept.keep(left) } else { kept.forget() }
         guard surroundings.asksAboutNotifications else { return }
-        Notify.withdrawTelevisionNotYet()
-        if stop == .registration { Notify.withdrawTelevisionQueue() }
+        Notify.withdrawTelevision(ToldOnce.withdrawn(forgetting: told, by: forgetting))
     }
 
     /// The warning the runs with no screen left of reservations not yet at the television is taken away once
@@ -381,7 +378,7 @@ extension AppModel {
             defaults.removeObject(forKey: DefaultsKey.tvHost)
             defaults.removeObject(forKey: DefaultsKey.tvMac)
         }
-        forgetWhatWasTold()
+        forgetWhatWasTold(by: .removal)
         tvClientID = nil
     }
 

@@ -574,6 +574,60 @@ final class TVNoScreenTests: XCTestCase {
               Run(name: "nothing waiting after the disk", sending: .nothingWaiting, waiting: [])])
     }
 
+    /// What the runs with no screen told is forgotten by a registration and by the television taken away, and
+    /// their notices go with it: the warning of reservations not yet there always, whether anything was kept or
+    /// not, and the notice of what became of the queue when the stop told last is the want of a registration,
+    /// which that notice asked for. Any other stop told last, or none, leaves that notice.
+    func testWhatIsForgottenAtARegistrationOrARemovalTakesItsNoticesAway() {
+        let first = Date(timeIntervalSince1970: 1_793_000_000)
+        let theatre = row("サンプル劇場", 50101, at: 60)
+        let cases: [(String, ToldOnce?, atARegistration: Bool, atARemoval: Bool)] = [
+            ("nothing kept", nil, false, false),
+            ("nothing told", ToldOnce(), false, false),
+            ("rows alone", ToldOnce(rows: [theatre.id], registration: first), false, false),
+            ("a registration wanted", ToldOnce(stop: .registration, registration: first), true, true),
+            ("a registration wanted, with rows", ToldOnce(stop: .registration, rows: [theatre.id]), true, true),
+            ("the disk", ToldOnce(stop: .disk, registration: first), false, false),
+            ("another television", ToldOnce(stop: .another, registration: first), false, false),
+        ]
+        for (name, told, atARegistration, atARemoval) in cases {
+            XCTAssertEqual(ToldOnce.withdrawn(forgetting: told, by: .registration),
+                           NoScreenNotices(withdrawsNotYet: true, withdrawsQueue: atARegistration),
+                           "\(name), at a registration")
+            XCTAssertEqual(ToldOnce.withdrawn(forgetting: told, by: .removal),
+                           NoScreenNotices(withdrawsNotYet: true, withdrawsQueue: atARemoval),
+                           "\(name), at the television taken away")
+        }
+    }
+
+    /// What a registration or the television taken away leaves kept of what the runs with no screen told, for
+    /// the next run and the next forgetting to read: nothing, whatever was told. A registration after the
+    /// television was taken away reads that, and the notice of what became of the queue that the television
+    /// taken away left stays.
+    func testWhatIsKeptOnceARegistrationOrARemovalForgetsWhatWasTold() {
+        let first = Date(timeIntervalSince1970: 1_793_000_000)
+        let theatre = row("サンプル劇場", 50101, at: 60)
+        let wanted = ToldOnce(stop: .registration, rows: [theatre.id], registration: first)
+        let another = ToldOnce(stop: .another, rows: [theatre.id], registration: first)
+        let cases: [(String, ToldOnce?, atARegistration: ToldOnce?, atARemoval: ToldOnce?, queueGoesAfter: Bool)] = [
+            ("nothing kept", nil, nil, nil, false),
+            ("nothing told", ToldOnce(), nil, nil, false),
+            ("rows alone", ToldOnce(rows: [theatre.id], registration: first), nil, nil, false),
+            ("a registration wanted", wanted, nil, nil, false),
+            ("the disk", ToldOnce(stop: .disk, registration: first), nil, nil, false),
+            ("another television", another, nil, nil, false),
+        ]
+        for (name, told, atARegistration, atARemoval, queueGoesAfter) in cases {
+            XCTAssertEqual(ToldOnce.kept(forgetting: told, by: .registration), atARegistration,
+                           "\(name), at a registration")
+            let removed = ToldOnce.kept(forgetting: told, by: .removal)
+            XCTAssertEqual(removed, atARemoval, "\(name), at the television taken away")
+            XCTAssertEqual(ToldOnce.withdrawn(forgetting: removed, by: .registration),
+                           NoScreenNotices(withdrawsNotYet: true, withdrawsQueue: queueGoesAfter),
+                           "\(name), at a registration after the television was taken away")
+        }
+    }
+
     /// A row that starts before the next run and has not reached the television is told once, by the run
     /// that first finds it so, in a notice of its own that ends with what stands in its way -- the television
     /// silent, a registration wanted, answers that say nothing, silence at a create -- or, where nothing known

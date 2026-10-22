@@ -211,6 +211,28 @@ public struct ToldOnce: Codable, Sendable, Equatable {
         return ToldOnce(stop: stop, registration: registration)
     }
 
+    /// What forgets, from the screens, what the runs with no screen told of the television: a registration made,
+    /// or the television taken away (テレビを外す). Either is a change, and the next run tells what it finds afresh.
+    public enum Forgetting: Sendable {
+        case registration, removal
+    }
+
+    /// What is kept of what the runs with no screen told of the television, `told` (nil when nothing is), once
+    /// `forgetting` forgets it, for the next run and the next forgetting to read: nothing. Nil for nothing kept.
+    public static func kept(forgetting told: ToldOnce?, by forgetting: Forgetting) -> ToldOnce? {
+        nil
+    }
+
+    /// The notices of the runs with no screen that go when what they told of the television, `told` (nil when
+    /// nothing is kept), is forgotten by `forgetting`. Their warning of reservations not yet at the television
+    /// goes always: it can end by telling the reader to register, which must not outlive the registration, and
+    /// the reservations it names went unsent with a television taken away. Their notice of what became of the
+    /// queue goes when the stop told last is the want of a registration: it is the one that asked for the
+    /// registration whenever the warning did not.
+    public static func withdrawn(forgetting told: ToldOnce?, by forgetting: Forgetting) -> NoScreenNotices {
+        NoScreenNotices(withdrawsNotYet: true, withdrawsQueue: told?.stop == .registration)
+    }
+
     /// Whether a row is still to go to the device in `slot` by itself: one of its, with no reason on it,
     /// whose programme is not over.
     private static func waitsToGo(_ row: PendingReservation, to slot: DeviceSlot, now: Date) -> Bool {
@@ -238,11 +260,11 @@ public struct NoScreenNotices: Sendable, Equatable {
     /// The rows that start before the next overnight run and have not reached it, all of them whenever one is
     /// new, and what stands in their way. Nil for nothing.
     public var notYet: String?
-    /// None of the rows the last such notice told of waits to go any more: it is to be taken away. Never with
-    /// a `notYet` of this run, which takes its place.
+    /// None of the rows the last such notice told of waits to go any more, or what was told is forgotten
+    /// (`ToldOnce.withdrawn`): it is to be taken away. Never with a `notYet` of this run, which takes its place.
     public var withdrawsNotYet: Bool
-    /// The last notice of what became of the queue is to be taken away, for what it said is no longer so.
-    /// Never with a `queue` of this run, which takes its place.
+    /// The last notice of what became of the queue is to be taken away, for what it said is no longer so, or
+    /// what was told is forgotten (`ToldOnce.withdrawn`). Never with a `queue` of this run, which takes its place.
     public var withdrawsQueue: Bool
 
     public init(queue: String? = nil, notYet: String? = nil, withdrawsNotYet: Bool = false,
