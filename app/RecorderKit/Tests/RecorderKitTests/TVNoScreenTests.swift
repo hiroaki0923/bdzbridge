@@ -645,6 +645,9 @@ final class TVNoScreenTests: XCTestCase {
     /// is handed, its round's or its turn's. A run that learnt nothing -- nobody answering, silence or answers
     /// that say nothing before any row -- carries on what was told before under the registration that was
     /// learnt under: a registration made since forgets it, as it forgets what was told under the one before.
+    /// With no stop told before to carry on -- nothing told, or only rows -- what it keeps is the late rows it
+    /// read, under the one it is handed: a registration made before its round began leaves them. So does a
+    /// round refused for the cookie before the one in the store that got as far as no row.
     func testWhatIsToldOnceCarriesTheRegistrationItWasLearntUnder() {
         let first = Date(timeIntervalSince1970: 1_793_000_000), again = Date(timeIntervalSince1970: 1_793_000_600)
         let told = ToldOnce(stop: .registration, registration: first)
@@ -665,6 +668,24 @@ final class TVNoScreenTests: XCTestCase {
                                        registration: again)
             XCTAssertEqual(next.registration, registration, name)
             XCTAssertEqual(next.stop, stop, name)
+        }
+
+        let theatre = row("サンプル劇場", 50101, at: 60)
+        let learntNothing: [(String, NoScreenSending, Bool)] = [
+            ("nobody answering", .unreachable, false),
+            ("silence before any row",
+             .sent(PendingQueue.Outcome(slot: .tv, stopped: .silent(afterSending: false))), false),
+            ("nothing that reads", .sent(PendingQueue.Outcome(slot: .tv, stopped: .saysNothing)), false),
+            ("a round refused for the cookie before", .sent(PendingQueue.Outcome(slot: .tv)), true),
+        ]
+        for (name, sending, refusedBefore) in learntNothing {
+            for before in [ToldOnce(), ToldOnce(rows: [theatre.id], registration: first)] {
+                let (_, next) = before.after(sending, waiting: [theatre], before: Self.nextRun, now: Self.now,
+                                             naming: "テレビ", registration: again,
+                                             refusedForTheCookieBefore: refusedBefore)
+                XCTAssertEqual(next, ToldOnce(rows: [theatre.id], registration: again),
+                               "\(name), with no stop told before: \(before)")
+            }
         }
     }
 

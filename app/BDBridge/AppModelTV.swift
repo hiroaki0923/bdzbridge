@@ -297,9 +297,9 @@ extension AppModel {
             // telling now is over first, and what it kept and posted of the registration before goes after it.
             // A run waiting for the turn now whose round sends with this registration, or with a cookie the
             // television has given since, and learns something keeps what it finds under either, and that stays;
-            // a run that learns nothing carries on the registration of what was told before, none after the
-            // forgetting at once, and what it keeps goes. So does what a run with no round found before the
-            // registration.
+            // so does what such a run keeps that learns nothing with no stop told before to carry on, as after the
+            // forgetting at once. One that carries a stop told before on carries on the registration it was told
+            // under, and what it keeps goes. So does what a run with no round found before the registration.
             if !demo {
                 let registration = credentials.load()?.cookieReceived
                 Task { [weak self] in
@@ -329,8 +329,8 @@ extension AppModel {
     /// once: it cannot take the turn itself, as `takeTheTelevisionAway` holds it already as it calls, and the turn
     /// is not taken twice. What is kept under one of `registrations` is left (`ToldOnce.registration`): the
     /// registration's own cookie (`TVCredentials.cookieReceived`) and the one in the store as the turn comes,
-    /// which a later registration or a renewal has given since. A run whose round began under either, and learnt
-    /// something, kept it, after the registration.
+    /// which a later registration or a renewal has given since. A run whose round began under either kept it,
+    /// after the registration, when it learnt something or had no stop told before to carry on.
     private func forgetWhatWasTold(unlessKeptUnder registrations: [Date?] = []) {
         guard !demo else { return }
         let kept = KeptOnce.television(in: defaults)

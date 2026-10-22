@@ -99,9 +99,9 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     /// The television's alone: the registration what is kept was learnt under -- when the cookie of the
     /// registration that the round of the run that learnt it began under arrived, or, with no round, the one in
     /// the store as that run began (`TVCredentials.cookieReceived`, handed on by `TVDriver.sendWithNoScreen`) --
-    /// nil for none. A run that learnt nothing carries it on as it was. A registration made again forgets
-    /// once more in the queue's turn, after a run that was telling then, only what is kept under a cookie
-    /// from before it.
+    /// nil for none. A run that learnt nothing carries it on as it was with a stop told before, and with none
+    /// takes its own. A registration made again forgets once more in the queue's turn, after a run that was
+    /// telling then, only what is kept under a cookie from before it.
     public var registration: Date?
 
     public init(stop: Stop? = nil, rows: Set<String> = [], registration: Date? = nil) {
@@ -134,9 +134,11 @@ public struct ToldOnce: Codable, Sendable, Equatable {
     /// The stop told last is forgotten once nothing waits, and after a round that got as far as a row; a run
     /// that learnt nothing of the television leaves it as it was. Silence at a create is no lasting state: it
     /// is said each time and never kept. What is told from then on carries `registration`, the television's
-    /// registration its round began under (`ToldOnce.registration`); after a run that learnt nothing, the one
-    /// it was kept under before, which the stop it carries on was learnt under: a registration made since
-    /// forgets it, and takes its notices away, as it does what a run told under the registration before.
+    /// registration its round began under (`ToldOnce.registration`); after a run that learnt nothing and
+    /// carries on a stop told before, the one it was kept under before, which that stop was learnt under: a
+    /// registration made since forgets it, and takes its notices away, as it does what a run told under the
+    /// registration before. With no stop to carry on, what such a run keeps is the late rows it read, and it
+    /// keeps them under its own: what was told before had nothing in it that a registration makes untrue.
     /// A round refused for the cookie before the one in the store (`refusedForTheCookieBefore`, handed on by
     /// `TVDriver.sendWithNoScreen`) learnt nothing of the television as it is registered now, unless it got as
     /// far as a row: it carries the stop told before on as such a run does.
@@ -165,7 +167,7 @@ public struct ToldOnce: Codable, Sendable, Equatable {
         let learntNothing = sending.learntNothing || refusedForTheCookieBefore
             && (outcome.map { ($0.sent + $0.alreadyThere + $0.refused + $0.deferred).isEmpty } ?? false)
         var told = self
-        if !learntNothing { told.registration = registration }
+        if !learntNothing || self.stop == nil { told.registration = registration }
         if sending == .nothingWaiting {
             told.stop = nil
         } else if !learntNothing {
