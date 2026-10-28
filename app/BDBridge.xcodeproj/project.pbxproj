@@ -16,6 +16,7 @@
 		17B18749804B94671F9DBC20 /* GuideScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A483A42044BA0ED0BA176891 /* GuideScreen.swift */; };
 		187887C62A5647A5922774CB /* ScanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D94D415237BBEBD9D9550062 /* ScanTests.swift */; };
 		1AB361B1D5207675232EBDA3 /* WhichRecorderAnotherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB8A034B9C079BA7DAF2995C /* WhichRecorderAnotherTests.swift */; };
+		1FE5752D2A29AA3DDF7B95BF /* GuideGridColumnsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFEDC7D113B8848892DE42BF /* GuideGridColumnsTests.swift */; };
 		245DF4F2D1A518481C28B063 /* QueueWithATelevisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CD87B8AFF4E69F2228DC1A7 /* QueueWithATelevisionTests.swift */; };
 		2546B2236EE639ADF36357EA /* TVCredentialStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDC3378573C0E6786524BF24 /* TVCredentialStoreTests.swift */; };
 		25AE7746562A9F4C4EEFAE17 /* SettingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 140BAB2703B93797DA4E1F5A /* SettingsScreen.swift */; };
@@ -164,6 +165,7 @@
 		FC398961D91396135008B6FC /* TVHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVHost.swift; sourceTree = "<group>"; };
 		FDBFD7114EA90269BA42645D /* AppModelSetup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelSetup.swift; sourceTree = "<group>"; };
 		FDC3378573C0E6786524BF24 /* TVCredentialStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVCredentialStoreTests.swift; sourceTree = "<group>"; };
+		FFEDC7D113B8848892DE42BF /* GuideGridColumnsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideGridColumnsTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -242,6 +244,7 @@
 				C72125004ED6DC0CBA8BD86E /* DemoGuideTests.swift */,
 				EC7F44DB1F93700797A1AFB0 /* DemoTelevisionTests.swift */,
 				CBB618AF30C03B32C939A796 /* FunnelGateTests.swift */,
+				FFEDC7D113B8848892DE42BF /* GuideGridColumnsTests.swift */,
 				61D97288A01992E60957A1E7 /* HostGateTests.swift */,
 				42587E3AD5955F5BB0F8B7A9 /* NoScreenGateTests.swift */,
 				29C6866852333929A48A535D /* QueueGateTests.swift */,
@@ -478,6 +481,7 @@
 				94762343663163DF625B8806 /* DemoGuideTests.swift in Sources */,
 				430E0922199428242DF76D4E /* DemoTelevisionTests.swift in Sources */,
 				47E3A5ADCE35FB932D9CE09F /* FunnelGateTests.swift in Sources */,
+				1FE5752D2A29AA3DDF7B95BF /* GuideGridColumnsTests.swift in Sources */,
 				C7BBD1E032408E27F7D7F822 /* HostGateTests.swift in Sources */,
 				EB94E416A703724A30D09314 /* NoScreenGateTests.swift in Sources */,
 				0AC523032E211837DAFE8756 /* QueueGateTests.swift in Sources */,
