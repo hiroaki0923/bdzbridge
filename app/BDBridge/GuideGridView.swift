@@ -63,15 +63,15 @@ struct GuideGridView: View {
         self.onSelect = onSelect
     }
 
-    private let column = 132.0
-    private let gutter = 30.0
+    private static let column = 132.0
+    private static let gutter = 30.0
     private let header = 54.0
     private let dayMinutes = 1440.0
     private let smallest = 1.5
     private let largest = 8.0
     private let space = "guide-grid"
 
-    private var contentWidth: Double { gutter + Double(columns.count) * column }
+    private var contentWidth: Double { Self.gutter + Double(columns.count) * Self.column }
     private var contentHeight: Double { header + dayMinutes * pointsPerMinute }
     private var nowMinutes: Double { Date().timeIntervalSince(dayStart) / 60 }
     private var showsNow: Bool { (0..<dayMinutes).contains(nowMinutes) }
@@ -219,10 +219,10 @@ struct GuideGridView: View {
 
     private func blocks(_ programs: [GuideProgramRow], atColumn index: Int) -> some View {
         ForEach(programs.filter { visibleMinutes.overlaps(minutes(of: $0)) }) { program in
-            ProgramBlock(program: program, height: height(of: program), width: column - 2,
+            ProgramBlock(program: program, height: height(of: program), width: Self.column - 2,
                          labelOffset: labelOffset(for: program), reservation: reservationFor(program),
                          pending: pendingFor(program), onSelect: onSelect)
-                .offset(x: gutter + Double(index) * column + 1, y: header + top(of: program))
+                .offset(x: Self.gutter + Double(index) * Self.column + 1, y: header + top(of: program))
         }
     }
 
@@ -234,12 +234,12 @@ struct GuideGridView: View {
                 Text("\((index + 4) % 24)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .frame(width: gutter, alignment: .center)
+                    .frame(width: Self.gutter, alignment: .center)
                     .offset(y: header + Double(index) * 60 * pointsPerMinute + 2)
             }
         }
         .offset(y: offset.y)
-        .frame(width: gutter, height: height, alignment: .topLeading)
+        .frame(width: Self.gutter, height: height, alignment: .topLeading)
         .background(Color(.systemBackground))
         .overlay(alignment: .trailing) { Rectangle().fill(Color(.separator)).frame(width: 0.5) }
         .clipped()
@@ -255,11 +255,11 @@ struct GuideGridView: View {
                         }
                         Text(entry.channel.name).font(.system(size: 10)).lineLimit(1)
                     }
-                    .frame(width: column, height: header)
+                    .frame(width: Self.column, height: header)
                     .overlay(alignment: .leading) { Rectangle().fill(Color(.separator)).frame(width: 0.5) }
                 }
             }
-            .offset(x: gutter + offset.x)
+            .offset(x: Self.gutter + offset.x)
         }
         .frame(width: width, height: header, alignment: .topLeading)
         .background(Color(.secondarySystemBackground))
@@ -269,7 +269,7 @@ struct GuideGridView: View {
 
     private var corner: some View {
         Color(.secondarySystemBackground)
-            .frame(width: gutter, height: header)
+            .frame(width: Self.gutter, height: header)
     }
 
     private var zoomButtons: some View {
@@ -321,7 +321,8 @@ struct GuideGridView: View {
 
     private func minutes(of program: GuideProgramRow) -> ClosedRange<Double> {
         let start = program.start.timeIntervalSince(dayStart) / 60
-        return start...(start + Double(program.durationSec) / 60)
+        // The end is the guide file's own, stored as it came, and nothing holds it after the start.
+        return start...(start + Double(max(0, program.durationSec)) / 60)
     }
 
     private func top(of program: GuideProgramRow) -> Double {
@@ -347,9 +348,17 @@ struct GuideGridView: View {
     }
 
     private var visibleColumns: Range<Int> {
-        let first = max(0, Int((-offset.x - gutter) / column) - 1)
-        let count = Int(max(viewport.width, 1) / column) + 3
-        return first..<min(columns.count, first + count)
+        Self.visibleColumns(offsetX: offset.x, viewportWidth: viewport.width, count: columns.count)
+    }
+
+    /// The columns on screen and one or two either side, for the content's horizontal offset in the scroll view.
+    static func visibleColumns(offsetX: Double, viewportWidth: Double, count: Int) -> Range<Int> {
+        // Held to the count because the offset can outlive the columns it was measured against: with fewer
+        // of them -- another guide, another broadcasting type, channels hidden -- the body runs once with the
+        // old offset before the reader reports the new one.
+        let first = min(count, max(0, Int((-offsetX - gutter) / column) - 1))
+        let shown = Int(max(viewportWidth, 1) / column) + 3
+        return first..<min(count, first + shown)
     }
 }
 
