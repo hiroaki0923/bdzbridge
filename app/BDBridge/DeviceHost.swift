@@ -146,7 +146,7 @@ extension DeviceHost {
         let keep = keeping
         await model?.start()
         guard let driver = reservationDriver else { return nil }
-        let sent = await driver.resend(waiting)
+        let sent = await driver.resend(waiting, neverWaited: neverWaited)
         if let list = sent.list { keep(list) }
         await tell(neverWaited ? nil : sent.round)
         return sent.came

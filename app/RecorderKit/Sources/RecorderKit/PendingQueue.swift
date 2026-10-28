@@ -337,11 +337,14 @@ public enum PendingQueue {
 public extension PendingQueue {
     /// Said when a reservation could not be kept on the phone because its cache could not be opened. No
     /// device's failure, so no device's sentence.
-    static let noCache = "予約を端末に保存できませんでした（端末内のデータベースを開けませんでした）"
+    static let noCache = "予約を iPhone に保存できませんでした（iPhone 内のデータベースを開けませんでした）。"
 
     /// Said when a reservation could not be kept on the phone because writing it failed, with the error as
-    /// Swift describes it.
-    static func couldNotBeKept(_ error: any Error) -> String { "予約を端末に保存できませんでした: \(error)" }
+    /// Swift describes it, ended with 。 where the description does not end with one.
+    static func couldNotBeKept(_ error: any Error) -> String {
+        let said = "予約を iPhone に保存できませんでした: \(error)"
+        return said.hasSuffix("。") ? said : said + "。"
+    }
 }
 
 public extension PendingQueue {
@@ -357,10 +360,10 @@ public extension PendingQueue {
             + (diskAway ? ScalarClient.diskNotFound + "。" : "")
     }
 
-    private static let notYetAtTheRecorder = "レコーダーに届かなかった予約です。次にレコーダーにつながったときに登録します。"
-    private static let notYetAtTheTelevision = "テレビにまだ届いていない予約です。次にテレビにつながったときに登録します。"
+    private static let notYetAtTheRecorder = "レコーダーにまだ届いていない予約です。次にレコーダーにつながったときに送ります。"
+    private static let notYetAtTheTelevision = "テレビにまだ届いていない予約です。次にテレビにつながったときに送ります。"
     private static let notYetAtEither = "レコーダーやテレビにまだ届いていない予約です。"
-        + "それぞれ、次につながったときに登録します。"
+        + "それぞれ、次につながったときに送ります。"
     private static let reasonsWaitForTheReader = "理由が付いているものは自動では送り直しません。"
         + "右にスワイプすると、もう一度送れます。"
 }
@@ -394,8 +397,8 @@ public extension PendingQueue.Outcome {
     func says(naming device: String?) -> String? {
         var lines: [String] = []
         if !sent.isEmpty {
-            lines.append(device.map { "送信待ちだった\(Self.titled(sent))を\($0)に登録しました" }
-                ?? "送信待ちだった\(Self.titled(sent))を登録しました")
+            lines.append(device.map { "送信待ちだった\(Self.titled(sent))を\($0)に予約しました" }
+                ?? "送信待ちだった\(Self.titled(sent))を予約しました")
         }
         lines += remarks
         if !alreadyThere.isEmpty {
@@ -407,8 +410,8 @@ public extension PendingQueue.Outcome {
                 ?? "\(Self.titled(expired))は放送が終わっていたため、送らずに削除しました")
         }
         if !refused.isEmpty {
-            lines.append(device.map { "\(Self.titled(refused))は\($0)に登録できませんでした。理由は予約タブにあります" }
-                ?? "\(Self.titled(refused))はレコーダーが受け付けませんでした。理由は予約タブにあります")
+            lines.append(device.map { "\(Self.titled(refused))は\($0)に予約できませんでした。理由は予約タブにあります" }
+                ?? "\(Self.titled(refused))はレコーダーに予約できませんでした。理由は予約タブにあります")
         }
         if !deferred.isEmpty {
             lines.append(device.map { "\(Self.titled(deferred))は\($0)に送れなかったため、次の機会にもう一度送ります" }

@@ -170,9 +170,9 @@ struct ReservationsScreen: View {
                          + (reservation.createdByRecorder ? "\n" + RecorderDriver.mayComeBackFromTheList : ""))
                 case .confirmPending(let waiting):
                     Text("\(Format.dateTime.string(from: waiting.request.start)) \(waiting.request.title)\n"
-                         + "この端末から削除し、\(waiting.target.label)には送りません。")
+                         + "この iPhone から削除し、\(waiting.target.label)には送りません。")
                 case .failed(let reason), .said(let reason):
-                    Text(reason)
+                    Text(reason.asABody)
                 }
             }
             // whatever goes wrong here has to be visible on this screen, not only on the others: the
@@ -185,7 +185,7 @@ struct ReservationsScreen: View {
                         .frame(maxWidth: .infinity)
                         .background(.regularMaterial)
                 } else if let problem = model.problem(for: .recorder) ?? model.problem(for: .tv) {
-                    Text(problem)
+                    Text(problem.asABody)
                         .font(.callout)
                         .foregroundStyle(.red)
                         .padding(10)
@@ -403,7 +403,7 @@ struct PendingRowView: View {
             }
             Text(details).font(.caption).foregroundStyle(.secondary)
             if let problem = waiting.problem {
-                Text(problem).font(.caption).foregroundStyle(.red)
+                Text(problem.asABody).font(.caption).foregroundStyle(.red)
             }
         }
         .rowLinesInFull()

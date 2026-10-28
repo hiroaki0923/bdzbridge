@@ -133,7 +133,7 @@ struct GuideScreen: View {
                    isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(failure ?? "")
+                Text(failure?.asABody ?? "")
             }
         }
         .welcomesHere($welcoming)

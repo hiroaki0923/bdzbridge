@@ -34,6 +34,12 @@ public struct Activities: Sendable, Equatable {
         lines.contains { !tokens.contains($0.token) }
     }
 
+    /// The line to show of one device's work: the latest begun of what is under way but the lines `tokens`
+    /// were issued for, or nil when nothing else is.
+    public func current(besides tokens: Set<Token>) -> String? {
+        lines.last { !tokens.contains($0.token) }?.text
+    }
+
     /// Puts up a line and returns the token that changes it and takes it away.
     public mutating func begin(_ text: String) -> Token {
         issued += 1

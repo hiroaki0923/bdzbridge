@@ -132,7 +132,7 @@ struct RecordingsScreen: View {
             } message: { shown in
                 switch shown {
                 case .confirm(let title): Text(Self.deleteMessage(title))
-                case .failed(let reason), .told(let reason): Text(reason)
+                case .failed(let reason), .told(let reason): Text(reason.asABody)
                 }
             }
         }
@@ -171,7 +171,7 @@ struct RecordingsScreen: View {
     private var content: some View {
         if !model.connected {
             NoRecorderView(icon: "play.rectangle", welcoming: $welcoming)
-        } else if model.busy != nil && model.titles.isEmpty {
+        } else if model.recorderBusy != nil && model.titles.isEmpty {
             ContentUnavailableView {
                 Label("読み込み中", systemImage: "play.rectangle")
             } description: {
@@ -463,7 +463,7 @@ struct GroupSheet: View {
                     Text(String(format: "合計 %.1fGB。保護された録画と録画中のものは削除されません。\n"
                                 + "レコーダーから削除され、元に戻せません。", Self.gigabytes(chosen)))
                 case .one(let title): Text(RecordingsScreen.deleteMessage(title))
-                case .failed(let reason), .told(let reason): Text(reason)
+                case .failed(let reason), .told(let reason): Text(reason.asABody)
                 }
             }
         }

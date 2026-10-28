@@ -142,12 +142,15 @@ final class RecorderDiskTests: XCTestCase {
     }
 
     /// Without a disk to name, the sentence a recorder with its own disk alone has always had, character for
-    /// character; with one, the disk's label in front.
+    /// character; with one, the disk's label in front, a half-width space after a label that ends in a half-width
+    /// letter and none after a full-width one.
     func testTheLowSpaceNoticeNamesADiskOnlyWhenToldTo() {
         XCTAssertEqual(RecorderDisk.lowSpaceBody(freeGB: 42.4, naming: nil),
                        "残り 42 GB です。古い録画を整理するか、録画モードを見直してください。")
         XCTAssertEqual(RecorderDisk.lowSpaceBody(freeGB: 42.4, naming: "HDD"),
-                       "HDDの残りが 42 GB です。古い録画を整理するか、録画モードを見直してください。")
+                       "HDD の残りが 42 GB です。古い録画を整理するか、録画モードを見直してください。")
+        XCTAssertEqual(RecorderDisk.lowSpaceBody(freeGB: 42.4, naming: "ＵＳＢ ＨＤＤ１"),
+                       "ＵＳＢ ＨＤＤ１の残りが 42 GB です。古い録画を整理するか、録画モードを見直してください。")
         XCTAssertEqual(RecorderDisk.lowSpaceBody(freeGB: 7, naming: "100%ディスク"),
                        "100%ディスクの残りが 7 GB です。古い録画を整理するか、録画モードを見直してください。")
     }
@@ -248,7 +251,7 @@ final class RecorderDiskTests: XCTestCase {
         XCTAssertEqual(RecorderDisk.chooseAnother(than: "USBHDD", usb: Self.disk(mounted: false)),
                        "録画用ディスクはいま使えません。別の録画先を選んでください。")
         XCTAssertEqual(RecorderDisk.chooseAnother(than: "USBHDD", usb: nil),
-                       "USBHDDはいま使えません。別の録画先を選んでください。", "no disk known")
+                       "USBHDD はいま使えません。別の録画先を選んでください。", "no disk known")
     }
 
     /// The recorder turning down a request to the USB disk is said as the disk and what to do, the code kept;
@@ -288,8 +291,14 @@ final class RecorderDiskTests: XCTestCase {
                        "レコーダーが録画用ディスクへの予約を受け付けませんでした。別の録画先を選んでください"
                            + " (402: X_CreateRecordSchedule)")
         XCTAssertEqual(RecorderDisk.turnedDown(fault("402", "X_UpdateRecordSchedule"), sentTo: "USBHDD", usb: nil),
-                       "レコーダーがUSBHDDへの予約を受け付けませんでした。別の録画先を選んでください"
+                       "レコーダーが USBHDD への予約を受け付けませんでした。別の録画先を選んでください"
                            + " (402: X_UpdateRecordSchedule)", "no disk known")
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("402"), sentTo: "USBHDD", usb: Self.disk(name: "USB録画用")),
+                       "レコーダーが USB録画用への予約を受け付けませんでした。別の録画先を選んでください"
+                           + " (402: X_CreateRecordSchedule)", "a name that begins with a half-width letter")
+        XCTAssertEqual(RecorderDisk.turnedDown(fault("402"), sentTo: "USBHDD", usb: Self.disk(name: "ＵＳＢ ＨＤＤ１")),
+                       "レコーダーがＵＳＢ ＨＤＤ１への予約を受け付けませんでした。別の録画先を選んでください"
+                           + " (402: X_CreateRecordSchedule)", "a full-width name")
         XCTAssertEqual(RecorderDisk.waitingRowTurnedDown(fault("402"), sentTo: "USBHDD"),
                        "レコーダーがこの録画先への予約を受け付けませんでした。この予約を消して、別の録画先で予約し直してください"
                            + " (402: X_CreateRecordSchedule)")
@@ -320,11 +329,11 @@ final class RecorderDiskTests: XCTestCase {
     /// review of the wording.
     func testAMoveWithNothingElseToOfferSaysWhereTheReservationStays() {
         XCTAssertEqual(RecorderDisk.stays(on: "HDD", notMovedTo: "USBHDD", usb: nil),
-                       "USBHDDはいま使えません。録画先はHDDのままです。", "no disk known")
+                       "USBHDD はいま使えません。録画先は HDD のままです。", "no disk known")
         XCTAssertEqual(RecorderDisk.stays(on: "HDD", notMovedTo: "USBHDD", usb: Self.disk(mounted: false)),
-                       "録画用ディスクはいま使えません。録画先はHDDのままです。")
+                       "録画用ディスクはいま使えません。録画先は HDD のままです。")
         XCTAssertEqual(RecorderDisk.stays(on: "USBHDD", notMovedTo: "BD", usb: Self.disk(mounted: false)),
-                       "BDはいま使えません。録画先は録画用ディスクのままです。", "its own disk named after the disk known")
+                       "BD はいま使えません。録画先は録画用ディスクのままです。", "its own disk named after the disk known")
     }
 
     // MARK: - the recordings of one disk

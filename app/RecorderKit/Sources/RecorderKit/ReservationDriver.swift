@@ -43,7 +43,7 @@ public protocol ReservationDriver: AnyObject {
                 _ terms: ReservationTerms) async -> (altered: Altered?, list: [Reservation]?)
     func reserve(_ program: GuideProgramRow,
                  _ terms: ReservationTerms) async -> (reserved: Reserved, list: [Reservation]?)
-    func resend(_ waiting: PendingReservation) async
+    func resend(_ waiting: PendingReservation, neverWaited: Bool) async
         -> (round: PendingQueue.Outcome?, list: [Reservation]?, came: Reserved?)
 }
 

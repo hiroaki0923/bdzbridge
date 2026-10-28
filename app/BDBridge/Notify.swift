@@ -63,7 +63,7 @@ enum Notify {
         guard await mayPost() else { return }
         let content = UNMutableNotificationContent()
         content.title = title
-        content.body = body
+        content.body = body.asABody
         content.interruptionLevel = .passive
         // nil trigger: now, which is when the thing it is about happened
         try? await UNUserNotificationCenter.current()

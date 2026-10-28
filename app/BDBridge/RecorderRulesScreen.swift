@@ -81,7 +81,7 @@ struct RecorderRulesScreen: View {
             case .confirm(let rule):
                 Text("「\(rule.name)」をレコーダーから削除します。本体で設定した対象チャンネルの指定も削除されます。")
             case .failed(let text):
-                Text(text)
+                Text(text.asABody)
             }
         }
     }
@@ -93,7 +93,7 @@ struct RecorderRulesScreen: View {
         if let failure = model.recorderRulesFailure {
             VStack(alignment: .leading, spacing: 2) {
                 Text("条件を読み込めませんでした")
-                Text(failure).font(.caption).foregroundStyle(.secondary)
+                Text(failure.asABody).font(.caption).foregroundStyle(.secondary)
             }
         } else if model.recorderRules.isEmpty {
             if model.recorderRulesLoaded {
@@ -206,7 +206,7 @@ struct RecorderRuleSheet: View {
                 } header: {
                     Text("キーワード")
                 } footer: {
-                    if let problem { Text(problem) } else { Text("番組名や番組内容に含まれる言葉です。5 つまで登録できます。") }
+                    if let problem { Text(problem.asABody) } else { Text("番組名や番組内容に含まれる言葉です。5 つまで登録できます。") }
                 }
 
                 Section {
@@ -317,7 +317,7 @@ struct RecorderRuleSheet: View {
                    isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(failure ?? "")
+                Text(failure?.asABody ?? "")
             }
         }
     }

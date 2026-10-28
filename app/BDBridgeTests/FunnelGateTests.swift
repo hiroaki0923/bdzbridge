@@ -496,7 +496,7 @@ final class FunnelGateTests: XCTestCase {
         leaveALine(on: model)
         let count = await recorder.heard.count
         let again = try await duringACheck(by: model, of: recorder, endingIn: .silence, "sending it again",
-                                           waitingFor: { model.busy == "送信待ちの予約を登録中" }) {
+                                           waitingFor: { model.busy == "送信待ちの予約を送信中" }) {
             await model.resend(waiting)
         }
         XCTAssertFalse(again.there)

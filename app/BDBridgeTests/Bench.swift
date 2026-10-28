@@ -1377,7 +1377,7 @@ enum Said {
         + "レコーダーで変更された場合も含みます。一覧を更新しました。"
     static let anotherAnswered = "別のレコーダーが応答したため、この操作は行っていません。"
         + "一覧を読み直しますので、確かめてからもう一度お試しください。"
-    static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"
+    static let cacheNotMadeOver = "iPhone 内のデータベースに書き込めなかったため、接続を中断しました。"
         + "少し待ってから、もう一度お試しください。"
     /// What the strip says while another recorder has taken the last one's place and the app is connected.
     static let anotherTookOver = "別のレコーダーが応答したため、一覧を読み直しました。"
@@ -1394,16 +1394,19 @@ enum Said {
     static let anotherAnsweredWithNoScreen = "これまでとは別のレコーダーが応答したため、"
         + "送信待ちの予約はそのまま残しています。アプリを開いて確かめてください。"
     /// Said of a reservation kept on the phone because the recorder was not there.
-    static let keptForTheRecorder = "レコーダーに届かなかったので、予約を端末に保存しました。"
-        + "次にレコーダーにつながったときに登録します。予約タブで削除できます。"
+    static let keptForTheRecorder = "レコーダーに送れなかったため、予約を iPhone に保存しました。"
+        + "次にレコーダーにつながったときに送ります。予約タブで削除できます。"
+    /// The same of a row sent again, which was on the phone before it was sent.
+    static let stillKeptForTheRecorder = "レコーダーに送れなかったため、予約は iPhone に残しています。"
+        + "次にレコーダーにつながったときに送ります。予約タブで削除できます。"
     static let gone = "この予約はレコーダーの予約一覧に見つかりませんでした。一覧を更新しました。"
-    static let couldNotBeConfirmed = "予約を登録できたか確かめられませんでした。予約タブで確かめてください。"
+    static let couldNotBeConfirmed = "予約できたか確かめられませんでした。予約タブで確かめてください。"
     static let foundThere = "レコーダーにはこの番組の予約がすでにありました。"
     static let notKnownThere = "レコーダーの予約が多いため、この予約が届いているか一覧で確かめられませんでした。送っていません。"
         + "レコーダー本体の予約一覧で確かめ、届いていなければ、この送信待ちの予約を削除してから番組表で予約し直してください。"
     static let notKnownThereUnread = "レコーダーの予約一覧を読めなかったため、この予約が届いているか確かめられませんでした。"
         + "送っていません。少し待ってから、もう一度送ってください。"
-    static let renumbered = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
+    static let renumbered = "レコーダー側で予約が変更されていました。一覧を更新したので、もう一度お試しください。"
     static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
     static let protectedCannotBeDeleted = "保護されているため削除できません。先に保護を解除してください。"
     static let notInTheTables = "この録画モードと毎回録画の組み合わせは、レコーダーに送れません。"
@@ -1420,8 +1423,8 @@ enum Said {
     // beside the recorder, where each sentence says which device it is about (`says(naming:)`); with none the
     // sentence is the one a home with a recorder alone reads.
     static func sent(_ title: String, andOthers others: Int = 0, naming device: String? = nil) -> String {
-        device.map { "送信待ちだった\(naming(title, others))を\($0)に登録しました" }
-            ?? "送信待ちだった\(naming(title, others))を登録しました"
+        device.map { "送信待ちだった\(naming(title, others))を\($0)に予約しました" }
+            ?? "送信待ちだった\(naming(title, others))を予約しました"
     }
     static func alreadyThere(_ title: String, andOthers others: Int = 0, naming device: String? = nil) -> String {
         device.map { "\(naming(title, others))は\($0)にすでに予約がありました" }
@@ -1432,12 +1435,17 @@ enum Said {
             ?? "\(naming(title, others))は放送が終わっていたため、送らずに削除しました"
     }
     static func refused(_ title: String, andOthers others: Int = 0, naming device: String? = nil) -> String {
-        device.map { "\(naming(title, others))は\($0)に登録できませんでした。理由は予約タブにあります" }
-            ?? "\(naming(title, others))はレコーダーが受け付けませんでした。理由は予約タブにあります"
+        device.map { "\(naming(title, others))は\($0)に予約できませんでした。理由は予約タブにあります" }
+            ?? "\(naming(title, others))はレコーダーに予約できませんでした。理由は予約タブにあります"
     }
     static func deferred(_ title: String, andOthers others: Int = 0, naming device: String? = nil) -> String {
         device.map { "\(naming(title, others))は\($0)に送れなかったため、次の機会にもう一度送ります" }
             ?? "\(naming(title, others))は送れなかったため、次の機会にもう一度送ります"
+    }
+    /// What a delete of a waiting row says when a sending made the reservation first: on the recorder, which
+    /// is named whether or not a television is saved, or on the device named.
+    static func madeBeforeItsDelete(_ title: String, on device: String = "レコーダー") -> String {
+        "「\(title)」は、削除する前に\(device)に予約されていました。取り消すときは、\(device)の予約を削除してください。"
     }
     // As a home with a recorder alone reads it. No test has a named device go silent yet, so no form names one.
     static let interrupted = "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります"

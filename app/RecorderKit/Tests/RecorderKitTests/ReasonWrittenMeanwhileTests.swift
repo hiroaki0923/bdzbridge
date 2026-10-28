@@ -55,8 +55,8 @@ final class ReasonWrittenMeanwhileTests: XCTestCase {
     private func rowsWrittenWhileTheFirstIsBeingMade<Slot: Named>(for _: Slot.Type) async throws {
         let now = Date(timeIntervalSince1970: 1_790_000_000)
         let reason = RecorderDriver.heldForAnotherRecorder
-        let (one, two, three) = ("送信待ちだった「朝の番組」を登録しました", "送信待ちだった「朝の番組」ほか 1 件を登録しました",
-                                 "送信待ちだった「朝の番組」ほか 2 件を登録しました")
+        let (one, two, three) = ("送信待ちだった「朝の番組」を予約しました", "送信待ちだった「朝の番組」ほか 1 件を予約しました",
+                                 "送信待ちだった「朝の番組」ほか 2 件を予約しました")
         let cases: [(name: String, held: [Int], gone: [Int], sent: [Int], says: String)] = [
             ("nothing written", [], [], [0, 1, 2], three),
             ("the second held", [1], [], [0, 2], two),
@@ -144,7 +144,7 @@ final class ReasonWrittenMeanwhileTests: XCTestCase {
     private func rowsFoundThereAndWrittenWhileTheFirstIsBeingMade<Slot: Named>(for _: Slot.Type) async throws {
         let now = Date(timeIntervalSince1970: 1_790_000_000)
         let (reason, refusal) = (RecorderDriver.heldForAnotherRecorder, "前に断られた理由")
-        let sent = "送信待ちだった「朝の番組」を登録しました", found = "「昼の番組」はすでに予約されていました"
+        let sent = "送信待ちだった「朝の番組」を予約しました", found = "「昼の番組」はすでに予約されていました"
         let cases: [(name: String, readWith: String?, held: Bool, gone: Bool)] = [
             ("nothing written", nil, false, false),
             ("nothing written, the row read with a reason", refusal, false, false),

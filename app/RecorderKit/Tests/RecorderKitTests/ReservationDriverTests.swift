@@ -62,7 +62,7 @@ final class ReservationDriverTests: XCTestCase {
             let cancelled = await door.driver.cancel(door.another)
             let changed = await door.driver.update(door.another,
                                                    .changing(quality: "DR", repeating: "none", disk: nil))
-            let sent = await door.driver.resend(door.waiting)
+            let sent = await door.driver.resend(door.waiting, neverWaited: false)
 
             XCTAssertNil(cancelled.deleted, door.which)
             XCTAssertNil(cancelled.list, "\(door.which) read the list for another device's row")

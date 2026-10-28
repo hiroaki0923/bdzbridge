@@ -1225,7 +1225,7 @@ for one made: the Keychain's save says nothing of how it went, so the client rea
 cookie the store did not hold before the save, by the cookie or when it arrived (`ScalarClient.keep`; not the
 cookie alone, which a television giving the same value again would match, nor only the one saved, as the link's
 own client may renew the same registration in between), and the sheet says
-「テレビへの登録をこの端末に保存できませんでした。もう一度登録してください。」, with nothing
+「テレビへの登録をこの iPhone に保存できませんでした。もう一度登録してください。」, with nothing
 forgotten, saved or connected afresh: every request still sends the cookie kept before. A renewal not kept leaves
 that cookie in hand, renewed again at the next connect. And the tutorial comes up at a launch only while
 nothing is set up (`AppModel.welcomes`): a home with a television and no recorder is not shown it every time.
@@ -1660,7 +1660,7 @@ round RecorderKit has for it: when a connect has reached the television, in the 
 when the reservations are pulled down, before the list is read. The phone's queue is looked at first. With
 no row to go the television is asked nothing and no line goes up: a row with a reason on it waits for the
 reader, and one whose programme is over is dropped unasked. While rows are sent the strip reads
-テレビに送信待ちの予約を登録中, which holds back the television's buttons and not the recorder's. A round
+テレビに送信待ちの予約を送信中, which holds back the television's buttons and not the recorder's. A round
 that stopped is said on the television's own line where it is the link's to say. Silence loses the
 television, and at the request that makes a reservation it has a sentence of its own, since the reservation
 may have been made: it is not sent again, and the next sending reads the television's list before it sends
@@ -1686,7 +1686,7 @@ taken over, this report, the demo, the local network permission, the recorder gi
 television's own -- to be registered, given up on, its disk away. The recorder's sending leaves a
 television's rows alone, and with none of its own to go -- no row of the recorder's with no reason on it whose
 programme is not over -- it asks the recorder nothing and puts no line up, as a television's does, so that it
-does not wait its turn behind a television's round, nor flash 送信待ちの予約を登録中 at every connect for rows
+does not wait its turn behind a television's round, nor flash 送信待ちの予約を送信中 at every connect for rows
 held for the reader. When it has one, the recorder is made sure of first, under that line, and a recorder that
 has dozed off is woken rather than sent creates it does not hear. A pull-down sends what waits and then reads
 the list once, as a television's does. A row for a television is made by the programme's sheet (below).
@@ -1762,18 +1762,18 @@ alone. The host (`DeviceHost.reserve`, with the television's `afterAReservation`
 reservation that was made, reads the queue on screen again and takes the warning of rows not yet there away
 once none of them waits; it puts nothing on the strip, since the result is what says it.
 
-A reservation on the recorder goes the same way (`RecorderDriver.reserve`): under 予約を登録中, once the recorder
+A reservation on the recorder goes the same way (`RecorderDriver.reserve`): under 予約を送信中, once the recorder
 has been made sure of and the USB slot waited for where it names the USB disk, it is written to the phone's queue
 and that one row is sent in a round of its own, which reads the list first. A programme the recorder lists
 already is made with no create sent, and said so: 「レコーダーにはこの番組の予約がすでにありました。」. What it
 came to is what the round says, in the same value: made; turned down with a reason of the recorder's own -- 831,
 or a 402 on the internal disk -- kept with that reason for the reader, the sheet saying 送信待ちにしました with it
 and the line left as it was; passed over -- busy, standby -- kept with no reason, to go by itself
-(「レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約を端末に保存しました。…」); silence at
+(「レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約を iPhone に保存しました。…」); silence at
 the create, held for the reader with the reason above, which the line says too; silence before it, at the list,
 kept to go by itself; a programme over by the round's turn, dropped. A refusal that the USB disk picked could be
 behind keeps nothing, and the sheet that offers the disk asks for another. The round is the queue's turn, which
-every sending in the app takes, so a sheet's 予約を登録中 can wait behind a television's round or a run with no
+every sending in the app takes, so a sheet's 予約を送信中 can wait behind a television's round or a run with no
 screen for as long as that takes. A recorder given up on, and one that has not said which it is -- a connect
 under way, a reconnect it answered busy -- has the reservation kept at once, and one the check before it hears
 busy has it kept too, nothing sent; a recorder let go of on the way -- another answering a connect, another
@@ -1786,7 +1786,7 @@ given up on. The system's question about notifications comes only for a row that
 the demo.
 
 もう一度送る goes to the device the row waits for (`AppModel.resend`). On a television's row it is the
-driver's (`TVDriver.resend`): that one row is sent, under テレビに送信待ちの予約を登録中, and the strip says
+driver's (`TVDriver.resend`): that one row is sent, under テレビに送信待ちの予約を送信中, and the strip says
 what became of it. A reason the television gave is taken off first, so that the row goes with the rest from
 then on. The reason for what the reservation would stop from recording stays on the row:
 sending the row again is the reader's consent to that sentence. The television is asked again all the same,
@@ -1798,7 +1798,7 @@ is connected to, since the reader asked. What the row came to is handed back as 
 alert whatever the row itself does not say (`Reserved.besideItsRow`): why a held row was not sent, how a
 freed one goes by itself, the reservations a fresh answer names as the ones it would stop. Of a row that was
 made it says nothing more: the row leaves what waits, and the strip says so. On a recorder's row it is the
-recorder's driver's (`RecorderDriver.resend`), the same way: that one row, under 送信待ちの予約を登録中, its
+recorder's driver's (`RecorderDriver.resend`), the same way: that one row, under 送信待ちの予約を送信中, its
 reason taken off once the recorder has been made sure of -- the check may wake the recorder, whose attach sends
 what else waits, and the row then goes in a round of its own after it -- and a recorder given up on connected
 to. A row held after silence at its create keeps its reason, which is the reader's consent to send it once more
@@ -1807,7 +1807,7 @@ another recorder arrives keeps the reason that arrival writes on it, whatever it
 is answered as a reservation is: that another recorder answered, unless its round made it -- or, for a row
 another sending took first, that it could not be confirmed, and for a create that met silence, that it may have
 arrived. What it came to is handed back in the same value, and a row another sending took first is answered from
-the list read after its round: made, or 「予約を登録できたか確かめられませんでした。予約タブで確かめてください。」. On that tab each waiting row says
+the list read after its round: made, or 「予約できたか確かめられませんでした。予約タブで確かめてください。」. On that tab each waiting row says
 its device once a television is saved, what is said under the rows goes by the devices they wait for, and a row
 is held back from もう一度送る and 削除 while its device works -- the recorder's while any line of the recorder's is on
 the strip -- and at the question before the delete as well, for work begun while it was up
@@ -1829,8 +1829,8 @@ television's.
 One entry reserves for both devices (`AppModel.reserve(_:on:quality:repeating:)`) and answers in the one value
 (`Reserved`); the recorder's is its driver's (`RecorderDriver.reserve`, above). Under a request of its own to
 either device -- a reservation, a row sent again, a delete of a reservation -- nothing on the sheet can be
-pressed and the sheet cannot be closed, and the request's line (テレビに予約を登録中, 予約を登録中, 予約を削除中 and
-the rest) is a section of its own: what the request came to is said in the sheet's one alert and nowhere else.
+pressed and the sheet cannot be closed, and the request's line (テレビに予約を送信中, 予約を送信中, 予約を削除中 and
+the rest, the recorder's naming the recorder once a television is saved: レコーダーに予約を送信中) is a section of its own: what the request came to is said in the sheet's one alert and nowhere else.
 On the recorder that can be more than a minute: a waking, or a wait of about fifty-four seconds for a connect or a
 check, and the slot's reads after it. A delete of a waiting row waits for the queue's turn with no line up, so the
 sheet counts those, and while the count is not nought it cannot be closed, and either device's 録画予約する,
@@ -1875,8 +1875,9 @@ special mode without scenes"; its article "Creating your first app intent" has t
 place your app intent types in an app extension, and run them in a separate process from the rest of your
 app." The delete reads the television's list in its turn, before it deletes anything. Where the list holds the
 row's programme -- though the row still waits, as one does whose create the television took and whose answer
-was lost -- the row is taken out of the queue as a row made and said so in the strip's sentence for a row sent
-(`TVDriver.madeBeforeItsDelete`), not as deleted. So is a row a sending took meanwhile whose programme is not
+was lost -- the row is taken out of the queue as a row made, and the reader is told that it was made before the
+delete and where to delete it, not that it was deleted (`TVDriver.madeBeforeItsDelete`:
+「「…」は、削除する前にテレビに予約されていました。取り消すときは、テレビの予約を削除してください。」). So is a row a sending took meanwhile whose programme is not
 over, though the list cannot be read: while the television is in play, nothing else takes such a row out but
 the app's own delete, and a row has one delete at a time -- a second, asked for while the first waits its
 turn, comes back at once with nothing said. What the delete cannot tell: a row whose create the television

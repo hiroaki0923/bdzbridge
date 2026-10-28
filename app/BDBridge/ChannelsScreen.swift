@@ -81,7 +81,7 @@ struct ChannelsScreen: View {
         .alert("保存できませんでした", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
             Button("OK") { failure = nil }
         } message: {
-            Text(failure ?? "")
+            Text(failure?.asABody ?? "")
         }
     }
 

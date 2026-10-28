@@ -137,7 +137,7 @@ struct ReservationSheet: View {
                 }
 
                 if let problem = model.problem(for: reservation.device) {
-                    Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                    Section { Text(problem.asABody).foregroundStyle(.red).font(.callout) }
                 }
             }
             .disabled(asking != nil)
@@ -158,7 +158,7 @@ struct ReservationSheet: View {
                                         set: { if !$0 { alertClosed() } })) {
                 if failure == nil, said == nil {
                     Button("削除する", role: .destructive) {
-                        asking = onTelevision ? TVDriver.deletingLine : RecorderDriver.deletingLine
+                        asking = line(TVDriver.deletingLine, or: RecorderDriver.deletingLine)
                         Task {
                             let deleted = await model.cancel(reservation)
                             asking = nil
@@ -174,9 +174,9 @@ struct ReservationSheet: View {
                 }
             } message: {
                 if let failure {
-                    Text(failure)
+                    Text(failure.asABody)
                 } else if let said {
-                    Text(said)
+                    Text(said.asABody)
                 } else {
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
                          + "\(reservation.device.label)から削除されます。"
@@ -210,6 +210,12 @@ struct ReservationSheet: View {
         anotherDiskWanted = false
     }
 
+    /// The line a request of this sheet's is held under, as the device's driver puts it up: the recorder's names
+    /// the recorder once a television is saved beside it (`RecorderDriver.line(_:withATelevisionSaved:)`).
+    private func line(_ television: String, or recorder: String) -> String {
+        onTelevision ? television : RecorderDriver.line(recorder, withATelevisionSaved: model.tv != nil)
+    }
+
     /// 変更を〈機器〉に送る: the change goes to the device that holds the row, with what the pickers hold as it
     /// is pressed, and what it came to is said. Made with nothing to add closes the sheet; made with something
     /// to add says it, and closing that closes the sheet; not made says why, and closing that closes the sheet
@@ -217,7 +223,7 @@ struct ReservationSheet: View {
     /// until it is answered (`asking`).
     private func sendTheChange() {
         let moved = movedTo
-        asking = onTelevision ? TVDriver.changingLine : RecorderDriver.changingLine
+        asking = line(TVDriver.changingLine, or: RecorderDriver.changingLine)
         Task {
             let altered = await model.change(reservation, quality: quality, repeating: repeating, disk: moved)
             asking = nil
@@ -315,7 +321,7 @@ struct ReservationSheet: View {
     private var conflictRow: some View {
         let others = model.overlapping(reservation)
         return VStack(alignment: .leading, spacing: 4) {
-            Text("他の予約と重複しています").foregroundStyle(Color.legibleOrange)
+            Text("ほかの予約と重複しています").foregroundStyle(Color.legibleOrange)
             if others.isEmpty {
                 Text("読み込んだ予約一覧には、時間が重なる予約がありません")
                     .font(.caption)

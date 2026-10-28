@@ -32,7 +32,7 @@ struct WelcomeView: View {
                         Text("ソニーのブルーレイディスクレコーダー（BDZ シリーズ）用のアプリです。"
                              + "レコーダーの番組表を iPhone で見て、録画予約や録画した番組の整理ができます。"
                              + "USB ハードディスクに録画できるソニーのテレビにも、録画予約を送れます。"
-                             + "まず、お使いのレコーダーとテレビを登録しましょう。")
+                             + "まず、お使いのレコーダーとテレビを追加しましょう。")
                             .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 6)
@@ -40,7 +40,7 @@ struct WelcomeView: View {
                 }
                 Section("セットアップ") {
                     step(1, "レコーダーとテレビの電源を入れる",
-                         "レコーダーの電源が入っている必要があるのは最初の登録のときだけです。"
+                         "レコーダーの電源が入っている必要があるのは最初に追加するときだけです。"
                          + "次回からはアプリがレコーダーを自動で起動します。"
                          + "テレビは、登録のときに画面に番号が出るので、放送を映しておいてください。")
                     step(2, "iPhone をレコーダーやテレビと同じ Wi-Fi につなぐ",
@@ -83,7 +83,7 @@ struct WelcomeView: View {
                         HStack { ProgressView().controlSize(.small); Text(busy) }
                     }
                     if let problem = model.problem(for: .recorder) {
-                        Text(problem).foregroundStyle(.red).font(.callout)
+                        Text(problem.asABody).foregroundStyle(.red).font(.callout)
                     }
                 }
                 if !model.found.isEmpty {
@@ -139,7 +139,9 @@ struct WelcomeView: View {
             // A scan waiting on the system's question must not outlive the screen that asked it. A sheet over
             // this one is not its going: the search goes on behind the television's.
             .onDisappear { model.stopScanning() }
-            .sheet(item: $tvSheet) { TVRegisterSheet(host: $0.host, connectAtOnce: $0.connectAtOnce) }
+            .sheet(item: $tvSheet) {
+                TVRegisterSheet(host: $0.host, connectAtOnce: $0.connectAtOnce, again: $0.again)
+            }
             .onChange(of: model.timesAttached) {
                 if let chosenAt, model.timesAttached > chosenAt { dismiss() }
             }
@@ -257,7 +259,7 @@ struct FoundTelevisionsSection: View {
                 Text("見つかったテレビ")
             } footer: {
                 if !model.canAddAFoundTelevision {
-                    Text("使えるテレビは 1 台です。別のテレビを使うときは、設定の「テレビ」で今のテレビを外してから、"
+                    Text("使えるテレビは 1 台です。別のテレビを使うときは、設定の「テレビ」でいまのテレビを外してから、"
                          + "もう一度探してください。")
                 }
             }

@@ -138,6 +138,9 @@ public protocol RecorderLinkHost: LinkHost {
     /// Another device answered and the cache could not be made over to it: the app is not connected over it.
     /// The driver says why on the line once this has returned (`RecorderDriver.cacheNotMadeOver`).
     func cacheCouldNotBeMadeOver()
+    /// A television is saved beside the recorder: the recorder's lines of what is under way name the recorder
+    /// (`RecorderDriver.line(_:withATelevisionSaved:)`).
+    var televisionSaved: Bool { get }
 }
 
 /// What a link asks of the kind of device it is about: how to make a client, wake one, find one that has moved,

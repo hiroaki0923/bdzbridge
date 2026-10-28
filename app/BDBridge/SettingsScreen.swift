@@ -235,11 +235,11 @@ struct SettingsScreen: View {
                     Section { HStack { ProgressView().controlSize(.small); Text(busy) } }
                 }
                 if let problem = model.problem(for: .recorder) {
-                    Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                    Section { Text(problem.asABody).foregroundStyle(.red).font(.callout) }
                 }
                 // The phone's own, under the recorder's: its cache, which no device said anything of.
                 if let problem = model.phoneProblem {
-                    Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                    Section { Text(problem.asABody).foregroundStyle(.red).font(.callout) }
                 }
             }
             .navigationTitle("設定")
@@ -256,19 +256,21 @@ struct SettingsScreen: View {
             .sheet(isPresented: $showingDisclaimer) { DisclaimerView() }
             // On the form and not on the television's section: one presenter, on a view that is still there
             // when the section turns from one form to the other as a registration is made.
-            .sheet(item: $tvSheet) { TVRegisterSheet(host: $0.host, connectAtOnce: $0.connectAtOnce) }
+            .sheet(item: $tvSheet) {
+                TVRegisterSheet(host: $0.host, connectAtOnce: $0.connectAtOnce, again: $0.again)
+            }
             .alert("エラー",
                    isPresented: Binding(get: { guideFailure != nil }, set: { if !$0 { guideFailure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(guideFailure ?? "")
+                Text(guideFailure?.asABody ?? "")
             }
         }
     }
 
     /// How the link to the recorder stands, in the words the television's section uses for its own.
     private var recorderState: String {
-        if model.connecting { return "接続しています" }
+        if model.connecting { return "接続しています…" }
         if model.connected { return "接続済み" }
         return model.gaveUp ? "応答がありません" : "接続していません"
     }
@@ -296,11 +298,14 @@ struct SettingsScreen: View {
                 }
             }
         } footer: {
+            // What the runs with no screen post (`Notify`): what became of the queue, reservations not yet at a
+            // device as they are about to start, and each of the recorder's disks falling below the line.
             if model.tv == nil {
-                Text("送信待ちの予約をレコーダーに送ったときと、レコーダーの残り容量が \(Int(Notify.lowSpaceGB)) GB を"
-                     + "下回ったときにお知らせします。どちらも夜間の自動更新で起きることなので、音は鳴りません。")
+                Text("送信待ちの予約をレコーダーに送ったときと、レコーダーへの予約が届かないまま始まりそうなときと、"
+                     + "レコーダーの残り容量が \(Int(Notify.lowSpaceGB)) GB を下回ったときにお知らせします。"
+                     + "どれも夜間の自動更新などで起きることなので、音は鳴りません。")
             } else {
-                Text("送信待ちの予約をレコーダーやテレビに送ったときと、テレビへの予約が届かないまま始まりそうなときと、"
+                Text("送信待ちの予約をレコーダーやテレビに送ったときと、予約が届かないまま始まりそうなときと、"
                      + "レコーダーの残り容量が \(Int(Notify.lowSpaceGB)) GB を下回ったときにお知らせします。"
                      + "どれも夜間の自動更新などで起きることなので、音は鳴りません。")
             }

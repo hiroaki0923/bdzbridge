@@ -15,7 +15,7 @@ final class HeldBehindAStopTests: XCTestCase {
     private static let now = Date(timeIntervalSince1970: 1_790_000_000)
     private static let clause = "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります"
     private static let dropped = "「終わった番組」は放送が終わっていたため、送らずに削除しました"
-    private static let sent = "送信待ちだった「朝の番組」を登録しました"
+    private static let sent = "送信待ちだった「朝の番組」を予約しました"
     private static func still(_ count: Int) -> String {
         "レコーダーに届いたか確かめていない予約が \(count) 件あります。予約一覧で確かめてください"
     }

@@ -39,7 +39,7 @@ final class SendWaitingTests: XCTestCase {
         }
         XCTAssertEqual(outcome.sent.map(\.id), [waiting.id])
         expectTrue(try await store.pendingReservations().isEmpty, "what was sent stayed in the queue")
-        XCTAssertTrue(SendWaitingIntent.saying(sending).contains("を登録しました"))
+        XCTAssertTrue(SendWaitingIntent.saying(sending).contains("を予約しました"))
     }
 
     /// Still away, or the recorder not coming up: nothing is lost, and the next chance sends it.

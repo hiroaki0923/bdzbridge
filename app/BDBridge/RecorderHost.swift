@@ -356,6 +356,9 @@ final class RecorderHost: RecorderLinkHost {
         anotherTookOver = another
     }
 
+    /// While a television's link is in hand -- one saved, or the demo's added -- the recorder's lines name it.
+    var televisionSaved: Bool { model?.tv != nil }
+
     /// What waits for the recorder is sent by its driver (`RecorderDriver.sendWhatWaits`), from inside the
     /// attach and when the list is pulled down: the list it read after a sending, which it reads only after a
     /// waking's attach that no connect reads after, is kept on what was said as this began, and what the round
@@ -479,14 +482,15 @@ final class RecorderHost: RecorderLinkHost {
 
     // MARK: - the queue and the strip
 
-    /// 削除する on a row waiting for the recorder, as the model hands it over once it has seen that nothing
-    /// holds the row back (`AppModel.deleteWaiting`): the row is deleted by the driver in the queue's turn
-    /// (`RecorderDriver.deleteWaiting`), which hands back the list it read in the turn, kept on what was said
-    /// as the delete began (`RecorderSaid.keep`). A row made is not deleted, and what to say in place of that
-    /// is handed back, as the strip says a row sent (`RecorderDriver.madeBeforeItsDelete`, naming the
-    /// recorder as the strip does: `AppModel.deviceSaid`). The warning of reservations not yet at the
-    /// recorder is taken away once none of its rows waits (`AppModel.forgetTheRecordersWarningOnceSent`). Nil
-    /// when the row was deleted, and when the row has gone and nothing says it was made.
+    /// 削除する on a row waiting for the recorder, as the model hands it over once it has seen that nothing holds the row
+    /// back (`AppModel.deleteWaiting`): the row is deleted by the driver in the queue's turn
+    /// (`RecorderDriver.deleteWaiting`), which hands back the list it read in the turn, kept on what was said as the
+    /// delete began (`RecorderSaid.keep`). A row made is not deleted, and what to say in place of that is handed back:
+    /// that the reservation was made before the delete, and that it is deleted on the recorder
+    /// (`RecorderDriver.madeBeforeItsDelete`, which names the recorder with or without a television saved). The warning
+    /// of reservations not yet at the recorder is taken away once none of its rows waits
+    /// (`AppModel.forgetTheRecordersWarningOnceSent`). Nil when the row was deleted, and when the row has gone and
+    /// nothing says it was made.
     func deleteWaiting(_ waiting: PendingReservation) async -> String? {
         let said = self.said
         let deleted = await recorderDriver?.deleteWaiting(waiting)

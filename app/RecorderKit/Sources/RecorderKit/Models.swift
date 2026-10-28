@@ -266,7 +266,7 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
     /// internal disk, and on the programme's sheet the television where it can take the programme. The disk is
     /// named as it is known now: by its name while the slot's disk is known, by the slot's id once it has gone.
     public static func chooseAnother(than destination: String, usb: RecorderDisk?) -> String {
-        label(destination, usb: usb) + "はいま使えません。別の録画先を選んでください。"
+        spaced(label(destination, usb: usb)) + "はいま使えません。別の録画先を選んでください。"
     }
 
     /// What the reservation's sheet says when a move to `destination` is no longer offered as it is sent and the
@@ -274,7 +274,8 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
     /// it does not ask for a choice it cannot show: the disk cannot be had, and the reservation stays on its own
     /// disk, `keeping`, named as the sheet names it.
     public static func stays(on keeping: String, notMovedTo destination: String, usb: RecorderDisk?) -> String {
-        label(destination, usb: usb) + "はいま使えません。録画先は" + label(keeping, usb: usb) + "のままです。"
+        spaced(label(destination, usb: usb)) + "はいま使えません。録画先は"
+            + spaced(label(keeping, usb: usb), before: true) + "のままです。"
     }
 
     /// What to say when the recorder turns down a request that names `destination` -- a reservation, or a change
@@ -306,7 +307,8 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
     }
 
     private static func turnedDown(on disk: String, code: String, action: String) -> String {
-        "レコーダーが\(disk)への予約を受け付けませんでした。別の録画先を選んでください (\(code): \(action))"
+        "レコーダーが\(spaced(disk, before: true))への予約を受け付けませんでした。"
+            + "別の録画先を選んでください (\(code): \(action))"
     }
 
     /// The reason a row waiting for `destination` carries when the recorder turns it down
@@ -356,7 +358,16 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
         let left = String(format: "%.0f", freeGB)
         let advice = "古い録画を整理するか、録画モードを見直してください。"
         guard let disk else { return "残り \(left) GB です。" + advice }
-        return "\(disk)の残りが \(left) GB です。" + advice
+        return "\(spaced(disk))の残りが \(left) GB です。" + advice
+    }
+
+    /// A disk's label set into a sentence, with a half-width space between it and the kana on a side where it
+    /// begins or ends with a half-width letter or digit (USBHDD はいま使えません, レコーダーが USBHDD への): a
+    /// full-width name (ＵＳＢ ＨＤＤ１) runs on as it is. `before` where the sentence goes on before the label as
+    /// well as after it.
+    private static func spaced(_ label: String, before: Bool = false) -> String {
+        func halfWidth(_ end: Character?) -> Bool { end.map { $0.isASCII && ($0.isLetter || $0.isNumber) } ?? false }
+        return (before && halfWidth(label.first) ? " " : "") + label + (halfWidth(label.last) ? " " : "")
     }
 
     /// What is to be done about a disk's space, for the low-space notice.

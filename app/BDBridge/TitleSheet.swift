@@ -134,7 +134,7 @@ struct TitleSheet: View {
                     }
                 }
                 if let problem = model.problem(for: .recorder) {
-                    Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                    Section { Text(problem.asABody).foregroundStyle(.red).font(.callout) }
                 }
             }
             // The strip, as on the screens, rather than the waking alone: turning the recorder on to play
@@ -169,9 +169,9 @@ struct TitleSheet: View {
                 }
             } message: {
                 if let failure {
-                    Text(failure)
+                    Text(failure.asABody)
                 } else if let told {
-                    Text(told)
+                    Text(told.asABody)
                 } else {
                     Text("\(current.title)\nレコーダーから削除され、元に戻せません。")
                 }

@@ -36,7 +36,7 @@ final class DemoModeTests: XCTestCase {
         endTheDemo(app)
 
         // Back to a first launch: no recorder, and none of the invented programmes left in the cache.
-        XCTAssertTrue(app.staticTexts["レコーダーが登録されていません"].waitForExistence(timeout: 30),
+        XCTAssertTrue(app.staticTexts["レコーダーが追加されていません"].waitForExistence(timeout: 30),
                       "ending the demo did not put the app back")
         XCTAssertFalse(demoStrip(app).exists, "the demo strip stayed after the demo ended")
 
@@ -81,10 +81,10 @@ final class DemoModeTests: XCTestCase {
 
         // Nothing answers there, and the app says so rather than showing the demo as connected.
         app.tabBars.buttons["番組表"].tap()
-        XCTAssertTrue(app.staticTexts["レコーダーに接続していません"].waitForExistence(timeout: 30),
+        XCTAssertTrue(app.staticTexts["レコーダーの応答がありません"].waitForExistence(timeout: 30),
                       "the app did not say it could not reach the recorder chosen")
         XCTAssertFalse(demoStrip(app).exists, "the demo strip stayed after a recorder was chosen")
-        XCTAssertFalse(app.staticTexts["レコーダーが登録されていません"].exists,
+        XCTAssertFalse(app.staticTexts["レコーダーが追加されていません"].exists,
                        "the recorder chosen was forgotten")
     }
 
@@ -483,7 +483,7 @@ final class DemoModeTests: XCTestCase {
         // so once the demo is over the app is launched again.
         if demoStrip(app).waitForExistence(timeout: 10) {
             endTheDemo(app)
-            _ = app.staticTexts["レコーダーが登録されていません"].waitForExistence(timeout: 30)
+            _ = app.staticTexts["レコーダーが追加されていません"].waitForExistence(timeout: 30)
             app.terminate()
             app.launch()
         }

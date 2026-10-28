@@ -86,14 +86,15 @@ public extension TVDriver {
     /// What is said of a waiting row the reader asked to delete when a sending whose turn came first made it
     /// (`PendingQueue.betweenFlushes`) -- above all one with no screen, which the screens do not see -- or
     /// when the television lists its programme though the row still waited: a create the television took
-    /// whose answer was lost. The queue's own sentence for a row it sent, naming `device`, as the strip and
-    /// the notifications say it: the row was made as any sending makes one, and has no sentence of its own.
+    /// whose answer was lost. Not the queue's sentence for a row it sent, which the strip says: the reader asked
+    /// for a delete, and is told that the reservation was made before it, and how to undo it on `device`.
     nonisolated static func madeBeforeItsDelete(_ row: PendingReservation, naming device: String) -> String {
-        PendingQueue.Outcome(slot: ScalarClient.slot, sent: [row]).says(naming: device) ?? ""
+        "「\(row.request.title)」は、削除する前に\(device)に予約されていました。"
+            + "取り消すときは、\(device)の予約を削除してください。"
     }
 
     /// Said when the television did not answer a run with no screen.
-    nonisolated static let notAnsweringWithNoScreen = "テレビが応答しないため送っていません。次にテレビが答えたときに送ります"
+    nonisolated static let notAnsweringWithNoScreen = "テレビが応答しないため送っていません。次にテレビにつながったときに送ります"
     /// Said when the television's answers to a run with no screen said nothing that reads, before any row.
     nonisolated static let unreadWithNoScreen = "テレビの応答を読み取れなかったため、テレビへの予約は送っていません"
     /// What a notice of reservations that have not reached the television in time ends with, when nothing

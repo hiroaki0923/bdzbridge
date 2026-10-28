@@ -69,7 +69,7 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        # The recorder is reached over plain HTTP on the LAN, and nowhere else.
+        # The recorder and the television are reached over plain HTTP on the LAN, and nowhere else.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         # The answer to the export compliance question every upload otherwise stops to ask. The recorder and
@@ -82,7 +82,7 @@ targets:
         # Whether a year-end self-classification report is owed (an app with exempt encryption "might
         # alternatively be required to submit" one, Apple says) is the owner's to settle, not this file's.
         ITSAppUsesNonExemptEncryption: false
-        NSLocalNetworkUsageDescription: 自宅のレコーダーを見つけて、番組表と録画予約をやりとりします。
+        NSLocalNetworkUsageDescription: 自宅のレコーダーとテレビを見つけて、番組表と録画予約をやりとりします。
         # the overnight guide refresh; the identifier has to be listed for BGTaskScheduler to accept it
         UIBackgroundModes:
           - processing
