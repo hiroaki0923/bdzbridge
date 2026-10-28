@@ -109,7 +109,7 @@ public final class TVDriver: LinkDriver {
         guard let client = client as? ScalarClient else { return false }
         pinCalledFor = nil
         let owner = link.owner
-        // A line that says which device, beside the recorder's own 接続中 when both connect at once.
+        // A line that says which device, beside the recorder's own when both connect at once.
         var activity: Activities.Token?
         if what != nil { activity = owner?.beginActivity(Self.connectingLine) }
         defer { if let activity { owner?.endActivity(activity) } }
@@ -219,7 +219,8 @@ public final class TVDriver: LinkDriver {
 
     /// Said when another television answers at the television's address, by its MAC: by an attach that met
     /// it, and by the link when the check before an operation met it (`check`).
-    public nonisolated static let anotherAnswered = "登録したテレビとは別の機器が応答しました。設定の「テレビ」から追加し直してください。"
+    public nonisolated static let anotherAnswered = "追加したテレビとは別の機器が応答しました。"
+        + "設定の「テレビ」で「テレビを外す」を選んでから、もう一度追加してください。"
     public var anotherAnsweredLine: String { Self.anotherAnswered }
 
     /// Never: see the type's description.
@@ -331,16 +332,16 @@ public final class TVDriver: LinkDriver {
     /// seen is that the television lists nothing under its id.
     public static let notInList = "この予約はテレビの予約一覧に見つかりませんでした。一覧を更新しました。"
     /// Said when the id is listed and is no longer the reservation held (`TVTarget.changed`).
-    public static let listChanged = "テレビ側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
+    public static let listChanged = "テレビ側で予約が変更されていました。一覧を更新したので、もう一度お試しください。"
     /// Said when a delete or a change met silence. Whether it arrived is not known, which is why it is not
     /// sent again.
     public static let mayHaveArrived = "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、"
         + "送り直していません。再接続してから一覧で確かめてください。"
     /// Said when the television answers that it has no such reservation and goes on listing it.
-    public static let deleteRefused = "テレビが削除を受け付けませんでした（41200）。"
+    public static let deleteRefused = "テレビが削除を受け付けませんでした (41200)。"
     /// For the link to say when nothing could be asked because the app is not connected, unless the local
     /// network permission is why (`whyNotConnected`).
-    public static let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確認してください。"
+    public static let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確かめてください。"
     /// Why something the reader asked for was not sent at all: the app is not connected. While the local network
     /// permission is what stands in the way (`SessionState.connectBlocked`), the title the screens give that
     /// (`LocalNetwork.accessNotAllowed`), as the recorder's driver says it; otherwise `notConnected`. What the
@@ -529,7 +530,7 @@ public final class TVDriver: LinkDriver {
     public static let changingLine = "テレビの予約を変更中"
     /// Said of a reservation whose programme has begun, by the start it is held or listed with: it is not
     /// changed from then on.
-    public nonisolated static let changeBegun = "放送が始まった番組の予約は変更できません。"
+    public nonisolated static let changeBegun = "放送が始まった予約は変更できません。"
     /// Said of a reservation made by its times: no television has been seen to take a change of one through
     /// the app's own client, so none is sent until one has.
     public nonisolated static let changeByTimesNotYet = "時刻を指定した予約の変更は、テレビにはまだ送れません。"
@@ -541,10 +542,10 @@ public final class TVDriver: LinkDriver {
     public static let goneAfterAChange = "テレビは変更を受け付けたと答えましたが、この予約が一覧に見つかりません。"
         + "テレビ本体の予約一覧で確かめてください。"
     /// Said when the television answers that it has no such reservation and goes on listing it.
-    public static let changeRefused = "テレビが変更を受け付けませんでした（41200）。"
+    public static let changeRefused = "テレビが変更を受け付けませんでした (41200)。"
     /// What a sheet says under the button that sends a change of a television's reservation: a television
     /// records in its one mode, so there is nothing else to change.
-    public static let changesTheRepeatOnly = "テレビの予約で変えられるのは、毎回録画だけです。"
+    public static let changesTheRepeatOnly = "テレビの予約なので、毎回録画だけを変えられます。"
 
     /// Why a television's reservation cannot be changed now, or nil when it can. One made by its times, which
     /// has no programme id, is not changed at all for now: a television sent a change of one by a script
@@ -665,11 +666,11 @@ public final class TVDriver: LinkDriver {
     // MARK: - what waits in the queue
 
     /// The line on screen while what waits for the television is sent.
-    public static let sendingLine = "テレビに送信待ちの予約を登録中"
+    public static let sendingLine = "テレビに送信待ちの予約を送信中"
     /// Said when the request that makes a waiting reservation met silence: it may have been made all the same,
     /// so it is not sent again, and the next sending reads the television's list before it sends anything.
     public nonisolated static let createMetSilence = "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、"
-        + "送り直していません。次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+        + "送り直していません。次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。"
     /// Why nothing is sent while the disk a television records to is away: the client's own sentence, for
     /// the screens to say while a reservation waits for the disk to come back (`facts.storage`).
     public static let diskNotFound = ScalarClient.diskNotFound
@@ -820,23 +821,33 @@ public final class TVDriver: LinkDriver {
     // MARK: - reserving a programme
 
     /// The line on screen while a reservation the reader has just asked for is made.
-    public static let reservingLine = "テレビに予約を登録中"
+    public static let reservingLine = "テレビに予約を送信中"
     /// Said of a reservation kept on the phone because the television could not be asked: not connected,
     /// given up on, or silent to what a round reads before it sends anything.
-    public static let waitsNotConnected = "テレビに接続していないため、予約を端末に保存しました。"
-        + "次にテレビが答えたときに登録します。予約タブで削除できます。"
+    public static let waitsNotConnected = "テレビに接続していないため、予約を iPhone に保存しました。"
+        + "次にテレビにつながったときに送ります。予約タブで削除できます。"
     /// Said of one kept because the television wants the app registered with it again.
-    public static let waitsForTheRegistration = "テレビの登録が必要なため、予約を端末に保存しました。"
-        + "登録すると送ります。"
+    public static let waitsForTheRegistration = "テレビの登録が必要なため、予約を iPhone に保存しました。"
+        + "テレビへの登録が済むと送ります。予約タブで削除できます。"
     /// Said of one kept because the disk the television records to is away: it goes by itself once the
     /// disk is back.
-    public static let waitsForTheDisk = "録画用の USB HDD が見つからないため、予約を端末に保存しました。"
-        + "HDD が見つかったあと、テレビが答えたときに登録します。"
-    /// Said of one kept because the television's answers said nothing that reads. It ends as the sentence
-    /// for silence at a create does, the same thing following: the next sending reads the television's list
+    public static let waitsForTheDisk = "録画用の USB HDD が見つからないため、予約を iPhone に保存しました。"
+        + "USB HDD が見つかったあと、次にテレビにつながったときに送ります。予約タブで削除できます。"
+    /// Said of one kept because the television's answers said nothing that reads. Its second sentence ends the
+    /// sentence for silence at a create, the same thing following: the next sending reads the television's list
     /// before it sends anything.
-    public static let waitsUnanswered = "テレビの応答を読み取れなかったため、予約を端末に保存しました。"
-        + "次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+    public static let waitsUnanswered = "テレビの応答を読み取れなかったため、予約を iPhone に保存しました。"
+        + "次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。予約タブで削除できます。"
+    /// The four above as a row sent again is kept with them (`resend`): the row was on the phone before it was
+    /// sent, so it is said to be left there, not saved there now.
+    public static let stillWaitsNotConnected = "テレビに接続していないため、予約は iPhone に残しています。"
+        + "次にテレビにつながったときに送ります。予約タブで削除できます。"
+    public static let stillWaitsForTheRegistration = "テレビの登録が必要なため、予約は iPhone に残しています。"
+        + "テレビへの登録が済むと送ります。予約タブで削除できます。"
+    public static let stillWaitsForTheDisk = "録画用の USB HDD が見つからないため、予約は iPhone に残しています。"
+        + "USB HDD が見つかったあと、次にテレビにつながったときに送ります。予約タブで削除できます。"
+    public static let stillWaitsUnanswered = "テレビの応答を読み取れなかったため、予約は iPhone に残しています。"
+        + "次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。予約タブで削除できます。"
     /// Said of a reservation the television's list held already. Nothing was made, and what is held is the
     /// television's own: it is taken for there already unless it is known to be less than was asked.
     public static let foundThere = "テレビにはこの番組の予約がすでにありました。"
@@ -844,10 +855,10 @@ public final class TVDriver: LinkDriver {
     public nonisolated static let programmeIsOver = "この番組は放送が終わっているため、予約していません。"
     /// Said when the reservation is no longer in the phone's queue and the television's list does not show
     /// it either: nothing says whether it was made.
-    public static let couldNotBeConfirmed = "予約を登録できたか確かめられませんでした。予約タブで確かめてください。"
+    public static let couldNotBeConfirmed = "予約できたか確かめられませんでした。予約タブで確かめてください。"
     /// What a screen says a reservation on the television will do, before the reader confirms it.
-    public static let confirming = "テレビに予約を登録します。テレビが応答しないときは端末に保存し、"
-        + "次に応答したときに登録します。"
+    public static let confirming = "テレビに予約を送ります。テレビが応答しないときは iPhone に保存し、"
+        + "次にテレビにつながったときに送ります。"
 
     /// The mode a television records in, by its name in `Codes.quality`.
     public static let recordsIn = "DR"
@@ -1120,7 +1131,9 @@ public final class TVDriver: LinkDriver {
         }
         if !canBeAsked(on: link) {
             await link.connect()
-            guard consent != nil else { return (nil, nil, await leftToTheConnect(row, on: link, from: store)) }
+            guard consent != nil else {
+                return (nil, nil, Self.sentAgain(await leftToTheConnect(row, on: link, from: store)))
+            }
         }
         let sent = await sendOne(row, consentingTo: consent, under: Self.sendingLine, on: link, from: store)
         if consent != nil, let round = sent.round,
@@ -1128,8 +1141,20 @@ public final class TVDriver: LinkDriver {
            (try? await store.setPendingProblem(row.id, nil)) != nil {
             row.problem = nil
         }
-        return (sent.round, sent.list, await came(row, sent, from: store))
+        return (sent.round, sent.list, Self.sentAgain(await came(row, sent, from: store)))
     }
+
+    /// What a row sent again is answered as where it is kept with a sentence a reservation just asked for is
+    /// kept with: in that sentence's own for a row sent again (`stillWaitsNotConnected` and the three after
+    /// it). Any other answer is as it came.
+    private static func sentAgain(_ came: Reserved?) -> Reserved? {
+        guard case .waiting(let row, let said)? = came, let still = keptStill[said] else { return came }
+        return .waiting(row, saying: still)
+    }
+
+    private static let keptStill = [waitsNotConnected: stillWaitsNotConnected,
+                                    waitsForTheRegistration: stillWaitsForTheRegistration,
+                                    waitsForTheDisk: stillWaitsForTheDisk, waitsUnanswered: stillWaitsUnanswered]
 
     /// What a row came to that `resend` left to the connect it made. The row had no consent to go with, so
     /// that connect's own sending took it with the rest, and what that sending came to is the host's to

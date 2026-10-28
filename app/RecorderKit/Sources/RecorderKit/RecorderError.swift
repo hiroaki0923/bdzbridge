@@ -38,12 +38,12 @@ public enum RecorderError: Error, Equatable, Sendable {
             // is not subscribed to; the same request without the programme's id is accepted. Recording it by
             // time would only capture a scrambled stream, so there is nothing to offer instead.
             case "831": "このチャンネルは受信できないため、番組を指定した予約はできません。"
-                        + "契約状況やアンテナの設定を確認してください (831: \(action))"
+                        + "契約状況やアンテナの設定を確かめてください (831: \(action))"
             case "880": "レコーダーがスタンバイ状態です。先に電源を入れてください (880: \(action))"
             case .some(let code): "レコーダーがエラーを返しました (\(code): \(action), HTTP \(status))"
             case nil: "レコーダーが HTTP \(status) を返しました (\(action))"
             }
-        case .transport: "レコーダーに接続できませんでした。電源とネットワーク接続を確認してください"
+        case .transport: "レコーダーに接続できませんでした。電源とネットワーク接続を確かめてください"
         case .badResponse(let status): "レコーダーから正しい応答がありませんでした (HTTP \(status))"
         case .unexpectedAnswer(let action): "レコーダーの応答を読み取れませんでした (\(action))"
         case .guideFileMissing(let name, let status):

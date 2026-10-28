@@ -28,6 +28,8 @@ final class LinkWorld: RecorderLinkHost {
     /// same address: a moment, for tests that hold a request across a connect at its address, unless a test of
     /// that wait gives nil, the request's own timeout. Read as the link is made.
     var wireWaitLimit: TimeInterval? = 0.05
+    /// Whether the home has a television saved beside the recorder, which names the recorder's lines.
+    var televisionSaved = false
 
     var problem: String?
     var macReadAt: String?

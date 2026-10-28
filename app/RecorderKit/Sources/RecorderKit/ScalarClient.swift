@@ -89,7 +89,7 @@ public enum ScalarError: Error, Equatable, Sendable {
 
     public var explanation: String {
         switch self {
-        case .transport: "テレビに接続できませんでした。テレビの電源とネットワーク接続を確認してください"
+        case .transport: "テレビに接続できませんでした。テレビの電源とネットワーク接続を確かめてください"
         case .badAddress(let host): "「\(host)」はテレビのアドレスとして使えません"
         case .http(401, _), .http(403, _), .notRegistered:
             "テレビへの登録が必要です。設定の「テレビ」から登録してください"
@@ -305,12 +305,12 @@ public actor ScalarClient {
 
     /// Said when the television registered the app and the phone could not keep what it gave (`NotKept`):
     /// nothing of the registration kept before has changed.
-    public static let registrationNotKept = "テレビへの登録をこの端末に保存できませんでした。もう一度登録してください。"
+    public static let registrationNotKept = "テレビへの登録をこの iPhone に保存できませんでした。もう一度登録してください。"
 
     /// Said when the television at the address is not the one saved, and nothing was registered. "Answered as
     /// another" and not "is another": which MAC a television gives on Wi-Fi rather than a cable has not been
     /// seen, so the one saved may be refused after it moved from the one to the other.
-    public static let anotherTelevision = "このアドレスの機器は、登録してあるテレビとは別のテレビとして応答しました。"
+    public static let anotherTelevision = "このアドレスの機器は、追加してあるテレビとは別のテレビとして応答しました。"
         + "別のテレビを使うときは、先に「テレビを外す」でいまのテレビを外してください。"
 
     /// A new cookie for the registration in the store: `register` with no PIN. Kept only while the store still
@@ -641,13 +641,13 @@ extension ScalarClient {
     static let sendAgainToMakeIt = "「もう一度送る」を選ぶと、それでも予約します。"
     /// Written on a reservation whose create the television answered as taken and whose list does not have
     /// it. An answer alone takes nothing out of the queue.
-    static let acceptedNotListed = "テレビは受け付けたと答えましたが、一覧にありません。"
+    static let acceptedNotListed = "テレビは受け付けたと答えましたが、予約一覧にありません。"
     /// Written on a reservation whose create was answered as one the television holds already (41222), when
     /// its list has no recording of the programme.
     static let saidThereNotListed = "テレビはこの番組を予約済みと答えましたが、録画予約の一覧に見つかりませんでした。"
     /// Written on a reservation with no programme id: one made by its times goes by another version of the
     /// method, which is not sent.
-    static let needsAProgramme = "番組を指定しない、時刻だけの予約は、テレビにはまだ送れません。"
+    static let needsAProgramme = "時刻を指定した予約は、テレビにはまだ送れません。"
     /// Written on a reservation whose repeat a television is not sent for its programme
     /// (`TVReservationBody.repeatType`).
     static let repeatNotTaken = "この番組には、選んだ毎回録画の設定でテレビに予約できません。"
@@ -675,7 +675,7 @@ extension ScalarClient {
     /// repeat of another weekday than the programme's, which is not sent from here. Nothing was made by
     /// either.
     static let refusals = [
-        7: "テレビがこの予約を受け付けませんでした（7）。契約していない局の番組などは予約できません。",
+        7: "テレビがこの予約を受け付けませんでした (7)。契約していない局の番組などは予約できません。",
     ]
     /// Why a round did not start: the disk the television records to is not there. Said of the television
     /// and of no reservation, and nothing is written on any.
@@ -752,7 +752,7 @@ extension ScalarClient {
     /// never says of a viewing reservation that it may not be recorded.
     static func leftMarked(_ title: String, _ rows: [TVScheduleRow]) -> String {
         let cost = rows.allSatisfy { $0.type == "recording" } ? "重なり、録画されないことがあります" : "重なりました"
-        return "「\(title)」を登録したため、\(rows.map(name(of:)).joined(separator: "、"))がほかの予約と\(cost)"
+        return "「\(title)」を予約したため、\(rows.map(name(of:)).joined(separator: "、"))がほかの予約と\(cost)"
     }
 
     /// What making the reservation titled `title` did beyond its own row, as a sentence for the reader, or

@@ -135,7 +135,7 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertEqual(reasons["本体に録る番組"], "レコーダーがこの要求を受け付けませんでした (402: X_CreateRecordSchedule)",
                        "the internal disk")
         XCTAssertEqual(reasons["受信できない局の番組"], "このチャンネルは受信できないため、番組を指定した予約はできません。"
-                           + "契約状況やアンテナの設定を確認してください (831: X_CreateRecordSchedule)",
+                           + "契約状況やアンテナの設定を確かめてください (831: X_CreateRecordSchedule)",
                        "a channel the recorder cannot receive")
     }
 
@@ -212,7 +212,7 @@ final class PendingQueueTests: XCTestCase {
         XCTAssertEqual(left.map(\.problem), [Self.notAnswered])
         // Told on the strip, in the notification and in the Shortcuts action's answer, as a refusal is.
         XCTAssertFalse(first.isEmpty, "a round where only this happened would tell nobody")
-        XCTAssertEqual(first.summary, "「USBに録る番組」はレコーダーが受け付けませんでした。理由は予約タブにあります")
+        XCTAssertEqual(first.summary, "「USBに録る番組」はレコーダーに予約できませんでした。理由は予約タブにあります")
 
         let (answering, answeringTransport) = recorder(answeringTheSlotWith: Self.diskAnswered)
         let held = await PendingQueue.flush(client: answering, store: store, now: now)
@@ -811,7 +811,7 @@ final class QueueTargetTests: XCTestCase {
     /// does a row that came to anything else. A recorder says nothing of what it makes.
     func testWhatADeviceSaysOfARowItMadeIsKeptInTheOrderMade() async throws {
         let marked = "「朝の番組」はほかの予約と重なっています"
-        let cost = "「夜の番組」を登録したため、ほかの予約が重なりました"
+        let cost = "「夜の番組」を予約したため、ほかの予約が重なりました"
         let titles = ["朝の番組", "昼の番組", "断られる番組", "夜の番組"]
         let store = try await store(with: titles.enumerated().map { index, title in
             row(title, index + 1, startingIn: Double(index + 1))
@@ -956,31 +956,31 @@ final class QueueSentenceTests: XCTestCase {
         let silent = SendingStop.silent(afterSending: true)
         let sentences: [(name: String, outcome: PendingQueue.Outcome, unnamed: String?, named: String?)] = [
             ("sent", PendingQueue.Outcome(slot: .tv, sent: one),
-             "送信待ちだった「朝の番組」を登録しました", "送信待ちだった「朝の番組」をテレビに登録しました"),
+             "送信待ちだった「朝の番組」を予約しました", "送信待ちだった「朝の番組」をテレビに予約しました"),
             ("three sent", PendingQueue.Outcome(slot: .tv, sent: three),
-             "送信待ちだった「昼の番組」ほか 2 件を登録しました",
-             "送信待ちだった「昼の番組」ほか 2 件をテレビに登録しました"),
+             "送信待ちだった「昼の番組」ほか 2 件を予約しました",
+             "送信待ちだった「昼の番組」ほか 2 件をテレビに予約しました"),
             ("found there already", PendingQueue.Outcome(slot: .tv, alreadyThere: one),
              "「朝の番組」はすでに予約されていました", "「朝の番組」はテレビにすでに予約がありました"),
             ("over", PendingQueue.Outcome(slot: .tv, expired: one),
              "「朝の番組」は放送が終わっていたため、送らずに削除しました",
              "テレビ宛の「朝の番組」は放送が終わっていたため、送らずに削除しました"),
             ("refused now", PendingQueue.Outcome(slot: .tv, refused: one),
-             "「朝の番組」はレコーダーが受け付けませんでした。理由は予約タブにあります",
-             "「朝の番組」はテレビに登録できませんでした。理由は予約タブにあります"),
+             "「朝の番組」はレコーダーに予約できませんでした。理由は予約タブにあります",
+             "「朝の番組」はテレビに予約できませんでした。理由は予約タブにあります"),
             ("passed over", PendingQueue.Outcome(slot: .tv, deferred: one),
              "「朝の番組」は送れなかったため、次の機会にもう一度送ります",
              "「朝の番組」はテレビに送れなかったため、次の機会にもう一度送ります"),
             ("sent, then silence", PendingQueue.Outcome(slot: .tv, sent: one, stopped: silent),
-             "送信待ちだった「朝の番組」を登録しました。"
+             "送信待ちだった「朝の番組」を予約しました。"
                 + "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります",
-             "送信待ちだった「朝の番組」をテレビに登録しました。"
+             "送信待ちだった「朝の番組」をテレビに予約しました。"
                 + "途中でテレビの応答がなくなったため、残りは次につながったときに送ります"),
             ("silence alone", PendingQueue.Outcome(slot: .tv, stopped: silent), nil, nil),
             ("sent, then the registration wanted", PendingQueue.Outcome(slot: .tv, sent: one, stopped: .needsPairing),
-             "送信待ちだった「朝の番組」を登録しました", "送信待ちだった「朝の番組」をテレビに登録しました"),
+             "送信待ちだった「朝の番組」を予約しました", "送信待ちだった「朝の番組」をテレビに予約しました"),
             ("sent, then nothing said of two rows", PendingQueue.Outcome(slot: .tv, sent: one, stopped: .saysNothing),
-             "送信待ちだった「朝の番組」を登録しました", "送信待ちだった「朝の番組」をテレビに登録しました"),
+             "送信待ちだった「朝の番組」を予約しました", "送信待ちだった「朝の番組」をテレビに予約しました"),
             ("nowhere to record to",
              PendingQueue.Outcome(slot: .tv, stopped: .cannotRecord(reason: "録画先がありません")), nil, nil),
             ("only what was held before", PendingQueue.Outcome(slot: .tv, held: one), nil, nil),
@@ -998,26 +998,26 @@ final class QueueSentenceTests: XCTestCase {
     /// no device named and with one: the device's word is not put into a sentence that is the device's own.
     func testWhatTheDeviceSaidOfTheRowsItMadeComesAfterTheSentenceForWhatWasSent() {
         let marked = "「朝の番組」はほかの予約と重なっていて、録画されないことがあります"
-        let cost = "「夜の番組」を登録したため、視聴予約「サンプル音楽館」（11/1 21:00）がほかの予約と重なりました"
+        let cost = "「夜の番組」を予約したため、視聴予約「サンプル音楽館」（11/1 21:00）がほかの予約と重なりました"
         let outcome = PendingQueue.Outcome(slot: .tv, sent: one + three, remarks: [marked, cost],
                                            expired: [pending("終わった番組", eventID: 5)],
                                            alreadyThere: [pending("すでにある番組", eventID: 8)],
                                            stopped: .silent(afterSending: true))
 
         XCTAssertEqual(outcome.summary, [
-            "送信待ちだった「朝の番組」ほか 3 件を登録しました", marked, cost,
+            "送信待ちだった「朝の番組」ほか 3 件を予約しました", marked, cost,
             "「すでにある番組」はすでに予約されていました",
             "「終わった番組」は放送が終わっていたため、送らずに削除しました",
             "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります",
         ].joined(separator: "。"))
         XCTAssertEqual(outcome.says(naming: "テレビ"), [
-            "送信待ちだった「朝の番組」ほか 3 件をテレビに登録しました", marked, cost,
+            "送信待ちだった「朝の番組」ほか 3 件をテレビに予約しました", marked, cost,
             "「すでにある番組」はテレビにすでに予約がありました",
             "テレビ宛の「終わった番組」は放送が終わっていたため、送らずに削除しました",
             "途中でテレビの応答がなくなったため、残りは次につながったときに送ります",
         ].joined(separator: "。"))
         XCTAssertEqual(PendingQueue.Outcome(slot: .tv, sent: one, remarks: [marked]).says(naming: "テレビ"),
-                       "送信待ちだった「朝の番組」をテレビに登録しました。" + marked)
+                       "送信待ちだった「朝の番組」をテレビに予約しました。" + marked)
     }
 
     /// The sentences come in one order whatever the rows' own -- sent, found there already, over, refused
@@ -1031,18 +1031,18 @@ final class QueueSentenceTests: XCTestCase {
                                            stopped: .silent(afterSending: false))
 
         XCTAssertEqual(outcome.summary, [
-            "送信待ちだった「朝の番組」を登録しました",
+            "送信待ちだった「朝の番組」を予約しました",
             "「すでにある番組」はすでに予約されていました",
             "「終わった番組」は放送が終わっていたため、送らずに削除しました",
-            "「断られた番組」はレコーダーが受け付けませんでした。理由は予約タブにあります",
+            "「断られた番組」はレコーダーに予約できませんでした。理由は予約タブにあります",
             "「見送った番組」は送れなかったため、次の機会にもう一度送ります",
             "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります",
         ].joined(separator: "。"))
         XCTAssertEqual(outcome.says(naming: "レコーダー"), [
-            "送信待ちだった「朝の番組」をレコーダーに登録しました",
+            "送信待ちだった「朝の番組」をレコーダーに予約しました",
             "「すでにある番組」はレコーダーにすでに予約がありました",
             "レコーダー宛の「終わった番組」は放送が終わっていたため、送らずに削除しました",
-            "「断られた番組」はレコーダーに登録できませんでした。理由は予約タブにあります",
+            "「断られた番組」はレコーダーに予約できませんでした。理由は予約タブにあります",
             "「見送った番組」はレコーダーに送れなかったため、次の機会にもう一度送ります",
             "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります",
         ].joined(separator: "。"))

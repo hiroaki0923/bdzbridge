@@ -613,5 +613,5 @@ extension RecorderDriver {
 
     /// Said in that notice when the recorder did not answer a run with no screen: what waits goes by itself
     /// the next time it does.
-    nonisolated static let notAnsweringWithNoScreen = "レコーダーが応答しないため送っていません。次にレコーダーが答えたときに送ります"
+    nonisolated static let notAnsweringWithNoScreen = "レコーダーが応答しないため送っていません。次にレコーダーにつながったときに送ります"
 }

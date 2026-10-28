@@ -1306,7 +1306,7 @@ final class TVDriverTests: XCTestCase {
                         + ([Self.disk] + Self.round).map { "\($0) cookie=yes pin=no" })
         XCTAssertEqual(bench.world.count("packet"), 0, "a packet was sent to a television")
         XCTAssertEqual(bench.world.events, ["address \(Stub.host)", "MAC \(DemoTV.mac)", "send what waits",
-                                            "under テレビに送信待ちの予約を登録中", "sent [\"サンプル劇場\"]", "reached"])
+                                            "under テレビに送信待ちの予約を送信中", "sent [\"サンプル劇場\"]", "reached"])
         XCTAssertEqual(bench.link.session.timesAttached, 1)
         XCTAssertNil(bench.world.problem)
         XCTAssertNil(bench.world.line)
@@ -1518,7 +1518,7 @@ final class TVDriverTests: XCTestCase {
         let one = [waiting("サンプル劇場", 50101)], two = one + [waiting("サンプル紀行", 50102, in: 3)]
         let noAnswer = ScalarError.transport("no answer").explanation
         let metSilence = "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、送り直していません。"
-            + "次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+            + "次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。"
         let nothingSaid = HTTPResponse(
             statusCode: 200, body: Data(#"{"error":[\#(DemoTV.inventedError),"invented"],"id":1}"#.utf8))
         @discardableResult
@@ -1577,7 +1577,7 @@ final class TVDriverTests: XCTestCase {
     /// says so over the create's sentence, and one that meets silence over anything else on the line says
     /// that the television did not answer, as it always has.
     func testAnAttachThatMeetsSilenceLeavesWhatAWriteThatMetSilenceSaid() async throws {
-        let noAnswer = "テレビに接続できませんでした。テレビの電源とネットワーク接続を確認してください"
+        let noAnswer = "テレビに接続できませんでした。テレビの電源とネットワーク接続を確かめてください"
         let toBeRegistered = "テレビへの登録が必要です。設定の「テレビ」から登録してください"
         let row = waiting("サンプル劇場", 50101)
         func metAtTheCreate() async throws -> QueueBench {
@@ -1765,12 +1765,12 @@ final class TVDriverTests: XCTestCase {
 
     // MARK: - reserving a programme
 
-    private static let waitsNotConnected = "テレビに接続していないため、予約を端末に保存しました。"
-        + "次にテレビが答えたときに登録します。予約タブで削除できます。"
-    private static let waitsForTheRegistration = "テレビの登録が必要なため、予約を端末に保存しました。"
-        + "登録すると送ります。"
+    private static let waitsNotConnected = "テレビに接続していないため、予約を iPhone に保存しました。"
+        + "次にテレビにつながったときに送ります。予約タブで削除できます。"
+    private static let waitsForTheRegistration = "テレビの登録が必要なため、予約を iPhone に保存しました。"
+        + "テレビへの登録が済むと送ります。予約タブで削除できます。"
     private static let metSilence = "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、"
-        + "送り直していません。次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+        + "送り直していません。次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。"
     private static let programmeIsOver = "この番組は放送が終わっているため、予約していません。"
 
     /// A programme of the guide on the station the invented television receives, numbered `number`. It starts
@@ -1829,7 +1829,7 @@ final class TVDriverTests: XCTestCase {
         expectEqual(Array(await bench.television.calls.dropFirst(before)),
                     (Self.round + [Self.read]).map { "\($0) cookie=yes pin=no" })
         XCTAssertEqual(Array(bench.world.events.dropFirst(events)),
-                       ["kept for tv in 100, no reason", "under テレビに予約を登録中"])
+                       ["kept for tv in 100, no reason", "under テレビに予約を送信中"])
         XCTAssertNil(bench.world.line)
         XCTAssertNil(bench.world.problem)
         expectEqual(try await bench.store.pendingReservations(), [other])
@@ -1896,8 +1896,8 @@ final class TVDriverTests: XCTestCase {
     /// reservation is kept until the list after its round is asked for. The round asks the television
     /// nothing, the list is read, and the row is in the queue as it was written, with no reason on it.
     func testAReservationWhoseRoundCouldNotReadTheQueueIsSaidToWait() async throws {
-        let unanswered = "テレビの応答を読み取れなかったため、予約を端末に保存しました。"
-            + "次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+        let unanswered = "テレビの応答を読み取れなかったため、予約を iPhone に保存しました。"
+            + "次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。予約タブで削除できます。"
         let bench = try await attachedQueueBench()
         let path = temporaryPath()
         let store = try GuideStore(path: path)
@@ -1968,7 +1968,7 @@ final class TVDriverTests: XCTestCase {
         let without = try await attachedQueueBench()
         without.world.cache = nil
         expectEqual(try await turnedAway("no cache", soon, on: without),
-                    .notDone("予約を端末に保存できませんでした（端末内のデータベースを開けませんでした）"))
+                    .notDone("予約を iPhone に保存できませんでした（iPhone 内のデータベースを開けませんでした）。"))
 
         // The lock is held on purpose and the wait for it cut short: what is tested is giving up.
         let locked = try await attachedQueueBench()
@@ -1980,7 +1980,7 @@ final class TVDriverTests: XCTestCase {
         let unkept = try await turnedAway("a cache that cannot be written to", soon, on: locked, keptIn: impatient)
         try writer.execute("ROLLBACK")
         guard case .notDone(let said) = unkept else { return XCTFail("not turned away: \(unkept)") }
-        XCTAssertTrue(said.hasPrefix("予約を端末に保存できませんでした: "), "what is said instead: \(said)")
+        XCTAssertTrue(said.hasPrefix("予約を iPhone に保存できませんでした: "), "what is said instead: \(said)")
 
         let driver: TVDriver, gate: TVGate, world: LinkWorld, store: GuideStore
         do {
@@ -1989,7 +1989,7 @@ final class TVDriverTests: XCTestCase {
         }
         XCTAssertFalse(driver.canBeAsked, "something still holds the link")
         expectEqual(try await turnedAway("the link gone", soon, by: driver, gate, world, store),
-                    .notDone("テレビに接続していません。テレビの電源とネットワーク接続を確認してください。"))
+                    .notDone("テレビに接続していません。テレビの電源とネットワーク接続を確かめてください。"))
     }
 
     /// A television that cannot be asked is sent nothing of a reservation and is not connected to for it. The
@@ -2154,7 +2154,7 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(TVDriver.recordsIn, "DR")
         XCTAssertEqual(Codes.qualityLabel[TVDriver.recordsIn], "DR(高画質)")
         let repeatNotTaken = "この番組には、選んだ毎回録画の設定でテレビに予約できません。"
-        let noCache = "予約を端末に保存できませんでした（端末内のデータベースを開けませんでした）"
+        let noCache = "予約を iPhone に保存できませんでした（iPhone 内のデータベースを開けませんでした）。"
         var japan = Calendar(identifier: .gregorian)
         japan.timeZone = RecorderTime.timeZone
         // The calendar counts the days of the week from Sunday, which is 1.
@@ -2209,11 +2209,11 @@ final class TVDriverTests: XCTestCase {
         unlisted.problem = "テレビのチャンネル一覧にこの局が見つかりませんでした。"
         daily.request.repeatCode = "d"
         let remark = "「サンプル劇場」はほかの予約と重なっていて、録画されないことがあります"
-        let forTheDisk = "録画用の USB HDD が見つからないため、予約を端末に保存しました。"
-            + "HDD が見つかったあと、テレビが答えたときに登録します。"
-        let unanswered = "テレビの応答を読み取れなかったため、予約を端末に保存しました。"
-            + "次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
-        let unconfirmed = "予約を登録できたか確かめられませんでした。予約タブで確かめてください。"
+        let forTheDisk = "録画用の USB HDD が見つからないため、予約を iPhone に保存しました。"
+            + "USB HDD が見つかったあと、次にテレビにつながったときに送ります。予約タブで削除できます。"
+        let unanswered = "テレビの応答を読み取れなかったため、予約を iPhone に保存しました。"
+            + "次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。予約タブで削除できます。"
+        let unconfirmed = "予約できたか確かめられませんでした。予約タブで確かめてください。"
         let once = [DemoTV.Schedule(id: "recording.31", start: row.request.start, eventId: 50101), Self.weather]
             .compactMap { $0.row.reservation() }
         let without = [Self.weather, Self.drama].compactMap { $0.row.reservation() }
@@ -2353,8 +2353,8 @@ final class TVDriverTests: XCTestCase {
         held.problem = nil
         XCTAssertNil(TVDriver.asks(of: held), "a row with no reason")
 
-        XCTAssertEqual(TVDriver.confirming, "テレビに予約を登録します。テレビが応答しないときは端末に保存し、"
-                       + "次に応答したときに登録します。")
+        XCTAssertEqual(TVDriver.confirming, "テレビに予約を送ります。テレビが応答しないときは iPhone に保存し、"
+                       + "次にテレビにつながったときに送ります。")
     }
 
     // MARK: - sending a waiting row again
@@ -2450,7 +2450,7 @@ final class TVDriverTests: XCTestCase {
     /// what it would stop is not sent by an attach: it is sent after the connect, with its consent, when
     /// the television answers again, and stays held with its reason when it does not.
     func testWhatSendingARowAgainSendsAndLeaves() async throws {
-        let sending = "テレビに送信待ちの予約を登録中", connecting = TVDriver.connectingLine
+        let sending = "テレビに送信待ちの予約を送信中", connecting = TVDriver.connectingLine
         let clash = self.clash(), film = clash.film, clashing = clash.clashing, holding = clash.holding
         var turnedDown = film
         turnedDown.problem = "この局は録画できません"
@@ -2531,7 +2531,7 @@ final class TVDriverTests: XCTestCase {
     /// reason. So does one whose create met silence, and what the line then says of it is so: the next
     /// connect looks for it in the television's list, finds it, and sends no second create.
     func testAConsentIsToTheSentencePressedAndForOneRound() async throws {
-        let sending = "テレビに送信待ちの予約を登録中"
+        let sending = "テレビに送信待ちの予約を送信中"
         let clash = self.clash(), film = clash.film, clashing = clash.clashing, holding = clash.holding
         let question = Array(Self.round.prefix(4))
 
@@ -2603,14 +2603,17 @@ final class TVDriverTests: XCTestCase {
     /// registered. So is one whose round could not read the phone's queue, and so asked nothing about it.
     /// None of them is said to go by itself. A row that went with its consent and was left unsettled --
     /// passed over, or its create met by silence -- waits with no reason, and is handed back with none; so
-    /// is one whose reason was taken off before a round that stopped at the disk.
+    /// is one whose reason was taken off before a round that stopped at the disk. A row kept is said to be left
+    /// on the phone, where it was before it was sent, and not saved there now.
     func testWhatARowSentAgainCameToIsHandedBack() async throws {
-        let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確認してください。"
+        let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確かめてください。"
         let toBeRegistered = "テレビへの登録が必要です。設定の「テレビ」から登録してください"
-        let forTheDisk = "録画用の USB HDD が見つからないため、予約を端末に保存しました。"
-            + "HDD が見つかったあと、テレビが答えたときに登録します。"
-        let unanswered = "テレビの応答を読み取れなかったため、予約を端末に保存しました。"
-            + "次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+        let waitsNotConnected = "テレビに接続していないため、予約は iPhone に残しています。"
+            + "次にテレビにつながったときに送ります。予約タブで削除できます。"
+        let forTheDisk = "録画用の USB HDD が見つからないため、予約は iPhone に残しています。"
+            + "USB HDD が見つかったあと、次にテレビにつながったときに送ります。予約タブで削除できます。"
+        let unanswered = "テレビの応答を読み取れなかったため、予約は iPhone に残しています。"
+            + "次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。予約タブで削除できます。"
         let nothingSaid = HTTPResponse(
             statusCode: 200, body: Data(#"{"error":[\#(DemoTV.inventedError),"invented"],"id":1}"#.utf8))
         let clash = self.clash(), film = clash.film, clashing = clash.clashing, holding = clash.holding
@@ -2652,7 +2655,7 @@ final class TVDriverTests: XCTestCase {
                          on: resendBench([turnedDown], holding: holding, givenUp: true), .wouldStop(clashing))
         try await expect("left to a connect that met silence", turnedDown,
                          on: resendBench([turnedDown], givenUp: true, silent: true),
-                         .waiting(film, saying: Self.waitsNotConnected))
+                         .waiting(film, saying: waitsNotConnected))
         let noDisk = try await resendBench([turnedDown], givenUp: true)
         await noDisk.television.unmount()
         try await expect("left to a connect that got through, the disk away", turnedDown, on: noDisk,
@@ -2676,11 +2679,11 @@ final class TVDriverTests: XCTestCase {
         let metAtARead = try await resendBench([turnedDown], givenUp: true)
         await metAtARead.gate.silence(Self.stations)
         try await expect("left to a connect whose sending met silence before its create", turnedDown, on: metAtARead,
-                         .waiting(film, saying: Self.waitsNotConnected))
+                         .waiting(film, saying: waitsNotConnected))
         let saidBefore = try await resendBench([turnedDown], givenUp: true, silent: true)
         saidBefore.world.problem = Self.metSilence
         try await expect("left to a connect that met silence, an earlier create's sentence on the line", turnedDown,
-                         on: saidBefore, .waiting(film, saying: Self.waitsNotConnected))
+                         on: saidBefore, .waiting(film, saying: waitsNotConnected))
         XCTAssertEqual(saidBefore.world.problem, Self.metSilence, "the connect wrote over what the create said")
 
         try await expect("held for what it would stop, the television still silent", clashing,
@@ -2738,7 +2741,7 @@ final class TVDriverTests: XCTestCase {
     /// said by whatever is not its own reason: why it was not sent, where it keeps one, and how it goes by
     /// itself, where it has none. What was neither made nor kept is said as it is.
     func testWhatIsLeftToSayBesideAWaitingRowIsWhatTheRowDoesNotSay() throws {
-        let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確認してください。"
+        let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確かめてください。"
         let clash = self.clash(), film = clash.film, clashing = clash.clashing
         var unlisted = film
         unlisted.problem = "テレビのチャンネル一覧にこの局が見つかりませんでした。"
@@ -2764,7 +2767,7 @@ final class TVDriverTests: XCTestCase {
     /// by the very reason on it. What was made, what comes back as the question whether to make it all the
     /// same, and what was neither made nor kept are not said as a row that waits at all.
     func testAWaitingRowIsLeftForTheReaderWhereItsReasonIsNotWhatIsSaid() {
-        let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確認してください。"
+        let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確かめてください。"
         let clash = self.clash(), film = clash.film, clashing = clash.clashing
         var unlisted = film
         unlisted.problem = "テレビのチャンネル一覧にこの局が見つかりませんでした。"

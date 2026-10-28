@@ -232,10 +232,10 @@ final class TVNoScreenTests: XCTestCase {
         let over = waiting("サンプル天気", 50103, in: -2)
         let cutShort = "途中でテレビの応答がなくなったため、残りは次につながったときに送ります"
         let theDisk = "録画用の USB HDD が見つからないため、テレビへの予約は送っていません"
-        let notAnswering = "テレビが応答しないため送っていません。次にテレビが答えたときに送ります"
+        let notAnswering = "テレビが応答しないため送っていません。次にテレビにつながったときに送ります"
         let toRegister = "テレビへの登録が必要です。設定の「テレビ」から登録してください"
         let metSilence = "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、"
-            + "送り直していません。次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+            + "送り直していません。次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。"
 
         let cases: [(String, NoScreenSending, String?)] = [
             ("nothing waiting", await send(try await home()), nil),
@@ -246,8 +246,8 @@ final class TVNoScreenTests: XCTestCase {
                 await home.gate.before(Self.disk) { await television.goSilent() }
             }, notAnswering),
             ("another television", await run([row]) { await $0.television.becomeAnother(mac: "f8:4e:17:00:00:0b") },
-             "登録したテレビとは別の機器が応答しました。設定の「テレビ」から追加し直してください。"),
-            ("one row made", await run([row]), "送信待ちだった「サンプル劇場」をテレビに登録しました"),
+             "追加したテレビとは別の機器が応答しました。設定の「テレビ」で「テレビを外す」を選んでから、もう一度追加してください。"),
+            ("one row made", await run([row]), "送信待ちだった「サンプル劇場」をテレビに予約しました"),
             ("the disk away", await run([row]) { await $0.television.unmount() }, theDisk),
             ("a row over, then the disk away", await run([over, row]) { await $0.television.unmount() },
              "テレビ宛の「サンプル天気」は放送が終わっていたため、送らずに削除しました。" + theDisk),
@@ -263,7 +263,7 @@ final class TVNoScreenTests: XCTestCase {
                         await television.goSilent()
                     }
                 }
-            }, "送信待ちだった「サンプル劇場」をテレビに登録しました。"
+            }, "送信待ちだった「サンプル劇場」をテレビに予約しました。"
                 + "途中でテレビの応答がなくなったため、残りは次につながったときに送ります"),
             ("one row made, then silent at the next question", await run([row, later]) { home in
                 let television = home.television
@@ -272,7 +272,7 @@ final class TVNoScreenTests: XCTestCase {
                         await television.goSilent()
                     }
                 }
-            }, "送信待ちだった「サンプル劇場」をテレビに登録しました。" + cutShort),
+            }, "送信待ちだった「サンプル劇場」をテレビに予約しました。" + cutShort),
             ("one row passed over, then silent",
              .sent(PendingQueue.Outcome(slot: .tv, deferred: [row], stopped: .silent(afterSending: false))),
              "「サンプル劇場」はテレビに送れなかったため、次の機会にもう一度送ります。" + cutShort),
@@ -491,7 +491,7 @@ final class TVNoScreenTests: XCTestCase {
         XCTAssertEqual(twice, ToldOnce(stop: .disk))
         let afterARound = tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
                                 Run(name: "a round that went", sending: went, waiting: [],
-                                    queue: "送信待ちだった「サンプル天気」をテレビに登録しました"),
+                                    queue: "送信待ちだった「サンプル天気」をテレビに予約しました"),
                                 Run(name: "the disk after a round", sending: disk, waiting: waits, queue: theDisk)])
         XCTAssertEqual(afterARound, ToldOnce(stop: .disk))
         tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
@@ -506,7 +506,7 @@ final class TVNoScreenTests: XCTestCase {
               Run(name: "the disk after nothing that reads", sending: disk, waiting: waits)])
         let another = tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
                             Run(name: "another television", sending: .anotherAnswered, waiting: waits,
-                                queue: "登録したテレビとは別の機器が応答しました。設定の「テレビ」から追加し直してください。")])
+                                queue: "追加したテレビとは別の機器が応答しました。設定の「テレビ」で「テレビを外す」を選んでから、もう一度追加してください。")])
         XCTAssertEqual(another, ToldOnce(stop: .another))
         tell([Run(name: "no registration", sending: unregistered, waiting: waits,
                   queue: "テレビへの登録が必要です。設定の「テレビ」から登録してください"),
@@ -521,7 +521,7 @@ final class TVNoScreenTests: XCTestCase {
                                                                        stopped: .silent(afterSending: false)))
         tell([Run(name: "the disk", sending: disk, waiting: waits, queue: theDisk),
               Run(name: "made, then silent", sending: madeThenSilent, waiting: [],
-                  queue: "送信待ちだった「サンプル天気」をテレビに登録しました。" + cutShort),
+                  queue: "送信待ちだった「サンプル天気」をテレビに予約しました。" + cutShort),
               Run(name: "the disk after made, then silent", sending: disk, waiting: waits, queue: theDisk)])
         let passedOverThenSilent = NoScreenSending.sent(PendingQueue.Outcome(slot: .tv, deferred: [morning],
                                                                              stopped: .silent(afterSending: false)))
@@ -530,7 +530,7 @@ final class TVNoScreenTests: XCTestCase {
               Run(name: "the disk after passed over, then silent", sending: disk, waiting: waits, queue: theDisk)])
 
         let metSilence = "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、"
-            + "送り直していません。次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。"
+            + "送り直していません。次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。"
         tell([Run(name: "silent at the first create",
                   sending: .sent(PendingQueue.Outcome(slot: .tv, stopped: .silent(afterSending: true))),
                   waiting: waits, queue: metSilence),
@@ -540,7 +540,7 @@ final class TVNoScreenTests: XCTestCase {
         let madeThenSilentAtACreate = NoScreenSending.sent(PendingQueue.Outcome(slot: .tv, sent: [morning],
                                                                                 stopped: .silent(afterSending: true)))
         tell([Run(name: "silent at the second create", sending: madeThenSilentAtACreate, waiting: [],
-                  queue: "送信待ちだった「サンプル天気」をテレビに登録しました。" + cutShort)])
+                  queue: "送信待ちだった「サンプル天気」をテレビに予約しました。" + cutShort)])
     }
 
     /// The notice that asked for a registration goes once the want of one is forgotten: after a run with
@@ -567,7 +567,7 @@ final class TVNoScreenTests: XCTestCase {
 
         tell([asked, Run(name: "the disk", sending: disk, waiting: [morning], queue: theDisk)])
         tell([asked, Run(name: "a round that went", sending: .sent(PendingQueue.Outcome(slot: .tv, sent: [morning])),
-                         waiting: [], queue: "送信待ちだった「サンプル天気」をテレビに登録しました")])
+                         waiting: [], queue: "送信待ちだった「サンプル天気」をテレビに予約しました")])
         tell([asked, Run(name: "silent", sending: .unreachable, waiting: [morning])])
         tell([asked, Run(name: "no registration again", sending: unregistered, waiting: [morning])])
         tell([Run(name: "the disk", sending: disk, waiting: [morning], queue: theDisk),
@@ -646,7 +646,7 @@ final class TVNoScreenTests: XCTestCase {
     func testALateRowIsToldOnceWithWhatStandsInItsWay() {
         let theatre = row("サンプル劇場", 50101, at: 60), journey = row("サンプル紀行", 50102, at: 210)
         let notYet = "テレビにまだ届いていない予約があります（「サンプル劇場」21:00 から）。"
-        let notAnswering = "テレビが応答しないため送っていません。次にテレビが答えたときに送ります"
+        let notAnswering = "テレビが応答しないため送っていません。次にテレビにつながったときに送ります"
 
         tell([Run(name: "late, the television silent", sending: .unreachable, waiting: [theatre],
                   notYet: notYet + notAnswering),
@@ -664,7 +664,7 @@ final class TVNoScreenTests: XCTestCase {
         tell([Run(name: "late, silent at a create",
                   sending: .sent(PendingQueue.Outcome(slot: .tv, stopped: .silent(afterSending: true))),
                   waiting: [theatre], notYet: notYet + "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、"
-                    + "送り直していません。次にテレビが答えたときに一覧で確かめ、届いていなければ送ります。")])
+                    + "送り直していません。次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。")])
         tell([Run(name: "late, passed over", sending: .sent(PendingQueue.Outcome(slot: .tv, deferred: [theatre])),
                   waiting: [theatre], notYet: notYet + "アプリを開くと送ります")])
         tell([Run(name: "on air", sending: .unreachable, waiting: [row("サンプル中継", 50107, at: -30, for: 3600)],
@@ -676,7 +676,7 @@ final class TVNoScreenTests: XCTestCase {
         let none = tell([Run(name: "never late", sending: .unreachable, waiting: never)])
         XCTAssertEqual(none, ToldOnce())
         tell([Run(name: "made, still read as waiting", sending: .sent(PendingQueue.Outcome(slot: .tv, sent: [theatre])),
-                  waiting: [theatre], queue: "送信待ちだった「サンプル劇場」をテレビに登録しました"),
+                  waiting: [theatre], queue: "送信待ちだった「サンプル劇場」をテレビに予約しました"),
               Run(name: "found there, still read as waiting",
                   sending: .sent(PendingQueue.Outcome(slot: .tv, alreadyThere: [journey])), waiting: [journey],
                   queue: "「サンプル紀行」はテレビにすでに予約がありました")])
@@ -688,14 +688,14 @@ final class TVNoScreenTests: XCTestCase {
     /// told. What is told reads back from its JSON as it was.
     func testTheLateNoticeIsTakenAwayOnceNoneOfItsRowsWaits() throws {
         let theatre = row("サンプル劇場", 50101, at: 60), journey = row("サンプル紀行", 50102, at: 210)
-        let notAnswering = "テレビが応答しないため送っていません。次にテレビが答えたときに送ります"
+        let notAnswering = "テレビが応答しないため送っていません。次にテレビにつながったときに送ります"
         let both = tell([
             Run(name: "two late", sending: .unreachable, waiting: [theatre, journey],
                 notYet: "テレビにまだ届いていない予約があります（「サンプル劇場」21:00 から、ほか 1 件）。" + notAnswering),
             Run(name: "one made", sending: .sent(PendingQueue.Outcome(slot: .tv, sent: [theatre])), waiting: [journey],
-                queue: "送信待ちだった「サンプル劇場」をテレビに登録しました"),
+                queue: "送信待ちだった「サンプル劇場」をテレビに予約しました"),
             Run(name: "the other made", sending: .sent(PendingQueue.Outcome(slot: .tv, sent: [journey])), waiting: [],
-                queue: "送信待ちだった「サンプル紀行」をテレビに登録しました", withdraws: true),
+                queue: "送信待ちだった「サンプル紀行」をテレビに予約しました", withdraws: true),
             Run(name: "nothing to take away", sending: .nothingWaiting, waiting: []),
         ])
         XCTAssertEqual(both, ToldOnce())

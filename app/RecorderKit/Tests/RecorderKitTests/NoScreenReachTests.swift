@@ -187,7 +187,7 @@ final class NoScreenReachTests: XCTestCase {
         let one = [pending("朝の番組", eventID: 1)], busy = [pending("昼の番組", eventID: 2)]
         let (held, atACreate, atARead) = (Self.held, Self.atACreate, Self.atARead)
         let clause = "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります"
-        let sent = "送信待ちだった「朝の番組」を登録しました", sentTo = "送信待ちだった「朝の番組」をレコーダーに登録しました"
+        let sent = "送信待ちだった「朝の番組」を予約しました", sentTo = "送信待ちだった「朝の番組」をレコーダーに予約しました"
         let passedOver = "「昼の番組」は送れなかったため、次の機会にもう一度送ります"
         let passedOverTo = "「昼の番組」はレコーダーに送れなかったため、次の機会にもう一度送ります"
         typealias Outcome = PendingQueue.Outcome
@@ -205,8 +205,8 @@ final class NoScreenReachTests: XCTestCase {
              "「朝の番組」は放送が終わっていたため、送らずに削除しました",
              "レコーダー宛の「朝の番組」は放送が終わっていたため、送らずに削除しました"),
             ("refused now", Outcome(slot: .recorder, refused: one),
-             "「朝の番組」はレコーダーが受け付けませんでした。理由は予約タブにあります",
-             "「朝の番組」はレコーダーに登録できませんでした。理由は予約タブにあります"),
+             "「朝の番組」はレコーダーに予約できませんでした。理由は予約タブにあります",
+             "「朝の番組」はレコーダーに予約できませんでした。理由は予約タブにあります"),
             ("sent, and one passed over", Outcome(slot: .recorder, sent: one, deferred: busy),
              sent + "。" + passedOver, sentTo + "。" + passedOverTo),
             ("sent, then silence at a read", Outcome(slot: .recorder, sent: one, stopped: atARead),
@@ -253,7 +253,7 @@ final class NoScreenReachTests: XCTestCase {
         let (held, atACreate, atARead) = (Self.held, Self.atACreate, Self.atARead)
         func still(_ count: Int) -> String { "レコーダーに届いたか確かめていない予約が \(count) 件あります。予約一覧で確かめてください" }
         let clause = "途中でレコーダーの応答がなくなったため、残りは次につながったときに送ります"
-        let sent = "送信待ちだった「朝の番組」を登録しました", sentTo = "送信待ちだった「朝の番組」をレコーダーに登録しました"
+        let sent = "送信待ちだった「朝の番組」を予約しました", sentTo = "送信待ちだった「朝の番組」をレコーダーに予約しました"
         let found = "「夜の番組」はすでに予約されていました", foundOn = "「夜の番組」はレコーダーにすでに予約がありました"
         let passedOver = "「昼の番組」は送れなかったため、次の機会にもう一度送ります"
         typealias Outcome = PendingQueue.Outcome
@@ -308,7 +308,7 @@ final class NoScreenReachTests: XCTestCase {
         let answers: [(name: String, outcome: Outcome, said: String?)] = [
             ("nothing", Outcome(slot: .recorder), nil),
             ("sent", Outcome(slot: .recorder, sent: [pending("朝の番組", eventID: 1)]),
-             "送信待ちだった「朝の番組」を登録しました"),
+             "送信待ちだった「朝の番組」を予約しました"),
             ("only one passed over", Outcome(slot: .recorder, deferred: busy),
              "「昼の番組」は送れなかったため、次の機会にもう一度送ります"),
             ("silence at a read alone", Outcome(slot: .recorder, stopped: Self.atARead),
@@ -329,7 +329,7 @@ final class NoScreenReachTests: XCTestCase {
     private static let now = Date(timeIntervalSince1970: 1_793_530_800)
     private static let nextRun = Date(timeIntervalSince1970: 1_793_552_400)
 
-    private static let notAnswering = "レコーダーが応答しないため送っていません。次にレコーダーが答えたときに送ります"
+    private static let notAnswering = "レコーダーが応答しないため送っていません。次にレコーダーにつながったときに送ります"
     private static let another = "これまでとは別のレコーダーが応答したため、送信待ちの予約はそのまま残しています。"
         + "アプリを開いて確かめてください。"
 
@@ -395,7 +395,7 @@ final class NoScreenReachTests: XCTestCase {
         XCTAssertEqual(both, ToldOnce(rows: [theatre.id, journey.id]))
         let gone = tell([
             Run(name: "both made", sending: .sent(PendingQueue.Outcome(slot: .recorder, sent: [theatre, journey])),
-                waiting: [], queue: "送信待ちだった「サンプル劇場」ほか 1 件を登録しました", withdraws: true),
+                waiting: [], queue: "送信待ちだった「サンプル劇場」ほか 1 件を予約しました", withdraws: true),
             Run(name: "nothing to take away", sending: .nothingWaiting, waiting: []),
         ], from: both)
         XCTAssertEqual(gone, ToldOnce())
@@ -423,7 +423,7 @@ final class NoScreenReachTests: XCTestCase {
         let theatre = row("サンプル劇場", 0x3101, at: 60), journey = row("サンプル紀行", 0x3102, at: 210)
         tell([Run(name: "made, still read as waiting",
                   sending: .sent(PendingQueue.Outcome(slot: .recorder, sent: [theatre])), waiting: [theatre],
-                  queue: "送信待ちだった「サンプル劇場」を登録しました"),
+                  queue: "送信待ちだった「サンプル劇場」を予約しました"),
               Run(name: "found there, still read as waiting",
                   sending: .sent(PendingQueue.Outcome(slot: .recorder, alreadyThere: [journey])), waiting: [journey],
                   queue: "「サンプル紀行」はすでに予約されていました")])
@@ -471,7 +471,7 @@ final class NoScreenReachTests: XCTestCase {
         let went = PendingQueue.Outcome(slot: .recorder, sent: [row("サンプル劇場", 0x3101, at: 60)])
         tell([stranger,
               Run(name: "a round", sending: .sent(went), waiting: [morning],
-                  queue: "送信待ちだった「サンプル劇場」を登録しました"),
+                  queue: "送信待ちだった「サンプル劇場」を予約しました"),
               stranger])
     }
 
@@ -485,13 +485,13 @@ final class NoScreenReachTests: XCTestCase {
         let held = row("サンプル寄席", 0x3110, at: 30, reason: Self.held)
         typealias Outcome = PendingQueue.Outcome
         let sent = Run(name: "sent", sending: .sent(Outcome(slot: .recorder, sent: [theatre])),
-                       queue: "送信待ちだった「サンプル劇場」を登録しました")
+                       queue: "送信待ちだった「サンプル劇場」を予約しました")
         tell([sent])
         tell([Run(name: "sent, the recorder named", sending: sent.sending,
-                  queue: "送信待ちだった「サンプル劇場」をレコーダーに登録しました")], naming: "レコーダー")
+                  queue: "送信待ちだった「サンプル劇場」をレコーダーに予約しました")], naming: "レコーダー")
         tell([Run(name: "sent, then silent at a create",
                   sending: .sent(Outcome(slot: .recorder, sent: [theatre], stopped: .silent(afterSending: true))),
-                  queue: "送信待ちだった「サンプル劇場」を登録しました。" + Self.held)])
+                  queue: "送信待ちだった「サンプル劇場」を予約しました。" + Self.held)])
         let passedOver = Outcome(slot: .recorder, sent: [theatre], held: [held])
         tell([Run(name: "sent, one held before passed over", sending: .sent(passedOver), waiting: [held],
                   queue: RecorderDriver.tells(passedOver, naming: nil))])

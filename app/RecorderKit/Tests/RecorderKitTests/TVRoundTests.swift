@@ -215,7 +215,7 @@ final class TVRoundTests: XCTestCase {
 
         await bench.television.atTheNextCreate(.answeredAndNotKept)
         expectEqual(await send(row("サンプル討論", 50104, on: 2, at: 21_600), in: &round, on: bench),
-                    Came(.refused(reason: "テレビは受け付けたと答えましたが、一覧にありません。"),
+                    Came(.refused(reason: "テレビは受け付けたと答えましたが、予約一覧にありません。"),
                          asked: [Self.question, Self.create, Self.list]))
         expectEqual(await held(bench), ["recording.1 notOverlapped", "recording.2 notOverlapped",
                                         "recording.3 notOverlapped"])
@@ -237,7 +237,7 @@ final class TVRoundTests: XCTestCase {
         let bench = await bench()
         var round = try await open(bench).round
         let notSent: [(PendingReservation, String)] = [
-            (row("サンプル体操", nil), "番組を指定しない、時刻だけの予約は、テレビにはまだ送れません。"),
+            (row("サンプル体操", nil), "時刻を指定した予約は、テレビにはまだ送れません。"),
             (row("サンプル将棋", 50101, repeating: "w1"), "この番組には、選んだ毎回録画の設定でテレビに予約できません。"),
             (row("サンプル料理", 50102, repeating: "w15"), "この番組には、選んだ毎回録画の設定でテレビに予約できません。"),
         ]
@@ -818,7 +818,7 @@ final class TVRoundTests: XCTestCase {
     /// the household is not subscribed to. Nothing was made, and the list is not read for it. The same code
     /// from the question is no such thing: it says nothing about the row.
     func testACodeThatTurnsTheReservationDownHoldsTheRow() async throws {
-        let reason = "テレビがこの予約を受け付けませんでした（7）。契約していない局の番組などは予約できません。"
+        let reason = "テレビがこの予約を受け付けませんでした (7)。契約していない局の番組などは予約できません。"
         let bench = await bench()
         var round = try await open(bench).round
 
@@ -857,9 +857,9 @@ final class TVRoundTests: XCTestCase {
             listed("reminder.9", "サンプル音楽館", overlap, at: "2026-11-01T20:59:59+0900")
         }
         let marked = "「サンプル劇場」はほかの予約と重なっていて、録画されないことがあります"
-        func overlapped(_ names: String) -> String { "「サンプル劇場」を登録したため、\(names)がほかの予約と重なりました" }
+        func overlapped(_ names: String) -> String { "「サンプル劇場」を予約したため、\(names)がほかの予約と重なりました" }
         func mayLose(_ names: String) -> String {
-            "「サンプル劇場」を登録したため、\(names)がほかの予約と重なり、録画されないことがあります"
+            "「サンプル劇場」を予約したため、\(names)がほかの予約と重なり、録画されないことがあります"
         }
         let recording = "「サンプル紀行」（サンプル放送2 11/1 21:00）"
         let another = "「サンプル討論」（サンプル放送2 11/1 21:00）"
@@ -911,7 +911,7 @@ final class TVRoundTests: XCTestCase {
     /// And the queue says either after its sentence for what was sent.
     func testARowMadeSaysWhatTheListShowsItDid() async throws {
         let reminder = owned("reminder.9", on: 3, "サンプル音楽館", at: -1, programme: 50109)
-        let cost = "「サンプル劇場」を登録したため、視聴予約「サンプル音楽館」（サンプル放送4 11/1 21:00）"
+        let cost = "「サンプル劇場」を予約したため、視聴予約「サンプル音楽館」（サンプル放送4 11/1 21:00）"
             + "がほかの予約と重なりました"
         let whole = [Self.kind, Self.question, Self.create, Self.list]
         let waiting = row("サンプル劇場", 50101, on: 0, for: 3240)
@@ -938,7 +938,7 @@ final class TVRoundTests: XCTestCase {
         try await store.queue(waiting)
         let outcome = await PendingQueue.flush(client: queued.tv, store: store, now: Self.start - 86_400)
         XCTAssertEqual(outcome.remarks, [cost])
-        XCTAssertEqual(outcome.says(naming: "テレビ"), "送信待ちだった「サンプル劇場」をテレビに登録しました。" + cost)
+        XCTAssertEqual(outcome.says(naming: "テレビ"), "送信待ちだった「サンプル劇場」をテレビに予約しました。" + cost)
     }
 
     // MARK: - the sentences
@@ -952,7 +952,7 @@ final class TVRoundTests: XCTestCase {
     func testTheReasonsAndTheNamesInThemAreWrittenAsTheyAreKept() {
         XCTAssertEqual(ScalarClient.stationNotListed, "テレビのチャンネル一覧にこの局が見つかりませんでした。")
         XCTAssertEqual(ScalarClient.wouldStop, "この予約を入れると、次の予約は録画されません")
-        XCTAssertEqual(ScalarClient.acceptedNotListed, "テレビは受け付けたと答えましたが、一覧にありません。")
+        XCTAssertEqual(ScalarClient.acceptedNotListed, "テレビは受け付けたと答えましたが、予約一覧にありません。")
         XCTAssertEqual(ScalarClient.saidThereNotListed,
                        "テレビはこの番組を予約済みと答えましたが、録画予約の一覧に見つかりませんでした。")
         XCTAssertEqual(ScalarClient.reservedOnceOnly, "テレビにはこの番組の 1 回だけの予約がすでにあります。"

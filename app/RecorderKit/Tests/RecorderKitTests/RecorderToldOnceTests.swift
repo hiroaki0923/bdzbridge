@@ -14,7 +14,7 @@ import XCTest
 /// has been seen to go unrecorded, the test ending with one failure fewer than it had.
 @MainActor
 final class RecorderToldOnceTests: XCTestCase {
-    private static let notAnswering = "レコーダーが応答しないため送っていません。次にレコーダーが答えたときに送ります"
+    private static let notAnswering = "レコーダーが応答しないため送っていません。次にレコーダーにつながったときに送ります"
     private static let another = "これまでとは別のレコーダーが応答したため、送信待ちの予約はそのまま残しています。"
         + "アプリを開いて確かめてください。"
     private static let heldAfterSilence = "予約の登録中にレコーダーの応答がなくなりました。届いている場合もあるため、"

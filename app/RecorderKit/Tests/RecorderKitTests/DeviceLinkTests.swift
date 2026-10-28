@@ -16,7 +16,7 @@ final class DeviceLinkTests: XCTestCase {
     static let udn = "uuid:00000000-0000-0000-0000-f84e17000001"
     /// Where the router moves the recorder to, in the tests that move it.
     static let moved = "192.0.2.20"
-    static let noAnswer = "レコーダーが応答しません。電源とネットワーク接続を確認してください。"
+    static let noAnswer = "レコーダーが応答しません。電源とネットワーク接続を確かめてください。"
 
     /// A recorder at one address: it says who it is as the recorder of the vectors does, under the UDN it is
     /// given, and refuses the rest, which an attach does without. Each ask is put down in the world.

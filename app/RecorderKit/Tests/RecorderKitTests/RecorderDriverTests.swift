@@ -214,6 +214,88 @@ final class RecorderDriverTests: XCTestCase {
         XCTAssertTrue(link.session.connected)
     }
 
+    /// The recorder's lines of what both devices do name the recorder in a home with a television saved beside it,
+    /// as the television's lines name the television, and are bare in a home with the recorder alone, as they have
+    /// always been. A line of what only the recorder does is never named. Each in the letters the strip shows. The
+    /// driver puts them up by what its host says: the connect's line, and the read's after it.
+    func testTheRecordersLinesNameItBesideATelevision() async throws {
+        let lines = [
+            (RecorderDriver.connectingLine, "接続中", "レコーダーに接続中"),
+            (RecorderDriver.readingLine, "予約一覧を取得中", "レコーダーの予約一覧を取得中"),
+            (RecorderDriver.deletingLine, "予約を削除中", "レコーダーの予約を削除中"),
+            (RecorderDriver.changingLine, "予約を変更中", "レコーダーの予約を変更中"),
+            (RecorderDriver.reservingLine, "予約を送信中", "レコーダーに予約を送信中"),
+            (RecorderDriver.sendingLine, "送信待ちの予約を送信中", "レコーダーに送信待ちの予約を送信中"),
+        ]
+        for (line, bare, named) in lines {
+            XCTAssertEqual(line, bare)
+            XCTAssertEqual(RecorderDriver.line(line, withATelevisionSaved: false), bare)
+            XCTAssertEqual(RecorderDriver.line(line, withATelevisionSaved: true), named)
+        }
+        XCTAssertEqual(RecorderDriver.line(RecorderDriver.guideLine, withATelevisionSaved: true), "番組表を取得中")
+
+        for saved in [false, true] {
+            let world = LinkWorld()
+            world.televisionSaved = saved
+            world.devices[Stub.host] = try ScriptedRecorder(at: Stub.host, udn: DeviceLinkTests.udn, world: world)
+            let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
+            let link = DeviceLink(host: Stub.host, session: SessionState(mac: nil), driver: driver,
+                                  environment: world.environment)
+            link.owner = world
+            await link.connect()
+            XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+            _ = await driver.reservations()
+            XCTAssertEqual(world.begun.first, saved ? "レコーダーに接続中" : "接続中", "saved: \(saved)")
+            XCTAssertTrue(world.begun.contains(saved ? "レコーダーの予約一覧を取得中" : "予約一覧を取得中"),
+                          "the read's line, saved: \(saved): \(world.begun)")
+        }
+    }
+
+    /// A row sent again that the recorder could not be asked about waits on, as a reservation kept for a recorder
+    /// that is away does, and is said to be left on the phone, where it was before it was sent -- not saved there
+    /// now, as a reservation just asked for is. Each in the letters a sheet shows.
+    func testARowSentAgainThatStillWaitsIsSaidToBeLeftOnThePhone() async throws {
+        XCTAssertEqual(RecorderDriver.keptUnsent, "レコーダーに送れなかったため、予約を iPhone に保存しました。"
+                           + "次にレコーダーにつながったときに送ります。予約タブで削除できます。")
+        XCTAssertEqual(RecorderDriver.stillKeptUnsent, "レコーダーに送れなかったため、予約は iPhone に残しています。"
+                           + "次にレコーダーにつながったときに送ります。予約タブで削除できます。")
+        XCTAssertEqual(RecorderDriver.waitsPassedOver,
+                       "レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約を iPhone に保存しました。"
+                           + "次にレコーダーにつながったときに送ります。予約タブで削除できます。")
+        XCTAssertEqual(RecorderDriver.stillPassedOver,
+                       "レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約は iPhone に残しています。"
+                           + "次にレコーダーにつながったときに送ります。予約タブで削除できます。")
+
+        let world = LinkWorld()
+        let store = try temporaryStore()
+        world.cache = store
+        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(10), busyRetryDelay: 0...0)
+        let link = DeviceLink(host: Stub.host, session: SessionState(mac: nil), driver: driver,
+                              environment: world.environment)
+        link.owner = world
+        // At a whole second, as the cache keeps a start, so that the row read back is the one queued.
+        let tomorrow = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 + 86_400).rounded(.down))
+        let row = pending("サンプル劇場", eventID: 0x3121, start: tomorrow)
+        try await store.queue(row)
+
+        let came = await driver.resend(row).came
+
+        XCTAssertFalse(link.session.connected, "nothing was to answer")
+        XCTAssertEqual(came, .waiting(row, saying: RecorderDriver.stillKeptUnsent))
+    }
+
+    /// A waiting row the reader asked to delete that a sending made first is said not to have been deleted, and
+    /// where to delete the reservation: on the device that holds it, named whether a television is saved or not.
+    func testARowMadeBeforeItsDeleteSaysWhereToDeleteIt() {
+        let recorders = "「サンプル劇場」は、削除する前にレコーダーに予約されていました。"
+            + "取り消すときは、レコーダーの予約を削除してください。"
+        XCTAssertEqual(RecorderDriver.madeBeforeItsDelete(pending("サンプル劇場"), naming: nil), recorders)
+        XCTAssertEqual(RecorderDriver.madeBeforeItsDelete(pending("サンプル劇場"), naming: "レコーダー"), recorders)
+        XCTAssertEqual(TVDriver.madeBeforeItsDelete(pending("サンプル劇場", target: .tv), naming: "テレビ"),
+                       "「サンプル劇場」は、削除する前にテレビに予約されていました。"
+                           + "取り消すときは、テレビの予約を削除してください。")
+    }
+
     /// A recorder at the bench's address, on a link of the test's own connected to it a moment ago, and the world
     /// it reaches, with nothing put down yet and an earlier failure's line left. The link is handed back with the
     /// driver, which holds it weakly.

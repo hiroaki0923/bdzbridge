@@ -96,7 +96,7 @@ public final class RecorderDriver: LinkDriver {
 
     /// Said when the recorder that answered is another one and the cache could not be made over to it: the
     /// database is busy with another writer for longer than it will wait, or cannot be written to.
-    public static let cacheNotMadeOver = "端末内のデータベースに書き込めなかったため、接続を中断しました。"
+    public static let cacheNotMadeOver = "iPhone 内のデータベースに書き込めなかったため、接続を中断しました。"
         + "少し待ってから、もう一度お試しください。"
 
     /// Only while the recorder is not known to be away already: silence is said once, as a television's is, so
@@ -155,13 +155,13 @@ public final class RecorderDriver: LinkDriver {
     /// One that goes through clears the line.
     ///
     /// `quiet` keeps a failure off the screen, for a probe about to be answered with a magic packet.
-    public func attach(_ link: DeviceLink, client: any LinkClient, what: String? = "接続中",
+    public func attach(_ link: DeviceLink, client: any LinkClient, what: String? = connectingLine,
                        timeout: TimeInterval? = nil, quiet: Bool = false) async -> Bool {
         guard let client = client as? RecorderClient else { return false }
         let owner = link.owner
         // A line of its own, and only that one taken away afterwards: this can run inside the waking.
         var activity: Activities.Token?
-        if let what { activity = owner?.beginActivity(what) }
+        if let what { activity = owner?.beginActivity(named(what, on: link)) }
         defer { if let activity { owner?.endActivity(activity) } }
         do {
             // A cache that is another recorder's and could not be made over to this one is no recorder to
@@ -214,6 +214,31 @@ public final class RecorderDriver: LinkDriver {
             }
             return false
         }
+    }
+
+    /// The line on screen while the recorder is connected to.
+    public static let connectingLine = "接続中"
+
+    /// One of the recorder's lines of what is under way as the home reads it. With a television saved beside
+    /// the recorder it names the recorder, as the television's lines name the television (テレビの予約を削除中),
+    /// and as the strip's reports name the device then (`PendingQueue.Outcome.said(withATelevisionSaved:)`); a
+    /// home with the recorder alone reads it bare, as it always has. Only the lines of what both devices do are
+    /// named: the recordings', the keyword conditions', the guide's and the waking's are the recorder's alone,
+    /// and any line not named here is handed back as it is. For the lines the driver puts up, by what its host
+    /// says (`RecorderLinkHost.televisionSaved`), and for a sheet that shows one of them itself.
+    public static func line(_ line: String, withATelevisionSaved televisionSaved: Bool) -> String {
+        televisionSaved ? namedLines[line] ?? line : line
+    }
+
+    private static let namedLines = [
+        connectingLine: "レコーダーに接続中", readingLine: "レコーダーの予約一覧を取得中",
+        deletingLine: "レコーダーの予約を削除中", changingLine: "レコーダーの予約を変更中",
+        reservingLine: "レコーダーに予約を送信中", sendingLine: "レコーダーに送信待ちの予約を送信中",
+    ]
+
+    /// A line the driver puts up on `link`, as the home its host keeps reads it (`line(_:withATelevisionSaved:)`).
+    private func named(_ line: String, on link: DeviceLink) -> String {
+        Self.line(line, withATelevisionSaved: recorderHost(link.owner)?.televisionSaved ?? false)
     }
 
     /// A recorder has said who it is, which decides what the app keeps of the one before it: the same recorder
@@ -599,12 +624,12 @@ public final class RecorderDriver: LinkDriver {
                                        })
         }.value
         if outcome == .answered {
-            return await attach(link, client: client, what: "接続中", timeout: probeTimeout, quiet: false)
+            return await attach(link, client: client, what: Self.connectingLine, timeout: probeTimeout, quiet: false)
         }
         // The client retired: the recorder was let go of, and whatever let go of it has said why.
         if outcome == .cancelled { return false }
         if !Self.saysItMayHaveArrived(owner?.problem) {
-            owner?.problem = "レコーダーが応答しません。電源とネットワーク接続を確認してください。"
+            owner?.problem = "レコーダーが応答しません。電源とネットワーク接続を確かめてください。"
         }
         return false
     }
@@ -626,7 +651,7 @@ public final class RecorderDriver: LinkDriver {
         recorderHost(link.owner)?.macWasReadAt(moved.host)
         let found = makeClient(for: link)
         link.client = found
-        return await attach(link, client: found, what: "接続中", timeout: probeTimeout, quiet: false)
+        return await attach(link, client: found, what: Self.connectingLine, timeout: probeTimeout, quiet: false)
             ? nil : link.whyNotAttached
     }
 
@@ -732,7 +757,7 @@ public final class RecorderDriver: LinkDriver {
 
     /// The read itself, as one operation through the link.
     private func readNow(_ link: DeviceLink, since began: Int, underALine: Bool) async -> [Reservation]? {
-        let line = underALine ? Self.readingLine : nil
+        let line = underALine ? named(Self.readingLine, on: link) : nil
         let read = await link.run(line: line, evenIfRecent: link.checksAgain, since: began) { client in
             if let heard = link.heardInstead { throw heard }
             return try await (client as? RecorderClient)?.reservations()
@@ -767,7 +792,7 @@ public final class RecorderDriver: LinkDriver {
     // MARK: - what waits in the queue
 
     /// The line on screen while what waits for the recorder is sent.
-    public static let sendingLine = "送信待ちの予約を登録中"
+    public static let sendingLine = "送信待ちの予約を送信中"
 
     /// Written on each reservation that was waiting when another recorder took the place of the one it was
     /// made for, which holds it as a refusal does (`PendingQueue.flush`). How to send it again is said by the
@@ -881,7 +906,7 @@ public final class RecorderDriver: LinkDriver {
             return (nil, nil)
         }
         // Rows only to drop, whose programmes are over, ask the recorder nothing: no line and no check for them.
-        return await link.underALine(forARowSentAgain || !toGo ? nil : Self.sendingLine)
+        return await link.underALine(forARowSentAgain || !toGo ? nil : named(Self.sendingLine, on: link))
             { _ -> (round: PendingQueue.Outcome?, list: [Reservation]?) in
             if !forARowSentAgain, toGo {
                 guard case .up = await link.check(evenIfRecent: link.checksAgain) else { return (nil, nil) }
@@ -928,11 +953,14 @@ public final class RecorderDriver: LinkDriver {
         }
     }
 
-    /// Said of a row sent again that the recorder passed over -- busy with another request, in standby, or
-    /// answering with nothing that says anything of the row -- and of one a connect's sending left so: it goes
-    /// by itself the next time the recorder answers.
-    public static let waitsPassedOver = "レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約を端末に保存しました。"
-        + "次にレコーダーにつながったときに登録します。予約タブで削除できます。"
+    /// Said of a reservation the recorder passed over -- busy with another request, in standby, or answering
+    /// with nothing that says anything of the row -- and of one a connect's sending left so: it goes by itself
+    /// the next time the recorder answers. A row sent again is said to be left on the phone, where it was
+    /// before it was sent (`stillPassedOver`).
+    public static let waitsPassedOver = "レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約を iPhone に保存しました。"
+        + "次にレコーダーにつながったときに送ります。予約タブで削除できます。"
+    public static let stillPassedOver = "レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約は iPhone に残しています。"
+        + "次にレコーダーにつながったときに送ります。予約タブで削除できます。"
     /// Said of a row sent again that the recorder's list held already, as the round found it before sending
     /// (`RecorderClient.openRound`).
     public static let foundThere = "レコーダーにはこの番組の予約がすでにありました。"
@@ -1035,7 +1063,7 @@ public final class RecorderDriver: LinkDriver {
         let began = link.generation
         var letGo: String?
         func sendNow() async -> OneSent? {
-            await link.underALine(Self.sendingLine) { _ -> OneSent? in
+            await link.underALine(self.named(Self.sendingLine, on: link)) { _ -> OneSent? in
                 let up = await link.ensureUp(evenIfRecent: link.checksAgain)
                 // The row as read before the check is the recorder let go of's: the reason the arrival wrote stands.
                 guard !link.letGo(since: began) else {
@@ -1062,14 +1090,16 @@ public final class RecorderDriver: LinkDriver {
         if link.offline {
             await takeTheReasonOff()
             guard await connectFirst() else {
-                return (nil, nil, await leftToTheConnect(row, consentingTo: consent, on: link, from: store))
+                return (nil, nil, Self.sentAgain(await leftToTheConnect(row, consentingTo: consent, on: link,
+                                                                         from: store)))
             }
         }
         var sent = await sendNow()
         if sent == nil, letGo == nil, await connectFirst() { sent = await sendNow() }
         if let letGo { return (nil, nil, .notDone(letGo)) }
         guard let sent else {
-            return (nil, nil, await leftToTheConnect(row, consentingTo: consent, on: link, from: store))
+            return (nil, nil, Self.sentAgain(await leftToTheConnect(row, consentingTo: consent, on: link,
+                                                                     from: store)))
         }
         // Let go of while the round was out: the reason the arrival wrote on the row stands, and what came of the
         // round is not the one in play's to say.
@@ -1082,8 +1112,18 @@ public final class RecorderDriver: LinkDriver {
             row.problem = nil
             await link.owner?.queueWritten()
         }
-        return (sent.round, sent.list, await came(row, sent, from: store))
+        return (sent.round, sent.list, Self.sentAgain(await came(row, sent, from: store)))
     }
+
+    /// What a row sent again is answered as where it is kept with a sentence a reservation just asked for is
+    /// kept with: in that sentence's own for a row sent again (`stillKeptUnsent`, `stillPassedOver`), as a
+    /// television's (`TVDriver.sentAgain`). Any other answer is as it came.
+    private static func sentAgain(_ came: Reserved?) -> Reserved? {
+        guard case .waiting(let row, let said)? = came, let still = keptStill[said] else { return came }
+        return .waiting(row, saying: still)
+    }
+
+    private static let keptStill = [keptUnsent: stillKeptUnsent, waitsPassedOver: stillPassedOver]
 
     /// What a round for one row, and the list read after it, hand back: nil for a round that never ran, and
     /// for a list that was not read.
@@ -1204,11 +1244,14 @@ public final class RecorderDriver: LinkDriver {
     // MARK: - deleting a waiting row
 
     /// What is said of a waiting row the reader asked to delete when a sending whose turn came first made it
-    /// (`deleteWaiting`): the queue's own sentence for a row it sent, as the strip and the notifications say it
-    /// -- naming `device`, which the app gives once a television is saved beside the recorder, and nil before,
-    /// as the strip names it. The row was made as any sending makes one, and has no sentence of its own.
+    /// (`deleteWaiting`): not the queue's sentence for a row it sent, which the strip says, but that it was not
+    /// deleted and how to undo the reservation, as a television's says it (`TVDriver.madeBeforeItsDelete`). It
+    /// names the recorder whatever `device` is -- the word the app gives once a television is saved beside the
+    /// recorder, or nil before: the reader is told where to delete the reservation.
     public nonisolated static func madeBeforeItsDelete(_ row: PendingReservation, naming device: String?) -> String {
-        PendingQueue.Outcome(slot: RecorderClient.slot, sent: [row]).says(naming: device) ?? ""
+        let device = device ?? RecorderClient.slot.label
+        return "「\(row.request.title)」は、削除する前に\(device)に予約されていました。"
+            + "取り消すときは、\(device)の予約を削除してください。"
     }
 
     /// The recorder's half of deleting a row that waits for it, as the reader asks: the row is taken off the
@@ -1302,7 +1345,7 @@ public final class RecorderDriver: LinkDriver {
     /// the list just read had one: that list was itself out of date, and it has been read again. And when the
     /// list just read has the reservation's id on another programme (`ReservationFoundAgain.changed`): nothing was
     /// sent, and the list on screen is that one.
-    public static let renumbered = "レコーダー側で予約が更新されていました。一覧を更新したので、もう一度お試しください。"
+    public static let renumbered = "レコーダー側で予約が変更されていました。一覧を更新したので、もう一度お試しください。"
 
     /// Said when a write met silence. Whether it arrived is not known, which is exactly why it is not sent
     /// again, and what the list says once the recorder answers is the only way to find out.
@@ -1373,7 +1416,8 @@ public final class RecorderDriver: LinkDriver {
         // that the app is not connected stands for it.
         func whatTheLinkSaid() -> Altered { .notDone(owner?.problem ?? whyNotConnected) }
         let began = link.generation
-        return await link.underALine(Self.deletingLine) { _ -> (deleted: Altered?, list: [Reservation]?) in
+        let line = named(Self.deletingLine, on: link)
+        return await link.underALine(line) { _ -> (deleted: Altered?, list: [Reservation]?) in
             let read = await self.reservations(since: began, underALine: false)
             guard !link.letGo(since: began) else { return (.notDone(self.whyLetGo(on: link)), nil) }
             guard let read else { return (whatTheLinkSaid(), nil) }
@@ -1530,7 +1574,8 @@ public final class RecorderDriver: LinkDriver {
         // What a read, or the slot's silence, left on the line, said again, as for a delete.
         func whatTheLinkSaid() -> Altered { .notDone(owner?.problem ?? whyNotConnected) }
         let began = link.generation
-        return await link.underALine(Self.changingLine) { _ -> (altered: Altered?, list: [Reservation]?) in
+        let line = named(Self.changingLine, on: link)
+        return await link.underALine(line) { _ -> (altered: Altered?, list: [Reservation]?) in
             let read = await self.reservations(since: began, underALine: false)
             guard !link.letGo(since: began) else { return (.notDone(self.whyLetGo(on: link)), nil) }
             guard let read else { return (whatTheLinkSaid(), nil) }
@@ -1700,18 +1745,21 @@ public final class RecorderDriver: LinkDriver {
     // MARK: - reserving a programme
 
     /// The line on screen while a reservation the reader has just asked for is made.
-    public static let reservingLine = "予約を登録中"
+    public static let reservingLine = "予約を送信中"
 
     /// Said of a reservation kept on the phone because the recorder could not be asked: it goes the next time
-    /// the recorder answers.
-    public static let keptUnsent = "レコーダーに届かなかったので、予約を端末に保存しました。"
-        + "次にレコーダーにつながったときに登録します。予約タブで削除できます。"
+    /// the recorder answers. A row sent again is said to be left on the phone, where it was before it was sent
+    /// (`stillKeptUnsent`).
+    public static let keptUnsent = "レコーダーに送れなかったため、予約を iPhone に保存しました。"
+        + "次にレコーダーにつながったときに送ります。予約タブで削除できます。"
+    public static let stillKeptUnsent = "レコーダーに送れなかったため、予約は iPhone に残しています。"
+        + "次にレコーダーにつながったときに送ります。予約タブで削除できます。"
 
-    /// What a screen says a reservation on the recorder will do, before the reader confirms it: registered, or,
-    /// with the recorder known to be away (`away`), kept on the phone and registered at the next connect.
+    /// What a screen says a reservation on the recorder will do, before the reader confirms it: sent, or, with
+    /// the recorder known to be away (`away`), kept on the phone and sent at the next connect.
     public static func confirming(away: Bool) -> String {
-        away ? "レコーダーに接続できないため、予約を端末に保存します。次につながったときに登録します。"
-            : "レコーダーに予約を登録します。"
+        away ? "レコーダーに接続できないため、予約を iPhone に保存します。次につながったときに送ります。"
+            : "レコーダーに予約を送ります。"
     }
 
     /// The title of that question while the recorder is known to be away, when the reservation is to wait on the
@@ -1843,7 +1891,8 @@ public final class RecorderDriver: LinkDriver {
             await owner?.queueWritten()
             return .notDone(whyLetGo(on: link))
         }
-        return await link.underALine(Self.reservingLine) { _ -> (reserved: Reserved, list: [Reservation]?) in
+        let line = named(Self.reservingLine, on: link)
+        return await link.underALine(line) { _ -> (reserved: Reserved, list: [Reservation]?) in
             switch await link.check(evenIfRecent: link.checksAgain) {
             case .up:
                 break
