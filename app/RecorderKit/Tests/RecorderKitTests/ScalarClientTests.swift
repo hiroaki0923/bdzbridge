@@ -1137,6 +1137,115 @@ final class ScalarClientTests: XCTestCase {
         ])
     }
 
+    // MARK: - the recordings on its disk
+
+    /// A page of a content list is asked for in the version given, with the parameters given as its one object and
+    /// with the cookie, and its rows come back as the television wrote them: a string, a whole number, a number with
+    /// a fraction, a boolean, a list, an object and a null each kept as what it was written as. A count is read
+    /// likewise.
+    func testAContentPageAndCountAreSentAsGivenAndReadAsWritten() async throws {
+        let rows = #"[[{"uri":"usb:recStorage?id=7","title":"サンプル","durationSec":1800,"#
+            + #""isProtected":false,"isNew":"true","position":{"value":0.5},"audioCodec":["aac"],"output":null},"#
+            + #"{"uri":"usb:recStorage?id=8","durationSec":1799.5}]]"#
+        let counted = ok(#"[{"count":2}]"#), listed = ok(rows)
+        let transport = StubTransport { request, _ in
+            let method = (try? JSONSerialization.jsonObject(with: request.body ?? Data()) as? [String: Any])?["method"]
+            return method as? String == "getContentCount" ? counted : listed
+        }
+        let (tv, _) = client(transport, Self.kept)
+
+        let page = try await tv.contentPage(version: "1.5", params: ["uri": "usb:recStorage", "stIdx": 0, "cnt": 50])
+        let count = try await tv.contentCount(version: "1.1", params: ["source": "usb:recStorage", "target": "all"])
+
+        XCTAssertEqual(page, [
+            ["uri": "usb:recStorage?id=7", "title": "サンプル", "durationSec": 1800, "isProtected": false,
+             "isNew": "true", "position": .object(["value": .double(0.5)]), "audioCodec": .list(["aac"]),
+             "output": .null],
+            ["uri": "usb:recStorage?id=8", "durationSec": .double(1799.5)],
+        ])
+        XCTAssertEqual(page.first?["isProtected"]?.kind, "bool")
+        XCTAssertEqual(page.first?["durationSec"]?.kind, "int")
+        XCTAssertEqual(page.last?["durationSec"]?.kind, "double")
+        XCTAssertEqual(count, 2)
+        let sent = await transport.requests
+        XCTAssertEqual(sent.map { $0.url.path }, ["/sony/avContent", "/sony/avContent"])
+        XCTAssertTrue(sent.allSatisfy { $0.headers["Cookie"] == "auth=kept" })
+        let list = try json(sent[0]), countAsked = try json(sent[1])
+        XCTAssertEqual(list["method"] as? String, "getContentList")
+        XCTAssertEqual(list["version"] as? String, "1.5")
+        XCTAssertEqual(list["params"] as? NSArray, [["uri": "usb:recStorage", "stIdx": 0, "cnt": 50]] as NSArray)
+        XCTAssertEqual(countAsked["method"] as? String, "getContentCount")
+        XCTAssertEqual(countAsked["version"] as? String, "1.1")
+        XCTAssertEqual(countAsked["params"] as? NSArray, [["source": "usb:recStorage", "target": "all"]] as NSArray)
+    }
+
+    /// The television's error is thrown with its code, 41020 for a disk not connected; an answer that is not a list
+    /// of objects in a list, or a count that is not a whole number, cannot be read; and with nothing registered,
+    /// nothing is sent.
+    func testAContentPageThatIsNoListIsUnreadableAndAnErrorKeepsItsCode() async throws {
+        let notThere = StubTransport(always: failed(41020, "Storage doesn't exist."))
+        let (tv, _) = client(notThere, Self.kept)
+        do {
+            _ = try await tv.contentPage(version: "1.0", params: ["source": "usb:recStorage", "stIdx": 0, "cnt": 50])
+            XCTFail("no error")
+        } catch let error as ScalarError {
+            XCTAssertEqual(error, .rpc(method: "getContentList", version: "1.0", code: 41020,
+                                       message: "Storage doesn't exist."))
+        }
+
+        for (name, answer) in [("no list", #"[{"uri":"x"}]"#), ("a row that is no object", #"[["x"]]"#),
+                               ("nothing", "[]")] {
+            let (odd, _) = client(StubTransport(always: ok(answer)), Self.kept)
+            expectEqual(await failure { _ = try await odd.contentPage(version: "1.0", params: [:]) },
+                        ScalarError.unreadable(method: "getContentList").failure, name)
+        }
+        for (name, answer) in [("a count with a fraction", #"[{"count":1.5}]"#), ("no count", #"[{}]"#),
+                               ("a count as a string", #"[{"count":"2"}]"#)] {
+            let (odd, _) = client(StubTransport(always: ok(answer)), Self.kept)
+            expectEqual(await failure { _ = try await odd.contentCount(version: "1.0", params: [:]) },
+                        ScalarError.unreadable(method: "getContentCount").failure, name)
+        }
+
+        let nothing = StubTransport(always: ok("[[]]"))
+        let (unregistered, _) = client(nothing)
+        expectEqual(await failure { _ = try await unregistered.contentPage(version: "1.0", params: [:]) },
+                    .needsPairing)
+        let none = await nothing.requests
+        XCTAssertTrue(none.isEmpty, "sent without a registration")
+    }
+
+    /// The recording status is asked for without the cookie; a protect and a delete with it, each with the uri as
+    /// the list gave it, in version 1.0 as the television's signatures say.
+    func testTheRecordingStatusAProtectAndADeleteAreSentAsTheSignaturesSay() async throws {
+        let status = ok(#"[{"status":"notStarted"}]"#), done = ok("[]")
+        let transport = StubTransport { request, _ in
+            let method = (try? JSONSerialization.jsonObject(with: request.body ?? Data()) as? [String: Any])?["method"]
+            return method as? String == "getRecordingStatus" ? status : done
+        }
+        let (tv, _) = client(transport, Self.kept)
+
+        let said = try await tv.recordingStatus()
+        try await tv.setDeleteProtection(uri: "usb:recStorage?id=7", true)
+        try await tv.setDeleteProtection(uri: "usb:recStorage?id=7", false)
+        try await tv.deleteContent(uri: "usb:recStorage?id=7")
+
+        XCTAssertEqual(said, "notStarted")
+        let sent = await transport.requests
+        XCTAssertEqual(sent.map { $0.url.path }, ["/sony/recording", "/sony/avContent", "/sony/avContent",
+                                                  "/sony/avContent"])
+        XCTAssertEqual(sent.map { $0.headers["Cookie"] }, [nil, "auth=kept", "auth=kept", "auth=kept"])
+        let bodies = try sent.map { try json($0) }
+        XCTAssertEqual(bodies.map { $0["method"] as? String },
+                       ["getRecordingStatus", "setDeleteProtection", "setDeleteProtection", "deleteContent"])
+        XCTAssertEqual(bodies.map { $0["version"] as? String }, ["1.0", "1.0", "1.0", "1.0"])
+        XCTAssertEqual(bodies.map { $0["params"] as? NSArray }, [
+            [] as NSArray,
+            [["uri": "usb:recStorage?id=7", "isProtected": true]] as NSArray,
+            [["uri": "usb:recStorage?id=7", "isProtected": false]] as NSArray,
+            [["uri": "usb:recStorage?id=7"]] as NSArray,
+        ])
+    }
+
     // MARK: - the same on the invented television
 
     /// What the invented television answers a request put to it as it is written here, which the client
