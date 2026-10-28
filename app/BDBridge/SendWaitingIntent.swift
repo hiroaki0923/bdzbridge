@@ -12,7 +12,7 @@ import RecorderKit
 struct SendWaitingIntent: AppIntent {
     static let title: LocalizedStringResource = "送信待ちの予約を送る"
     static let description = IntentDescription("""
-        iPhone にためている録画予約を、レコーダーやテレビに送ります。自宅の Wi-Fi に接続したときのオートメーションに使えます。\
+        送信待ちの録画予約を、レコーダーやテレビに送ります。自宅の Wi-Fi に接続したときのオートメーションに使えます。\
         送るものがないときは、レコーダーにもテレビにも何もしません。
         """)
 
