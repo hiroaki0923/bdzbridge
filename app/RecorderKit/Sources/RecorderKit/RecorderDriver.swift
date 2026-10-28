@@ -1043,9 +1043,12 @@ public final class RecorderDriver: LinkDriver {
     /// round is read by `came`. Where no round answers for it: nil for one turned away at the door or no longer
     /// in the queue; not done, saying why, for one whose check let go of the recorder; what the queue shows of
     /// it once a connect made here is over (`leftToTheConnect`); and otherwise kept, to go the next time the
-    /// recorder answers (`notSent`).
-    public func resend(_ waiting: PendingReservation) async
+    /// recorder answers (`notSent`). A row kept is answered as one that was already waiting (`sentAgain`), but
+    /// for one that `neverWaited`: the row of a reservation the reader asked for a moment ago, sent on the screen
+    /// that asked, which is answered as that reservation is.
+    public func resend(_ waiting: PendingReservation, neverWaited: Bool = false) async
         -> (round: PendingQueue.Outcome?, list: [Reservation]?, came: Reserved?) {
+        func again(_ came: Reserved?) -> Reserved? { neverWaited ? came : Self.sentAgain(came) }
         guard waiting.target == RecorderClient.slot, let link, let store = link.owner?.cache else {
             return (nil, nil, nil)
         }
@@ -1090,16 +1093,14 @@ public final class RecorderDriver: LinkDriver {
         if link.offline {
             await takeTheReasonOff()
             guard await connectFirst() else {
-                return (nil, nil, Self.sentAgain(await leftToTheConnect(row, consentingTo: consent, on: link,
-                                                                         from: store)))
+                return (nil, nil, again(await leftToTheConnect(row, consentingTo: consent, on: link, from: store)))
             }
         }
         var sent = await sendNow()
         if sent == nil, letGo == nil, await connectFirst() { sent = await sendNow() }
         if let letGo { return (nil, nil, .notDone(letGo)) }
         guard let sent else {
-            return (nil, nil, Self.sentAgain(await leftToTheConnect(row, consentingTo: consent, on: link,
-                                                                     from: store)))
+            return (nil, nil, again(await leftToTheConnect(row, consentingTo: consent, on: link, from: store)))
         }
         // Let go of while the round was out: the reason the arrival wrote on the row stands, and what came of the
         // round is not the one in play's to say.
@@ -1112,7 +1113,7 @@ public final class RecorderDriver: LinkDriver {
             row.problem = nil
             await link.owner?.queueWritten()
         }
-        return (sent.round, sent.list, Self.sentAgain(await came(row, sent, from: store)))
+        return (sent.round, sent.list, again(await came(row, sent, from: store)))
     }
 
     /// What a row sent again is answered as where it is kept with a sentence a reservation just asked for is

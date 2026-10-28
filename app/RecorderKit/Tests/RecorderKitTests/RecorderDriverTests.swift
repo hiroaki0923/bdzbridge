@@ -253,7 +253,8 @@ final class RecorderDriverTests: XCTestCase {
 
     /// A row sent again that the recorder could not be asked about waits on, as a reservation kept for a recorder
     /// that is away does, and is said to be left on the phone, where it was before it was sent -- not saved there
-    /// now, as a reservation just asked for is. Each in the letters a sheet shows.
+    /// now, as a reservation just asked for is, and as the row of one asked for a moment ago still is. Each in
+    /// the letters a sheet shows.
     func testARowSentAgainThatStillWaitsIsSaidToBeLeftOnThePhone() async throws {
         XCTAssertEqual(RecorderDriver.keptUnsent, "レコーダーに送れなかったため、予約を iPhone に保存しました。"
                            + "次にレコーダーにつながったときに送ります。予約タブで削除できます。")
@@ -282,6 +283,9 @@ final class RecorderDriverTests: XCTestCase {
 
         XCTAssertFalse(link.session.connected, "nothing was to answer")
         XCTAssertEqual(came, .waiting(row, saying: RecorderDriver.stillKeptUnsent))
+        let justAsked = await driver.resend(row, neverWaited: true).came
+        XCTAssertEqual(justAsked, .waiting(row, saying: RecorderDriver.keptUnsent),
+                       "a reservation asked for a moment ago was said to be left on the phone")
     }
 
     /// A waiting row the reader asked to delete that a sending made first is said not to have been deleted, and

@@ -1875,8 +1875,9 @@ special mode without scenes"; its article "Creating your first app intent" has t
 place your app intent types in an app extension, and run them in a separate process from the rest of your
 app." The delete reads the television's list in its turn, before it deletes anything. Where the list holds the
 row's programme -- though the row still waits, as one does whose create the television took and whose answer
-was lost -- the row is taken out of the queue as a row made and said so in the strip's sentence for a row sent
-(`TVDriver.madeBeforeItsDelete`), not as deleted. So is a row a sending took meanwhile whose programme is not
+was lost -- the row is taken out of the queue as a row made, and the reader is told that it was made before the
+delete and where to delete it, not that it was deleted (`TVDriver.madeBeforeItsDelete`:
+「「…」は、削除する前にテレビに予約されていました。取り消すときは、テレビの予約を削除してください。」). So is a row a sending took meanwhile whose programme is not
 over, though the list cannot be read: while the television is in play, nothing else takes such a row out but
 the app's own delete, and a row has one delete at a time -- a second, asked for while the first waits its
 turn, comes back at once with nothing said. What the delete cannot tell: a row whose create the television

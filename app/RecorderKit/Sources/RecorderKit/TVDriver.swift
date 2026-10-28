@@ -1113,8 +1113,13 @@ public final class TVDriver: LinkDriver {
     ///   (`leftToTheConnect`), nil where its sending took the row out.
     /// - Held for what it would stop and not sent after all, the television still not one that can be
     ///   asked: the row with its reason, and why it was not sent (`notSent`).
-    public func resend(_ waiting: PendingReservation) async
+    ///
+    /// A row kept is answered as one that was already waiting (`sentAgain`), but for one that `neverWaited`:
+    /// the row of a reservation the reader asked for a moment ago, sent on the screen that asked, which is
+    /// answered as that reservation is.
+    public func resend(_ waiting: PendingReservation, neverWaited: Bool = false) async
         -> (round: PendingQueue.Outcome?, list: [Reservation]?, came: Reserved?) {
+        func again(_ came: Reserved?) -> Reserved? { neverWaited ? came : Self.sentAgain(came) }
         guard waiting.target == ScalarClient.slot, let link, let store = link.owner?.cache else {
             return (nil, nil, nil)
         }
@@ -1132,7 +1137,7 @@ public final class TVDriver: LinkDriver {
         if !canBeAsked(on: link) {
             await link.connect()
             guard consent != nil else {
-                return (nil, nil, Self.sentAgain(await leftToTheConnect(row, on: link, from: store)))
+                return (nil, nil, again(await leftToTheConnect(row, on: link, from: store)))
             }
         }
         let sent = await sendOne(row, consentingTo: consent, under: Self.sendingLine, on: link, from: store)
@@ -1141,7 +1146,7 @@ public final class TVDriver: LinkDriver {
            (try? await store.setPendingProblem(row.id, nil)) != nil {
             row.problem = nil
         }
-        return (sent.round, sent.list, Self.sentAgain(await came(row, sent, from: store)))
+        return (sent.round, sent.list, again(await came(row, sent, from: store)))
     }
 
     /// What a row sent again is answered as where it is kept with a sentence a reservation just asked for is

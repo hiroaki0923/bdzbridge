@@ -297,17 +297,16 @@ extension AppModel {
     /// "You can also place your app intent types in an app extension, and run them in a separate process from
     /// the rest of your app."
     ///
-    /// The television's driver is handed what the app holds as it stands in the turn: the phone's queue, the
-    /// list of the television in play, read by its host, which keeps it for the screens
-    /// (`DeviceHost.readReservationsNow`), and whether one is in play. The recorder's driver hands back the list it
-    /// read in the turn, kept on what was said as the delete began (`RecorderSaid.keep`). A row made is
-    /// not deleted, and what to say in place of that is handed back, as the strip says a row sent
-    /// (`TVDriver.madeBeforeItsDelete`, `RecorderDriver.madeBeforeItsDelete`, naming the recorder as the strip
-    /// does: `deviceSaid`). So a row has one delete at a time: a second one, asked for while the first waits its
-    /// turn -- the row is still listed then, and the reader can confirm again -- would find the row gone and say
-    /// it was made, and it comes back with nil at once instead. The warning of reservations not yet at the
-    /// television is taken away once none of its rows waits (`forgetTheWarningOnceSent`), and so is the
-    /// recorder's (`forgetTheRecordersWarningOnceSent`).
+    /// The television's driver is handed what the app holds as it stands in the turn: the phone's queue, the list of
+    /// the television in play, read by its host, which keeps it for the screens (`DeviceHost.readReservationsNow`), and
+    /// whether one is in play. The recorder's driver hands back the list it read in the turn, kept on what was said as
+    /// the delete began (`RecorderSaid.keep`). A row made is not deleted, and what is handed back in place of that says
+    /// it was made before the delete and where to delete the reservation (`TVDriver.madeBeforeItsDelete`,
+    /// `RecorderDriver.madeBeforeItsDelete`), not the strip's sentence for a row sent. So a row has one delete at a
+    /// time: a second one, asked for while the first waits its turn -- the row is still listed then, and the reader can
+    /// confirm again -- would find the row gone and say it was made, and it comes back with nil at once instead. The
+    /// warning of reservations not yet at the television is taken away once none of its rows waits
+    /// (`forgetTheWarningOnceSent`), and so is the recorder's (`forgetTheRecordersWarningOnceSent`).
     ///
     /// Nil when the row was deleted, when nothing was done while its device works or while the row has a
     /// delete under way already, and when the row has gone and nothing says it was made.

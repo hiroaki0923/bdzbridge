@@ -2604,7 +2604,8 @@ final class TVDriverTests: XCTestCase {
     /// None of them is said to go by itself. A row that went with its consent and was left unsettled --
     /// passed over, or its create met by silence -- waits with no reason, and is handed back with none; so
     /// is one whose reason was taken off before a round that stopped at the disk. A row kept is said to be left
-    /// on the phone, where it was before it was sent, and not saved there now.
+    /// on the phone, where it was before it was sent, and not saved there now -- but for the row of a
+    /// reservation asked for a moment ago, which is said to be saved, as that reservation is.
     func testWhatARowSentAgainCameToIsHandedBack() async throws {
         let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確かめてください。"
         let toBeRegistered = "テレビへの登録が必要です。設定の「テレビ」から登録してください"
@@ -2700,6 +2701,11 @@ final class TVDriverTests: XCTestCase {
         await passedOver.gate.answer(Self.question, with: nothingSaid)
         try await expect("sent with its consent and passed over", clashing, on: passedOver,
                          .waiting(film, saying: unanswered))
+        let justAsked = try await resendBench([clashing], holding: holding)
+        await justAsked.gate.answer(Self.question, with: nothingSaid)
+        expectEqual(await justAsked.driver.resend(clashing, neverWaited: true).came,
+                    .waiting(film, saying: TVDriver.waitsUnanswered),
+                    "a reservation asked for a moment ago was said to be left on the phone")
         let met = try await resendBench([clashing], holding: holding)
         await met.television.atTheNextCreate(.carriedOutAndNotAnswered)
         try await expect("sent with its consent, its create met by silence", clashing, on: met,
