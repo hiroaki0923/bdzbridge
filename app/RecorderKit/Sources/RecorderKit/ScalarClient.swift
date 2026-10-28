@@ -602,21 +602,34 @@ public actor ScalarClient {
 
     /// One page of a content list: `avContent.getContentList` in `version`, with `params` as its one parameter
     /// object, sent with the cookie as every request that needs the registration is. The rows as the television
-    /// wrote them, each an object. The versions take their parameters differently -- 1.0 and 1.2 a `source`, 1.5
-    /// a `uri` -- and are said to fill different fields, so which to read the recordings with, and what each of
-    /// its fields is, are measured through this before a reader of them is written on it. An answer that is not
-    /// a list of objects in a list throws as one that cannot be read; the method's own errors are thrown as any
-    /// method's are, 41020 among them, which a television answered while its disk was not connected.
-    func contentPage(version: String, params: [String: ScalarValue]) async throws -> [[String: ScalarValue]] {
+    /// wrote them, each an object (`contentRows`). The versions take their parameters differently -- 1.0 and 1.2
+    /// a `source`, 1.5 a `uri` -- and are said to fill different fields, so which to read the recordings with, and
+    /// what each of its fields is, are measured through this before a reader of them is written on it. The
+    /// method's own errors are thrown as any method's are, 41020 among them, which a television answered while its
+    /// disk was not connected. `timeout` is the client's own unless given.
+    func contentPage(version: String, params: [String: ScalarValue],
+                     timeout: TimeInterval? = nil) async throws -> [[String: ScalarValue]] {
+        try Self.contentRows(try await contentResult(version: version, params: params, timeout: timeout))
+    }
+
+    /// The whole `result` of `avContent.getContentList` in `version`, sent as `contentPage` sends it, as the
+    /// television wrote it: what a page is read from, and what is left to look at when it is not a page.
+    func contentResult(version: String, params: [String: ScalarValue],
+                       timeout: TimeInterval? = nil) async throws -> ScalarValue {
         let result = try await authenticated("avContent", "getContentList", version: version,
-                                             params: [params.mapValues(\.json)])
-        guard let rows = (result as? [Any])?.first as? [Any] else {
+                                             params: [params.mapValues(\.json)], timeout: timeout)
+        guard let value = ScalarValue(json: result) else { throw ScalarError.unreadable(method: "getContentList") }
+        return value
+    }
+
+    /// The rows of a content list's `result`: a list of objects in a list. Anything else throws as an answer that
+    /// cannot be read.
+    static func contentRows(_ result: ScalarValue) throws -> [[String: ScalarValue]] {
+        guard case .list(let outer) = result, case .list(let rows)? = outer.first else {
             throw ScalarError.unreadable(method: "getContentList")
         }
         return try rows.map { row in
-            guard case .object(let fields)? = ScalarValue(json: row) else {
-                throw ScalarError.unreadable(method: "getContentList")
-            }
+            guard case .object(let fields) = row else { throw ScalarError.unreadable(method: "getContentList") }
             return fields
         }
     }
@@ -624,9 +637,10 @@ public actor ScalarClient {
     /// How many items a content list holds: `avContent.getContentCount` in `version`, with `params` as its one
     /// parameter object, sent as `contentPage` sends. An answer without a whole `count` throws as one that cannot
     /// be read.
-    func contentCount(version: String, params: [String: ScalarValue]) async throws -> Int {
+    func contentCount(version: String, params: [String: ScalarValue],
+                      timeout: TimeInterval? = nil) async throws -> Int {
         let result = try await authenticated("avContent", "getContentCount", version: version,
-                                             params: [params.mapValues(\.json)])
+                                             params: [params.mapValues(\.json)], timeout: timeout)
         guard let written = (result as? [[String: Any]])?.first?["count"],
               case .int(let count)? = ScalarValue(json: written) else {
             throw ScalarError.unreadable(method: "getContentCount")

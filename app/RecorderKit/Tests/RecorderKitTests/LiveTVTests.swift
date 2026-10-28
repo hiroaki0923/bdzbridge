@@ -722,15 +722,16 @@ private final class FileTVCredentials: TVCredentialStore, @unchecked Sendable {
 /// The television's recordings -- `avContent.getContentList` and `getContentCount` of `usb:recStorage` -- read
 /// through the client's own entry for them (`ScalarClient.contentPage`, `contentCount`) on the transport the app
 /// sends with, and, with leave, protected, unprotected and deleted by the client's requests for those. What every
-/// one of them says is counts, error codes, key names, the types of values, the form a start is written in, the
-/// scheme of a uri, power states and seconds; of a recording, its place in the list, its start as a time of day
-/// (HH:mm, Japan time) and its length in minutes; never a title, a channel's name, a uri or an address.
+/// one of them says is counts, error codes, key names, the types of values, the form a start and a uri are
+/// written in, power states and seconds; of a recording, its place in the list, its start as a time of day
+/// (HH:mm, Japan time), its length in minutes and its short flags; never a title, a channel's name or number, a
+/// uri or an address. Each request is said as it is sent, and what came of it once it came.
 ///
 /// Every command is written out whole, from `app/RecorderKit`, its variables on the command line in front of
 /// `swift test` and never exported, one test to a command and never two at once; `TV_JAR` is the registration
 /// `testRegistering` kept, which `testReadingWhatNeedsTheRegistration` is run with first to see the television
 /// still takes it. The disk the television records to is connected, with at least one recording on it that the
-/// owner made with the remote.
+/// owner made with the remote; two let `testTheRecordingsPagePastTheEnd` check where a page starts directly.
 ///
 /// The versions a list is asked for in are named by the labels of `ContentAsking.lists`: `1.0`, `1.2`, `1.2+all`
 /// and `1.5`. `testReadingTheRecordings` asks in all of them; the others ask in the one `TV_CONTENT_VERSION`
@@ -744,15 +745,17 @@ extension LiveTVTests {
     ///     TV_HOST=192.0.2.20 TV_JAR=<the jar> swift test --filter LiveTVTests/testReadingTheRecordings
     ///
     /// The television is on, the owner at it watching the panel, which is to go on as it was. For each version it
-    /// says how many rows came or the error's code; the keys of the rows, with how many rows have each and the
-    /// types its values came as, nested ones too; how the start is written and whether the app reads it; the
-    /// schemes of the uris and the names of their query's parameters; the values of the flags (`isProtected`,
-    /// `isNew`, `hasResume` and the like); and whether the counts match the rows. Then each recording, by its
-    /// place, start and length, from the first version that listed any, which is how a write below names one.
+    /// says how many rows came or the error's code, or, for an answer that is no page, its structure by types
+    /// alone; the keys of the rows, with how many rows have each and the types its values came as, nested ones
+    /// too; how the start is written and whether the app reads it; the forms of the uris and the names of their
+    /// query's parameters; the values of the flags (`isProtected`, `isNew`, `hasResume` and the like); then each
+    /// row by its place, start, length and protection, whether it has `recordingInfo` and `stateInfo`, and its
+    /// short values, nested ones too, which is how a recording being recorded is told from one that has ended;
+    /// and whether the counts match the rows. A write below names a recording by the start said here.
     func testReadingTheRecordings() async throws {
         let client = try recordingsClient()
         let say = Self.sayAtOnce
-        await sayingPower(of: client, say, "at first")
+        await Self.sayingPower(of: client, say, "at first")
         await ask("getStorageList", of: client, say) { "mounted \(try await client.storage().mounted)" }
         var counts: [String: Int] = [:]
         for asking in ContentAsking.counts {
@@ -763,17 +766,12 @@ extension LiveTVTests {
             }
         }
         var listed: [String: Int] = [:]
-        var named = false
         for asking in ContentAsking.lists {
             await ask(asking.said, of: client, say) {
-                let rows = try await client.contentPage(version: asking.version, params: asking.params(0, 50))
+                let rows = try await Self.page(asking, 0, 50, of: client, say)
                 listed[asking.label] = rows.count
                 for line in RecordingRows.shape(of: rows) { say("  " + line) }
-                if !named, !rows.isEmpty {
-                    named = true
-                    say("  the recordings, as listed here:")
-                    for line in RecordingRows.byStart(rows) { say("    " + line) }
-                }
+                for line in RecordingRows.each(rows) { say("  " + line) }
                 return "\(rows.count) rows"
             }
         }
@@ -793,12 +791,13 @@ extension LiveTVTests {
     ///         swift test --filter LiveTVTests/testTheRecordingsPagePastTheEnd
     ///
     /// The television is on, the owner at it watching the panel. It says, for each page, how many rows came or the
-    /// error's code, and the `index` the first rows give, if they give one.
+    /// error's code, and the `index` the first rows give, if they give one; and where `stIdx` counts from, by the
+    /// second row where there are two, otherwise by the page from the number of rows.
     func testTheRecordingsPagePastTheEnd() async throws {
         let client = try recordingsClient()
         let asking = try ContentAsking.named()
         let say = Self.sayAtOnce
-        await sayingPower(of: client, say, "at first")
+        await Self.sayingPower(of: client, say, "at first")
         var all: [[String: ScalarValue]] = []
         await ask("the list fifty at a time", of: client, say, afterwards: false) {
             all = try await Self.everyRow(asking, of: client)
@@ -811,33 +810,41 @@ extension LiveTVTests {
                                            ("from fifty more", all.count + 50, 50),
                                            ("a hundred from the first", 0, 100),
                                            ("two hundred from the first", 0, 200)]
+        var pastTheLast: Int?
         for (what, index, count) in pages {
             await ask("\(what) (stIdx \(index), cnt \(count))", of: client, say, afterwards: false) {
-                let rows = try await client.contentPage(version: asking.version, params: asking.params(index, count))
+                let rows = try await Self.page(asking, index, count, of: client, say)
+                if index == all.count, count == 50 { pastTheLast = rows.count }
                 return "\(rows.count) rows"
             }
         }
         if all.count >= 2 {
             await ask("one row from the second (stIdx 1, cnt 1)", of: client, say, afterwards: false) {
-                let rows = try await client.contentPage(version: asking.version, params: asking.params(1, 1))
+                let rows = try await Self.page(asking, 1, 1, of: client, say)
                 let same = rows.first?["uri"] != nil && rows.first?["uri"] == all[1]["uri"]
-                return "\(rows.count) rows, the second row of the list: \(same ? "yes" : "no")"
+                return "\(rows.count) rows, the second row of the list: \(same ? "yes, stIdx counts from 0" : "no")"
             }
+        } else if !all.isEmpty, let pastTheLast {
+            say("stIdx, by the page from the number of rows: " + (pastTheLast == 0
+                ? "counts from 0 (the page past the last row is empty)"
+                : "counts from 1, or a page past the end is not empty (\(pastTheLast) rows)"))
         }
-        await sayingPower(of: client, say, "at the end")
+        await Self.sayingPower(of: client, say, "at the end")
     }
 
     /// The recordings read with the television in standby, in the version `TV_CONTENT_VERSION` names:
-    /// `getPowerStatus`, `getStorageList`, a page of fifty, `getRecordingStatus`, the power status after each.
-    /// Makes nothing, and refuses unless the television says `standby` at first.
+    /// `getPowerStatus`, `getStorageList`, `getContentCount` 1.1, a page of fifty, `getRecordingStatus`, the power
+    /// status after each, fifteen seconds between one request and the next, and half a minute for the disk to
+    /// answer a count or a page. Makes nothing, and refuses unless the television says `standby` at first.
     ///
     ///     TV_HOST=192.0.2.20 TV_JAR=<the jar> TV_CONTENT_VERSION=<1.0, 1.2, 1.2+all or 1.5> \
     ///         swift test --filter LiveTVTests/testTheRecordingsInStandby
     ///
     /// The television has been switched off with its remote a few minutes before, and nothing else asks it or the
     /// recorder anything meanwhile. The owner is at it, watching the panel, which is to stay dark, the lamp, and
-    /// the disk, by its lamp or its sound, and writes down what each did. It says what `testReadingTheRecordings`
-    /// says of the version, and the power state before and after: `active` is not a lit panel.
+    /// the disk, by its lamp or its sound, and writes down what each did after which request: each is said as it
+    /// is sent. It says what `testReadingTheRecordings` says of the version, and the power state before and after:
+    /// `active` is not a lit panel.
     func testTheRecordingsInStandby() async throws {
         let client = try recordingsClient()
         let asking = try ContentAsking.named()
@@ -850,14 +857,24 @@ extension LiveTVTests {
         }
         say("power at first: \(power)")
         guard power == "standby" else { throw XCTSkip("the television says \(power), not standby") }
+        let gap = Duration.seconds(15), disk: TimeInterval = 30
         await ask("getStorageList", of: client, say) { "mounted \(try await client.storage().mounted)" }
+        try await Task.sleep(for: gap)
+        if let count = ContentAsking.counts.first(where: { $0.label == "1.1" }) {
+            await ask(count.said, of: client, say) {
+                "\(try await client.contentCount(version: count.version, params: count.params(0, 0), timeout: disk))"
+            }
+            try await Task.sleep(for: gap)
+        }
         await ask(asking.said, of: client, say) {
-            let rows = try await client.contentPage(version: asking.version, params: asking.params(0, 50))
+            let rows = try await Self.page(asking, 0, 50, of: client, say, timeout: disk)
             for line in RecordingRows.shape(of: rows) { say("  " + line) }
+            for line in RecordingRows.each(rows) { say("  " + line) }
             return "\(rows.count) rows"
         }
+        try await Task.sleep(for: gap)
         await ask("getRecordingStatus", of: client, say) { try await client.recordingStatus() }
-        await sayingPower(of: client, say, "at the end")
+        await Self.sayingPower(of: client, say, "at the end")
     }
 
     // MARK: - writes, at one sitting with the owner at the television
@@ -874,14 +891,16 @@ extension LiveTVTests {
     /// nothing, the owner at it watching the panel and, after each step, the protection the television's own list
     /// of recordings shows. It refuses, sending nothing, unless `TV_WRITE` is this test's name, the television says
     /// `active` and `notStarted`, and exactly one recording starts at that time of day, has ended and is not
-    /// protected. A protection left on when it fails is said, to be lifted with the remote.
+    /// protected; a row that gives no length the app reads is taken as ended, since the television says it is
+    /// recording nothing. After each write the list is read every two seconds, for twenty at most, until it shows
+    /// the change, and the seconds that took are said, with the power status. A protection that may be left on
+    /// when the test ends, however it ends, is said, to be lifted with the remote.
     func testProtectingARecordingAndLiftingIt() async throws {
         try await recordingWrite { at in
             let target = try await at.target(protected: false)
             try await at.protect(target, true)
-            try await at.protect(target, false)
-            let protected = try await at.read(target)
-            XCTAssertEqual(protected, false, "the recording is not read as unprotected at the end: lift it with the remote")
+            let lifted = try await at.protect(target, false)
+            XCTAssertEqual(lifted, false, "the recording is not read as unprotected at the end: lift it with the remote")
         }
     }
 
@@ -893,55 +912,57 @@ extension LiveTVTests {
     ///         TV_WRITE=testDeletingAProtectedRecording \
     ///         swift test --filter LiveTVTests/testDeletingAProtectedRecording
     ///
-    /// The same state and the same refusals as `testProtectingARecordingAndLiftingIt`, on the same throwaway
-    /// recording. The owner watches the panel, and afterwards that the recording is on the television's own list
-    /// and not protected; if it was deleted all the same, that is the finding, and it is said.
+    /// The same state, the same refusals and the same reading after each write as
+    /// `testProtectingARecordingAndLiftingIt`, on the same throwaway recording. The owner watches the panel, and
+    /// afterwards that the recording is on the television's own list and not protected. If it was deleted all the
+    /// same, that is the finding, and it is said; and then, once no list in any version has it, the same delete is
+    /// sent again, for what the television answers a delete of a uri it no longer has, which
+    /// `testDeletingARecordingTwice` can no longer be run for.
     func testDeletingAProtectedRecording() async throws {
         try await recordingWrite { at in
             let target = try await at.target(protected: false)
-            try await at.protect(target, true)
-            guard try await at.read(target) == true else {
+            guard try await at.protect(target, true) == true else {
                 at.say("not read as protected: no delete is sent")
                 return XCTFail("the protection was not seen in the list")
             }
-            try await at.delete(target, "the delete while protected")
-            if try await at.read(target) != nil {
+            if try await at.delete(target, "the delete while protected") != nil {
                 try await at.protect(target, false)
             } else {
                 at.say("the recording was deleted though it was protected")
+                try await at.deleteAgain(target)
             }
         }
     }
 
     /// **Writes to the television.** Deletes a recording, by the client's request for it
     /// (`ScalarClient.deleteContent`), and, once the list no longer has it, sends the same delete again: what the
-    /// television answers a delete of a uri it no longer has. The second is sent only when no row of the list
-    /// carries that uri.
+    /// television answers a delete of a uri it no longer has. The second is sent only when no row of the list in
+    /// any of the versions carries that uri, so that it cannot reach another recording.
     ///
     ///     TV_HOST=192.0.2.20 TV_JAR=<the jar> TV_CONTENT_VERSION=<the version> TV_TARGET_START=<HH:mm> \
     ///         TV_WRITE=testDeletingARecordingTwice \
     ///         swift test --filter LiveTVTests/testDeletingARecordingTwice
     ///
-    /// The same state and the same refusals as `testProtectingARecordingAndLiftingIt`, on the same throwaway
-    /// recording, which is deleted: run it last. The owner watches the panel, and afterwards that the recording
-    /// is gone from the television's own list and nothing else is. It says how many rows the list lost besides.
+    /// The same state, the same refusals and the same reading after each write as
+    /// `testProtectingARecordingAndLiftingIt`, on the same throwaway recording, which is deleted: run it last. The
+    /// owner watches the panel, and afterwards that the recording is gone from the television's own list and
+    /// nothing else is. It says how many rows the list lost besides.
     func testDeletingARecordingTwice() async throws {
         try await recordingWrite { at in
             let target = try await at.target(protected: false)
-            try await at.delete(target, "the delete")
-            guard try await at.read(target) == nil else {
+            guard try await at.delete(target, "the delete") == nil else {
                 at.say("still listed: the delete is not sent again")
                 return XCTFail("the recording is still listed after its delete")
             }
-            try await at.delete(target, "the same delete again")
-            _ = try await at.read(target)
+            try await at.deleteAgain(target)
         }
     }
 
     /// Runs one of the writes above on the television at `TV_HOST`, with the registration in `TV_JAR`, reading the
     /// list in the version `TV_CONTENT_VERSION` names and writing to the recording that starts at
     /// `TV_TARGET_START`, after the television has said `active` and `notStarted`. Skipped with nothing sent unless
-    /// `TV_WRITE` is the name of the test that called (`TVSitting.mayWrite`).
+    /// `TV_WRITE` is the name of the test that called (`TVSitting.mayWrite`). However the steps end, a protection
+    /// they may have left on is said.
     private func recordingWrite(_ test: String = #function, _ steps: (RecordingWrite) async throws -> Void)
         async throws {
         guard TVSitting.mayWrite(Self.environment("TV_WRITE"), running: test) else {
@@ -958,8 +979,15 @@ extension LiveTVTests {
         say("before anything: power \(power), recording \(recording)")
         guard power == "active" else { throw XCTSkip("the television says \(power), not active") }
         guard recording == "notStarted" else { throw XCTSkip("the television says it is recording (\(recording))") }
-        try await steps(RecordingWrite(client: client, asking: asking, start: start, say: say))
-        await sayingPower(of: client, say, "at the end")
+        let at = RecordingWrite(client: client, asking: asking, start: start, say: say)
+        do {
+            try await steps(at)
+        } catch {
+            at.sayIfLeftProtected()
+            throw error
+        }
+        at.sayIfLeftProtected()
+        await Self.sayingPower(of: client, say, "at the end")
     }
 
     /// The client for the recordings, with the registration in the jar; skipped with nothing sent without one.
@@ -969,19 +997,34 @@ extension LiveTVTests {
         return try live(jar).client
     }
 
-    /// Asks one thing, says what came of it -- `request` hands back what to say, a failure is said by its kind --
-    /// and then, unless told not to, what the television says its power is.
+    /// Asks one thing, saying it as it is sent and what came of it once it came -- `request` hands back what to
+    /// say, a failure is said by its kind -- and then, unless told not to, what the television says its power is.
     private func ask(_ what: String, of client: ScalarClient, _ say: (String) -> Void, afterwards: Bool = true,
-                        _ request: () async throws -> String) async {
+                     _ request: () async throws -> String) async {
+        say("sending \(what)")
         let began = ContinuousClock.now
         let came: String
         do { came = try await request() } catch { came = TVSitting.said(error) }
         say("\(what): \(came) (\(String(format: "%.2f s", (ContinuousClock.now - began) / .seconds(1))))")
-        if afterwards { await sayingPower(of: client, say, "after it") }
+        if afterwards { await Self.sayingPower(of: client, say, "after it") }
     }
 
-    private func sayingPower(of client: ScalarClient, _ say: (String) -> Void, _ when: String) async {
+    fileprivate static func sayingPower(of client: ScalarClient, _ say: (String) -> Void, _ when: String) async {
         do { say("  power \(when): \(try await client.powerStatus())") } catch { say("  power \(when): \(TVSitting.said(error))") }
+    }
+
+    /// One page of a list, by the client's whole result for it: an answer that is not a page has its structure
+    /// said, by types alone, before it is thrown as one that cannot be read.
+    private static func page(_ asking: ContentAsking, _ index: Int, _ count: Int, of client: ScalarClient,
+                             _ say: (String) -> Void, timeout: TimeInterval? = nil) async throws -> [[String: ScalarValue]] {
+        let result = try await client.contentResult(version: asking.version, params: asking.params(index, count),
+                                                    timeout: timeout)
+        do {
+            return try ScalarClient.contentRows(result)
+        } catch {
+            say("  not a page; its structure: \(RecordingRows.structure(of: result))")
+            throw error
+        }
     }
 
     /// What `request` hands back, or a failure said by its kind: an error as it came can carry the address.
@@ -1052,33 +1095,33 @@ struct ContentAsking: Sendable {
     }
 }
 
-/// What is said of the rows of a list of recordings: their shape, and each by its start and its length.
+/// What is said of the rows of a list of recordings: their shape, and each by its start, its length and its short
+/// values. A key is said only when it reads as a field's name, never as data used as a key; a value only when it is
+/// a flag, a number or a short word, and never of a field that names the programme, the channel or the item.
 enum RecordingRows {
     /// The fields whose values are said as they came: flags, never a text of the programme's.
     static let flags: Set<String> = ["isProtected", "isAlreadyPlayed", "isNew", "hasResume", "isAutoDelete",
                                      "isPlayable", "isBrowsable", "userContentFlag", "is3D", "is4K", "isPlaylist"]
     /// The fields asked after by name, said present or not in every list.
     static let asked = ["eventId", "description", "broadcastGenreInfo", "isNew", "hasResume", "position",
-                        "recordingInfo", "durationSec", "startDateTime", "isProtected"]
+                        "recordingInfo", "stateInfo", "durationSec", "duration", "startDateTime", "isProtected"]
+    /// What a field's name says it holds, by which its value is never said: the programme, the channel and its
+    /// number, the item and where it is.
+    private static let naming = ["uri", "title", "name", "num", "triplet", "desc", "label", "artist", "album",
+                                 "genre", "text", "service", "freq", "product", "storage", "channel"]
 
     /// Each key, nested ones as `outer.inner` and those of a list's objects as `outer[].inner`, with how many rows
-    /// have it and the types it came as; then the fields asked after, the form of the starts, the uris' schemes and
+    /// have it and the types it came as; then the fields asked after, the form of the starts, the uris' forms and
     /// the names of their query's parameters, and the flags' values.
     static func shape(of rows: [[String: ScalarValue]]) -> [String] {
         var kinds: [String: Set<String>] = [:]
         var rowsWith: [String: Int] = [:]
-        func walk(_ value: ScalarValue, at path: String, into seen: inout Set<String>) {
-            kinds[path, default: []].insert(value.kind)
-            seen.insert(path)
-            switch value {
-            case .object(let fields): for (key, inner) in fields { walk(inner, at: "\(path).\(key)", into: &seen) }
-            case .list(let items): for item in items { walk(item, at: "\(path)[]", into: &seen) }
-            default: break
-            }
-        }
         for row in rows {
             var seen: Set<String> = []
-            for (key, value) in row { walk(value, at: key, into: &seen) }
+            walk(row) { path, value in
+                kinds[path, default: []].insert(value.kind)
+                seen.insert(path)
+            }
             for path in seen { rowsWith[path, default: 0] += 1 }
         }
         var lines = kinds.keys.sorted().map { path in
@@ -1088,21 +1131,22 @@ enum RecordingRows {
             .joined(separator: ", "))
         let starts = rows.compactMap { $0["startDateTime"] }.map { value -> String in
             guard case .string(let text) = value else { return "a \(value.kind)" }
-            let form = String(text.map { $0.isNumber ? "d" : $0 })
-            return "\(form) offset \(text.count > 19 ? String(text.dropFirst(19)) : "-")"
-                + (RecorderTime.parse(text) == nil ? ", not read by the app" : "")
+            return startForm(text) + (RecorderTime.parse(text) == nil ? ", not read by the app" : "")
         }
         lines.append("starts written: " + (starts.isEmpty ? "none" : Set(starts).sorted().joined(separator: "; ")))
-        let uris = rows.compactMap { $0["uri"] }.map { value -> String in
-            guard case .string(let text) = value else { return "a \(value.kind)" }
-            let scheme = text.prefix { $0 != ":" }
-            let query = text.split(separator: "?", maxSplits: 1).dropFirst().first ?? ""
-            let names = query.split(separator: "&").map { $0.prefix { $0 != "=" } }
-            return "\(scheme)" + (names.isEmpty ? "" : " with \(names.joined(separator: ","))")
+        var forms: Set<String> = [], lengths: [Int] = []
+        for value in rows.compactMap({ $0["uri"] }) {
+            guard case .string(let text) = value else {
+                forms.insert("a \(value.kind)")
+                continue
+            }
+            forms.insert(uriForm(text))
+            lengths.append(text.count)
         }
         let distinct = Set(rows.compactMap { $0["uri"] }).count
-        lines.append("uris: " + (uris.isEmpty ? "none" : Set(uris).sorted().joined(separator: "; "))
-                     + ", \(distinct) distinct of \(uris.count)")
+        let spread = lengths.isEmpty ? "" : ", \(lengths.min() ?? 0) to \(lengths.max() ?? 0) characters long"
+        lines.append("uris: " + (forms.isEmpty ? "none" : forms.sorted().joined(separator: "; "))
+                     + spread + ", \(distinct) distinct of \(rows.filter { $0["uri"] != nil }.count)")
         for flag in flags.sorted() {
             let values = Set(rows.compactMap { $0[flag] }.map(said))
             if !values.isEmpty { lines.append("flag \(flag): \(values.sorted().joined(separator: ", "))") }
@@ -1110,13 +1154,143 @@ enum RecordingRows {
         return lines
     }
 
-    /// Each row by its place in the list, its start as a time of day in Japan and its length, and whether it is
-    /// protected: what a write is told which one to touch by, with nothing of the programme.
-    static func byStart(_ rows: [[String: ScalarValue]]) -> [String] {
+    /// Each row by its place in the list, its start as a time of day in Japan, its length and whether it is
+    /// protected, which is what a write is told which one to touch by; whether it has `recordingInfo` and
+    /// `stateInfo`; and each of its values that is said at all (`shown(field:)`), nested ones too, by its key.
+    static func each(_ rows: [[String: ScalarValue]]) -> [String] {
         rows.enumerated().map { index, row in
-            "\(index + 1): starts \(clock(of: row) ?? "-"), \(minutes(of: row).map { "\($0) min" } ?? "-"),"
-                + " protected \(row["isProtected"].map(said) ?? "-")"
+            var values: [String] = []
+            walk(row) { path, value in
+                switch value {
+                case .object, .list: return
+                default: break
+                }
+                guard let shown = shown(field: path, value) else { return }
+                values.append("\(path)=\(shown)")
+            }
+            return "row \(index + 1): starts \(clock(of: row) ?? "-"), \(minutes(of: row).map { "\($0) min" } ?? "-"),"
+                + " protected \(row["isProtected"].map(said) ?? "-"),"
+                + " recordingInfo \(row["recordingInfo"] == nil ? "no" : "yes"),"
+                + " stateInfo \(row["stateInfo"] == nil ? "no" : "yes")"
+                + (values.isEmpty ? "" : "; " + values.sorted().joined(separator: " "))
         }
+    }
+
+    /// A value the television gave, by its structure and the types in it alone: what is said of an answer that
+    /// is not a page.
+    static func structure(of value: ScalarValue, depth: Int = 0) -> String {
+        guard depth < 4 else { return value.kind }
+        switch value {
+        case .list(let items):
+            return "list of \(items.count)" + (items.first.map { " [\(structure(of: $0, depth: depth + 1)), ...]" } ?? "")
+        case .object(let fields):
+            let inner = fields.keys.sorted().map { "\(key($0)): \(structure(of: fields[$0] ?? .null, depth: depth + 1))" }
+            return "object {\(inner.joined(separator: ", "))}"
+        default:
+            return value.kind
+        }
+    }
+
+    /// Every value of a row with its path, the row's own keys first and nested ones as `outer.inner` or
+    /// `outer[].inner`, a key said as `<key>` unless it reads as a field's name.
+    private static func walk(_ row: [String: ScalarValue], _ visit: (String, ScalarValue) -> Void) {
+        func down(_ value: ScalarValue, at path: String) {
+            visit(path, value)
+            switch value {
+            case .object(let fields): for (name, inner) in fields { down(inner, at: "\(path).\(key(name))") }
+            case .list(let items): for item in items { down(item, at: "\(path)[]") }
+            default: break
+            }
+        }
+        for (name, value) in row { down(value, at: key(name)) }
+    }
+
+    /// A key as it came when it reads as a field's name -- a letter, then up to 31 letters, digits or `_` in
+    /// ASCII -- and `<key>` otherwise: an object keyed by its data says nothing of that data.
+    static func key(_ name: String) -> String {
+        reads(name, maximum: 32) ? name : "<key>"
+    }
+
+    /// The form a start is written in, each digit as `d` and any other letter or sign but those of a date's form
+    /// as `x`; then the offset from the twentieth character on, when it reads as one, `+09:00`, `+0900` or `Z`.
+    static func startForm(_ text: String) -> String {
+        let form = String(text.map { "-+:TZ .".contains($0) ? $0 : ($0.isASCII && $0.isNumber ? "d" : "x") })
+        let tail = text.count > 19 ? String(text.dropFirst(19)) : ""
+        let offset: String
+        if tail.isEmpty {
+            offset = "-"
+        } else if tail == "Z" || isOffset(tail) {
+            offset = tail
+        } else {
+            offset = "of another form"
+        }
+        return "\(form) offset \(offset)"
+    }
+
+    private static func isOffset(_ text: String) -> Bool {
+        let characters = Array(text)
+        guard characters.count == 5 || characters.count == 6, characters[0] == "+" || characters[0] == "-" else {
+            return false
+        }
+        let digits = characters.count == 6 ? [1, 2, 4, 5] : [1, 2, 3, 4]
+        return digits.allSatisfy { characters[$0].isASCII && characters[$0].isNumber }
+            && (characters.count == 5 || characters[3] == ":")
+    }
+
+    /// A uri's form: its scheme when it reads as one -- a small letter, then up to fifteen small letters, digits,
+    /// `+`, `.` or `-` -- the rest with each run of letters as `a`, of digits as `d` and of anything else outside
+    /// ASCII as `x`, ASCII signs kept; and the names of its query's parameters that read as names, with how many
+    /// others there are.
+    static func uriForm(_ text: String) -> String {
+        let scheme: String
+        if let colon = text.firstIndex(of: ":") {
+            let written = text[..<colon]
+            let readsAsOne = written.first.map { $0.isASCII && $0.isLowercase } == true && written.count <= 16
+                && written.allSatisfy { $0.isASCII && ($0.isLowercase || $0.isNumber || "+.-".contains($0)) }
+            scheme = readsAsOne ? String(written) : "a scheme of another form"
+        } else {
+            scheme = "no scheme"
+        }
+        var names: [String] = [], others = 0
+        if let mark = text.firstIndex(of: "?") {
+            for item in text[text.index(after: mark)...].split(separator: "&", omittingEmptySubsequences: false) {
+                if let equals = item.firstIndex(of: "="), reads(String(item[..<equals]), maximum: 24) {
+                    names.append(String(item[..<equals]))
+                } else {
+                    others += 1
+                }
+            }
+        }
+        let parameters = names.isEmpty && others == 0 ? ""
+            : " with \(names.joined(separator: ","))" + (others == 0 ? "" : " and \(others) other")
+        return "\(scheme), \(masked(text))" + parameters
+    }
+
+    /// A text with each run of letters as `a`, each of digits as `d`, each of anything else outside ASCII as `x`,
+    /// and ASCII signs as they are.
+    static func masked(_ text: String) -> String {
+        var form = ""
+        for character in text {
+            let mark: Character
+            if character.isLetter {
+                mark = "a"
+            } else if character.isNumber {
+                mark = "d"
+            } else if character.isASCII {
+                mark = character.isWhitespace ? "_" : character
+            } else {
+                mark = "x"
+            }
+            if "adx".contains(mark), form.last == mark { continue }
+            form.append(mark)
+        }
+        return form
+    }
+
+    /// Whether a text reads as a name: a letter, then letters, digits or `_`, all in ASCII, `maximum` at most.
+    private static func reads(_ name: String, maximum: Int) -> Bool {
+        guard let first = name.first, first.isASCII, first.isLetter, name.count <= maximum else { return false }
+        return name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }
     }
 
     /// A row's start as HH:mm in Japan, nil when it gives none the app can read.
@@ -1138,10 +1312,24 @@ enum RecordingRows {
 
     static func minutes(of row: [String: ScalarValue]) -> Int? { seconds(of: row).map { Int($0 / 60) } }
 
+    /// A row's length: `durationSec`, as 1.0 and 1.2 give it, or, from 1.5, which gives an object, `duration`,
+    /// whose fields no answer has shown yet, a count in it named as seconds or as milliseconds.
     private static func seconds(of row: [String: ScalarValue]) -> TimeInterval? {
-        switch row["durationSec"] {
-        case .int(let seconds)?: TimeInterval(seconds)
-        case .double(let seconds)?: seconds
+        if let seconds = number(row["durationSec"]) { return seconds }
+        guard case .object(let fields)? = row["duration"] else { return nil }
+        for name in ["durationSec", "seconds", "sec"] {
+            if let seconds = number(fields[name]) { return seconds }
+        }
+        for name in ["durationMsec", "milliseconds", "msec"] {
+            if let milliseconds = number(fields[name]) { return milliseconds / 1000 }
+        }
+        return nil
+    }
+
+    private static func number(_ value: ScalarValue?) -> TimeInterval? {
+        switch value {
+        case .int(let number)?: TimeInterval(number)
+        case .double(let number)?: number
         default: nil
         }
     }
@@ -1167,6 +1355,18 @@ enum RecordingRows {
         default: "a \(value.kind)"
         }
     }
+
+    /// A value of the field at `path` as `said` has it, nil when it is not to be said: the field's name says it
+    /// names the programme, the channel or the item (`naming`), or its key is not a field's name, or `said` gives
+    /// only its type.
+    static func shown(field path: String, _ value: ScalarValue) -> String? {
+        let name = (path.split(separator: ".").last.map(String.init) ?? path).replacingOccurrences(of: "[]", with: "")
+        let lowered = name.lowercased()
+        guard name != "<key>", !naming.contains(where: { lowered.contains($0) }), !lowered.hasSuffix("id"),
+              !lowered.hasSuffix("no") else { return nil }
+        let shown = said(value)
+        return shown.hasPrefix("a ") ? nil : shown
+    }
 }
 
 /// The steps of a write to the television's recordings, each followed by the list read again and what it says of
@@ -1178,6 +1378,8 @@ final class RecordingWrite {
     let say: @Sendable (String) -> Void
     /// The uris the list held when the recording was found in it.
     private var listedBefore: Set<ScalarValue> = []
+    /// Whether a protection was asked for and the list has not read the recording as unprotected, or gone, since.
+    private(set) var mayBeLeftProtected = false
 
     init(client: ScalarClient, asking: ContentAsking, start: String, say: @escaping @Sendable (String) -> Void) {
         self.client = client
@@ -1187,7 +1389,8 @@ final class RecordingWrite {
     }
 
     /// The recording the owner named: exactly one that starts at `start`, has ended, and is protected as asked.
-    /// Its uri, which nothing prints. The list as it was read is said first.
+    /// A row that gives no length the app reads is taken as ended, since the television said it is recording
+    /// nothing before the steps began. Its uri, which nothing prints. The list as it was read is said first.
     func target(protected: Bool) async throws -> String {
         let rows = try await LiveTVTests.sayingItsKind("the list") { try await LiveTVTests.everyRow(asking, of: client) }
         say("the list before: \(rows.count) rows")
@@ -1195,47 +1398,120 @@ final class RecordingWrite {
         guard named.count == 1, let row = named.first, case .string(let uri)? = row["uri"] else {
             throw XCTSkip("\(named.count) recordings with a uri start at \(start): exactly one is wanted")
         }
-        guard let end = RecordingRows.end(of: row), end < Date() else {
-            throw XCTSkip("the recording named has not ended, or says no length")
+        if let end = RecordingRows.end(of: row) {
+            guard end < Date() else { throw XCTSkip("the recording named has not ended") }
+        } else {
+            say("the recording named gives no length the app reads: taken as ended, as the television says"
+                + " it is recording nothing")
         }
-        guard RecordingRows.protected(row) == protected else {
+        guard let reads = RecordingRows.protected(row) else {
+            throw XCTSkip("the recording named gives a protection the test does not read:"
+                          + " \(row["isProtected"].map(RecordingRows.said) ?? "none")")
+        }
+        guard reads == protected else {
             throw XCTSkip("the recording named is not read as \(protected ? "protected" : "unprotected")")
         }
         listedBefore = Set(rows.compactMap { $0["uri"] })
         return uri
     }
 
-    func protect(_ uri: String, _ on: Bool) async throws {
-        await send("setDeleteProtection \(on)") { try await client.setDeleteProtection(uri: uri, on) }
-        _ = try await read(uri)
+    /// Protects the recording, or lifts that, and reads the list until it shows the change; what the list read
+    /// of it last.
+    @discardableResult
+    func protect(_ uri: String, _ on: Bool) async throws -> Bool?? {
+        if on { mayBeLeftProtected = true }
+        let taken = await send("setDeleteProtection \(on)") { try await client.setDeleteProtection(uri: uri, on) }
+        guard taken else { return try await read(uri) }
+        return try await settle(uri) { $0 == Optional(Optional(on)) }
     }
 
-    func delete(_ uri: String, _ what: String) async throws {
-        await send("\(what) (deleteContent)") { try await client.deleteContent(uri: uri) }
+    /// Deletes the recording and reads the list until it no longer has it; what the list read of it last, nil
+    /// when it is gone.
+    @discardableResult
+    func delete(_ uri: String, _ what: String) async throws -> Bool?? {
+        let taken = await send("\(what) (deleteContent)") { try await client.deleteContent(uri: uri) }
+        guard taken else { return try await read(uri) }
+        return try await settle(uri) { $0 == nil }
     }
 
-    /// The list read again: whether it holds the recording, as protected or not (nil when it is not listed), and
-    /// how many rows it holds and how many of those listed before, besides the recording, it no longer has.
+    /// Sends the delete of a recording the list no longer has once more, and only once no list in any version
+    /// has a row with its uri: what the television answers a delete of a uri it no longer has.
+    func deleteAgain(_ uri: String) async throws {
+        var listed = false
+        for other in ContentAsking.lists {
+            do {
+                let rows = try await LiveTVTests.everyRow(other, of: client)
+                let has = rows.contains { $0["uri"] == .string(uri) }
+                if has { listed = true }
+                say("  \(other.said): \(rows.count) rows, the recording \(has ? "listed" : "not listed")")
+            } catch {
+                say("  \(other.said): \(TVSitting.said(error))")
+            }
+        }
+        guard !listed else {
+            say("listed in a version: the delete is not sent again")
+            return XCTFail("the recording is still listed in a version after its delete")
+        }
+        try await delete(uri, "the same delete again")
+    }
+
+    /// Says, when a protection may be left on, that it is to be lifted with the remote.
+    func sayIfLeftProtected() {
+        if mayBeLeftProtected { say("the protection may be left on: lift it with the remote") }
+    }
+
+    /// The list read again and said: whether it holds the recording, as protected or not (nil when it is not
+    /// listed), and how many rows it holds and how many of those listed before, besides the recording, it no
+    /// longer has.
     @discardableResult
     func read(_ uri: String) async throws -> Bool?? {
+        let (state, line) = try await look(uri)
+        say(line)
+        return state
+    }
+
+    /// The list read every two seconds, twenty at most, until `done` says what it read of the recording is the
+    /// change, and said once with the seconds that took.
+    private func settle(_ uri: String, until done: (Bool??) -> Bool) async throws -> Bool?? {
+        let began = ContinuousClock.now
+        while true {
+            let (state, line) = try await look(uri)
+            let waited = ContinuousClock.now - began
+            if done(state) || waited >= .seconds(20) {
+                let seconds = String(format: "%.1f s", waited / .seconds(1))
+                say(line + (done(state) ? " (after \(seconds))" : " (no change after \(seconds))"))
+                return state
+            }
+            try await Task.sleep(for: .seconds(2))
+        }
+    }
+
+    private func look(_ uri: String) async throws -> (state: Bool??, line: String) {
         let rows = try await LiveTVTests.sayingItsKind("the list") { try await LiveTVTests.everyRow(asking, of: client) }
         let row = rows.first { $0["uri"] == .string(uri) }
         let now = Set(rows.compactMap { $0["uri"] })
         let lost = listedBefore.subtracting(now).subtracting([.string(uri)]).count
-        say("  the list: \(rows.count) rows, the recording \(row == nil ? "not listed" : "listed"),"
+        let state = row.map(RecordingRows.protected)
+        if row == nil || state == Optional(Optional(false)) { mayBeLeftProtected = false }
+        return (state, "  the list: \(rows.count) rows, the recording \(row == nil ? "not listed" : "listed"),"
             + " protected \(row.flatMap(RecordingRows.protected).map { "\($0)" } ?? "-"), others gone \(lost)")
-        return row.map(RecordingRows.protected)
     }
 
-    private func send(_ what: String, _ request: () async throws -> Void) async {
+    /// Sends one write, says what came of it and then the power status; whether it was taken.
+    private func send(_ what: String, _ request: () async throws -> Void) async -> Bool {
+        say("sending \(what)")
         let began = ContinuousClock.now
         let came: String
+        var taken = false
         do {
             try await request()
             came = "taken"
+            taken = true
         } catch {
             came = TVSitting.said(error)
         }
         say("\(what): \(came) (\(String(format: "%.2f s", (ContinuousClock.now - began) / .seconds(1))))")
+        await LiveTVTests.sayingPower(of: client, say, "after it")
+        return taken
     }
 }

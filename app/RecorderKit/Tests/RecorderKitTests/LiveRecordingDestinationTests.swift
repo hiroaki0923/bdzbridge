@@ -7,9 +7,9 @@ import XCTest
 ///
 ///     RECORDER_HOST=192.0.2.63 swift test --filter LiveRecordingDestinationTests
 ///
-/// It prints counts, codes and the shape of the recorder's answers, never a title, a disk's name, a channel or a
-/// time of day: a text is printed as its length and a digest, which tells a later run's from this one's without
-/// saying what either is. So what it prints can be kept in the notes. Run it with the recorder in network standby
+/// It prints counts, codes and the shape of the recorder's answers, never a title, a disk's name, a channel, a
+/// time of day or a whole id: a text is printed as its length and a digest, which tells a later run's from this
+/// one's without saying what either is, and an id as its first six characters and a digest. So what it prints can be kept in the notes. Run it with the recorder in network standby
 /// as well as on, just after a wake, and with the USB disk unplugged: what the slot answers in the last two has
 /// not been seen. With RECORDER_MAC set as well it wakes the recorder first (`LiveWaking`).
 final class LiveRecordingDestinationTests: XCTestCase {
@@ -119,26 +119,27 @@ final class LiveRecordingDestinationTests: XCTestCase {
         // that changed under it, without naming a channel, as a terrestrial one says the area the recorder is in.
         for title in lists.values.joined() where title.recording {
             let which = Self.digest("\(title.broadcastingType) \(title.serviceID) \(RecorderTime.format(title.start))")
-            print("being recorded: id \(title.id) on \(title.destination), channel and start \(which),"
+            print("being recorded: id \(Self.said(id: title.id)) on \(title.destination), channel and start \(which),"
                   + " started \(Int(-title.start.timeIntervalSinceNow / 60)) min ago, \(title.durationSec) s")
         }
         let usb = lists[RecorderDisk.usbID] ?? []
-        print("USB disk's recording ids: \(usb.prefix(50).map(\.id))")
+        print("USB disk's recording ids: \(usb.prefix(50).map { Self.said(id: $0.id) })")
         if let finished = usb.first(where: { !$0.recording }) {
             do {
                 let detail = try await client.titleDetail(id: finished.id)
-                print("detail of \(finished.id): summary of \(detail.summary.count) characters")
+                print("detail of \(Self.said(id: finished.id)): summary of \(detail.summary.count) characters")
             } catch {
-                print("detail of \(finished.id): \(Self.code(error))")
+                print("detail of \(Self.said(id: finished.id)): \(Self.code(error))")
             }
         }
         if let highest = usb.compactMap({ Int($0.id.dropFirst(2), radix: 16) }).max() {
             let madeUp = String(format: "0x%016llx", highest + 0x1000)
             do {
                 let detail = try await client.titleDetail(id: madeUp)
-                print("detail of the made-up \(madeUp): answered, summary of \(detail.summary.count) characters")
+                print("detail of a made-up id, the highest + 0x1000: answered, summary of \(detail.summary.count)"
+                      + " characters")
             } catch {
-                print("detail of the made-up \(madeUp): \(Self.code(error))")
+                print("detail of a made-up id, the highest + 0x1000: \(Self.code(error))")
             }
         }
     }
@@ -173,6 +174,10 @@ final class LiveRecordingDestinationTests: XCTestCase {
     private static func value(_ text: String) -> String {
         !text.isEmpty && text.allSatisfy(\.isASCII) && Int(text) != nil ? text : digest(text)
     }
+
+    /// An id by its first six characters, which say the disk, and the digest of the whole: the same id gives the
+    /// same, run after run, and an id that changed under a recording shows.
+    private static func said(id: String) -> String { "\(id.prefix(6))\(digest(id))" }
 
     /// The length of a text and an FNV-1a digest of it: the same text gives the same, run after run.
     private static func digest(_ text: String) -> String {

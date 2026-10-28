@@ -44,10 +44,11 @@ final class LiveSlotAfterAWakeTests: XCTestCase {
     ///
     /// Skipped without RECORDER_MAC: what it reads is what a wake leaves. Every five seconds from the moment the
     /// recorder answered the wake it reads the slot, the list asked for by the slot's criteria and the list asked
-    /// for with none, as the recordings screen asks for it, and prints the seconds since, whether the slot answered
-    /// a registered disk that is mounted, and each list's count by the disk each row says it is on -- never a title,
-    /// an id or the disk's name. It ends half a minute after the slot first answered its disk, or after three
-    /// minutes.
+    /// for with none, as the recordings screen asks for it, and prints, with each of the three, the seconds since
+    /// it answered, whether the slot answered a registered disk that is mounted, and each list's count by the disk
+    /// each row says it is on -- never a title, an id or the disk's name. It ends half a minute after the slot first
+    /// answered its disk, or after three minutes, and prints the power status at the start and at the end. An
+    /// answer within a second of the packet is said as no real wake: the recorder had not left the network.
     func testTheListsAfterAWake() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let host = environment["RECORDER_HOST"], !host.isEmpty else {
@@ -56,11 +57,16 @@ final class LiveSlotAfterAWakeTests: XCTestCase {
         guard let mac = environment["RECORDER_MAC"], !mac.isEmpty else {
             throw XCTSkip("set RECORDER_MAC as well: this reads what a wake leaves")
         }
+        let sent = ContinuousClock.now
         let answered = try await LiveWaking.wakeTheRecorderIfAsked() ?? ContinuousClock.now
+        if answered - sent < .seconds(1) {
+            print("the recorder answered within a second of the packet: it had not left the network, no real wake")
+        }
         let client = RecorderClient(host: host)
+        await Self.sayPower(of: client, "at the start")
         var diskAnswered: ContinuousClock.Instant?
+        func since() -> String { String(format: "%6.2f s", (ContinuousClock.now - answered) / .seconds(1)) }
         while ContinuousClock.now - answered < .seconds(180) {
-            let since = String(format: "%6.2f s", (ContinuousClock.now - answered) / .seconds(1))
             var slot: String
             do {
                 let disk = try await client.disk(RecorderDisk.usbID)
@@ -70,23 +76,35 @@ final class LiveSlotAfterAWakeTests: XCTestCase {
             } catch {
                 slot = "slot \(Self.code(error))"
             }
+            slot += " at \(since())"
             let bySlot: String
             do {
                 bySlot = Self.byDisk(try await client.titles(count: 200, on: RecorderDisk.usbID))
             } catch {
                 bySlot = Self.code(error)
             }
+            let bySlotAt = since()
             let unnarrowed: String
             do {
                 unnarrowed = Self.byDisk(try await client.allTitles())
             } catch {
                 unnarrowed = Self.code(error)
             }
-            print("\(since): \(slot); slot's criteria \(bySlot); no criteria \(unnarrowed)")
-            if let diskAnswered, ContinuousClock.now - diskAnswered >= .seconds(30) { return }
+            print("\(slot); slot's criteria \(bySlot) at \(bySlotAt); no criteria \(unnarrowed) at \(since())")
+            if let diskAnswered, ContinuousClock.now - diskAnswered >= .seconds(30) { break }
             try await Task.sleep(for: .seconds(5))
         }
-        print(diskAnswered == nil ? "no disk answered within three minutes" : "three minutes passed")
+        if diskAnswered == nil { print("no disk answered within three minutes") }
+        await Self.sayPower(of: client, "at the end")
+    }
+
+    /// The recorder's power status, or the code of what kept it from being read.
+    private static func sayPower(of client: RecorderClient, _ when: String) async {
+        do {
+            print("powerstatus \(when): \(try await client.playStatus()["powerstatus"] ?? "-")")
+        } catch {
+            print("powerstatus \(when): \(code(error))")
+        }
     }
 
     /// A list's count, and how many of its rows say they are on each disk, by the disk's id.

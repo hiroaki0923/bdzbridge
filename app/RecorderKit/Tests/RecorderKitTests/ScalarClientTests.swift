@@ -1141,12 +1141,13 @@ final class ScalarClientTests: XCTestCase {
 
     /// A page of a content list is asked for in the version given, with the parameters given as its one object and
     /// with the cookie, and its rows come back as the television wrote them: a string, a whole number, a number with
-    /// a fraction, a boolean, a list, an object and a null each kept as what it was written as. A count is read
-    /// likewise.
+    /// a fraction (a whole one written with one, `1800.0`, among them), a boolean, a list, an object and a null each
+    /// kept as what it was written as. A count is read likewise, and each is sent with the timeout given.
     func testAContentPageAndCountAreSentAsGivenAndReadAsWritten() async throws {
         let rows = #"[[{"uri":"usb:recStorage?id=7","title":"サンプル","durationSec":1800,"#
             + #""isProtected":false,"isNew":"true","position":{"value":0.5},"audioCodec":["aac"],"output":null},"#
-            + #"{"uri":"usb:recStorage?id=8","durationSec":1799.5}]]"#
+            + #"{"uri":"usb:recStorage?id=8","durationSec":1799.5},"#
+            + #"{"uri":"usb:recStorage?id=9","durationSec":1800.0}]]"#
         let counted = ok(#"[{"count":2}]"#), listed = ok(rows)
         let transport = StubTransport { request, _ in
             let method = (try? JSONSerialization.jsonObject(with: request.body ?? Data()) as? [String: Any])?["method"]
@@ -1154,21 +1155,26 @@ final class ScalarClientTests: XCTestCase {
         }
         let (tv, _) = client(transport, Self.kept)
 
-        let page = try await tv.contentPage(version: "1.5", params: ["uri": "usb:recStorage", "stIdx": 0, "cnt": 50])
-        let count = try await tv.contentCount(version: "1.1", params: ["source": "usb:recStorage", "target": "all"])
+        let page = try await tv.contentPage(version: "1.5", params: ["uri": "usb:recStorage", "stIdx": 0, "cnt": 50],
+                                            timeout: 30)
+        let count = try await tv.contentCount(version: "1.1", params: ["source": "usb:recStorage", "target": "all"],
+                                              timeout: 30)
 
         XCTAssertEqual(page, [
             ["uri": "usb:recStorage?id=7", "title": "サンプル", "durationSec": 1800, "isProtected": false,
              "isNew": "true", "position": .object(["value": .double(0.5)]), "audioCodec": .list(["aac"]),
              "output": .null],
             ["uri": "usb:recStorage?id=8", "durationSec": .double(1799.5)],
+            ["uri": "usb:recStorage?id=9", "durationSec": .double(1800)],
         ])
         XCTAssertEqual(page.first?["isProtected"]?.kind, "bool")
         XCTAssertEqual(page.first?["durationSec"]?.kind, "int")
-        XCTAssertEqual(page.last?["durationSec"]?.kind, "double")
+        XCTAssertEqual(page[1]["durationSec"]?.kind, "double")
+        XCTAssertEqual(page[2]["durationSec"]?.kind, "double", "a whole number written with a fraction")
         XCTAssertEqual(count, 2)
         let sent = await transport.requests
         XCTAssertEqual(sent.map { $0.url.path }, ["/sony/avContent", "/sony/avContent"])
+        XCTAssertEqual(sent.map(\.timeout), [30, 30])
         XCTAssertTrue(sent.allSatisfy { $0.headers["Cookie"] == "auth=kept" })
         let list = try json(sent[0]), countAsked = try json(sent[1])
         XCTAssertEqual(list["method"] as? String, "getContentList")
@@ -1199,6 +1205,9 @@ final class ScalarClientTests: XCTestCase {
             expectEqual(await failure { _ = try await odd.contentPage(version: "1.0", params: [:]) },
                         ScalarError.unreadable(method: "getContentList").failure, name)
         }
+        let (whole, _) = client(StubTransport(always: ok(#"[{"uri":"x","n":1}]"#)), Self.kept)
+        let result = try await whole.contentResult(version: "1.0", params: [:])
+        XCTAssertEqual(result, .list([.object(["uri": "x", "n": 1])]), "the result as it came, though no page")
         for (name, answer) in [("a count with a fraction", #"[{"count":1.5}]"#), ("no count", #"[{}]"#),
                                ("a count as a string", #"[{"count":"2"}]"#)] {
             let (odd, _) = client(StubTransport(always: ok(answer)), Self.kept)
@@ -1212,6 +1221,33 @@ final class ScalarClientTests: XCTestCase {
                     .needsPairing)
         let none = await nothing.requests
         XCTAssertTrue(none.isEmpty, "sent without a registration")
+    }
+
+    /// What the live tests say of a television's rows holds back their text: a uri is said by its scheme, its
+    /// masked form and its query's names, with a value that holds a `&` counted, not named; a start by its form;
+    /// a key that is data by `<key>`; and a row's values only where the field neither names the programme, the
+    /// channel nor the item. An answer that is no page is said by its types.
+    func testWhatIsSaidOfATelevisionsRowsHoldsBackTheirText() {
+        let row: [String: ScalarValue] = [
+            "uri": "usb:recStorage?id=12&srvName=AB&CD", "title": "News", "channelName": "ABC", "dispNum": "011",
+            "startDateTime": "2026-10-28T21:00:00+0900", "durationSec": .double(1800), "isProtected": "false",
+            "eventId": "1234", "stateInfo": .object(["state": "stopped"]), "byStation": .object(["NHK G": 1]),
+        ]
+        let said = (RecordingRows.shape(of: [row]) + RecordingRows.each([row])).joined(separator: "\n")
+        for text in ["recStorage", "srvName=AB", "News", "ABC", "011", "1234", "NHK", "21:00:00"] {
+            XCTAssertFalse(said.contains(text), "said \(text)")
+        }
+        XCTAssertTrue(said.contains("usb, a:a?a=d&a=a&a with id,srvName and 1 other"), said)
+        XCTAssertTrue(said.contains("dddd-dd-ddTdd:dd:dd+dddd offset +0900"), said)
+        XCTAssertTrue(said.contains("key byStation.<key>"), said)
+        XCTAssertTrue(said.contains("row 1: starts 21:00, 30 min, protected \"false\""), said)
+        XCTAssertTrue(said.contains("stateInfo.state=\"stopped\""), said)
+        XCTAssertEqual(RecordingRows.uriForm("/mnt/disk1/録画"), "no scheme, /a/ad/a")
+        XCTAssertEqual(RecordingRows.uriForm("Usb:x"), "a scheme of another form, a:a")
+        XCTAssertEqual(RecordingRows.startForm("2026-10-28T21:00:00+09:00 JST"),
+                       "dddd-dd-ddTdd:dd:dd+dd:dd xxT offset of another form")
+        XCTAssertEqual(RecordingRows.structure(of: .list([.object(["count": 1, "名": "x"])])),
+                       "list of 1 [object {count: int, <key>: string}, ...]")
     }
 
     /// The recording status is asked for without the cookie; a protect and a delete with it, each with the uri as
