@@ -42,11 +42,11 @@ struct JobBarView: View {
                 // Why the recorder stopped the run, or kept it from beginning, in the sentence the driver handed
                 // back with the stop. Silence has none: what the job says above says it.
                 if job.finished, let why = job.stopped?.said {
-                    Text(why).font(.caption).foregroundStyle(.secondary)
+                    Text(why.asABody).font(.caption).foregroundStyle(.secondary)
                 }
                 if job.finished, !job.skipped.isEmpty {
                     ForEach(job.skipped.prefix(3)) { skip in
-                        Text("・\(skip.reason)").font(.caption2).foregroundStyle(.secondary)
+                        Text("・" + skip.reason.asABody).font(.caption2).foregroundStyle(.secondary)
                     }
                 }
             }

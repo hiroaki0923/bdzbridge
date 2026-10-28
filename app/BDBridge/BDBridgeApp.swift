@@ -178,7 +178,7 @@ struct RecorderActivityBar: View {
     @State private var registeringTV = false
 
     /// Whether any strip is up: what the animation follows. Not which strip it is, nor what it says: one strip
-    /// taking over from another -- レコーダーを起動しています giving way to レコーダーに接続していません -- is
+    /// taking over from another -- レコーダーを起動しています giving way to レコーダーの応答がありません -- is
     /// swapped in place, where two sliding past each other would show both for a moment.
     private var showing: Bool { model.strip(inSheet: inSheet) != nil }
 
@@ -186,7 +186,7 @@ struct RecorderActivityBar: View {
         // A container that stays when the strip goes, so that the strip's own transition has somewhere to run.
         VStack(spacing: 0) { content }
             .animation(.default, value: showing)
-            .sheet(isPresented: $registeringTV) { TVRegisterSheet(host: model.tv?.host ?? "") }
+            .sheet(isPresented: $registeringTV) { TVRegisterSheet(host: model.tv?.host ?? "", again: true) }
     }
 
     @ViewBuilder
@@ -245,7 +245,7 @@ struct RecorderActivityBar: View {
                 // the network changes.
                 strip {
                     Image(systemName: "wifi.exclamationmark").font(.footnote)
-                    Text("レコーダーに接続していません").font(.footnote)
+                    Text("レコーダーの応答がありません").font(.footnote)
                     Spacer()
                     // Not while a bulk job runs, when a connect is only owed until it ends, and dropped if it
                     // meets silence first (`DeviceLink.connect`).
@@ -274,7 +274,7 @@ struct RecorderActivityBar: View {
             case .tvGaveUp:
                 strip {
                     Image(systemName: "tv").font(.footnote)
-                    Text("テレビに接続していません").font(.footnote)
+                    Text("テレビの応答がありません").font(.footnote)
                     Spacer()
                     Button { Task { await model.tv?.connect() } } label: {
                         Text("再接続").hitArea(horizontal: 13, vertical: Self.rim)
@@ -428,15 +428,16 @@ struct NoRecorderView: View {
     private var states: some View {
         if model.host.isEmpty {
             ContentUnavailableView {
-                Label("レコーダーが登録されていません", systemImage: icon)
+                Label("レコーダーが追加されていません", systemImage: icon)
             } description: {
-                Text("同じ Wi-Fi 上のレコーダーを探して登録してください")
+                Text("同じ Wi-Fi 上のレコーダーを探して追加してください")
             } actions: {
                 Button("レコーダーを探す") { welcoming = true }
                     .buttonStyle(.borderedProminent)
             }
-        } else if let busy = model.busy {
-            // While the app is working on it, this is not a failure and should not read as one
+        } else if let busy = model.recorderBusy {
+            // While the app is working on it, this is not a failure and should not read as one. The
+            // recorder's lines only: the television's work is no waking of the recorder.
             ContentUnavailableView {
                 Label(busy, systemImage: icon)
             } description: {
@@ -455,13 +456,17 @@ struct NoRecorderView: View {
                     .buttonStyle(.borderedProminent)
             }
         } else {
+            // Titled as the guide tab titles it when what is said is the phone's own cache, which is no
+            // failure to reach the recorder.
+            let phones = model.whyNothingToShow != nil && model.whyNothingToShow == model.phoneProblem
             ContentUnavailableView {
-                Label("レコーダーに接続できません", systemImage: icon)
+                Label(phones ? "エラー" : "レコーダーに接続できません",
+                      systemImage: phones ? "exclamationmark.triangle" : icon)
             } description: {
                 // What went wrong when the app knows, since this is where the guide says it now: an address
                 // that is not one, or a device there that is not a recorder, is not put right by checking
                 // the power.
-                Text(model.whyNothingToShow ?? "レコーダーの電源と、同じネットワークに接続されているかを確認してください")
+                Text(model.whyNothingToShow ?? "レコーダーの電源と、同じネットワークに接続されているかを確かめてください")
             } actions: {
                 VStack(spacing: 12) {
                     // Connecting sends a magic packet by itself when the recorder answered nothing at all, so
@@ -647,5 +652,18 @@ enum Format {
         guard mounted else { return "つながっていません" }
         guard let freeBytes, let totalBytes else { return "つながっています" }
         return "残り \(gigabytes(freeBytes)) / \(gigabytes(totalBytes))"
+    }
+}
+
+extension String {
+    /// The sentence as a body says it -- a red line, an alert's text, a footer, a notification, the Shortcuts
+    /// action's answer, a waiting row's reason -- each of its lines ended with 。 where it has none. The
+    /// sentences the strip says as well, or that are joined to others with 。 (`ScalarClient.diskNotFound`, the
+    /// queue's reports, the devices' error descriptions), are written without one, so that a join does not make
+    /// 。。: the full stop is put on here, where one is shown on its own.
+    var asABody: String {
+        split(separator: "\n", omittingEmptySubsequences: false).map { line in
+            line.isEmpty || ["。", "？", "！"].contains(where: line.hasSuffix) ? String(line) : line + "。"
+        }.joined(separator: "\n")
     }
 }

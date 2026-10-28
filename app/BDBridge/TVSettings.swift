@@ -8,6 +8,8 @@ struct TVSheetRequest: Identifiable {
     let id = UUID()
     var host: String
     var connectAtOnce: Bool
+    /// A registration again with the television already added, which the sheet's title says.
+    var again = false
 }
 
 /// The television in the settings: a way to add one by its address, and once added, what is known of it and
@@ -44,7 +46,7 @@ struct TVSection: View {
                                                              totalBytes: storage.totalMB.map { $0 * 1_000_000 }))
                     }
                     if model.tvDriver?.facts.needsPairing == true {
-                        Button("登録する") { sheet = TVSheetRequest(host: tv.host, connectAtOnce: false) }
+                        Button("登録する") { sheet = TVSheetRequest(host: tv.host, connectAtOnce: false, again: true) }
                     } else if !tv.session.connected {
                         Button("再接続") { Task { await tv.connect() } }
                             .disabled(tv.session.connecting)
@@ -64,7 +66,7 @@ struct TVSection: View {
                     // Why 外す left the television in place, above what went wrong with the television: both
                     // when both stand.
                     let lines = [model.whyTheTelevisionStays, model.problem(for: .tv)].compactMap { $0 }
-                    if !lines.isEmpty { Text(lines.joined(separator: "\n")) }
+                    if !lines.isEmpty { Text(lines.joined(separator: "\n").asABody).foregroundStyle(.red).font(.callout) }
                 }
                 .confirmationDialog("テレビを外しますか？", isPresented: $removing, titleVisibility: .visible) {
                     // Why it could not be taken away is said in the footer above (`whyTheTelevisionStays`).
@@ -102,7 +104,7 @@ struct TVSection: View {
 
     private func state(of tv: DeviceLink) -> String {
         if model.tvDriver?.facts.needsPairing == true { return "登録が必要です" }
-        if tv.session.connecting { return "接続しています" }
+        if tv.session.connecting { return "接続しています…" }
         if tv.session.connected { return "接続済み" }
         return tv.session.gaveUp ? "応答がありません" : "接続していません"
     }
@@ -126,6 +128,8 @@ struct TVRegisterSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var host: String
     private let connectAtOnce: Bool
+    /// Opened to register with the television already added, not to add one: テレビを登録, not テレビを追加.
+    private let again: Bool
     @State private var askingForPIN = false
     @State private var pin = ""
     @State private var working = false
@@ -138,9 +142,10 @@ struct TVRegisterSheet: View {
     /// once, and the step is not to be sent twice.
     @State private var begun = false
 
-    init(host: String, connectAtOnce: Bool = false) {
+    init(host: String, connectAtOnce: Bool = false, again: Bool = false) {
         _host = State(initialValue: host)
         self.connectAtOnce = connectAtOnce
+        self.again = again
     }
 
     var body: some View {
@@ -178,7 +183,7 @@ struct TVRegisterSheet: View {
                         OpenSettingsButton()
                     }
                 } else if let message {
-                    Section { Text(message).foregroundStyle(.red).font(.callout) }
+                    Section { Text(message.asABody).foregroundStyle(.red).font(.callout) }
                 }
                 Section {
                     Button(askingForPIN ? "登録する" : "テレビに接続") { start() }
@@ -186,7 +191,7 @@ struct TVRegisterSheet: View {
                     if working && !model.tvAddressTurnedAway { ProgressView() }
                 }
             }
-            .navigationTitle("テレビを追加")
+            .navigationTitle(again ? "テレビを登録" : "テレビを追加")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

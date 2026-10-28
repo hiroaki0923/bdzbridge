@@ -222,7 +222,7 @@ struct ProgramSheet: View {
                     Section("詳細") { Text(program.extended) }
                 }
                 if let problem = model.problem(for: .recorder) {
-                    Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                    Section { Text(problem.asABody).foregroundStyle(.red).font(.callout) }
                 }
             }
             .disabled(asking != nil)
@@ -284,7 +284,7 @@ struct ProgramSheet: View {
                 case .cancel(let reservation):
                     Button("削除する", role: .destructive) {
                         // Held under its device's line, as this sheet's other requests to either device are.
-                        asking = reservation.device == .tv ? TVDriver.deletingLine : RecorderDriver.deletingLine
+                        asking = line(TVDriver.deletingLine, or: RecorderDriver.deletingLine, on: reservation.device)
                         Task {
                             let deleted = await model.cancel(reservation)
                             asking = nil
@@ -348,9 +348,9 @@ struct ProgramSheet: View {
                          + "\(reservation.device.label)から削除されます。")
                 case .cancelPending(let waiting):
                     Text("\(Format.dateTime.string(from: waiting.request.start)) \(waiting.request.title)\n"
-                         + "この端末から削除し、\(waiting.target.label)には送りません。")
+                         + "この iPhone から削除し、\(waiting.target.label)には送りません。")
                 case .failed(let said), .said(let said, _):
-                    Text(said)
+                    Text(said.asABody)
                 case .kept(let why, _):
                     Text("\(Format.dateTime.string(from: program.start)) \(program.serviceName)\n" + why)
                 case .wouldStop(let held, _):
@@ -393,12 +393,18 @@ struct ProgramSheet: View {
     private func reserve(on device: DeviceSlot, disk named: String?) {
         let (quality, repeating) = (quality, repeating)
         let sent = named ?? RecorderDisk.internalID
-        request(under: device == .tv ? TVDriver.reservingLine : RecorderDriver.reservingLine, on: device,
+        request(under: line(TVDriver.reservingLine, or: RecorderDriver.reservingLine, on: device), on: device,
                 fresh: true) {
             let came = await model.reserve(program, on: device, quality: quality, repeating: repeating, disk: sent)
             if model.diskCannotBeHad(sent) { chosenDisk = RecorderDisk.internalID }
             return came
         }
+    }
+
+    /// The line a request of this sheet's is held under, as the device's driver puts it up: the recorder's names
+    /// the recorder once a television is saved beside it (`RecorderDriver.line(_:withATelevisionSaved:)`).
+    private func line(_ television: String, or recorder: String, on device: DeviceSlot) -> String {
+        device == .tv ? television : RecorderDriver.line(recorder, withATelevisionSaved: model.tv != nil)
     }
 
     /// What this sheet asks for a reservation: one on a device, a waiting row sent again, or the yes to
@@ -495,7 +501,7 @@ struct ProgramSheet: View {
             Button("予約を削除", role: .destructive) { ask = .cancel(reservation) }
                 .disabled(model.isBusy(for: .tv))
             if let problem = model.problem(for: .tv) {
-                Text(problem).foregroundStyle(.red).font(.callout)
+                Text(problem.asABody).foregroundStyle(.red).font(.callout)
             }
         }
     }
@@ -519,16 +525,16 @@ struct ProgramSheet: View {
             if let problem = waiting.problem {
                 // Refused, and not sent again by itself: asking again gets the same answer until whatever
                 // it names has changed, which only the reader can know.
-                Text(problem).foregroundStyle(.red).font(.callout)
+                Text(problem.asABody).foregroundStyle(.red).font(.callout)
                 Button("もう一度送る") {
-                    request(under: device == .tv ? TVDriver.sendingLine : RecorderDriver.sendingLine, on: device,
+                    request(under: line(TVDriver.sendingLine, or: RecorderDriver.sendingLine, on: device), on: device,
                             fresh: false) {
                         await model.sendAgain(waiting)
                     }
                 }
                 .disabled(model.isBusy(for: device) || others > 0)
             } else {
-                Text("\(device.label)に届いていない予約です。次に\(device.label)につながったときに登録します。")
+                Text("\(device.label)にまだ届いていない予約です。次に\(device.label)につながったときに送ります。")
                     .foregroundStyle(.secondary)
                     .font(.callout)
             }

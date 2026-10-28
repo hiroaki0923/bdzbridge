@@ -209,6 +209,9 @@ final class AppModel {
     var activities = Activities()
     /// What the app is doing with the recorder, for the strip and the screens to say. Nil when nothing is.
     var busy: String? { activities.current }
+    /// What the app is doing with the recorder alone, the television's lines left out (`televisionLines`): for
+    /// the screens that speak of the recorder while they wait. Nil when nothing is.
+    var recorderBusy: String? { activities.current(besides: televisionLines) }
     /// Set while the app is only waiting for the recorder to come back from a magic packet, or looking for it
     /// at another address after that (`RecorderDriver.findElsewhere`). Nothing is being written or read, so
     /// the screens leave alive what they can: a reservation made meanwhile goes to the queue.

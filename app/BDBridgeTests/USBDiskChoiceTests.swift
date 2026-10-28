@@ -10,7 +10,7 @@ import XCTest
 @MainActor
 final class USBDiskChoiceTests: XCTestCase {
     /// What the model says when a disk picked is no longer offered and none is known in the slot any more.
-    private static let slotGone = "USBHDDはいま使えません。別の録画先を選んでください。"
+    private static let slotGone = "USBHDD はいま使えません。別の録画先を選んでください。"
 
     /// A keyword condition with a word of the test's own, to `destination`.
     private static func condition(to destination: String) -> RecorderRuleRequest {
@@ -251,7 +251,7 @@ final class USBDiskChoiceTests: XCTestCase {
         expectFalse(await changeOnTheRecorder(model, onTheInternalDisk, quality: "DR", repeating: "none",
                                               disk: "USBHDD"),
                     "a move to a disk the slot did not answer was sent")
-        XCTAssertEqual(whyNotJustNow(model), "録画用ディスクはいま使えません。録画先はHDDのままです。")
+        XCTAssertEqual(whyNotJustNow(model), "録画用ディスクはいま使えません。録画先は HDD のままです。")
         XCTAssertTrue(model.diskCannotBeHad("USBHDD"))
         leaveALine(on: model)
         expectFalse(await changeOnTheRecorder(model, onTheSlot, quality: "ER", repeating: "none"),
@@ -1750,7 +1750,7 @@ final class USBDiskChoiceTests: XCTestCase {
         expectFalse(await changeOnTheRecorder(model, onTheInternalDisk, quality: "DR", repeating: "none",
                                               disk: "USBHDD"),
                     "a move to a disk no longer offered was made")
-        XCTAssertEqual(whyNotJustNow(model), "USBHDDはいま使えません。録画先はHDDのままです。")
+        XCTAssertEqual(whyNotJustNow(model), "USBHDD はいま使えません。録画先は HDD のままです。")
         leaveALine(on: model)
         expectFalse(await addACondition(model, Self.condition(to: "USBHDD")),
                     "a condition to a disk no longer offered was made")
@@ -1784,7 +1784,7 @@ final class USBDiskChoiceTests: XCTestCase {
         XCTAssertEqual(model.problem(for: .recorder), lineLeft,
                        "a reservation to a disk no longer offered wrote the line")
         expectEqual(await model.change(onTheInternalDisk, quality: "DR", repeating: "none", disk: "USBHDD"),
-                    .notDone("USBHDDはいま使えません。録画先はHDDのままです。"))
+                    .notDone("USBHDD はいま使えません。録画先は HDD のままです。"))
         XCTAssertEqual(model.problem(for: .recorder), lineLeft, "a move to a disk no longer offered wrote the line")
         expectEqual(await model.reserve(program, on: .recorder, quality: "知らない画質", repeating: "none"),
                     .notDone(Said.notInTheTables))
@@ -1848,7 +1848,7 @@ final class USBDiskChoiceTests: XCTestCase {
         expectFalse(await changeOnTheRecorder(model, onTheInternalDisk, quality: "DR", repeating: "none",
                                               disk: "USBHDD"),
                     "a move to a disk no longer offered was made")
-        XCTAssertEqual(whyNotJustNow(model), "USBHDDはいま使えません。録画先はHDDのままです。")
+        XCTAssertEqual(whyNotJustNow(model), "USBHDD はいま使えません。録画先は HDD のままです。")
         expectFalse(await changeOnTheRecorder(model, onTheSlot, quality: "DR", repeating: "none", disk: "USBHDD"),
                     "a move to a disk no longer offered was made")
         XCTAssertEqual(whyNotJustNow(model), Self.slotGone, "a reservation with the internal disk left to it")
@@ -2195,7 +2195,7 @@ final class USBDiskChoiceTests: XCTestCase {
         expectTrue(try await GuideStore(path: bench.guidePath).pendingReservations().isEmpty,
                    "a reservation to a disk no longer offered was kept on the phone")
         expectEqual(await model.change(onTheInternalDisk, quality: "DR", repeating: "none", disk: "USBHDD"),
-                    .notDone("USBHDDはいま使えません。録画先はHDDのままです。"),
+                    .notDone("USBHDD はいま使えません。録画先は HDD のままです。"),
                     "a move to a disk no longer offered was said to be for want of a connection")
         expectEqual(await recorder.asked, before, "a recorder known to be away was asked")
     }

@@ -79,7 +79,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         await recorder.beBusy(with: Self.create)
         let sending = await BackgroundWork.sendWaiting(client: aClient(of: recorder), store: store, mac: nil)
         XCTAssertEqual(SendWaitingIntent.saying(sending, televisionSaved: true),
-                       Said.deferred("夜の番組", naming: named))
+                       Said.deferred("夜の番組", naming: named) + "。")
     }
 
     // MARK: - what waits for the television
@@ -452,8 +452,8 @@ final class QueueWithATelevisionTests: XCTestCase {
         let kept = await reserve(other)
         let onThePhone = try await GuideStore(path: bench.guidePath).pendingReservations()
         let row = try XCTUnwrap(onThePhone.first, "the reservation was not kept")
-        XCTAssertEqual(kept, .waiting(row, saying: "レコーダーに届かなかったので、予約を端末に保存しました。"
-                                      + "次にレコーダーにつながったときに登録します。予約タブで削除できます。"))
+        XCTAssertEqual(kept, .waiting(row, saying: "レコーダーに送れなかったため、予約を iPhone に保存しました。"
+                                      + "次にレコーダーにつながったときに送ります。予約タブで削除できます。"))
         XCTAssertEqual(model.pending(for: other, on: .recorder), row)
         expectEqual(await recorder.heard(since: heard), [], "a recorder known to be away was asked")
     }
@@ -568,7 +568,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         XCTAssertEqual(model.destinations, [.recorder], "the real television is offered in the demo")
         XCTAssertEqual(model.destinations(for: invented), [.recorder])
         expectEqual(await model.reserve(invented, on: .tv, quality: "DR", repeating: "none"),
-                    .notDone("テレビに接続していません。テレビの電源とネットワーク接続を確認してください。"))
+                    .notDone("テレビに接続していません。テレビの電源とネットワーク接続を確かめてください。"))
         await model.loadPending()
         XCTAssertTrue(model.pending.isEmpty, "a reservation for the real television was kept in the demo")
         expectEqual(try await home.store.pendingReservations(), [], "it was kept for the real television")
@@ -793,10 +793,10 @@ final class QueueWithATelevisionTests: XCTestCase {
         let (free, stopped) = (try XCTUnwrap(onThePhone.first { $0.id == freed.id }),
                                try XCTUnwrap(onThePhone.first { $0.id == stopping.id }))
         XCTAssertEqual([free.problem, stopped.problem], [nil, Self.wouldStop], "a reason stayed that goes, or went")
-        XCTAssertEqual(goes, .waiting(free, saying: "テレビに接続していないため、予約を端末に保存しました。"
-                                      + "次にテレビが答えたときに登録します。予約タブで削除できます。"))
+        XCTAssertEqual(goes, .waiting(free, saying: "テレビに接続していないため、予約は iPhone に残しています。"
+                                      + "次にテレビにつながったときに送ります。予約タブで削除できます。"))
         XCTAssertEqual(stays, .waiting(stopped, saying: "テレビに接続していません。"
-                                       + "テレビの電源とネットワーク接続を確認してください。"))
+                                       + "テレビの電源とネットワーク接続を確かめてください。"))
         XCTAssertEqual(model.queueReport, strip, "a row that was not sent said something on the strip")
     }
 
@@ -809,9 +809,9 @@ final class QueueWithATelevisionTests: XCTestCase {
         let theirs = waiting("朝の番組", startingIn: 120, programme: 4321)
         let its = forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401))
         let reason = "前に断られた理由"
-        let recorders = "レコーダーに届かなかった予約です。次にレコーダーにつながったときに登録します。"
-        let televisions = "テレビにまだ届いていない予約です。次にテレビにつながったときに登録します。"
-        let both = "レコーダーやテレビにまだ届いていない予約です。それぞれ、次につながったときに登録します。"
+        let recorders = "レコーダーにまだ届いていない予約です。次にレコーダーにつながったときに送ります。"
+        let televisions = "テレビにまだ届いていない予約です。次にテレビにつながったときに送ります。"
+        let both = "レコーダーやテレビにまだ届いていない予約です。それぞれ、次につながったときに送ります。"
         let reasons = "理由が付いているものは自動では送り直しません。右にスワイプすると、もう一度送れます。"
         // As the tab reads it: from the rows on screen.
         func footer(of model: AppModel, over rows: [PendingReservation]) -> String {
@@ -1135,8 +1135,8 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// sending saw it there, and no connect has read it since.
     func testTheStripAndTheTabSayTheDiskIsAwayWhileAReservationWaitsForIt() async throws {
         let notFound = "録画用の USB HDD が見つからないため、テレビへの予約は送っていません"
-        let televisions = "テレビにまだ届いていない予約です。次にテレビにつながったときに登録します。"
-        let both = "レコーダーやテレビにまだ届いていない予約です。それぞれ、次につながったときに登録します。"
+        let televisions = "テレビにまだ届いていない予約です。次にテレビにつながったときに送ります。"
+        let both = "レコーダーやテレビにまだ届いていない予約です。それぞれ、次につながったときに送ります。"
         let reasons = "理由が付いているものは自動では送り直しません。右にスワイプすると、もう一度送れます。"
         let home = try await launch(with: NamedRecorder(1))
         let (model, television, store) = (home.model, home.television, home.store)
@@ -1236,30 +1236,33 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         let made = (recorder: Said.sent("朝の番組", naming: "レコーダー"), tv: Said.sent("サンプル劇場", naming: "テレビ"))
         let nothing = "送信待ちの予約はありません。"
-        let notAnswering = "テレビが応答しないため送っていません。次にテレビが答えたときに送ります"
+        let notAnswering = "テレビが応答しないため送っていません。次にテレビにつながったときに送ります。"
         for sending in [recorders, .nothingWaiting, .unreachable, .anotherRecorder, .noRecorder, .demo] {
             XCTAssertEqual(SendWaitingIntent.saying(sending, beside: nil, televisionSaved: false),
                            SendWaitingIntent.saying(sending, televisionSaved: false), "\(sending)")
         }
-        XCTAssertEqual(SendWaitingIntent.saying(recorders, beside: nil, televisionSaved: false), Said.sent("朝の番組"))
+        XCTAssertEqual(SendWaitingIntent.saying(recorders, beside: nil, televisionSaved: false),
+                       Said.sent("朝の番組") + "。")
         let cases: [(String, BackgroundWork.Sending, NoScreenSending, String)] = [
             ("nothing anywhere", .nothingWaiting, .nothingWaiting, nothing),
             ("nothing left for the television", .nothingWaiting, nothingLeft, nothing),
-            ("both made", recorders, televisions, made.recorder + "。" + made.tv),
-            ("nothing in the recorder's round", nothingForTheRecorder, televisions, made.tv),
+            ("both made", recorders, televisions, made.recorder + "。" + made.tv + "。"),
+            ("nothing in the recorder's round", nothingForTheRecorder, televisions, made.tv + "。"),
             ("the recorder's round cut short", recorderCutShort, televisions,
-             "途中でレコーダーの応答がなくなりました。送信待ちの予約はそのまま残しています。" + made.tv),
-            ("the recorder's round silent at a create", recorderHeld, televisions, Said.heldAfterSilence + made.tv),
+             "途中でレコーダーの応答がなくなりました。送信待ちの予約はそのまま残しています。" + made.tv + "。"),
+            ("the recorder's round silent at a create", recorderHeld, televisions,
+             Said.heldAfterSilence + made.tv + "。"),
             ("the recorder away", .unreachable, .nothingWaiting, "レコーダーに接続できませんでした。送信待ちの予約はそのまま残しています。"),
             ("the television away", .nothingWaiting, .unreachable, notAnswering),
             ("another of each", .anotherRecorder, .anotherAnswered,
              "これまでとは別のレコーダーが応答したため、送信待ちの予約はそのまま残しています。アプリを開いて確かめてください。"
-                + "登録したテレビとは別の機器が応答しました。設定の「テレビ」から追加し直してください"),
+                + "追加したテレビとは別の機器が応答しました。設定の「テレビ」で「テレビを外す」を選んでから、"
+                + "もう一度追加してください。"),
             ("the television's disk away", .nothingWaiting, diskAway,
-             "録画用の USB HDD が見つからないため、テレビへの予約は送っていません"),
+             "録画用の USB HDD が見つからないため、テレビへの予約は送っていません。"),
             ("no registration kept", .nothingWaiting, unregistered,
-             "テレビへの登録が必要です。設定の「テレビ」から登録してください"),
-            ("a television alone, made", .noRecorder, televisions, made.tv),
+             "テレビへの登録が必要です。設定の「テレビ」から登録してください。"),
+            ("a television alone, made", .noRecorder, televisions, made.tv + "。"),
             ("a television alone, away", .noRecorder, .unreachable, notAnswering),
             ("a television alone, nothing waiting", .noRecorder, .nothingWaiting, nothing),
         ]
@@ -1347,7 +1350,7 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         XCTAssertEqual(silent.notices, NoScreenNotices(notYet: "テレビにまだ届いていない予約があります（「サンプル紀行」"
                                                   + "\(startInJapan(late)) から）。"
-                                                  + "テレビが応答しないため送っていません。次にテレビが答えたときに送ります"))
+                                                  + "テレビが応答しないため送っていません。次にテレビにつながったときに送ります"))
         let again = await run(from: silent.told)
         XCTAssertEqual(again.notices, NoScreenNotices(), "told a second time")
     }
@@ -2204,7 +2207,8 @@ final class QueueWithATelevisionTests: XCTestCase {
         let instead = await deleting.value
 
         expectEqual(await television.schedules.map(\.eventId), [4401, 4402])
-        XCTAssertEqual(instead, Said.sent("サンプル紀行", naming: "テレビ"), "a reservation made was said to be deleted")
+        XCTAssertEqual(instead, Said.madeBeforeItsDelete("サンプル紀行", on: "テレビ"),
+                       "a reservation made was said to be deleted")
         XCTAssertEqual(model.tvHost?.reservations.compactMap(\.eventID).sorted(), [4401, 4402],
                        "the television's list was not read again")
         guard case .sent(let made) = await again.value else { return XCTFail("the action ran no round again") }
@@ -2414,7 +2418,8 @@ final class QueueWithATelevisionTests: XCTestCase {
         await recorder.letGo()
         let instead = await deleting.value
 
-        XCTAssertEqual(instead, Said.sent("朝の番組", naming: "レコーダー"), "a reservation made was said to be deleted")
+        XCTAssertEqual(instead, Said.madeBeforeItsDelete("朝の番組"),
+                       "a reservation made was said to be deleted")
         guard case .sent(let made) = await action.value else { return XCTFail("the action ran no round") }
         XCTAssertEqual(made.sent.map(\.id), [row.id])
         expectEqual(await recorder.asked(Self.create, since: asked), 1)
@@ -2448,7 +2453,8 @@ final class QueueWithATelevisionTests: XCTestCase {
         expectEqual(try await store.pendingReservations(), [])
 
         let instead = await model.deleteWaiting(made)
-        XCTAssertEqual(instead, Said.sent("サンプル劇場", naming: "テレビ"), "a reservation made was said to be deleted")
+        XCTAssertEqual(instead, Said.madeBeforeItsDelete("サンプル劇場", on: "テレビ"),
+                       "a reservation made was said to be deleted")
         let dropped = await model.deleteWaiting(over)
         XCTAssertNil(dropped, "a reservation dropped as over was said to be made")
     }
@@ -2478,7 +2484,8 @@ final class QueueWithATelevisionTests: XCTestCase {
         expectEqual(try await store.pendingReservations().map(\.id), [row.id])
 
         let instead = await model.deleteWaiting(row)
-        XCTAssertEqual(instead, Said.sent("サンプル劇場", naming: "テレビ"), "a reservation made was said to be deleted")
+        XCTAssertEqual(instead, Said.madeBeforeItsDelete("サンプル劇場", on: "テレビ"),
+                       "a reservation made was said to be deleted")
         expectEqual(try await store.pendingReservations(), [], "the row made was left waiting")
         XCTAssertEqual(model.tvHost?.reservations.compactMap(\.eventID), [4401], "the list read was not kept")
         expectEqual(await television.schedules.map(\.eventId), [4401])

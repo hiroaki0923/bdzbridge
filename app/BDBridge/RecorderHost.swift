@@ -356,6 +356,9 @@ final class RecorderHost: RecorderLinkHost {
         anotherTookOver = another
     }
 
+    /// While a television's link is in hand -- one saved, or the demo's added -- the recorder's lines name it.
+    var televisionSaved: Bool { model?.tv != nil }
+
     /// What waits for the recorder is sent by its driver (`RecorderDriver.sendWhatWaits`), from inside the
     /// attach and when the list is pulled down: the list it read after a sending, which it reads only after a
     /// waking's attach that no connect reads after, is kept on what was said as this began, and what the round

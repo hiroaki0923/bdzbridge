@@ -893,7 +893,7 @@ final class NoScreenGateTests: XCTestCase {
             (.nothingWaiting, nothing, nothing),
             (.unreachable, notReached, notReached),
             (.anotherRecorder, Said.anotherAnsweredWithNoScreen, Said.anotherAnsweredWithNoScreen),
-            (sent, Said.sent("朝の番組"), Said.sent("朝の番組", naming: "レコーダー")),
+            (sent, Said.sent("朝の番組") + "。", Said.sent("朝の番組", naming: "レコーダー") + "。"),
             (nothingToSay, nothing, nothing),
         ]
         for (sending, alone, withATelevision) in words {
@@ -922,10 +922,11 @@ final class NoScreenGateTests: XCTestCase {
         try await store.queue(waiting("昼の番組", startingIn: 150, programme: 4322))
         came = await action(on: recorder, store)
         XCTAssertEqual(came.heard, [Ask.description, Ask.reservations, Ask.create])
-        XCTAssertEqual(SendWaitingIntent.saying(came.sending), Said.sent("昼の番組") + "。" + Self.stillHeld(1),
+        XCTAssertEqual(SendWaitingIntent.saying(came.sending), Said.sent("昼の番組") + "。" + Self.stillHeld(1) + "。",
                        "the reservation held before was not said to be held still")
         XCTAssertEqual(SendWaitingIntent.saying(came.sending, televisionSaved: true),
-                       Said.sent("昼の番組", naming: "レコーダー") + "。" + Self.stillHeld(1), "with a television saved")
+                       Said.sent("昼の番組", naming: "レコーダー") + "。" + Self.stillHeld(1) + "。",
+                       "with a television saved")
         expectEqual(try await rows(in: store), [held])
 
         var ran = await night(of: recorder, store)
@@ -971,7 +972,8 @@ final class NoScreenGateTests: XCTestCase {
         let came = await action(on: recorder, store)
         XCTAssertEqual(came.heard, [Ask.description, Ask.reservations])
         XCTAssertEqual(SendWaitingIntent.saying(came.sending),
-                       Said.expired("終わった番組") + "。" + cutShort + "。" + Self.stillHeld(1), "the action's answer")
+                       Said.expired("終わった番組") + "。" + cutShort + "。" + Self.stillHeld(1) + "。",
+                       "the action's answer")
         expectEqual(try await rows(in: store), asTheyWere)
 
         try await store.queue(waiting("終わった番組", startingIn: -120, programme: 4326))
@@ -1049,7 +1051,7 @@ final class NoScreenGateTests: XCTestCase {
         "レコーダーにまだ届いていない予約があります（「\(title)」12:33 から）。"
     }
 
-    private static let notAnswering = "レコーダーが応答しないため送っていません。次にレコーダーが答えたときに送ります"
+    private static let notAnswering = "レコーダーが応答しないため送っていません。次にレコーダーにつながったときに送ります"
 
     /// The overnight run handed what was told before and when the next is asked for, as the app's entry hands
     /// them on: what it told, and what it asked of the recorder. With `kind`, its next request of that kind is

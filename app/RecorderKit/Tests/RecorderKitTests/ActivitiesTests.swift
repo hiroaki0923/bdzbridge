@@ -23,6 +23,20 @@ final class ActivitiesTests: XCTestCase {
         XCTAssertTrue(activities.any(besides: []))
     }
 
+    /// A screen that speaks of one device shows that device's latest line, however many of another's were
+    /// begun after it.
+    func testOneDevicesLineIsToldFromAnothers() {
+        var activities = Activities()
+        XCTAssertNil(activities.current(besides: []))
+        let recorder = activities.begin("接続中")
+        let television = activities.begin("テレビに接続中")
+        XCTAssertEqual(activities.current, "テレビに接続中")
+        XCTAssertEqual(activities.current(besides: [television]), "接続中")
+        activities.end(recorder)
+        XCTAssertNil(activities.current(besides: [television]), "the television's line stood for the recorder's")
+        XCTAssertEqual(activities.current(besides: []), "テレビに接続中")
+    }
+
     /// The order the serial client finishes things in: first begun, first done. Saving the line on the way
     /// in and restoring it on the way out left "予約一覧を取得中" on screen for good in exactly this order.
     func testWorkFinishingInTheOrderItBeganLeavesNothingBehind() {

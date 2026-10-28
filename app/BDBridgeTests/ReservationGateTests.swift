@@ -125,7 +125,7 @@ final class ReservationGateTests: XCTestCase {
         try await until("the list was never read after the reservation") {
             await recorder.asked(Kind.list, since: before) == 1
         }
-        XCTAssertEqual(model.busy, "予約を登録中", "the read after the reservation showed a line of its own, or none")
+        XCTAssertEqual(model.busy, "予約を送信中", "the read after the reservation showed a line of its own, or none")
         XCTAssertFalse(model.canChangeRecorder, "another recorder could be chosen with the reservation under way")
         await recorder.letGo()
         expectTrue(await reserving.value, model.problem(for: .recorder) ?? "no reason given")
@@ -1421,7 +1421,7 @@ final class ReservationGateTests: XCTestCase {
             await recorder.heard(since: count).contains(Kind.create)
         }
         expectEqual(await recorder.heard(since: count), [Kind.list, Kind.create])
-        XCTAssertEqual(model.busy, "予約を登録中")
+        XCTAssertEqual(model.busy, "予約を送信中")
         XCTAssertFalse(model.canChangeRecorder, "another recorder could be chosen with the reservation out")
         await recorder.letGo()
         expectTrue(await asking.value, model.problem(for: .recorder) ?? "no reason given")
