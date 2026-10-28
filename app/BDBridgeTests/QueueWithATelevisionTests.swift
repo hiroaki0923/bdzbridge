@@ -767,7 +767,7 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         try await store.queue(notListed("サンプル。天気", programme: 4405))
         await host.refreshReservations()
-        XCTAssertEqual(model.queueReport, made + "。「サンプル。天気」はテレビに登録できませんでした")
+        XCTAssertEqual(model.queueReport, made + "。「サンプル。天気」はテレビに予約できませんでした")
 
         let theirs = turnedDown(waiting("朝の番組", startingIn: 120, programme: 4321), for: reason)
         try await store.queue(theirs)
@@ -878,7 +878,7 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         await recorder.hold(only: Self.list)
         let listing = Task { await model.loadReservations() }
-        try await until("the recorder's list was never being read") { model.busy == "予約一覧を取得中" }
+        try await until("the recorder's list was never being read") { model.busy == "レコーダーの予約一覧を取得中" }
         await model.deleteWaiting(noon)
         await model.deleteWaiting(its)
         await recorder.letGo()
