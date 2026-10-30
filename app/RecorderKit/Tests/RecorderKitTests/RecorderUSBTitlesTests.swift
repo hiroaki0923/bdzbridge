@@ -422,6 +422,11 @@ final class RecorderUSBTitlesTests: XCTestCase {
             XCTAssertEqual(kept, 0)
             XCTAssertNil(world.problem, "what the result says was said on the line too")
             expectEqual(await recorder.asked, [])
+
+            // At the door, ahead of whether the recorder is there: no check goes for what would be turned away.
+            link.session.lost()
+            let away = await driver.protect(usb, true) { kept += 1 }
+            XCTAssertEqual(away.altered, .notDone(RecorderDriver.diskChanged))
         }
     }
 
