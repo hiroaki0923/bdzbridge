@@ -1007,7 +1007,8 @@ extension LiveTVTests {
 
     /// Runs one of the writes above on the television at `TV_HOST`, with the registration in `TV_JAR`, reading the
     /// list in the version `TV_CONTENT_VERSION` names and writing to the recording that starts at
-    /// `TV_TARGET_START`, after the television has said `active` and `notStarted`. Skipped with nothing sent unless
+    /// `TV_TARGET_START`, after the television has said `active` (`standby` with `TV_IN_STANDBY=1`, for what a write
+    /// does there: the owner watches the panel, the lamp and the disk) and `notStarted`. Skipped with nothing sent unless
     /// `TV_WRITE` is the name of the test that called (`TVSitting.mayWrite`). However the steps end, a protection
     /// they may have left on is said.
     private func recordingWrite(_ test: String = #function, _ steps: (RecordingWrite) async throws -> Void)
@@ -1024,7 +1025,8 @@ extension LiveTVTests {
         let power = try await Self.sayingItsKind("getPowerStatus") { try await client.powerStatus() }
         let recording = try await Self.sayingItsKind("getRecordingStatus") { try await client.recordingStatus() }
         say("before anything: power \(power), recording \(recording)")
-        guard power == "active" else { throw XCTSkip("the television says \(power), not active") }
+        let wanted = Self.environment("TV_IN_STANDBY") == "1" ? "standby" : "active"
+        guard power == wanted else { throw XCTSkip("the television says \(power), not \(wanted)") }
         guard recording == "notStarted" else { throw XCTSkip("the television says it is recording (\(recording))") }
         let at = RecordingWrite(client: client, asking: asking, start: start, say: say)
         do {
