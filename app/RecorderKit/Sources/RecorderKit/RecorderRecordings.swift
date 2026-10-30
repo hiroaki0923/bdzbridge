@@ -206,6 +206,10 @@ extension RecorderDriver {
     /// the one to write to.
     public nonisolated static let recordingOnTheUSBDisk = "録画中のため保護も削除もできません。番組が終わってから一覧を読み直してください"
 
+    /// Said when a recording still being recorded to a USB disk is asked to be played: it has not been tried, and
+    /// the list read after it ends has the id to play.
+    public nonisolated static let notPlayedWhileRecording = "録画中のため再生できません。番組が終わってから一覧を読み直してください"
+
     /// Why a recording of a USB disk cannot be changed now, or nil when it can, with `usb` the disk known in the
     /// slot: a row is written to only while the disk it was read from is the one there (`RecorderDisk.isStill`),
     /// since on another its id means nothing, or something else; and not while it is being recorded, since that
@@ -232,6 +236,13 @@ extension RecorderDriver {
         if let why = whyNot(altering: title, usb: usb) { return why }
         if title.recording { return stillRecording }
         return title.protected ? protectedCannotBeDeleted : nil
+    }
+
+    /// Why a recording cannot be played now, or nil when it can: the rule of changing one, for the same reasons
+    /// (`whyNot(altering:usb:)`), a number off its own disk playing whatever holds it there, in the sentence of
+    /// playing where it has one. For the door of `play`, and for the sheet, which holds 再生 and says why.
+    public nonisolated static func whyNot(playing title: RecordedTitle, usb: RecorderDisk?) -> String? {
+        whyNot(altering: title, usb: usb).map { $0 == diskChanged ? $0 : notPlayedWhileRecording }
     }
 
     /// The moment before something is written to a recording of a USB disk, once the recorder has been made sure of
@@ -426,9 +437,17 @@ extension RecorderDriver {
     /// the recorder in play as it was asked for, as a protect is, the play after the power wait among it: a play
     /// by its number to another recorder would play another recording. The offer is not set by an answer across
     /// a let-go, which is about the recorder let go of.
+    ///
+    /// The same goes for a number off its own disk: a play of a recording of a USB disk that cannot be played now
+    /// (`whyNot(playing:usb:)`) is turned away first, nothing sent, the offer left as it was and the recorder and the
+    /// television not turned on for it, and is asked again of the slot once the recorder has been made sure of
+    /// (`waitForTheDisk`). A pause and a stop go whatever the row: they are about what is on the television.
     @discardableResult
     public func play(_ title: RecordedTitle, _ operation: String) async -> Altered {
         guard let link else { return .notDone(Self.notConnected) }
+        if operation == "play", let why = Self.whyNot(playing: title, usb: link.session.usbDisk) {
+            return .notDone(why)
+        }
         guard link.client is RecorderClient, !link.session.unreachable, canBeAsked(on: link) else {
             return .notDone(whyNotConnected)
         }
@@ -439,6 +458,7 @@ extension RecorderDriver {
                                since: began) { line, client in
             do {
                 if operation == "play" {
+                    let client = try await self.waitForTheDisk(of: title, handed: client, since: began)
                     try await self.playTurningItOn(title, on: client, link, since: began, line: line)
                 } else {
                     try await client.playControl(titleID: title.id, operation: operation)

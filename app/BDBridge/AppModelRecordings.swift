@@ -105,6 +105,10 @@ extension AppModel {
     /// (`RecorderDriver.whyNot(deleting:usb:)`).
     func whyNot(deleting title: RecordedTitle) -> String? { RecorderDriver.whyNot(deleting: title, usb: usbDisk) }
 
+    /// Why a recording cannot be played now, by the rule the play's own door asks
+    /// (`RecorderDriver.whyNot(playing:usb:)`).
+    func whyNot(playing title: RecordedTitle) -> String? { RecorderDriver.whyNot(playing: title, usb: usbDisk) }
+
     /// A write: the recorder stops deleting this one to make room (`RecorderHost.setProtected`).
     @discardableResult
     func setProtected(_ title: RecordedTitle, _ on: Bool) async -> Altered {

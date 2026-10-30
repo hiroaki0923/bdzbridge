@@ -98,7 +98,7 @@ final class RecorderUSBTitlesTests: XCTestCase {
                 return Stub.soap(action, extra: "<RecordDestinationInfo>"
                     + Soap.escape("<info totalCapacity=\"100\" availableCapacity=\"30\" />")
                     + "</RecordDestinationInfo>")
-            case "X_UpdateTitle":
+            case "X_UpdateTitle", "X_PlayControlTitle", "X_PowerControl":
                 asked.append(action)
                 return Stub.soap(action)
             case "X_GetTitleDetail":
@@ -544,6 +544,85 @@ final class RecorderUSBTitlesTests: XCTestCase {
         XCTAssertEqual(protected.altered, .notDone(driver.noAnswerLine))
         XCTAssertEqual(world.problem, driver.noAnswerLine)
         expectFalse(await recorder.asked.contains("X_UpdateTitle"))
+    }
+
+    // MARK: - playing
+
+    /// A play of a row of a disk gone sends nothing: whatever holds that number on the next disk would play, its
+    /// new mark and its resume point moving, and from standby the recorder and the television would be turned on
+    /// for it first. A pause and a stop are about what is on the television, whatever list the sheet was opened
+    /// from, and stay open.
+    func testAPlayOfARowOfADiskGoneSendsNothing() async throws {
+        for other: RecorderDisk? in [Self.another, nil] {
+            let recorder = try TwoDisks(slot: .answer(Self.slot))
+            let (driver, link, world, _, usb, _) = try await rows(of: recorder)
+            link.session.slotAnswered(other)
+            link.session.powerNeeded(true)
+
+            let played = await driver.play(usb, "play")
+
+            XCTAssertEqual(played, .notDone(RecorderDriver.diskChanged))
+            XCTAssertEqual(RecorderDriver.whyNot(playing: usb, usb: other), RecorderDriver.diskChanged)
+            XCTAssertTrue(link.session.needsPower, "the offer of the power went with a play turned away at its door")
+            XCTAssertNil(world.problem, "what the result says was said on the line too")
+            expectEqual(await recorder.asked, [])
+
+            for operation in ["pause", "stop"] {
+                let sent = await driver.play(usb, operation)
+                XCTAssertEqual(sent, .done(saying: nil), operation)
+            }
+            expectEqual(await recorder.asked, ["X_PlayControlTitle", "X_PlayControlTitle"])
+        }
+    }
+
+    /// A play reads the slot first, as a write does: a disk swapped with nothing having told the session is found
+    /// there, and the disk in the slot plays.
+    func testAPlayReadsTheSlotFirst() async throws {
+        let recorder = try TwoDisks(slot: .answer(Self.slot))
+        let (driver, _, _, _, usb, _) = try await rows(of: recorder)
+
+        let played = await driver.play(usb, "play")
+
+        XCTAssertEqual(played, .done(saying: nil))
+        expectEqual(await recorder.asked, ["X_GetMediaInfo", "X_PlayControlTitle"])
+
+        await recorder.forget()
+        await recorder.answer(slot: .answer(Self.anotherSlot))
+        let swapped = await driver.play(usb, "play")
+
+        XCTAssertEqual(swapped, .notDone(RecorderDriver.diskChanged))
+        expectEqual(await recorder.asked, ["X_GetMediaInfo"])
+    }
+
+    /// A row still being recorded to the USB disk is not played: that has not been tried, and its id goes as it
+    /// ends. It says so in a sentence of its own, and a pause and a stop stay open.
+    func testARecordingInProgressOnTheUSBDiskIsNotPlayed() async throws {
+        let recorder = try TwoDisks(slot: .answer(Self.slot))
+        let (driver, _, _, _, _, recording) = try await rows(of: recorder)
+
+        let played = await driver.play(recording, "play")
+        let stopped = await driver.play(recording, "stop")
+
+        XCTAssertEqual(played, .notDone(RecorderDriver.notPlayedWhileRecording))
+        XCTAssertEqual(stopped, .done(saying: nil))
+        expectEqual(await recorder.asked, ["X_PlayControlTitle"])
+    }
+
+    /// A row of the internal disk plays as it always has, one being recorded among them, and asks the slot nothing.
+    func testARowOfTheInternalDiskPlaysAsItAlwaysHas() async throws {
+        let recorder = try TwoDisks(slot: .answer(Self.slot),
+                                    own: Self.list(Self.item("0x1", on: "HDD", recording: true)))
+        let (driver, link, _) = try await connected(to: recorder)
+        let list = await read(through: driver).kept.list
+        let row = try XCTUnwrap(list.first)
+        await recorder.forget()
+        link.session.slotAnswered(nil)
+
+        let played = await driver.play(row, "play")
+
+        XCTAssertNil(RecorderDriver.whyNot(playing: row, usb: nil))
+        XCTAssertEqual(played, .done(saying: nil))
+        expectEqual(await recorder.asked, ["X_PlayControlTitle"])
     }
 
     // MARK: - a run

@@ -74,7 +74,9 @@ struct TitleSheet: View {
                     // Held off while the recorder works, and from the press until the sheet's own request is
                     // answered. 一時停止 is one toggle on the recorder, so a second tap while the first was still
                     // on its way resumed what the reader had meant to pause; and turning the recorder on to play
-                    // takes long enough to invite a second tap too.
+                    // takes long enough to invite a second tap too. 再生 alone is held where its own door would turn
+                    // it away, and says why below: 一時停止 and 停止 are about what is on the television.
+                    let whyNotPlayed = model.whyNot(playing: current)
                     Group {
                         Button {
                             ask { await model.play(current, "play") }
@@ -84,6 +86,7 @@ struct TitleSheet: View {
                             // button, rather than surprise a reader who expected to carry on where they left off.
                             Label(current.watchState == .partway ? "最初から再生" : "再生", systemImage: "play.fill")
                         }
+                        .disabled(whyNotPlayed != nil)
                         Button {
                             ask { await model.play(current, "pause") }
                         } label: {
@@ -104,7 +107,9 @@ struct TitleSheet: View {
                         }
                     }
                     .disabled(model.isBusy(for: .recorder) || asking)
-                    Text("レコーダーに接続されたテレビで再生されます。").font(.caption).foregroundStyle(.secondary)
+                    Text((whyNotPlayed ?? "レコーダーに接続されたテレビで再生されます。").asABody)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section {
