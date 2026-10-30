@@ -570,6 +570,37 @@ final class USBDiskTests: XCTestCase {
                       "the demo's disks were meant to hold copies of one another's programmes")
     }
 
+    /// What is kept of a row past the read that gave it goes with its disk, whatever numbers the next disk gives
+    /// out: here the same ones, as nothing says they cannot be. A text kept, on the phone and in memory, says nothing
+    /// of the next disk's row, which goes unread and into no set; a tick goes; a sheet held on the row finds it gone,
+    /// and a selection on an open programme's sheet finds nothing.
+    func testNothingKeptOfARowPassesToTheSameNumberOnAnotherDisk() async throws {
+        let (bench, recorder, model) = try await connectedWithRecordings()
+        model.startDuplicateScan()
+        try await until("the scan never ended") { model.job?.finished == true }
+        model.clearJob()
+        let copy = try XCTUnwrap(model.duplicates.flatMap(\.items).first { $0.destination == "USBHDD" },
+                                 "the demo's disks were meant to hold a copy of one recording")
+        expectEqual(try await GuideStore(path: bench.guidePath).titleSummaries([copy.listKey]).count, 1)
+        expectEqual(try await GuideStore(path: bench.guidePath).titleSummaries([copy.id]).count, 0,
+                    "a USB disk's text was kept under its number alone")
+        model.duplicatePicks.insert(copy.id)
+        let selection: Set = [copy.listKey]
+        XCTAssertEqual(GroupSheet.chosen(among: [copy], selection), [copy])
+        XCTAssertEqual(model.row(like: copy), copy)
+
+        await recorder.answer("X_GetMediaInfo", with: .result(Self.anotherDisk), times: 1000)
+        await reconnect(model)
+        await model.loadOutdatedTitles()
+
+        let next = try XCTUnwrap(model.titles.first { $0.id == copy.id }, "the next disk was meant to number it alike")
+        XCTAssertNotEqual(next.listKey, copy.listKey)
+        XCTAssertEqual(model.duplicates.count, 0, "a text of the last disk made a set of the next one's")
+        XCTAssertFalse(model.duplicatePicks.contains(copy.id), "a tick of the last disk stood on the next one's row")
+        XCTAssertEqual(GroupSheet.chosen(among: [next], selection), [], "a selection passed to the next disk's row")
+        XCTAssertNil(model.row(like: copy), "a sheet held on the last disk's row took the next one's for it")
+    }
+
     /// The demo's recorder, which the reader meets, has the USB disk the tests' does not.
     func testTheDemosRecorderHasAUSBDisk() async throws {
         let model = try aBench().model(recorder: DemoRecorder())

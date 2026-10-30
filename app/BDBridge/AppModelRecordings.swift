@@ -80,6 +80,12 @@ extension AppModel {
         shownTitles.filter { $0.seriesKey == group.key }
     }
 
+    /// The row of the list that is `title`, or nil once it has left: by `RecordedTitle.listKey`, since a list read
+    /// again from another disk can hold another recording under the same number.
+    func row(like title: RecordedTitle) -> RecordedTitle? {
+        titles.first { $0.listKey == title.listKey }
+    }
+
     func channelName(for title: RecordedTitle) -> String {
         channelNames["\(title.broadcastingType)-\(title.serviceID)"]
             ?? Codes.broadcastingLabel[Codes.broadcasting(code: title.broadcastingType) ?? ""]

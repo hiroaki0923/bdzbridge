@@ -151,6 +151,11 @@ public struct RecordedTitle: Equatable, Sendable, Identifiable {
     /// by this one and no text is kept under it. Whether the internal disk's do the same has not been seen, and
     /// its recordings are left as they always were.
     public var idChangesWhenItEnds: Bool { recording && readFrom != nil }
+    /// What tells this row from another past the read that gave it. A row of the internal disk's list is its id as
+    /// it stands, as it always was; one of a USB disk carries the disk in front, since whether two disks give out
+    /// the same number has not been seen, and a number means nothing off its own disk. What is held of a row by
+    /// more than the list goes by this: its programme text, kept for good, a selection on a sheet, a sheet itself.
+    public var listKey: String { readFrom.map { "\($0.registered)|\(id)" } ?? id }
 }
 
 /// One of the disks the recorder records to, as `X_GetMediaInfo` describes it: its own, or whatever disk is in

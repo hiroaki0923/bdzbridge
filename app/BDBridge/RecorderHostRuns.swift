@@ -242,14 +242,14 @@ extension RecorderHost {
     /// (`RecorderDriver.mayGoOn`), and the scan stops there.
     private func runScan(_ candidates: [[RecordedTitle]], store: GuideStore, _ run: Run,
                          _ driver: RecorderDriver, into said: RecorderSaid) async {
-        let ids = candidates.flatMap { $0.map(\.id) }
-        if let known = try? await store.titleSummaries(ids) {
+        let keys = candidates.flatMap { $0.map(\.listKey) }
+        if let known = try? await store.titleSummaries(keys) {
             said.summaries.merge(known) { _, new in new }
         }
         // The recorder is needed only for what the cache does not already hold, and made sure of only then,
         // and not for a scan that 中止 has stopped already.
         var stopped: RunStop?
-        if job?.cancelled != true, ids.contains(where: { said.summaries[$0] == nil }) {
+        if job?.cancelled != true, keys.contains(where: { said.summaries[$0] == nil }) {
             stopped = await driver.mayGoOn(run)
         }
 
@@ -260,7 +260,7 @@ extension RecorderHost {
                     stopped = await driver.mayGoOn(run)
                     if stopped != nil { break scan }
                 }
-                if said.summaries[title.id] == nil {
+                if said.summaries[title.listKey] == nil {
                     await readyForNextStep()
                     // before the recorder is made sure of, and after, as in `runBulk`: 中止 may have been tapped
                     // while the app was away, and a check heard out meanwhile may have stopped the scan
@@ -270,8 +270,8 @@ extension RecorderHost {
                     if job?.cancelled == true { break scan }
                     switch await keepingAlive({ await driver.text(of: title, in: run) }) {
                     case .read(let summary):
-                        said.summaries[title.id] = summary
-                        try? await store.setTitleSummary(title.id, summary)
+                        said.summaries[title.listKey] = summary
+                        try? await store.setTitleSummary(title.listKey, summary)
                     case .gone:
                         // deleted on the recorder since the list was read, so it is not a copy of anything
                         said.titles.removeAll { $0.id == title.id }

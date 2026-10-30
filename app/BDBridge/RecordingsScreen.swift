@@ -10,8 +10,8 @@ struct RecordingsScreen: View {
     @State private var opened: RecordedTitle?
     @State private var welcoming = false
     @State private var openedGroup: TitleGroup?
-    /// The row swiped, by id rather than by value: the recording is read back out of the model when the
-    /// dialog asks, so a delete can only ever be sent for a row the list still holds.
+    /// The row swiped, by key rather than by value (`RecordedTitle.listKey`): the recording is read back out of
+    /// the model when the dialog asks, so a delete can only ever be sent for a row the list still holds.
     @State private var removing: String?
     @State private var failure: String?
     /// What a delete that went through had to say: that the recording was deleted already.
@@ -30,7 +30,7 @@ struct RecordingsScreen: View {
     private var shown: Shown? {
         if let failure { return .failed(failure) }
         if let told { return .told(told) }
-        if let id = removing, let title = model.titles.first(where: { $0.id == id }) {
+        if let key = removing, let title = model.titles.first(where: { $0.listKey == key }) {
             return .confirm(title)
         }
         return nil
@@ -214,7 +214,7 @@ struct RecordingsScreen: View {
                 }
                 .buttonStyle(.plain)
                 .titleSwipe(title, whyNot: model.whyNot(deleting: title), held: !model.canAlterARecording,
-                            ask: { removing = title.id }, unprotect: {
+                            ask: { removing = title.listKey }, unprotect: {
                     Task { if case .notDone(let why) = await model.setProtected(title, false) { failure = why } }
                 })
             }
@@ -381,7 +381,7 @@ struct GroupSheet: View {
     @State private var selecting = false
     @State private var selected: Set<String> = []
     @State private var confirmingDelete = false
-    /// The row swiped, by id, read back out of the model when the dialog asks.
+    /// The row swiped, by key, read back out of the model when the dialog asks.
     @State private var removing: String?
     @State private var failure: String?
     /// What a single delete that went through had to say: that the recording was deleted already.
@@ -403,8 +403,14 @@ struct GroupSheet: View {
     private func shown(among members: [RecordedTitle]) -> Shown? {
         if let failure { return .failed(failure) }
         if let told { return .told(told) }
-        if let id = removing, let title = members.first(where: { $0.id == id }) { return .one(title) }
+        if let key = removing, let title = members.first(where: { $0.listKey == key }) { return .one(title) }
         return confirmingDelete ? .bulk : nil
+    }
+
+    /// The recordings ticked, of those the sheet lists. By key (`RecordedTitle.listKey`): the list can be read
+    /// again under an open sheet, and a tick on a disk since gone says nothing of a row of the next one.
+    static func chosen(among members: [RecordedTitle], _ selected: Set<String>) -> [RecordedTitle] {
+        members.filter { selected.contains($0.listKey) }
     }
 
     private static func gigabytes(_ titles: [RecordedTitle]) -> Double {
@@ -415,7 +421,7 @@ struct GroupSheet: View {
         // Read once here and handed to the parts that need them: each read sorts every recording and picks
         // this programme's out of them, and every tick in the selection draws the sheet again.
         let members = model.members(of: group)
-        let chosen = members.filter { selected.contains($0.id) }
+        let chosen = Self.chosen(among: members, selected)
         let shown = self.shown(among: members)
         NavigationStack {
             VStack(spacing: 0) {
@@ -528,7 +534,7 @@ struct GroupSheet: View {
                         // Grey where a bulk delete would pass the recording over, by the delete's own door: a
                         // protected one, and one still being recorded.
                         let deletable = model.whyNot(deleting: title) == nil
-                        Image(systemName: selected.contains(title.id) ? "checkmark.circle.fill" : "circle")
+                        Image(systemName: selected.contains(title.listKey) ? "checkmark.circle.fill" : "circle")
                             .foregroundStyle(deletable ? Color.accentColor : .secondary)
                             .accessibilityHidden(true)
                     }
@@ -539,10 +545,10 @@ struct GroupSheet: View {
             }
             .buttonStyle(.plain)
             // The tick said to VoiceOver as the row being selected, rather than as the name of a circle.
-            .accessibilityAddTraits(selecting && selected.contains(title.id) ? .isSelected : [])
+            .accessibilityAddTraits(selecting && selected.contains(title.listKey) ? .isSelected : [])
             // Not while picking: a swipe there is how the reader scrolls a list of tick boxes.
             .titleSwipe(selecting ? nil : title, whyNot: model.whyNot(deleting: title),
-                        held: !model.canAlterARecording || asking, ask: { removing = title.id },
+                        held: !model.canAlterARecording || asking, ask: { removing = title.listKey },
                         unprotect: { ask { await model.setProtected(title, false) } })
         }
         .listStyle(.plain)
@@ -551,7 +557,7 @@ struct GroupSheet: View {
     private func selectionBar(members: [RecordedTitle], chosen: [RecordedTitle]) -> some View {
         HStack {
             Button("削除できるものをすべて選択") {
-                selected = Set(members.filter { model.whyNot(deleting: $0) == nil }.map(\.id))
+                selected = Set(members.filter { model.whyNot(deleting: $0) == nil }.map(\.listKey))
             }
             Button("選択解除") { selected = [] }
             Spacer()
@@ -584,10 +590,10 @@ struct GroupSheet: View {
     }
 
     private func toggle(_ title: RecordedTitle) {
-        if selected.contains(title.id) {
-            selected.remove(title.id)
+        if selected.contains(title.listKey) {
+            selected.remove(title.listKey)
         } else {
-            selected.insert(title.id)
+            selected.insert(title.listKey)
         }
     }
 

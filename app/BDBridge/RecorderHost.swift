@@ -53,8 +53,8 @@ final class RecorderSaid {
     /// Set as such a scan ends (`RecorderHost.runScan`) and never taken back but with everything here, when the
     /// recorder is let go of: a later job, the bar's ✕, a scan run again, stopped or not, leave it.
     var lookedForDuplicates = false
-    /// What the recorder said each recording is about, cached on disk as well. Only what it actually said:
-    /// a recording missing here has not been read.
+    /// What the recorder said each recording is about, by `RecordedTitle.listKey`, cached on disk as well. Only
+    /// what it actually said: a recording missing here has not been read.
     var summaries: [String: String] = [:]
     /// The candidates' titles whose text the guide shows on more than one day: a text the programme carries
     /// every time, which does not make two recordings the same broadcast. Read from the guide at each scan.
@@ -70,6 +70,9 @@ final class RecorderSaid {
 
     /// Puts a list of the recordings here, with the USB disk it holds the rows of.
     func keep(titles list: [RecordedTitle], readFrom disk: RecorderDisk?) {
+        // A tick is by id, and goes with its row: the same number on the next disk is not the recording ticked.
+        let listed = Set(list.map(\.listKey))
+        duplicatePicks.subtract(titles.filter { !listed.contains($0.listKey) }.map(\.id))
         titles = list
         titlesReadFrom = disk
         titlesLoaded = true

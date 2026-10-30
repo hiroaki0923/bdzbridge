@@ -678,4 +678,36 @@ final class RecorderUSBTitlesTests: XCTestCase {
         XCTAssertEqual(Duplicates.candidates([row("a"), row("b", recording: true)]).first?.map(\.id), ["a", "b"])
         XCTAssertTrue(Duplicates.deletable(row("b", readFrom: Self.disk)), "a row is taken as it was read")
     }
+
+    /// A row made up for what is kept of it by key: one number, on the disk named or on the internal disk.
+    private func numbered(_ id: String, readFrom disk: RecorderDisk? = nil) -> RecordedTitle {
+        RecordedTitle(id: id, title: "サンプルドラマ　第１話", start: Date(timeIntervalSince1970: 1_790_000_000), durationSec: 1800,
+                      broadcastingType: 2, serviceID: 0x400, qualityCode: 230, protected: false, isNew: false,
+                      recording: false, destination: disk == nil ? "HDD" : "USBHDD", sizeMB: 1000, genreCode: nil,
+                      lastPlayed: nil, resumeSec: nil, readFrom: disk)
+    }
+
+    /// A row of the internal disk keeps the key it always had, which is what the texts kept on phones are under,
+    /// and the same number on two USB disks is two keys, whether or not a disk ever gives one out twice.
+    func testARowsKeyIsItsIdWithTheDiskItWasReadFrom() {
+        XCTAssertEqual(numbered("0x1").listKey, "0x1")
+        XCTAssertEqual(numbered("0x1", readFrom: Self.disk).listKey, "2026-01-02T03:04:05+0900|0x1")
+        XCTAssertNotEqual(numbered("0x1", readFrom: Self.disk).listKey, numbered("0x1", readFrom: Self.another).listKey)
+    }
+
+    /// A text read of one disk's row says nothing of the same number on another disk: that row counts as unread and
+    /// is in no set, where taken for read it would come up as a sure copy, ticked for deletion.
+    func testATextIsNotTakenForTheSameNumberOnAnotherDisk() {
+        let story = "架空の町で起きた出来事を追う連続ドラマの第１話。主人公が町に着くところから始まる。"
+        let own = numbered("0x2")
+        let read = numbered("0x1", readFrom: Self.disk)
+        let summaries = [own.listKey: story, read.listKey: story]
+
+        let found = Duplicates.readSets([own, read], summaries: summaries)
+        XCTAssertEqual(found.sets.map(\.confidence), [.high], "the two were meant to be a sure set")
+
+        let swapped = Duplicates.readSets([own, numbered("0x1", readFrom: Self.another)], summaries: summaries)
+        XCTAssertEqual(swapped.sets.count, 0, "another disk's row took a text it never gave")
+        XCTAssertEqual(swapped.unread, 1)
+    }
 }

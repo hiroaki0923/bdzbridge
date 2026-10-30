@@ -21,11 +21,11 @@ struct TitleSheet: View {
     @State private var asking = false
 
     /// The live copy, since protecting it changes the list underneath.
-    private var current: RecordedTitle { model.titles.first { $0.id == title.id } ?? title }
+    private var current: RecordedTitle { model.row(like: title) ?? title }
 
     /// Whether the list still has the recording: a bulk delete, or the list read again, can take it away under
     /// the sheet, which then closes as after its own delete. By the whole list, not by what a filter shows.
-    private var listed: Bool { model.titles.contains { $0.id == title.id } }
+    private var listed: Bool { model.row(like: title) != nil }
 
     /// Whether the sheet is to close for a recording gone from the list: once nothing of its own is out or up --
     /// a request, or an alert, the delete's question among them, whose closing closes it then.

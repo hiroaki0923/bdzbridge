@@ -730,7 +730,8 @@ public actor GuideStore {
     // MARK: - what a recording is about
 
     /// The recorder gives up a recording's programme text one recording at a time, so what it says is kept.
-    /// This is not dropped when the guide's schema changes: it is slow to gather and never goes stale.
+    /// This is not dropped when the guide's schema changes: it is slow to gather and never goes stale. Each is
+    /// kept under its row's `RecordedTitle.listKey`, which is the recording's id for the internal disk's.
     public func titleSummary(_ id: String) throws -> String? {
         try db.query("SELECT summary FROM title_summaries WHERE id=?", [.text(id)]) { $0.string("summary") }
             .first
