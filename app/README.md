@@ -1414,8 +1414,8 @@ does; with no USB disk the notice says what it always has. The settings then lis
 disk, in the words the television's USB disk is described in.
 
 Whether a USB disk is there is read once at every attach and in every overnight run (`X_GetMediaInfo`), and by
-nothing else the screens do in a home with no USB disk; with one known, it is read again with the free space (The
-USB disk's recordings). Of the calls looked at, it is the only one that told: with a disk connected the
+nothing else the screens do in a home with no USB disk; with one known, it is read again with the free space and
+before a recording of that disk is written to or played (The USB disk's recordings). Of the calls looked at, it is the only one that told: with a disk connected the
 recorder listed no other destination, and its capacity call answered with the internal disk's figures whatever
 it was asked; its DLNA tree has not been looked at for one. So a home with no USB disk pays that one request and
 sees nothing else new. An attach reads it after what waits has been sent, so that a slot slow to answer or
@@ -1581,26 +1581,40 @@ by its id, handed to the host as one list with the disk it holds the rows of (`R
 is read only while the slot has answered a disk that takes recordings, so a home with none sends what it always did,
 and right after a waking, when the slot answers none with the disk in it, it is waited for first as for anything else
 that names it. Whatever keeps the rows from being read -- no disk through that wait, a refusal, a recorder busy with
-somebody else -- leaves the internal list standing with nothing said; silence is said as any read's.
+somebody else -- leaves the internal list standing with nothing said, and with it the rows held of a disk still in the
+slot, so that a pull-down that met a busy recorder neither empties a list narrowed to that disk nor undoes a set of
+copies; silence is said as any read's. Such a list is read again, by a read that waits for the one out rather than
+being folded into it (`RecorderDriver.titles(afresh:)`): the screen asks as the list is handed over, with that read
+still out for the free space.
 
 While there is a USB disk the filter menu has 録画先: すべて, HDD and the disk by the name the recorder gives it. The
 list, the groups and the genre counts follow it, and so does 残り in the title bar, which with すべて is the internal
-disk's, as it always was. A disk that leaves the slot takes the filter with it. A row off the internal disk names its
-disk, on the list, on the sheets and among the duplicates, by the rule the reservations' rows go by; a row on the
-internal disk is drawn as it always was. Protecting, deleting, playing, the bulk work and the scan for duplicates all
-work over the one list, the free space being read again for both disks after a delete.
+disk's, as it always was. A disk that leaves the slot takes the filter with it, for good: back again, it does not
+narrow the list by itself. A row off the internal disk names the disk it was read from, on the list, on the sheets and
+among the duplicates, by the rule the reservations' rows go by; a row on the internal disk is drawn as it always was.
+Protecting, deleting, playing, the bulk work and the scan for duplicates all work over the one list, the free space
+being read again for both disks after a delete.
 
 A recording's id means something only on its own disk, so each USB row keeps the disk it was read from
 (`RecordedTitle.readFrom`), by the identity disks are told apart by. Once the slot holds another disk or none, a
-protect or a delete of that row is refused with why, in the result alone and with nothing sent
-(`RecorderDriver.whyNot(altering:usb:)`), and a bulk job or a scan stops at it (`waitForTheDisk`); the screens ask the
-same rule, and read the list again, which takes such rows out and closes a sheet open on one
+protect, a delete or a play of that row is refused with why, in the result alone and with nothing sent
+(`RecorderDriver.whyNot(altering:usb:)`, `whyNot(playing:usb:)`), and a bulk job or a scan stops at it; the screens
+ask the same rule, and read the list again, which takes such rows out and closes a sheet open on one
 (`AppModel.usbListOutdated`). That also brings in a disk that has turned up, or one a read could not read. Not while
-the slot has yet to answer a disk known, nor while a job walks the list. An id of a recording in progress on the USB
-disk goes as the recording ends (seen once; whether the internal disk's do has not been seen, and they are left as
-they were), so such a row is neither protected nor deleted, a run passes over it, and it is no candidate for
-the duplicates (`RecordedTitle.idChangesWhenItEnds`). `RecorderUSBTitlesTests` holds the driver's side, and
-`USBDiskTests` the model's, on the demo's disk.
+the slot has yet to answer a disk known, nor while a job walks the list. Nothing tells the app that a disk was swapped
+or unplugged -- a run holds off the connect a return would make, and a check asks only who answers -- so the slot is
+read once for each USB row, before anything is written to it or it is played (`waitForTheDisk`), and what it answers
+is kept. That comes before a recording's details are asked for, since a recording on a disk unplugged would answer as
+one deleted. Rows of the internal disk ask the slot nothing, and 一時停止 and 停止 go whatever the row. An id of a
+recording in progress on the USB disk goes as the recording ends (seen once; whether the internal disk's do has not
+been seen, and they are left as they were), so such a row is neither protected, deleted nor played, a run passes over
+it, and it is no candidate for the duplicates (`RecordedTitle.idChangesWhenItEnds`).
+
+Whether two USB disks give out the same number has not been seen, so what is held of a row past the read that gave it
+goes by `RecordedTitle.listKey`, the disk's registration and the id: its programme text, kept for good, a selection
+and a row picked on a sheet, a sheet held on it; a tick goes with its row. A row of the internal disk's key is its id,
+so the texts already on phones stand. `RecorderUSBTitlesTests` holds the driver's side, and `USBDiskTests` the model's,
+on the demo's disk.
 
 ### Coming back to the app
 
