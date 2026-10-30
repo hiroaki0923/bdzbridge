@@ -41,9 +41,16 @@ extension RecorderDriver {
     /// request is sent. One out for a recorder let go of, or on a client a connect has since put another in
     /// place of, is waited for before the list is read again, so that two clients do not ask the recorder at
     /// once: the newcomer's list, which its connect reads (`LinkHost.reached`), is read once that one is back.
-    public func titles(keep: @escaping @MainActor ([RecordedTitle], RecorderDisk?) -> Void) async -> Bool {
+    ///
+    /// `afresh` is for whoever has seen what a read handed over and wants it put right: the list is handed over
+    /// with the read still out for the free space, so that is folded into nothing. The read out is waited for
+    /// and the list read, one request at a time as ever.
+    public func titles(afresh: Bool = false, keep: @escaping @MainActor ([RecordedTitle], RecorderDisk?) -> Void)
+        async -> Bool {
         guard let link, let client = link.client as? RecorderClient else { return false }
-        return await folded(\.titlesReading, on: link, client) { await self.readTitles(on: link, keep: keep) }
+        return await folded(\.titlesReading, on: link, client, afresh: afresh) {
+            await self.readTitles(on: link, keep: keep)
+        }
     }
 
     /// The read itself, and the free space after it.
@@ -77,10 +84,10 @@ extension RecorderDriver {
     /// goes on answering none leaves the disk known and the read of it for later as they were, and no rows of
     /// it in the list: the screens read the list again once the slot has answered (`usbListOutdated`).
     ///
-    /// Whatever keeps the rows from being read leaves the internal disk's list as it is, with no disk read from.
-    /// A refusal, a recorder busy with somebody else, an answer that cannot be read: said nowhere, since the list
-    /// the reader asked for has come back. Silence is silence, and is said as any read's: the recorder lost, and
-    /// the line saying so.
+    /// Whatever keeps the rows from being read hands over the internal disk's list as it is, with no disk read
+    /// from, for the host to say what becomes of the rows it holds: nothing here knows them. A refusal, a recorder
+    /// busy with somebody else, an answer that cannot be read: said nowhere, since the list the reader asked for
+    /// has come back. Silence is silence, and is said as any read's: the recorder lost, and the line saying so.
     private func usbTitles(on client: RecorderClient, _ link: DeviceLink, since began: Int) async
         -> (titles: [RecordedTitle], disk: RecorderDisk?) {
         guard link.session.usbDisk != nil, await checkWouldAskNothing(of: client, on: link) else { return ([], nil) }
@@ -652,11 +659,13 @@ extension RecorderDriver {
     /// sent again. One that is out otherwise -- for a recorder let go of, or on a client a
     /// connect has since put another in place of -- is waited for first, whatever it comes to, its answer being
     /// another's: two clients do not ask the recorder at once, and the read asked now goes once the last is
-    /// back. A read begun is let go of as it ends.
+    /// back. So is one out for whoever asks `afresh`, to whom its answer is no use. A read begun is let go of as it
+    /// ends.
     func folded<T: Sendable>(_ out: ReferenceWritableKeyPath<RecorderDriver, ReadOut<T>?>, on link: DeviceLink,
-                   _ client: RecorderClient, _ read: @escaping @MainActor () async -> T) async -> T {
+                   _ client: RecorderClient, afresh: Bool = false,
+                   _ read: @escaping @MainActor () async -> T) async -> T {
         while let reading = self[keyPath: out] {
-            if reading.generation == link.generation, reading.client == ObjectIdentifier(client) {
+            if !afresh, reading.generation == link.generation, reading.client == ObjectIdentifier(client) {
                 return await reading.value.value
             }
             _ = await reading.value.value

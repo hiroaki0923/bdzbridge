@@ -37,7 +37,8 @@ final class RecorderUSBTitlesTests: XCTestCase {
     /// A recorder that answers the internal disk's list and the slot's apart, by the criteria each is asked with.
     /// The slot is answered as it is told, with answers ahead of that one given in turn; everything an attach
     /// reads besides is refused but the description, and the free space, which is answered. It puts down what it
-    /// was asked, the slot's list as `usbList`, and can hold the slot's list until the test lets it go.
+    /// was asked, the slot's list as `usbList`, and can hold the next of the slot's list or of the free space until
+    /// the test lets it go.
     private actor TwoDisks: HTTPTransport {
         static let usbList = "X_GetTitleList USBHDD"
         enum Reply { case answer(HTTPResponse), silence }
@@ -48,7 +49,7 @@ final class RecorderUSBTitlesTests: XCTestCase {
         private var details = Stub.soap("X_GetTitleDetail", result: "<detail><summary>サンプルの番組内容です</summary></detail>")
         private let description: String
         private(set) var asked: [String] = []
-        private var holdsTheUSBList = false
+        private var holdsTheNext: String?
         private var held: CheckedContinuation<Void, Never>?
 
         init(slot: Reply, own: HTTPResponse = RecorderUSBTitlesTests.ownList,
@@ -64,7 +65,7 @@ final class RecorderUSBTitlesTests: XCTestCase {
         func answer(details: HTTPResponse) { self.details = details }
         func answerNext(slot: [Reply]) { slotAhead = slot }
         func forget() { asked = [] }
-        func holdTheUSBList() { holdsTheUSBList = true }
+        func holdTheNext(_ what: String) { holdsTheNext = what }
         var isHolding: Bool { held != nil }
 
         func letGo() {
@@ -82,10 +83,7 @@ final class RecorderUSBTitlesTests: XCTestCase {
             switch action {
             case "X_GetTitleList" where body.contains("recordDestinationID=&quot;USBHDD&quot;"):
                 asked.append(Self.usbList)
-                if holdsTheUSBList {
-                    holdsTheUSBList = false
-                    await withCheckedContinuation { held = $0 }
-                }
+                await holdIfTold(Self.usbList)
                 return try Self.answered(usb)
             case "X_GetTitleList":
                 asked.append(action)
@@ -95,6 +93,7 @@ final class RecorderUSBTitlesTests: XCTestCase {
                 return try Self.answered(slotAhead.isEmpty ? slot : slotAhead.removeFirst())
             case "X_HDLnkGetRecordDestinationInfo":
                 asked.append(action)
+                await holdIfTold(action)
                 return Stub.soap(action, extra: "<RecordDestinationInfo>"
                     + Soap.escape("<info totalCapacity=\"100\" availableCapacity=\"30\" />")
                     + "</RecordDestinationInfo>")
@@ -110,6 +109,12 @@ final class RecorderUSBTitlesTests: XCTestCase {
             default:
                 return HTTPResponse(statusCode: 500)
             }
+        }
+
+        private func holdIfTold(_ what: String) async {
+            guard holdsTheNext == what else { return }
+            holdsTheNext = nil
+            await withCheckedContinuation { held = $0 }
         }
 
         private static func answered(_ reply: Reply) throws -> HTTPResponse {
@@ -307,11 +312,10 @@ final class RecorderUSBTitlesTests: XCTestCase {
     func testTheListIsNotHandedOverOnceTheRecorderHasBeenLetGoOf() async throws {
         let recorder = try TwoDisks(slot: .answer(Self.slot))
         let (driver, link, _) = try await connected(to: recorder)
-        await recorder.holdTheUSBList()
+        await recorder.holdTheNext(TwoDisks.usbList)
         var kept = false
         let reading = Task { await driver.titles { _, _ in kept = true } }
-        for _ in 0..<100_000 { if await recorder.isHolding { break } else { await Task.yield() } }
-        expectTrue(await recorder.isHolding, "the slot's list was never asked for")
+        try await untilHeld(recorder)
 
         link.session.forgotTheDevice()
         await recorder.letGo()
@@ -320,6 +324,35 @@ final class RecorderUSBTitlesTests: XCTestCase {
         XCTAssertFalse(read)
         XCTAssertFalse(kept, "a list was handed over for a recorder let go of")
         expectFalse(await recorder.asked.contains("X_HDLnkGetRecordDestinationInfo"))
+    }
+
+    private func untilHeld(_ recorder: TwoDisks) async throws {
+        for _ in 0..<100_000 { if await recorder.isHolding { break } else { await Task.yield() } }
+        expectTrue(await recorder.isHolding, "the request that was to be held never came")
+    }
+
+    /// A read asked for afresh is not folded into the read out, whose answer whoever asked has already seen and
+    /// wants put right: the list is handed over and the read goes on to the free space, in which time the screens
+    /// have asked again. It waits for that read to end, and reads. Any other read is folded in, as ever.
+    func testAReadAskedAfreshWaitsForTheOneOutAndReads() async throws {
+        let recorder = try TwoDisks(slot: .answer(Self.slot), usb: .answer(Stub.fault("803")))
+        let (driver, _, _) = try await connected(to: recorder)
+        await recorder.holdTheNext("X_HDLnkGetRecordDestinationInfo")
+        var kept: [RecorderDisk?] = []
+        let first = Task { await driver.titles { _, disk in kept.append(disk) } }
+        try await untilHeld(recorder)
+        XCTAssertEqual(kept, [nil], "the list was meant to be handed over with no disk read")
+
+        await recorder.answer(usb: .answer(Self.usbList))
+        let folded = Task { await driver.titles { _, disk in kept.append(disk) } }
+        let afresh = Task { await driver.titles(afresh: true) { _, disk in kept.append(disk) } }
+        for _ in 0..<1_000 { await Task.yield() }
+        await recorder.letGo()
+        let reads = await [first.value, folded.value, afresh.value]
+
+        XCTAssertEqual(reads, [true, true, true])
+        XCTAssertEqual(kept, [nil, Self.disk], "the read asked for afresh was folded into the one out")
+        expectEqual(await recorder.asked.filter { $0 == TwoDisks.usbList }.count, 2)
     }
 
     // MARK: - the free space

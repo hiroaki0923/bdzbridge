@@ -68,8 +68,14 @@ final class RecorderSaid {
         reservationsRead = Date()
     }
 
-    /// Puts a list of the recordings here, with the USB disk it holds the rows of.
-    func keep(titles list: [RecordedTitle], readFrom disk: RecorderDisk?) {
+    /// Puts a list of the recordings here, with the USB disk it holds the rows of, `usb` being the disk known now.
+    /// A list that holds no USB disk's rows takes away only those of a disk that has left the slot: the rows of one
+    /// still there were not read this time, which says nothing of them, and they stay, so that a pull-down that
+    /// met a busy recorder does not empty a list narrowed to that disk, nor undo a set of copies. `titlesReadFrom`
+    /// stays nil, which keeps the list out of date until they have been read (`RecorderHost.usbListOutdated`).
+    func keep(titles read: [RecordedTitle], readFrom disk: RecorderDisk?, usb: RecorderDisk?) {
+        let held = disk == nil ? titles.filter { $0.readFrom?.isStill(usb) == true } : []
+        let list = held.isEmpty ? read : read.filter { $0.destination != RecorderDisk.usbID } + held
         // A tick is by id, and goes with its row: the same number on the next disk is not the recording ticked.
         let listed = Set(list.map(\.listKey))
         duplicatePicks.subtract(titles.filter { !listed.contains($0.listKey) }.map(\.id))
@@ -540,10 +546,10 @@ final class RecorderHost: RecorderLinkHost {
 
     // MARK: - the recordings
 
-    func loadTitles(force: Bool = false) async {
+    func loadTitles(force: Bool = false, afresh: Bool = false) async {
         let said = self.said
         await model?.start()
-        await loadTitlesNow(force: force, into: said)
+        await loadTitlesNow(force: force, into: said, afresh: afresh)
     }
 
     /// The load itself, without `start()`, for anything `connect()` reaches: see there. The read is the driver's
@@ -551,13 +557,16 @@ final class RecorderHost: RecorderLinkHost {
     /// the list is kept on what was said as the entry began (`RecorderSaid.keep`), the one in play when `said` is
     /// nil, as for the reservations: a list read for a recorder let go of meanwhile is kept where no screen reads
     /// it, and the one after it, whose own connect reads its list (`anotherDeviceDescribedItself`),
-    /// is left alone. While it is out it is counted (`titleReads`).
-    func loadTitlesNow(force: Bool, into said: RecorderSaid? = nil) async {
+    /// is left alone. While it is out it is counted (`titleReads`). `afresh` waits for a read out and reads, for
+    /// a list that read has left out of date (`RecorderDriver.titles`).
+    func loadTitlesNow(force: Bool, into said: RecorderSaid? = nil, afresh: Bool = false) async {
         let said = said ?? self.said
         guard client != nil, !unreachable, force || !self.said.titlesLoaded else { return }
         titleReads += 1
         defer { titleReads -= 1 }
-        _ = await recorderDriver?.titles { said.keep(titles: $0, readFrom: $1) }
+        _ = await recorderDriver?.titles(afresh: afresh) {
+            said.keep(titles: $0, readFrom: $1, usb: self.session.usbDisk)
+        }
     }
 
     /// Whether the list held is not what a read would give with the USB disk known now, for the screen to read it

@@ -464,7 +464,10 @@ final class USBDiskTests: XCTestCase {
         XCTAssertFalse(model.usbListOutdated, "a disk with nothing on it left the list out of date")
     }
 
-    /// A list the USB disk could not be read into is left with the internal disk's rows, and read again.
+    /// A list the USB disk could not be read into is left with the internal disk's rows, and read again. The flag
+    /// that says so goes up as the list is kept, with the read still out for the free space, so that is when the
+    /// screen asks: asked then, the read is not folded into the one that failed, which would leave the flag up
+    /// with nothing to bring the screen back.
     func testAUSBListThatFailedIsReadAgain() async throws {
         let bench = try aBench()
         try await bench.cacheAGuide()
@@ -474,15 +477,56 @@ final class USBDiskTests: XCTestCase {
         try await untilConnected(model)
 
         await recorder.answer("X_GetTitleList", with: .fault(402), times: 1, after: 1)
-        await model.loadTitles()
+        await recorder.hold(only: "X_HDLnkGetRecordDestinationInfo")
+        let first = Task { await model.loadTitles() }
+        try await until("the list was never kept") { model.titlesLoaded }
 
         XCTAssertEqual(model.titles.count, 22, "the internal disk's list was lost with the USB disk's")
         XCTAssertNil(model.problem(for: .recorder), "the USB disk's list failing was said")
         XCTAssertTrue(model.usbListOutdated)
 
-        await model.loadOutdatedTitles()
-        XCTAssertEqual(model.titles.count, 27)
+        let again = Task { await model.loadOutdatedTitles() }
+        try await until("the second read was never asked for") { model.recorderHost.titleReads == 2 }
+        await recorder.letGo()
+        await first.value
+        await again.value
+        XCTAssertEqual(model.titles.count, 27, "the read again was folded into the one that failed")
         XCTAssertFalse(model.usbListOutdated)
+    }
+
+    /// A USB list that could not be read takes nothing away from a disk still in the slot: the reader narrowed to it
+    /// is not told there are no recordings on a full disk, and a set of copies neither goes nor comes back ticked
+    /// anew. The list stays out of date, for the read to be made again.
+    func testAFailedUSBListLeavesTheRowsOfADiskStillThere() async throws {
+        let (_, recorder, model) = try await connectedWithRecordings()
+        model.startDuplicateScan()
+        try await until("the scan never ended") { model.job?.finished == true }
+        model.clearJob()
+        let sets = model.duplicates.map(\.id)
+        XCTAssertFalse(sets.isEmpty, "the demo's disks were meant to hold a copy of one recording")
+        model.duplicatePicks.removeAll()
+        model.titleDestination = "USBHDD"
+
+        await recorder.beBusy(with: "X_GetTitleList", after: 1)
+        await model.refreshTitles()
+
+        XCTAssertEqual(model.shownTitles.count, 5, "the rows of a disk still there left the list")
+        XCTAssertEqual(model.titles.count, 27, "the rows held were listed twice, or the internal disk's lost")
+        XCTAssertEqual(model.duplicates.map(\.id), sets)
+        XCTAssertEqual(model.duplicatePicks, [], "a set the reader had unticked came back ticked")
+        XCTAssertTrue(model.usbListOutdated, "the list was taken for read")
+    }
+
+    /// Not of a disk that has gone: its rows leave with the read, though the next disk's could not be read.
+    func testAFailedUSBListLetsTheRowsOfAnotherDiskGo() async throws {
+        let (_, recorder, model) = try await connectedWithRecordings()
+        await recorder.answer("X_GetMediaInfo", with: .result(Self.anotherDisk), times: 1000)
+        await reconnect(model)
+
+        await recorder.beBusy(with: "X_GetTitleList", after: 1)
+        await model.loadTitles(force: true)
+
+        XCTAssertEqual(model.titles.count, 22, "the last disk's rows stood on a read that found another in the slot")
     }
 
     /// Nothing is written to a recording of a disk gone from the slot, and the reader is told why.

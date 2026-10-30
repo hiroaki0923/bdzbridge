@@ -28,8 +28,10 @@ extension AppModel {
     /// the screen goes by, and the read that puts that right.
     var usbListOutdated: Bool { recorderHost.usbListOutdated }
 
+    /// Afresh: the flag goes up as a read hands its list over, with that read still out for the free space, and
+    /// folded into it this would come to nothing, the flag staying up and the screen not asking again.
     func loadOutdatedTitles() async {
-        if usbListOutdated { await loadTitles(force: true) }
+        if usbListOutdated { await recorderHost.loadTitles(force: true, afresh: true) }
     }
 
     /// The disk the recordings are narrowed to: the one picked, while it is offered. A disk that has left the slot
