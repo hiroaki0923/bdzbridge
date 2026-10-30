@@ -199,11 +199,11 @@ struct DuplicatesView: View {
         return reason + Text(verbatim: " ") + Text(Image(systemName: "lock.fill"))
     }
 
-    /// The channel, the length, the size, the mode and whether it has been watched, as one line of text: as
-    /// views side by side, a large text size squeezed each into a narrow column of its own.
+    /// The disk off the internal one, the channel, the length, the size, the mode and whether it has been watched,
+    /// as one line of text: as views side by side, a large text size squeezed each into a narrow column of its own.
     private func meta(_ title: RecordedTitle) -> Text {
         let channel = model.channelName(for: title)
-        var parts = channel.isEmpty ? [] : [Text(channel)]
+        var parts = [model.diskShown(title), channel.isEmpty ? nil : channel].compactMap { $0 }.map { Text($0) }
         parts.append(Text(Format.duration(title.durationSec)))
         if let size = title.sizeMB { parts.append(Text(String(format: "%.1fGB", Double(size) / 1024))) }
         if let quality = title.qualityName { parts.append(Text(quality)) }

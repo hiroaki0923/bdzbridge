@@ -250,6 +250,54 @@ final class DemoModeTests: XCTestCase {
         endTheDemo(app)
     }
 
+    /// The demo's recorder has a USB disk, and its recordings are in the one list, the disk named on their rows
+    /// and on their sheets. The filter menu narrows the list to the disk, and the title bar's free space and the
+    /// count under it follow; すべて puts both back.
+    func testTheRecordingsOfTheUSBDiskAreInTheOneList() {
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        app.tabBars.buttons["録画"].tap()
+        // The flat list, whichever way the last test left this kept choice.
+        let mode = app.buttons["表示を変える"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 20), "the recordings screen had no display menu")
+        mode.tap()
+        let flat = app.buttons["一覧"]
+        XCTAssertTrue(flat.waitForExistence(timeout: 10), "the menu did not offer 一覧")
+        flat.tap()
+        let filter = app.buttons["録画先・ジャンル・並び順・視聴状態で絞り込む"]
+        XCTAssertTrue(filter.waitForExistence(timeout: 20), "the recordings screen offered no choice of disk")
+        let everything = app.staticTexts["27 件"]
+        XCTAssertTrue(everything.waitForExistence(timeout: 20), "the list was not both disks': \(app.debugDescription)")
+        let free = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "残り")).firstMatch
+        let internalFree = free.label
+
+        filter.tap()
+        let disk = app.buttons["サンプルディスク"]
+        XCTAssertTrue(disk.waitForExistence(timeout: 10), "the menu did not offer the disk by its name")
+        disk.tap()
+        XCTAssertTrue(app.staticTexts["サンプルディスク · 5 件"].waitForExistence(timeout: 10),
+                      "the list was not narrowed to the disk")
+        XCTAssertNotEqual(free.label, internalFree, "the free space did not follow the disk")
+
+        let row = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "BS名画サンプル")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "the list did not hold the disk's recording")
+        row.tap()
+        let sheet = app.navigationBars["録画"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "the recording did not open")
+        XCTAssertTrue(app.staticTexts["録画先"].waitForExistence(timeout: 10), "the sheet did not name the disk")
+        sheet.buttons["閉じる"].tap()
+
+        filter.tap()
+        let all = app.buttons["すべて"].firstMatch
+        XCTAssertTrue(all.waitForExistence(timeout: 10), "the menu offered no way back")
+        all.tap()
+        XCTAssertTrue(everything.waitForExistence(timeout: 10), "すべて did not put the list back")
+        XCTAssertEqual(free.label, internalFree, "the free space did not come back to the internal disk's")
+
+        endTheDemo(app)
+    }
+
     /// The mode a new reservation starts at is the one in the settings, and choosing another on a programme
     /// is for that reservation only. The sheet used to be bound to the setting, so trying a mode changed it.
     func testChoosingAModeOnAProgrammeLeavesTheDefaultAlone() {

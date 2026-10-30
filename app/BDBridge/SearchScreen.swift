@@ -230,7 +230,7 @@ struct SearchScreen: View {
             List(recordings) { title in
                 Button { openedTitle = title } label: {
                     TitleRowView(title: title, channel: model.channelName(for: title),
-                                 logo: model.logo(for: title))
+                                 logo: model.logo(for: title), disk: model.diskShown(title))
                         .rowHitArea()
                 }
                 .buttonStyle(.plain)

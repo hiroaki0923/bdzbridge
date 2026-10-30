@@ -63,6 +63,7 @@ struct TitleSheet: View {
                     if let quality = current.qualityName {
                         LabeledContent("録画モード", value: Codes.qualityLabel[quality] ?? quality)
                     }
+                    if let disk = model.diskShown(current) { LabeledContent("録画先", value: disk) }
                     LabeledContent("視聴状態", value: current.recording ? "録画中" : viewing)
                     if let genre = current.genre?.label {
                         LabeledContent("ジャンル", value: genre)

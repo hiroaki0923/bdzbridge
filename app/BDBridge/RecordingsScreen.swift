@@ -61,16 +61,27 @@ struct RecordingsScreen: View {
                 // the free space is worth a permanent place; the sort and the watch state are worth a menu
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 0) {
-                        Text(model.storage.map { "残り \(Format.gigabytes($0.free))" } ?? "録画")
+                        Text(model.shownFreeBytes.map { "残り \(Format.gigabytes($0))" } ?? "録画")
                             .font(.subheadline.weight(.semibold))
                         Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        // Only where there is more than one disk to tell apart.
+                        if !model.diskChoices.isEmpty {
+                            Picker("録画先", selection: Binding(get: { model.shownDestination },
+                                                             set: { model.titleDestination = $0 })) {
+                                Text("すべて").tag(String?.none)
+                                ForEach(model.diskChoices, id: \.destination) { disk in
+                                    Text(RecorderDisk.label(disk.destination, named: disk.name))
+                                        .tag(String?.some(disk.destination))
+                                }
+                            }
+                        }
                         Picker("ジャンル", selection: Binding(get: { model.titleGenre },
                                                             set: { model.titleGenre = $0 })) {
-                            Text("すべて \(model.titles.count)").tag(Int?.none)
+                            Text("すべて \(model.titlesOnTheShownDisk.count)").tag(Int?.none)
                             ForEach(Array(Codes.genreLabel.keys).sorted(), id: \.self) { level in
                                 if let count = model.titleGenreCounts[level], count > 0 {
                                     Text("\(Codes.genreLabel[level] ?? "") \(count)").tag(Int?.some(level))
@@ -94,13 +105,17 @@ struct RecordingsScreen: View {
                         Image(systemName: filtering ? "line.3.horizontal.decrease.circle.fill"
                                                     : "line.3.horizontal.decrease.circle")
                     }
-                    .accessibilityLabel("ジャンル・並び順・視聴状態で絞り込む")
+                    .accessibilityLabel(model.diskChoices.isEmpty ? "ジャンル・並び順・視聴状態で絞り込む"
+                                                                  : "録画先・ジャンル・並び順・視聴状態で絞り込む")
                 }
             }
             // Keyed on `connected`, and on what the load itself checks, as the keyword conditions' screen is.
             // `connected` turns true partway through a connect, while the recorder is still marked silent
             // from before, and a load set going by it alone finds nothing to ask and is not tried again.
             .task(id: model.connected && !model.offline) { await model.loadTitles() }
+            // The disk in the slot has changed since the list was read, or could not be read into it: the
+            // recordings of a disk that has gone leave the list, and an open sheet of one closes with its row.
+            .task(id: model.usbListOutdated) { await model.loadOutdatedTitles() }
             // Pulling down reads the list again from the recorder, though not while a bulk job is walking it.
             // With nothing that can be written to the recorder, it is the reader asking for another go, as the
             // strip's 再接続 is.
@@ -155,7 +170,8 @@ struct RecordingsScreen: View {
     }
 
     private var filtering: Bool {
-        model.titleGenre != nil || model.titleState != nil || model.titleSort != .newest
+        model.shownDestination != nil || model.titleGenre != nil || model.titleState != nil
+            || model.titleSort != .newest
     }
 
     /// What is being shown, since the filters now live behind a menu.
@@ -163,8 +179,9 @@ struct RecordingsScreen: View {
         if let busy = model.busy { return busy }
         if duplicating { return "\(model.duplicates.count) 組の重複" }
         let what = grouped ? "\(model.titleGroups.count) 番組" : "\(model.shownTitles.count) 件"
-        guard let genre = model.titleGenre, let label = Codes.genreLabel[genre] else { return what }
-        return "\(label) · \(what)"
+        let disk = model.shownDestination.map(model.diskLabel)
+        let genre = model.titleGenre.flatMap { Codes.genreLabel[$0] }
+        return ([disk, genre].compactMap { $0 } + [what]).joined(separator: " · ")
     }
 
     @ViewBuilder
@@ -193,7 +210,7 @@ struct RecordingsScreen: View {
             List(listed) { title in
                 Button { opened = title } label: {
                     TitleRowView(title: title, channel: model.channelName(for: title),
-                                 logo: model.logo(for: title)).rowHitArea()
+                                 logo: model.logo(for: title), disk: model.diskShown(title)).rowHitArea()
                 }
                 .buttonStyle(.plain)
                 .titleSwipe(title, whyNot: model.whyNot(deleting: title), held: !model.canAlterARecording,
@@ -243,6 +260,9 @@ struct TitleRowView: View {
     let title: RecordedTitle
     let channel: String
     let logo: Data?
+    /// The disk it is on, said after when: only off the internal disk (`AppModel.diskShown`), so that nothing
+    /// changes in a home with no USB disk.
+    var disk: String? = nil
 
     @ScaledMetric(relativeTo: .caption2) private var logoHeight = 14.0
 
@@ -274,6 +294,7 @@ struct TitleRowView: View {
     /// into a narrow column of its own.
     private var meta: Text {
         var parts = [Text(Format.dateTime.string(from: title.start))]
+        if let disk { parts.append(Text(disk)) }
         // No space held for a missing logo, unlike the reservations: this one sits in the middle of the line,
         // where a held gap would read as something having gone wrong.
         if let logo = InlineLogo.text(logo, height: logoHeight) {
@@ -512,7 +533,7 @@ struct GroupSheet: View {
                             .accessibilityHidden(true)
                     }
                     TitleRowView(title: title, channel: model.channelName(for: title),
-                                 logo: model.logo(for: title))
+                                 logo: model.logo(for: title), disk: model.diskShown(title))
                 }
                 .rowHitArea()
             }

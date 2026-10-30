@@ -24,9 +24,41 @@ extension AppModel {
     /// What pulling the recordings down asks for (`RecorderHost.refreshTitles`).
     func refreshTitles() async { await recorderHost.refreshTitles() }
 
+    /// Whether the list held has been left behind by the USB disk in the slot (`RecorderHost.usbListOutdated`), which
+    /// the screen goes by, and the read that puts that right.
+    var usbListOutdated: Bool { recorderHost.usbListOutdated }
+
+    func loadOutdatedTitles() async {
+        if usbListOutdated { await loadTitles(force: true) }
+    }
+
+    /// The disk the recordings are narrowed to: the one picked, while it is offered. A disk that has left the slot
+    /// is let go of, since the menu that picked it goes with it and nothing else would get the reader out of a
+    /// list narrowed to nothing.
+    var shownDestination: String? {
+        titleDestination.flatMap { id in diskChoices.contains { $0.destination == id } ? id : nil }
+    }
+
+    /// The free space the title bar shows: the USB disk's when the list is narrowed to it, otherwise the internal
+    /// disk's, as it always was.
+    var shownFreeBytes: Int? {
+        shownDestination == RecorderDisk.usbID ? usbDisk?.freeBytes : storage?.free
+    }
+
+    /// The disk a recording's row names, or nil for none: the one rule (`RecorderDisk.shown`), so that a row of the
+    /// internal disk is drawn as it always was.
+    func diskShown(_ title: RecordedTitle) -> String? {
+        RecorderDisk.shown(title.destination, on: .recorder, usb: usbDisk)
+    }
+
+    /// The recordings of the disk the list is narrowed to, or all of them.
+    var titlesOnTheShownDisk: [RecordedTitle] {
+        shownDestination.map { disk in titles.filter { $0.destination == disk } } ?? titles
+    }
+
     /// The recordings the screen is showing: filtered, then sorted.
     var shownTitles: [RecordedTitle] {
-        var shown = titles
+        var shown = titlesOnTheShownDisk
         if let titleGenre { shown = shown.filter { $0.genre?.level1 == titleGenre } }
         if let titleState { shown = shown.filter { $0.watchState == titleState } }
         switch titleSort {
@@ -39,9 +71,9 @@ extension AppModel {
 
     var titleGroups: [TitleGroup] { TitleGroup.group(shownTitles) }
 
-    /// How many recordings each genre holds, for the filter row.
+    /// How many recordings each genre holds, for the filter row, of the disk the list is narrowed to.
     var titleGenreCounts: [Int: Int] {
-        Dictionary(titles.compactMap { $0.genre?.level1 }.map { ($0, 1) }, uniquingKeysWith: +)
+        Dictionary(titlesOnTheShownDisk.compactMap { $0.genre?.level1 }.map { ($0, 1) }, uniquingKeysWith: +)
     }
 
     func members(of group: TitleGroup) -> [RecordedTitle] {

@@ -4,9 +4,10 @@ import XCTest
 @testable import BDBridge
 
 /// The recorder's USB disk as far as it is read and shown: whether one is there, asked once at every attach and
-/// not by the screens; the free space in the settings, a row to a disk once there are two; and the overnight
-/// run's notices, the USB disk's with a mark of its own. The disk is the test's own answer to the slot, given
-/// through the bench's recorder; the demo's recorder answers it with nothing, which is no disk.
+/// not by the screens; the free space in the settings, a row to a disk once there are two; the overnight run's
+/// notices, the USB disk's with a mark of its own; and its recordings in the one list. The disk is the test's own
+/// answer to the slot, given through the bench's recorder, or the demo's where the recordings matter; the
+/// demo's recorder made without one answers the slot with nothing, which is no disk.
 @MainActor
 final class USBDiskTests: XCTestCase {
     /// A disk in the slot in the recorder's own wrapping and order, its name, time and sizes made up: 123.5 GB free
@@ -314,5 +315,246 @@ final class USBDiskTests: XCTestCase {
 
         // Pinned as written: a notice still shown from an earlier version is replaced by the next under it.
         XCTAssertEqual(Notify.usbLowSpaceID, "low-space-usb")
+    }
+
+    // MARK: - its recordings
+
+    /// A model started and connected to a recorder with the demo's USB disk, its recordings read.
+    private func connectedWithRecordings() async throws -> (bench: Bench, recorder: NamedRecorder, model: AppModel) {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        let recorder = NamedRecorder(1, usbDisk: true)
+        let model = bench.model(recorders: [Bench.host: recorder])
+        await model.start()
+        try await untilConnected(model)
+        await model.loadTitles()
+        XCTAssertNotNil(model.usbDisk)
+        return (bench, recorder, model)
+    }
+
+    /// The slot as another disk than the demo's would answer it.
+    private static let anotherDisk = slot(registered: "2026-02-03T04:05:06+0900")
+
+    private func aRow(_ model: AppModel, on destination: String) throws -> RecordedTitle {
+        try XCTUnwrap(model.titles.first { $0.destination == destination && !$0.protected && !$0.recording })
+    }
+
+    /// Both disks' recordings are one list. A row says its disk off the internal one, and the filter narrows the
+    /// list and the groups to one disk, the free space in the title bar following it; with no disk chosen it is
+    /// the internal disk's, as it always was.
+    func testTheRecordingsOfBothDisksAreOneList() async throws {
+        let (_, _, model) = try await connectedWithRecordings()
+        let storage = try XCTUnwrap(model.storage)
+        let usb = try XCTUnwrap(model.usbDisk)
+
+        XCTAssertEqual(model.shownTitles.count, 27)
+        XCTAssertEqual(model.diskShown(try aRow(model, on: "USBHDD")), usb.name)
+        XCTAssertNil(model.diskShown(try aRow(model, on: "HDD")))
+        XCTAssertEqual(model.diskChoices.map(\.destination), ["HDD", "USBHDD"])
+        XCTAssertEqual(model.shownFreeBytes, storage.free)
+
+        model.titleDestination = "USBHDD"
+        XCTAssertEqual(Set(model.shownTitles.map(\.destination)), ["USBHDD"])
+        XCTAssertEqual(model.shownTitles.count, 5)
+        XCTAssertEqual(model.titleGroups.reduce(0) { $0 + $1.count }, 5)
+        XCTAssertEqual(model.titleGenreCounts.values.reduce(0, +), 5, "the genres did not follow the disk")
+        XCTAssertEqual(model.shownFreeBytes, usb.freeBytes)
+
+        model.titleDestination = "HDD"
+        XCTAssertEqual(Set(model.shownTitles.map(\.destination)), ["HDD"])
+        XCTAssertEqual(model.shownTitles.count, 22)
+        XCTAssertEqual(model.shownFreeBytes, storage.free)
+
+        model.titleDestination = nil
+        XCTAssertEqual(model.shownTitles.count, 27)
+    }
+
+    /// A home with no USB disk reads the list as it always has, is offered no filter, and never has its list
+    /// read again on the slot's account.
+    func testAHomeWithNoUSBDiskReadsItsRecordingsAsItAlwaysHas() async throws {
+        let (_, recorder, model) = try await connected(answering: nil)
+        let count = await recorder.heard.count
+
+        await model.loadTitles()
+
+        expectEqual(await recorder.heard(since: count), ["X_GetTitleList", "X_HDLnkGetRecordDestinationInfo"])
+        XCTAssertEqual(model.diskChoices, [])
+        XCTAssertFalse(model.usbListOutdated)
+        XCTAssertEqual(model.shownFreeBytes, model.storage?.free)
+        XCTAssertEqual(model.shownTitles.compactMap { model.diskShown($0) }, [])
+    }
+
+    /// A delete of a USB disk's recording moves that disk's free space, which the title bar shows, as the slot
+    /// is read again after it.
+    func testTheTitleBarFollowsADeleteOnTheUSBDisk() async throws {
+        let (_, _, model) = try await connectedWithRecordings()
+        model.titleDestination = "USBHDD"
+        let before = try XCTUnwrap(model.shownFreeBytes)
+        let row = try aRow(model, on: "USBHDD")
+
+        expectTrue(await deleteARecording(model, row), model.problem(for: .recorder) ?? "no reason given")
+
+        XCTAssertFalse(model.titles.contains { $0.id == row.id })
+        XCTAssertEqual(model.shownFreeBytes, before + (row.sizeMB ?? 0) * RecorderDisk.bytesPerMB)
+    }
+
+    /// A disk chosen in the filter and gone from the slot leaves the filter, and the list, with everything: the
+    /// reader is not left looking at nothing with no menu to get out by. The free space goes back to the
+    /// internal disk's with it.
+    func testTheFilterLetsGoOfADiskThatHasGone() async throws {
+        let (_, _, model) = try await connectedWithRecordings()
+        model.titleDestination = "USBHDD"
+        XCTAssertEqual(model.shownDestination, "USBHDD")
+
+        model.session.slotAnswered(nil)
+
+        XCTAssertNil(model.shownDestination)
+        XCTAssertEqual(model.shownTitles.count, 27)
+        XCTAssertEqual(model.shownFreeBytes, model.storage?.free)
+    }
+
+    /// The filter goes with the recorder's other filters when a recorder is let go of.
+    func testTheFilterGoesWithTheRecorder() async throws {
+        let (_, _, model) = try await connectedWithRecordings()
+        model.titleDestination = "USBHDD"
+
+        model.forgetTheRecorder()
+
+        XCTAssertNil(model.titleDestination)
+    }
+
+    /// The list is read again once the disk in the slot is another than the one it was read from, or none, and the
+    /// rows say the disk they are of now. Not while a disk is known that the slot has yet to answer, as right
+    /// after a waking.
+    func testTheListIsOutdatedWhenTheDiskInTheSlotChanges() async throws {
+        let (_, recorder, model) = try await connectedWithRecordings()
+        XCTAssertFalse(model.usbListOutdated, "a list just read was out of date")
+
+        model.session.learned(usbDisk: model.usbDisk)
+        XCTAssertFalse(model.usbListOutdated, "a disk the slot has yet to answer put the list out of date")
+
+        await recorder.answer("X_GetMediaInfo", with: .result(Self.anotherDisk), times: 1000)
+        await reconnect(model)
+        XCTAssertTrue(model.usbListOutdated, "another disk in the slot left the list as it was")
+
+        await model.loadOutdatedTitles()
+        XCTAssertFalse(model.usbListOutdated)
+        XCTAssertEqual(try aRow(model, on: "USBHDD").readFrom?.registered, "2026-02-03T04:05:06+0900")
+
+        await recorder.answer("X_GetMediaInfo", with: .result(""), times: 1000)
+        model.session.slotAnswered(nil)
+        XCTAssertTrue(model.usbListOutdated, "a disk gone left the list as it was")
+        await model.loadOutdatedTitles()
+        XCTAssertFalse(model.usbListOutdated)
+        XCTAssertEqual(model.titles.count, 22, "the recordings of a disk gone stayed in the list")
+    }
+
+    /// A disk that turns up where there was none puts the list out of date, for its recordings to be read in.
+    func testADiskThatTurnsUpIsReadIn() async throws {
+        let (_, recorder, model) = try await connected(answering: nil)
+        await model.loadTitles()
+        XCTAssertEqual(model.titles.count, 22)
+
+        await recorder.answer("X_GetMediaInfo", with: .result(Self.slot()), times: 1000)
+        await reconnect(model)
+        XCTAssertTrue(model.usbListOutdated)
+
+        await model.loadOutdatedTitles()
+        XCTAssertFalse(model.usbListOutdated, "a disk with nothing on it left the list out of date")
+    }
+
+    /// A list the USB disk could not be read into is left with the internal disk's rows, and read again.
+    func testAUSBListThatFailedIsReadAgain() async throws {
+        let bench = try aBench()
+        try await bench.cacheAGuide()
+        let recorder = NamedRecorder(1, usbDisk: true)
+        let model = bench.model(recorders: [Bench.host: recorder])
+        await model.start()
+        try await untilConnected(model)
+
+        await recorder.answer("X_GetTitleList", with: .fault(402), times: 1, after: 1)
+        await model.loadTitles()
+
+        XCTAssertEqual(model.titles.count, 22, "the internal disk's list was lost with the USB disk's")
+        XCTAssertNil(model.problem(for: .recorder), "the USB disk's list failing was said")
+        XCTAssertTrue(model.usbListOutdated)
+
+        await model.loadOutdatedTitles()
+        XCTAssertEqual(model.titles.count, 27)
+        XCTAssertFalse(model.usbListOutdated)
+    }
+
+    /// Nothing is written to a recording of a disk gone from the slot, and the reader is told why.
+    func testARecordingOfADiskThatHasGoneIsNotWrittenTo() async throws {
+        for answer: RecorderDisk? in [nil, Self.disk] {
+            let (_, recorder, model) = try await connectedWithRecordings()
+            let row = try aRow(model, on: "USBHDD")
+            model.session.slotAnswered(answer)
+            let before = await recorder.asked
+
+            let protected = await model.setProtected(row, true)
+            let deleted = await model.delete(row)
+
+            XCTAssertEqual(protected, .notDone(RecorderDriver.diskChanged))
+            XCTAssertEqual(deleted, .notDone(RecorderDriver.diskChanged))
+            XCTAssertEqual(model.whyNot(altering: row), RecorderDriver.diskChanged)
+            XCTAssertEqual(model.whyNot(deleting: row), RecorderDriver.diskChanged)
+            expectEqual(await recorder.asked("X_UpdateTitle", since: before), 0)
+            expectEqual(await recorder.asked("X_DeleteTitle", since: before), 0)
+            expectEqual(await recorder.asked("X_GetTitleDetail", since: before), 0)
+        }
+    }
+
+    /// A bulk job over both disks stops at the first recording of a disk that has left the slot, with why, and
+    /// what it did before stands.
+    func testABulkJobStopsAtARecordingOfADiskThatHasGone() async throws {
+        let (_, recorder, model) = try await connectedWithRecordings()
+        let own = try aRow(model, on: "HDD")
+        let usb = try aRow(model, on: "USBHDD")
+        await recorder.hold(only: "X_DeleteTitle")
+        let before = await recorder.asked
+
+        XCTAssertTrue(model.startBulk(.delete, ids: [own.id, usb.id]))
+        try await until("the first recording's delete never came") {
+            await recorder.asked("X_DeleteTitle", since: before) == 1
+        }
+        model.session.slotAnswered(nil)
+        await recorder.letGo()
+        try await until("the job never ended") { model.job?.finished == true }
+
+        XCTAssertEqual(model.job?.changed, [own.id])
+        XCTAssertEqual(model.job?.stopped, .said(RecorderDriver.diskChanged))
+        expectEqual(await recorder.asked("X_DeleteTitle", since: before), 1)
+        XCTAssertTrue(model.titles.contains { $0.id == usb.id })
+    }
+
+    /// A bulk protect and a scan for duplicates walk both disks alike.
+    func testRunsWorkOverBothDisks() async throws {
+        let (_, recorder, model) = try await connectedWithRecordings()
+        let rows = [try aRow(model, on: "HDD"), try aRow(model, on: "USBHDD")]
+
+        XCTAssertTrue(model.startBulk(.protecting(true), ids: rows.map(\.id)))
+        try await until("the protect never ended") { model.job?.finished == true }
+        XCTAssertEqual(model.job?.changed, rows.map(\.id))
+        XCTAssertEqual(model.titles.filter { rows.map(\.id).contains($0.id) }.map(\.protected), [true, true])
+        model.clearJob()
+
+        let candidates = Duplicates.candidates(model.titles).flatMap { $0 }
+        let before = await recorder.asked
+        model.startDuplicateScan()
+        try await until("the scan never ended") { model.job?.finished == true }
+        expectEqual(await recorder.asked("X_GetTitleDetail", since: before), candidates.count)
+        XCTAssertTrue(candidates.contains { $0.destination == "USBHDD" },
+                      "the demo's disks were meant to hold copies of one another's programmes")
+    }
+
+    /// The demo's recorder, which the reader meets, has the USB disk the tests' does not.
+    func testTheDemosRecorderHasAUSBDisk() async throws {
+        let model = try aBench().model(recorder: DemoRecorder())
+
+        let disk = try await RecorderClient(host: DemoRecorder.host, transport: model.theDemoRecorder())
+            .disk(RecorderDisk.usbID)
+
+        XCTAssertEqual(disk?.takesRecordings, true)
     }
 }

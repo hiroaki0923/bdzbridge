@@ -90,6 +90,9 @@ final class AppModel {
     var reservationKind = ReservationKind.all
     var titleGenre: Int?
     var titleState: WatchState?
+    /// The disk the reader narrowed the recordings to, by the recorder's id for it; nil for all of them. What is
+    /// shown goes by `shownDestination`.
+    var titleDestination: String?
     var titleSort = TitleSort.newest {
         didSet { defaults.set(titleSort.rawValue, forKey: DefaultsKey.recordingsSort) }
     }

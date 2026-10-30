@@ -28,6 +28,8 @@ final class RecorderSaid {
     var titles: [RecordedTitle] = []
     /// Recordings are read in pages of 200 and there are well over a thousand, so they are kept once fetched.
     var titlesLoaded = false
+    /// The USB disk whose recordings the list holds, as the read that kept it said; nil when it holds none.
+    var titlesReadFrom: RecorderDisk?
     /// The recorder's own keyword conditions (おまかせ・まる録).
     var recorderRules: [RecorderRule] = []
     /// Whether `recorderRules` is the recorder's answer, and why the last read failed if it did. An empty list
@@ -66,9 +68,10 @@ final class RecorderSaid {
         reservationsRead = Date()
     }
 
-    /// Puts a list of the recordings here.
-    func keep(titles list: [RecordedTitle]) {
+    /// Puts a list of the recordings here, with the USB disk it holds the rows of.
+    func keep(titles list: [RecordedTitle], readFrom disk: RecorderDisk?) {
         titles = list
+        titlesReadFrom = disk
         titlesLoaded = true
         // The sets on screen were built from the list as it was. A copy one says it keeps may have gone since,
         // and deleting the others would then leave nothing.
@@ -211,6 +214,7 @@ final class RecorderHost: RecorderLinkHost {
         clearJob()
         model?.titleGenre = nil
         model?.titleState = nil
+        model?.titleDestination = nil
         model?.reservationKind = .all
         timesForgotten += 1
     }
@@ -550,7 +554,25 @@ final class RecorderHost: RecorderLinkHost {
         guard client != nil, !unreachable, force || !self.said.titlesLoaded else { return }
         titleReads += 1
         defer { titleReads -= 1 }
-        _ = await recorderDriver?.titles { list, _ in said.keep(titles: list) }
+        _ = await recorderDriver?.titles { said.keep(titles: $0, readFrom: $1) }
+    }
+
+    /// Whether the list held is not what a read would give with the USB disk known now, for the screen to read it
+    /// again: its rows of a disk that has left the slot are not to be written to
+    /// (`RecorderDriver.whyNot(altering:usb:)`) and go with a read, and a disk that has turned up, or that the last
+    /// read could not read, comes in with one. Nothing changes in a home with no USB disk, where both sides are
+    /// none.
+    ///
+    /// Not while the disk known has yet to be answered by the slot, which has not said anything of it yet, right
+    /// after a waking above all: that read would be waited out, and the list goes out of date only once the slot has
+    /// answered. Not while nothing could be read, nor while a job walks the list, as a pull-down: both end with this
+    /// turning true if the list still is, which is what the screen goes by.
+    var usbListOutdated: Bool {
+        guard said.titlesLoaded, !jobRunning, client != nil, !unreachable, !session.usbDiskUnanswered else {
+            return false
+        }
+        guard let read = said.titlesReadFrom else { return session.usbDisk?.takesRecordings == true }
+        return !read.isStill(session.usbDisk)
     }
 
     /// What pulling the recordings down asks for: the list read again, or a connect when nothing can be written
