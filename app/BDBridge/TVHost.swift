@@ -45,7 +45,7 @@ final class TVHost: LinkHost {
     /// The recordings on its disk, as last read from it: its rows only, and never among the recorder's
     /// (`RecorderSaid.titles`), the model putting the two together for the screens. A television that cannot be
     /// asked leaves them standing, as it does its reservations.
-    private(set) var titles: [RecordedTitle] = []
+    var titles: [RecordedTitle] = []
     /// What the last read of them came to beside what the disk has used (`TVDriver.account`).
     private(set) var titlesAccount = TVTitlesAccount.addsUp
     /// Set for as long as a list that may still be coming is read again, which the strip says
@@ -144,6 +144,9 @@ final class TVHost: LinkHost {
         return came.altered
     }
 
+    /// What a run over recordings asks of the television (`RecorderHost.runBulk`), and the list it walks.
+    var runDriver: (any RunDriver)? { driver }
+
     // MARK: - what the link tells the app
 
     /// On the app's one list, marked as the television's. From a host the app has let go of the line goes on
@@ -186,8 +189,9 @@ final class TVHost: LinkHost {
 
     /// Busy with the television: its own lines only.
     var isBusy: Bool { !(model?.televisionLines.isEmpty ?? true) }
-    /// A bulk job is the recorder's, on its link, not the television's.
-    var holdsOffConnect: Bool { false }
+    /// A job over recordings that holds rows of the television's: no connect starts beside it, as none does beside
+    /// the recorder's, and one turned away is made as the job ends (`RecorderHost.jobEnded`).
+    var holdsOffConnect: Bool { model?.recorderHost.jobIsOnTheTelevision ?? false }
     var isDemo: Bool { model?.demo ?? false }
     var cache: GuideStore? { model?.store }
     func cacheForAttempt() async { await model?.openCache() }

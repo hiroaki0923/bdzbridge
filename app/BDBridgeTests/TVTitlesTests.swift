@@ -4,7 +4,7 @@ import XCTest
 @testable import BDBridge
 
 /// The television's recordings beside the recorder's, in the one list: what the filter and the title bar offer,
-/// each row sent to the device that holds it and to no other, the two read side by side and
+/// each row sent to the device that holds it and to no other, a run over both, the two read side by side and
 /// neither harmed by the other, the list that does not add up, and what goes with the television. How a television's
 /// list is read and a row written to, step by step and sentence by sentence, is RecorderKit's to hold
 /// (`TVDriverRecordingsTests`). And that a home with no television is shown, and asks, what it always did.
@@ -163,7 +163,11 @@ final class TVTitlesTests: XCTestCase {
         expectTrue(await protectARecording(model, try tvRow(model), true), model.problem(for: .tv) ?? "no reason given")
         XCTAssertEqual(model.tvHost?.titles.first?.protected, true)
         expectTrue(await deleteARecording(model, try tvRow(model, 2)), model.problem(for: .tv) ?? "no reason given")
-        expectEqual(await television.recordings.map(\.contentID), [1, 3])
+
+        model.startBulk(.delete, ids: [try tvRow(model, 3).id])
+        try await until("the job never ended") { model.job?.finished == true }
+        XCTAssertEqual(model.job?.changed.count, 1)
+        expectEqual(await television.recordings.map(\.contentID), [1])
     }
 
     // MARK: - each row to its own device
@@ -309,6 +313,115 @@ final class TVTitlesTests: XCTestCase {
         XCTAssertNotEqual(model.tvTitlesToRead, "\(forgotten)-1", "the tab would not read the next television's")
     }
 
+    // MARK: - a run over both
+
+    /// A run takes the recordings of both devices: each to its own, the job counting them as one, the list of each
+    /// brought into step, and the free space of each read as it ends.
+    func testARunGoesOverBothDevices() async throws {
+        let home = try await atHome(diskMB: 20_000)
+        let model = home.model
+        let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+        let ids = [try tvRow(model).id, title.id, try tvRow(model, 2).id]
+        let calls = await home.television.calls.count
+
+        XCTAssertTrue(model.startBulk(.delete, ids: ids))
+        try await until("the job never ended") { model.job?.finished == true }
+
+        XCTAssertEqual(model.job?.outcome, "3 件を削除しました")
+        XCTAssertEqual(model.job?.changed, ids)
+        XCTAssertFalse(model.titles.contains { $0.id == title.id })
+        XCTAssertEqual(model.tvHost?.titles, [])
+        expectEqual(await home.television.recordings, [])
+        XCTAssertEqual(model.tvDriver?.facts.storage?.freeMB, 19_400)
+        let asked = await home.television.calls.dropFirst(calls)
+        XCTAssertEqual(asked.filter { $0.hasPrefix("deleteContent") }.count, 2)
+        XCTAssertEqual(asked.filter { $0.hasPrefix("getStorageList") }.count, 1, "read once, as the run ended")
+    }
+
+    /// A bulk protect the same, and what is already so is passed over in the driver's sentence.
+    func testABulkProtectGoesOverBothDevices() async throws {
+        let home = try await atHome([Self.recording(1), Self.recording(2, protected: true)])
+        let model = home.model
+        let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+
+        model.startBulk(.protecting(true), ids: [title.id, try tvRow(model).id, try tvRow(model, 2).id])
+        try await until("the job never ended") { model.job?.finished == true }
+
+        XCTAssertEqual(model.job?.changed.count, 2)
+        XCTAssertEqual(model.job?.skipped.map(\.reason), ["すでに保護されています"])
+        XCTAssertEqual(try tvRow(model).protected, true)
+        XCTAssertEqual(model.titles.first { $0.id == title.id }?.protected, true)
+    }
+
+    /// A television's silence stops the run at that row, saying which device, and is not sent again. The recorder
+    /// has nothing to answer for: its list is not read again.
+    func testATelevisionsSilenceStopsARunAndIsNamed() async throws {
+        let home = try await atHome()
+        let model = home.model
+        let ids = [try tvRow(model).id, try tvRow(model, 2).id]
+        let reads = await home.recorder.asked("X_GetTitleList")
+
+        await home.door.hold(only: "deleteContent")
+        XCTAssertTrue(model.startBulk(.delete, ids: ids))
+        try await until("the delete was never sent") { await home.door.isHolding }
+        await home.television.goSilent()
+        await home.door.letGo()
+        try await until("the job never ended") { model.job?.finished == true }
+
+        XCTAssertEqual(model.job?.outcome, "0 件を削除したところで、テレビの応答がなくなったため中止しました")
+        XCTAssertEqual(model.problem(for: .tv), TVDriver.mayHaveArrived)
+        XCTAssertTrue(model.titlesLoaded, "the television's silence was taken for the recorder's")
+        expectEqual(await home.recorder.asked("X_GetTitleList"), reads)
+        expectEqual(await home.television.calls.filter { $0.hasPrefix("deleteContent") }.count, 1)
+    }
+
+    /// A run that cannot begin on the television says why, and asks nothing of either.
+    func testARunThatCannotBeginOnTheTelevisionSaysWhy() async throws {
+        let home = try await atHome()
+        let model = home.model
+        let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+        let row = try tvRow(model)
+        await home.television.goSilent()
+        await model.loadTVTitles()
+        XCTAssertFalse(model.tvDriver?.canBeAsked ?? true)
+        let before = await home.recorder.asked("X_DeleteTitle")
+
+        XCTAssertTrue(model.startBulk(.delete, ids: [title.id, row.id]))
+
+        XCTAssertEqual(model.job?.finished, true)
+        XCTAssertEqual(model.job?.stopped, .said(TVDriver.notConnected))
+        XCTAssertEqual(model.job?.stoppedOn, .tv)
+        expectEqual(await home.recorder.asked("X_DeleteTitle"), before)
+    }
+
+    /// While a job holds its rows a connect to the television is owed, and made as the job ends. One of the
+    /// recorder's alone holds nothing of the television's.
+    func testAJobOverItsRowsHoldsOffAConnectToTheTelevision() async throws {
+        let home = try await atHome()
+        let model = home.model
+        let row = try tvRow(model)
+        await home.door.hold(only: "deleteContent")
+
+        XCTAssertTrue(model.startBulk(.delete, ids: [row.id]))
+        try await until("the delete was never sent") { await home.door.isHolding }
+        XCTAssertEqual(model.tvHost?.holdsOffConnect, true)
+        let attached = model.tv?.session.timesAttached
+        await model.tv?.connect()
+        XCTAssertEqual(model.tv?.session.timesAttached, attached, "a connect went beside the job")
+
+        await home.door.letGo()
+        try await until("the job never ended") { model.job?.finished == true }
+        XCTAssertEqual(model.tvHost?.holdsOffConnect, false)
+        try await until("the connect owed was not made") { model.tv?.session.timesAttached == attached.map { $0 + 1 } }
+
+        let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+        await home.recorder.hold(only: "X_DeleteTitle")
+        XCTAssertTrue(model.startBulk(.delete, ids: [title.id]))
+        XCTAssertEqual(model.tvHost?.holdsOffConnect, false, "the recorder's job held the television's connect")
+        await home.recorder.letGo()
+        try await until("the job never ended") { model.job?.finished == true }
+    }
+
     // MARK: - a list that does not add up
 
     /// After a restart: no rows, the disk full. The line says so for as long as it is read again, holding none of
@@ -423,6 +536,7 @@ final class TVTitlesTests: XCTestCase {
         XCTAssertTrue(model.startBulk(.delete, ids: [row.id]))
         try await until("the job never ended") { model.job?.finished == true }
         XCTAssertEqual(model.job?.outcome, "1 件を削除しました")
+        XCTAssertEqual(model.job?.onTV, [])
     }
 
     /// With a USB disk and no television the filter is the two disks, as it was.
