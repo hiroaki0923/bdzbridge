@@ -45,10 +45,10 @@ extension AppModel {
     var tvTitlesToRead: String { "\(tvTimesForgotten)-\(tv?.session.timesAttached ?? 0)" }
 
     /// What says when a list that may still be coming is to be waited for: as `tvTitlesToRead`, for a television
-    /// lost during a wait, as the list comes to be one, and as a job begins or ends on its rows, the task ending
-    /// with it and beginning again after.
+    /// lost during a wait, as the list comes to be one, and as a job begins or ends on its rows and the app is left
+    /// or come back to, nothing being read then: the task ends with either, and begins again after.
     var tvTitlesToWaitFor: String {
-        "\(tvTitlesToRead)-\(tvHost?.titlesAccount == .mayStillBeComing)-\(jobIsOnTheTelevision)"
+        "\(tvTitlesToRead)-\(tvHost?.titlesAccount == .mayStillBeComing)-\(jobIsOnTheTelevision)-\(inBackground)"
     }
 
     /// Reads again a television's list that may still be coming, for as long as the screen's task lasts

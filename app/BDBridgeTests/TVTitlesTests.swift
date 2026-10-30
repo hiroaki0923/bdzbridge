@@ -471,6 +471,26 @@ final class TVTitlesTests: XCTestCase {
         expectEqual(await home.recorder.asked("X_DeleteTitle"), before)
     }
 
+    /// A connect a job held off is dropped with the app left, as the recorder's is: made as the job ends in the
+    /// background, it would meet silence, and be given up on.
+    func testAConnectAJobHeldOffGoesWithTheAppLeft() async throws {
+        let home = try await atHome()
+        let model = home.model
+        let attached = model.tv?.session.timesAttached
+        await home.door.hold(only: "deleteContent")
+        XCTAssertTrue(model.startBulk(.delete, ids: [try tvRow(model).id]))
+        try await until("the delete was never sent") { await home.door.isHolding }
+        await model.tv?.connect()
+
+        model.wentToBackground()
+        await home.door.letGo()
+        try await until("the job never ended") { model.job?.finished == true && model.tv?.session.connecting == false }
+        for _ in 0..<10 { await Task.yield() }
+
+        XCTAssertEqual(model.tv?.session.timesAttached, attached, "a connect was made with the app away")
+        await model.returnedToForeground()
+    }
+
     /// While a job holds its rows a connect to the television is owed, and made as the job ends. One of the
     /// recorder's alone holds nothing of the television's.
     func testAJobOverItsRowsHoldsOffAConnectToTheTelevision() async throws {
@@ -709,6 +729,25 @@ final class TVTitlesTests: XCTestCase {
         XCTAssertTrue(model.tvTitlesStillComing, "the list would say that there are no recordings")
         model.titleDestination = RecorderDisk.internalID
         XCTAssertFalse(model.tvTitlesStillComing)
+    }
+
+    /// Nothing is read with the app away: the wait's task ends as the app is left, and begins again on the return.
+    func testTheWaitGoesWithTheAppLeft() async throws {
+        let rows = [Self.recording(1)]
+        let home = try await atHome(rows, read: false)
+        let model = home.model
+        await home.television.leavesOutOfItsList(Set(rows.map(\.uri)))
+        await model.loadTVTitles()
+        let inFront = model.tvTitlesToWaitFor
+
+        model.wentToBackground()
+        XCTAssertNotEqual(model.tvTitlesToWaitFor, inFront, "the wait's task was not told the app was left")
+        let reads = await home.television.calls.count
+        try await within(2, "the wait went on with the app away") { await model.waitForTVTitles() }
+        expectEqual(await home.television.calls.count, reads, "asked with the app away")
+
+        await model.returnedToForeground()
+        XCTAssertEqual(model.tvTitlesToWaitFor, inFront, "the wait's task was not told the app was back")
     }
 
     /// Still short once the wait is over, the note is said, under the list: of the television's rows, so not of a

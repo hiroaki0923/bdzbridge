@@ -73,6 +73,7 @@ extension AppModel {
         recorder.setTheReadLeftForLaterAside()
         // So does a connect a job held off: made once the job ends while the app is away, it would meet silence.
         recorder.dropTheConnectOwed()
+        tv?.dropTheConnectOwed()
     }
 
     /// The app is active again. The recorder may have gone to sleep meanwhile, and connecting again also sends

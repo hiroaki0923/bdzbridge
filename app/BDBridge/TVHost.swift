@@ -123,9 +123,10 @@ final class TVHost: LinkHost {
     }
 
     /// Reads again a list that may still be coming, for as long as the screen's task lasts (`TVDriver`), and not
-    /// beside a job, which the screen's task is ended for.
+    /// beside a job or with the app away, which the screen's task is ended for.
     func waitForTitles() async {
-        guard titlesAccount == .mayStillBeComing, !aJobWalksTheList, let driver, driver.canBeAsked else { return }
+        guard titlesAccount == .mayStillBeComing, !aJobWalksTheList, model?.inBackground != true, let driver,
+              driver.canBeAsked else { return }
         waitingForTitles = true
         defer { waitingForTitles = false }
         await driver.waitForTitles { self.keep($0) }
