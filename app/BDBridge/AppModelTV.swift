@@ -93,7 +93,8 @@ extension AppModel {
         guard tv == nil, let host = savedTVHost else { return }
         let owner = TVHost(model: self)
         let driver = TVDriver(credentials: televisionCredentials(), nickname: Self.tvNickname,
-                              inFront: { [weak self] in self.map { !$0.inBackground } ?? false })
+                              inFront: { [weak self] in self.map { !$0.inBackground } ?? false },
+                              titlesWait: surroundings.tvTitlesWait)
         let link = DeviceLink(host: host, session: SessionState(device: savedTVMac),
                               driver: driver, environment: tvLinkEnvironment())
         link.owner = owner

@@ -151,6 +151,7 @@ extension AppModel {
     /// television that is to be registered or reconnected to is sent nothing whatever its disk does.
     func strip(inSheet: Bool = false) -> Strip? {
         if let busy { return .busy(busy) }
+        if waitingForTVTitles { return .busy(TVDriver.titlesComingLine) }
         if anotherTookOver, connected { return .anotherTookOver }
         if let line = queueReport { return .report(line, inFull: tv != nil) }
         if demo, DemoData.banner, !inSheet { return .demo }

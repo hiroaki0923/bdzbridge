@@ -27,6 +27,9 @@ final class Bench {
     /// address: a moment, where the app waits the request's own timeout. A test holds a request at the recorder
     /// across a connect at its address for as long as it likes; that a request waits is RecorderKit's to test.
     var wireWaitLimit: TimeInterval? = 0.05
+    /// How long a model made here waits for a television's list that may still be coming: a moment, where the app
+    /// waits three minutes. What the wait does is RecorderKit's to test.
+    var tvTitlesWait = TVTitlesWait(every: .milliseconds(5), for: 0.1)
     /// How many clients a model made here has made, whatever the address: one for each attempt at a recorder.
     private(set) var clientsMade = 0
     /// What the searches of the models made here wrote for the log, in order: kept here in place of the
@@ -273,6 +276,7 @@ final class Bench {
                 return tvTransport(host)
             },
             tvCredentials: tvCredentials,
+            tvTitlesWait: tvTitlesWait,
             localNetworkAccess: { [weak self] host in
                 guard let self else { return .allowed }
                 return await self.lookAtThePermission(at: host)

@@ -33,6 +33,15 @@ public extension RecordedTitle {
     }
 }
 
+public extension Array where Element == RecordedTitle {
+    /// What the question before a delete says is not to be undone, naming the devices these are on: the recorder
+    /// alone, as it always has, with nothing of a television's among them. Written with no full stop of its own.
+    var deletedForGood: String {
+        let devices = [DeviceSlot.recorder, .tv].filter { device in contains { $0.device == device } }
+        return (devices.isEmpty ? [.recorder] : devices).map(\.label).joined(separator: "と") + "から削除され、元に戻せません"
+    }
+}
+
 /// Recordings of one programme, as the recordings screen lists them.
 public struct TitleGroup: Sendable, Equatable, Identifiable {
     public var key: String
