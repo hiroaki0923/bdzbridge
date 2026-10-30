@@ -204,4 +204,211 @@ extension TVDriver {
         listEmptySince = since
         return now.timeIntervalSince(since) < titlesWait.limit ? account : .someAreMissing
     }
+
+    // MARK: - one recording
+
+    /// The lines on screen while a recording is protected, or its protection taken off, and while one is deleted:
+    /// they say which device, beside the recorder's own.
+    public static let protectingTitleLine = "テレビの録画を保護中"
+    public static let unprotectingTitleLine = "テレビの録画の保護を解除中"
+    public static let deletingTitleLine = "テレビの録画を削除中"
+
+    /// Said of a recording still being recorded: nothing has been measured of a write to one, and its row says
+    /// nothing of it until the list is read after it ends.
+    public nonisolated static let stillRecording = RecorderDriver.recordingOnTheUSBDisk
+
+    /// Why a recording cannot be changed now, or nil when it can: it is being recorded. For the doors below and for
+    /// the screens, which offer no write the door would turn away.
+    public nonisolated static func whyNot(altering title: RecordedTitle) -> String? {
+        title.recording ? stillRecording : nil
+    }
+
+    /// Why a recording cannot be deleted now, or nil when it can: what stands in the way of changing it, and then
+    /// its protection, which the television refuses to delete past, in the sentence the screens know a protected
+    /// row by. A row is as old as the list it was read in, as for the recorder: 41000 says the rest (`delete`).
+    public nonisolated static func whyNot(deleting title: RecordedTitle) -> String? {
+        whyNot(altering: title) ?? (title.protected ? RecorderDriver.protectedCannotBeDeleted : nil)
+    }
+
+    /// Why a run does not send a recording to be protected, or to have its protection taken off: it is being
+    /// recorded, or it is already the way it should be, in the sentences a recorder's is said in.
+    public nonisolated static func whyNot(protecting title: RecordedTitle, _ on: Bool) -> String? {
+        whyNot(altering: title) ?? RecorderDriver.whyNot(protecting: title, on)
+    }
+
+    /// Why nothing that needs the registration can be asked now, for a door to say: the registration it wants, or
+    /// that the app is not connected.
+    private var whyCannotBeAsked: String {
+        facts.needsPairing ? ScalarError.notRegistered.explanation : whyNotConnected
+    }
+
+    /// A write: the television refuses to delete it until this is taken off. What it came to, with its sentence,
+    /// and whether the list is to be read again; `keep` is how the app's list shows it, called once the television
+    /// has taken it. Turned away at the door with nothing sent and the line left, the result saying why: the link
+    /// gone, a row being recorded, a television that cannot be asked. Otherwise as `written`. A recording the
+    /// television no longer lists is said to be so in the result alone, and the list is to be read again.
+    public func protect(_ title: RecordedTitle, _ on: Bool, keep: @MainActor () -> Void) async
+        -> (altered: Altered, readAgain: Bool) {
+        guard let link else { return (.notDone(Self.notConnected), false) }
+        if let why = Self.whyNot(altering: title) { return (.notDone(why), false) }
+        guard canBeAsked(on: link) else { return (.notDone(whyCannotBeAsked), false) }
+        var readAgain = false
+        let altered = await written(under: on ? Self.protectingTitleLine : Self.unprotectingTitleLine,
+                                    on: link) { client in
+            do {
+                try await client.setDeleteProtection(uri: title.id, on)
+                keep()
+                return .done(saying: nil)
+            } catch let error as any DeviceError where error.failure == .unknownItem {
+                readAgain = true
+                return .notDone(ItemCame.alreadyGone)
+            }
+        }
+        return (altered, readAgain)
+    }
+
+    /// A write, and not one that can be undone: the recording is gone from the television's disk. What it came to,
+    /// with its sentence, and whether the list is to be read again; `keep` takes the row out of the app's list,
+    /// called once the television has taken it, and the disk is read again, for the free space, which cannot fail
+    /// the delete. Turned away at the door as `protect` is, a protected row among it (`whyNot(deleting:)`).
+    ///
+    /// The television says what a recorder does not, so nothing is asked first. A recording protected there since
+    /// the list was read is 41000: said in the result alone, in the sentence of a protected row, with the row left
+    /// and the list to be read again, which shows it. One it no longer lists is 41001: gone already, as a recorder's
+    /// 820 is, so the row is taken out and the result says that it was. Otherwise as `written`.
+    public func delete(_ title: RecordedTitle, keep: @MainActor () -> Void) async
+        -> (altered: Altered, readAgain: Bool) {
+        guard let link else { return (.notDone(Self.notConnected), false) }
+        if let why = Self.whyNot(deleting: title) { return (.notDone(why), false) }
+        guard canBeAsked(on: link) else { return (.notDone(whyCannotBeAsked), false) }
+        var readAgain = false
+        let altered = await written(under: Self.deletingTitleLine, on: link) { client in
+            do {
+                try await client.deleteContent(uri: title.id)
+                keep()
+                await self.learnTheDisk(on: client)
+                return .done(saying: nil)
+            } catch ScalarError.rpc(_, _, 41000, _) {
+                readAgain = true
+                return .notDone(RecorderDriver.protectedCannotBeDeleted)
+            } catch let error as any DeviceError where error.failure == .unknownItem {
+                keep()
+                return .done(saying: ItemCame.alreadyGone)
+            }
+        }
+        return (altered, readAgain)
+    }
+
+    /// One write, written on the link's parts as a change of a reservation is (`update`): under `line`, the
+    /// television made sure of first, sent on the link's client once the check has answered, and the line of what
+    /// went wrong cleared by an answer. A check that said no, or heard something else than the television saying
+    /// which it is, has nothing sent, and the result says what it left on the line. Silence may be a write that
+    /// arrived: nothing is sent after it, the television is given up on, and the line and the result say so. Any
+    /// other refusal is said in the television's words, on the line and in the result, and one for the cookie puts
+    /// down that the registration is wanted. Carried through though the app lets go of the television meanwhile, as
+    /// a delete of a reservation is.
+    private func written(under line: String, on link: DeviceLink,
+                         _ send: @MainActor (ScalarClient) async throws -> Altered) async -> Altered {
+        let owner = link.owner
+        return await link.underALine(line) { _ in
+            guard await link.ensureUp(evenIfRecent: link.checksAgain), self.mayBeSent(on: link),
+                  let client = link.client as? ScalarClient else {
+                return .notDone(owner?.problem ?? self.whyNotConnected)
+            }
+            do {
+                let altered = try await send(client)
+                owner?.problem = nil
+                return altered
+            } catch let error as any DeviceError where error.failure == .silent {
+                _ = link.say(.silentAfterSending(sentence: Self.mayHaveArrived))
+                return .notDone(Self.mayHaveArrived)
+            } catch is DeviceLetGo {
+                // Not sent: the client was retired, as for a delete of a reservation.
+                return .notDone(Self.notConnected)
+            } catch {
+                self.say(error, on: link)
+                return .notDone((error as? any DeviceError)?.explanation ?? String(describing: error))
+            }
+        }
+    }
+
+    /// The disk read again, for the free space: only shown, so a television that does not say leaves it as it was
+    /// and nothing that came before it is said to have failed.
+    private func learnTheDisk(on client: ScalarClient) async {
+        if let storage = try? await client.storage() { facts.storage = storage }
+    }
+
+    // MARK: - a run over many
+
+    /// Begins a run, by the doors of a single write: the link gone, or a television that cannot be asked, or one a
+    /// connect is under way for, whose client has yet to hear which television answers it. Nothing is asked, and
+    /// nothing is said on the line.
+    public func beginRun(_ kind: RunKind) -> Result<Run, RunStop> {
+        guard let link else { return .failure(.said(Self.notConnected)) }
+        guard canBeAsked(on: link), !link.session.connecting else { return .failure(.said(whyCannotBeAsked)) }
+        return .success(Run(kind: kind, began: link.generation))
+    }
+
+    /// Whether a run may go on to a recording: nil when it may, or why it stops there with nothing sent. The
+    /// television let go of since the run began, a door of a single write, or the check before it, which is made
+    /// for each recording as anything else the reader asks for: a no, and a check that heard something else than
+    /// the television saying which it is, stop the run with what it left on the line.
+    public func mayGoOn(_ run: Run) async -> RunStop? {
+        guard let link, !link.letGo(since: run.began) else { return .said(Self.notConnected) }
+        guard canBeAsked(on: link) else { return .said(whyCannotBeAsked) }
+        let check = await link.check(evenIfRecent: link.checksAgain)
+        guard !link.letGo(since: run.began) else { return .said(Self.notConnected) }
+        guard case .up = check, mayBeSent(on: link) else { return .said(link.owner?.problem ?? whyNotConnected) }
+        return nil
+    }
+
+    /// Deletes one recording of a run, and says what that came to. One that cannot be deleted now is passed over
+    /// with its sentence and nothing asked; for what is asked, `written(in:)`.
+    public func delete(_ title: RecordedTitle, in run: Run) async -> ItemCame {
+        if let why = Self.whyNot(deleting: title) { return .passedOver(why) }
+        return await written(in: run) { try await $0.deleteContent(uri: title.id) }
+    }
+
+    /// Protects one recording of a run, or takes its protection off, and says what that came to, as `delete(_:in:)`.
+    public func protect(_ title: RecordedTitle, _ on: Bool, in run: Run) async -> ItemCame {
+        if let why = Self.whyNot(protecting: title, on) { return .passedOver(why) }
+        return await written(in: run) { try await $0.setDeleteProtection(uri: title.id, on) }
+    }
+
+    /// One request of a run, on the client the link has in hand, the recording's check made (`mayGoOn`). A recording
+    /// protected since the list was read is passed over in that sentence, one no longer listed is gone, and any
+    /// other refusal passes it over in the television's words, said of that row alone. Silence stops the run at it:
+    /// it may have arrived, the line says so and the television is given up on, and every recording after it would
+    /// wait out the same timeout. A television let go of stops the run with nothing said.
+    private func written(in run: Run, _ send: @MainActor (ScalarClient) async throws -> Void) async -> ItemCame {
+        guard let link, !link.letGo(since: run.began), let client = link.client as? ScalarClient else {
+            return .stopped(.said(Self.notConnected))
+        }
+        do {
+            try await send(client)
+            return .done
+        } catch ScalarError.rpc(_, _, 41000, _) {
+            return .passedOver(RecorderDriver.protectedCannotBeDeleted)
+        } catch let error as any DeviceError where error.failure == .unknownItem {
+            return .gone
+        } catch let error as any DeviceError where error.failure == .silent {
+            _ = link.say(.silentAfterSending(sentence: Self.mayHaveArrived), since: run.began)
+            return .stopped(.silent(afterSending: true))
+        } catch is DeviceLetGo {
+            return .stopped(.said(Self.notConnected))
+        } catch {
+            note(OperationFailure(error, sending: nil))
+            return .passedOver((error as? any DeviceError)?.explanation ?? String(describing: error))
+        }
+    }
+
+    /// Ends a run: after one that deleted something and that nothing stopped, the disk is read again, for the free
+    /// space, on the television it began with.
+    public func end(_ run: Run, deleted: Int, stopped: RunStop?) async {
+        guard deleted > 0, stopped == nil, let link, !link.letGo(since: run.began),
+              let client = link.client as? ScalarClient else { return }
+        await learnTheDisk(on: client)
+    }
 }
+
+extension TVDriver: RunDriver {}

@@ -8,19 +8,35 @@ public enum RunKind: Sendable, Equatable {
     case scanning
 }
 
-/// What the recorder's driver knows of a run between two of its recordings: what the run does, and the count of
-/// recorders let go of as it began (`DeviceLink.generation`), which says which recorder the run is about: asked
+/// What a device's driver knows of a run between two of its recordings: what the run does, and the count of
+/// devices let go of as it began (`DeviceLink.generation`), which says which device the run is about: asked
 /// again before anything of the run is sent and as each answer comes back (`DeviceLink.letGo(since:)`). Made as
-/// the run begins (`RecorderDriver.beginRun`), in the turn its job is set up, and handed back with each of its
+/// the run begins (`RunDriver.beginRun`), in the turn its job is set up, and handed back with each of its
 /// steps. It holds no client: each request of a run goes on the client the link has in hand as it is sent.
 public struct Run: Sendable {
     let kind: RunKind
     let began: Int
 }
 
-/// Why a run stopped before its end, or did not begin, on the recorder's account: what its job keeps once it
-/// has stopped, for what it says then (`RecorderDriver.outcome`) and for the line under that. An `Error` only so
-/// that it can be the failure of `RecorderDriver.beginRun`'s `Result`, which asks that of it; nothing throws it.
+/// What a run over many recordings asks of the device that holds them, the same five steps on either: whether it
+/// may begin, whether it may go on to a recording, one deleted, one protected or its protection taken off, and what
+/// is read as it ends. The loop around them belongs to the app, which walks one list of both devices' rows and asks
+/// each row's driver (`RecorderHost.runBulk`). The scan for duplicates is the recorder's alone.
+@MainActor
+public protocol RunDriver: AnyObject, Sendable {
+    func beginRun(_ kind: RunKind) -> Result<Run, RunStop>
+    func mayGoOn(_ run: Run) async -> RunStop?
+    func delete(_ title: RecordedTitle, in run: Run) async -> ItemCame
+    func protect(_ title: RecordedTitle, _ on: Bool, in run: Run) async -> ItemCame
+    func end(_ run: Run, deleted: Int, stopped: RunStop?) async
+}
+
+extension RecorderDriver: RunDriver {}
+
+/// Why a run stopped before its end, or did not begin, on a device's account: what its job keeps once it has
+/// stopped, for what it says then (`RecorderDriver.outcome`) and for the line under that. An `Error` only so that
+/// it can be the failure of `RunDriver.beginRun`'s `Result`, which asks that of it; nothing throws it. What follows
+/// is written of the recorder; a television's run goes by the same cases (`TVDriver.mayGoOn`).
 public enum RunStop: Error, Sendable, Equatable {
     /// Turned away, with a sentence. For a run that did not begin, that the app is not connected
     /// (`RecorderDriver.beginRun`). For one stopped before a recording, or before a later request for one
@@ -61,12 +77,15 @@ public enum ItemCame: Sendable, Equatable {
     /// as changed nor as passed over.
     case stopped(RunStop)
 
+    /// Said of a recording the device no longer had.
+    public static let alreadyGone = "すでに削除されています"
+
     /// Why nothing was changed, for the run's list of what it passed over. Nil when something was, and when the
     /// run stopped.
     public var reason: String? {
         switch self {
         case .done, .stopped: nil
-        case .gone: "すでに削除されています"
+        case .gone: Self.alreadyGone
         case .passedOver(let reason): reason
         }
     }
@@ -105,21 +124,22 @@ extension RecorderDriver {
 
     /// What to tell the reader once a run has stopped, in the shape the web app settled on: how many recordings
     /// it changed -- a scan, how many it looked at (`done`) -- whether it came to its end or was stopped before
-    /// it, and how many it passed over. A run the recorder's silence stopped (`RunStop.silent`) says that the
-    /// recorder stopped answering, whether or not 中止 was tapped as well. One stopped for anything else
+    /// it, and how many it passed over. A run a device's silence stopped (`RunStop.silent`) says that the device
+    /// stopped answering, `on` being the one, whether or not 中止 was tapped as well. One stopped for anything else
     /// (`RunStop.said`) says only that it was stopped, as one stopped by 中止 (`cancelled`) does: why is the
     /// stop's own sentence, which the job shows under this one.
     public nonisolated static func outcome(of kind: RunKind, done: Int, changed: Int, passedOver: Int,
-                                           cancelled: Bool, stopped: RunStop?) -> String {
+                                           cancelled: Bool, stopped: RunStop?,
+                                           on device: DeviceSlot = .recorder) -> String {
         let silent = if case .silent = stopped { true } else { false }
         let cut = cancelled || stopped != nil
         if case .scanning = kind {
-            let head = silent ? "\(done) 件まで調べたところで、レコーダーの応答がなくなったため中止しました"
+            let head = silent ? "\(done) 件まで調べたところで、\(device.label)の応答がなくなったため中止しました"
                 : cut ? "\(done) 件まで調べて中止しました" : "\(done) 件の確認が完了しました"
             return passedOver == 0 ? head : head + "（\(passedOver) 件は番組内容を取得できず、比べていません）"
         }
         let verb = verb(of: kind)
-        let head = silent ? "\(changed) 件を\(verb)したところで、レコーダーの応答がなくなったため中止しました"
+        let head = silent ? "\(changed) 件を\(verb)したところで、\(device.label)の応答がなくなったため中止しました"
             : cut ? "\(changed) 件を\(verb)したところで中止しました" : "\(changed) 件を\(verb)しました"
         return passedOver == 0 ? head : head + "（\(passedOver) 件はスキップ）"
     }

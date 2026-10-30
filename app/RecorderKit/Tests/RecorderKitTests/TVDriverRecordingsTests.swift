@@ -351,4 +351,341 @@ final class TVDriverRecordingsTests: XCTestCase {
         await silent.driver.waitForTitles { _ in XCTFail("kept") }
         XCTAssertEqual(silent.world.problem, ScalarError.transport("no answer").explanation)
     }
+
+    // MARK: - one recording
+
+    /// A row being recorded is written to in no way, and one protected is not to be deleted: the rules the doors
+    /// and the screens both ask. The protected sentence is the recorder's, which the screens tell by.
+    func testWhatKeepsARowFromBeingWrittenTo() throws {
+        func row(protected: Bool = false, recording: Bool = false) throws -> RecordedTitle {
+            var row = title(100, recording: recording)
+            row.protected = protected
+            return row
+        }
+        XCTAssertNil(TVDriver.whyNot(altering: try row()))
+        XCTAssertNil(TVDriver.whyNot(altering: try row(protected: true)))
+        XCTAssertEqual(TVDriver.whyNot(altering: try row(recording: true)), TVDriver.stillRecording)
+
+        XCTAssertNil(TVDriver.whyNot(deleting: try row()))
+        XCTAssertEqual(TVDriver.whyNot(deleting: try row(protected: true)), RecorderDriver.protectedCannotBeDeleted)
+        XCTAssertEqual(TVDriver.whyNot(deleting: try row(recording: true)), TVDriver.stillRecording)
+        XCTAssertEqual(TVDriver.whyNot(deleting: try row(protected: true, recording: true)), TVDriver.stillRecording)
+
+        XCTAssertNil(TVDriver.whyNot(protecting: try row(), true))
+        XCTAssertNil(TVDriver.whyNot(protecting: try row(protected: true), false))
+        XCTAssertEqual(TVDriver.whyNot(protecting: try row(protected: true), true), "すでに保護されています")
+        XCTAssertEqual(TVDriver.whyNot(protecting: try row(), false), "保護されていません")
+        XCTAssertEqual(TVDriver.whyNot(protecting: try row(recording: true), true), TVDriver.stillRecording)
+    }
+
+    /// The row of `recording` as a read gives it.
+    private func row(of recording: DemoTV.Recording, on bench: Bench) async throws -> RecordedTitle {
+        let kept = Kept()
+        _ = await bench.driver.titles { kept.lists.append($0) }
+        return try XCTUnwrap(kept.last?.rows.first { $0.id == recording.uri })
+    }
+
+    /// A protect goes under a line of its own, and an answer has the row changed and the line of what went wrong
+    /// cleared. Taken off, the same.
+    func testAProtectGoesThroughUnderItsLine() async throws {
+        let recording = Self.recording(1)
+        let bench = await attached([recording])
+        let title = try await row(of: recording, on: bench)
+        bench.world.problem = Self.left
+        var kept = 0
+
+        let on = await bench.driver.protect(title, true) { kept += 1 }
+
+        XCTAssertEqual(on.altered, .done(saying: nil))
+        XCTAssertFalse(on.readAgain)
+        XCTAssertEqual(kept, 1)
+        XCTAssertEqual(bench.world.begun.last, TVDriver.protectingTitleLine)
+        XCTAssertNil(bench.world.problem)
+        expectEqual(await bench.television.recordings.map(\.protected), [true])
+
+        let off = await bench.driver.protect(title, false) { kept += 1 }
+        XCTAssertEqual(off.altered, .done(saying: nil))
+        XCTAssertEqual(kept, 2)
+        XCTAssertEqual(bench.world.begun.last, TVDriver.unprotectingTitleLine)
+        expectEqual(await bench.television.recordings.map(\.protected), [false])
+    }
+
+    /// Turned away at the door, with nothing sent, nothing kept and the line left, the result saying why: a row
+    /// being recorded, a television that wants the registration, and one not connected. The same for a delete,
+    /// which has the protected row besides.
+    func testAWriteTurnedAwayAtTheDoorSendsNothing() async throws {
+        let rows = [Self.recording(1), Self.recording(2, recording: true), Self.recording(3, protected: true)]
+        let bench = await attached(rows)
+        let idle = try await row(of: rows[0], on: bench)
+        let being = try await row(of: rows[1], on: bench)
+        let protected = try await row(of: rows[2], on: bench)
+        bench.world.problem = Self.left
+        let before = await bench.gate.asked.count
+
+        let protecting = await bench.driver.protect(being, true) { XCTFail("kept") }
+        XCTAssertEqual(protecting.altered, .notDone(TVDriver.stillRecording))
+        let deletingThat = await bench.driver.delete(being) { XCTFail("kept") }
+        XCTAssertEqual(deletingThat.altered, .notDone(TVDriver.stillRecording))
+        let deleting = await bench.driver.delete(protected) { XCTFail("kept") }
+        XCTAssertEqual(deleting.altered, .notDone(RecorderDriver.protectedCannotBeDeleted))
+
+        bench.driver.facts.needsPairing = true
+        let unregistered = await bench.driver.protect(idle, true) { XCTFail("kept") }
+        XCTAssertEqual(unregistered.altered, .notDone(ScalarError.notRegistered.explanation))
+        bench.driver.facts.needsPairing = false
+        XCTAssertEqual(bench.world.problem, Self.left)
+        expectEqual(await bench.gate.asked.count, before)
+
+        await bench.television.goSilent()
+        _ = await bench.link.ensureUp(evenIfRecent: true)
+        await bench.television.goSilent(false)
+        let afterTheLook = await bench.gate.asked.count
+        bench.world.problem = Self.left
+        let away = await bench.driver.delete(idle) { XCTFail("kept") }
+        XCTAssertEqual(away.altered, .notDone(TVDriver.notConnected))
+        XCTAssertEqual(bench.world.problem, Self.left)
+        expectEqual(await bench.gate.asked.count, afterTheLook)
+    }
+
+    /// Silence on a write may be one that arrived: it is said so, on the line and in the result, the television is
+    /// lost, the row stays, and nothing is sent again.
+    func testSilenceOnAWriteMayBeOneThatArrived() async throws {
+        let recording = Self.recording(1)
+        let bench = await attached([recording])
+        let title = try await row(of: recording, on: bench)
+        await bench.gate.silence("deleteContent")
+
+        let came = await bench.driver.delete(title) { XCTFail("kept") }
+
+        XCTAssertEqual(came.altered, .notDone(TVDriver.mayHaveArrived))
+        XCTAssertEqual(bench.world.problem, TVDriver.mayHaveArrived)
+        XCTAssertTrue(bench.link.session.unreachable)
+        expectEqual(await bench.gate.asked.filter { $0 == "deleteContent" }.count, 1)
+    }
+
+    /// A refusal is said in the television's words, on the line and in the result, and it is kept; a cookie it
+    /// does not take asks for the registration. Off, it says so as any method's 40005.
+    func testAWriteRefusedIsSaidInTheTelevisionsWords() async throws {
+        let recording = Self.recording(1)
+        let bench = await attached([recording])
+        let title = try await row(of: recording, on: bench)
+        await bench.gate.answer("setDeleteProtection", with: HTTPResponse(statusCode: 200, body: Data(
+            #"{"error":[40005,"display off"],"id":1}"#.utf8)))
+
+        let off = await bench.driver.protect(title, true) { XCTFail("kept") }
+
+        let said = ScalarError.rpc(method: "setDeleteProtection", version: "1.0", code: 40005, message: "").explanation
+        XCTAssertEqual(off.altered, .notDone(said))
+        XCTAssertEqual(bench.world.problem, said)
+        XCTAssertFalse(bench.link.session.unreachable)
+
+        await bench.gate.stopAnswering("setDeleteProtection")
+        bench.credentials.save(TVCredentials(clientID: "BDBridge:test", cookie: "stale"))
+        let stale = await bench.driver.protect(title, true) { XCTFail("kept") }
+        XCTAssertEqual(stale.altered, .notDone(ScalarError.http(status: 403, method: "setDeleteProtection").explanation))
+        XCTAssertTrue(bench.driver.facts.needsPairing)
+    }
+
+    /// A check that heard something else than the television saying which it is has nothing sent, and what it
+    /// heard is said.
+    func testAWriteIsNotSentAfterACheckThatHeardSomethingElse() async throws {
+        let recording = Self.recording(1)
+        let bench = await attached([recording])
+        let title = try await row(of: recording, on: bench)
+        await bench.gate.answer("getSystemSupportedFunction", with: HTTPResponse(statusCode: 503))
+        _ = await bench.link.ensureUp(evenIfRecent: true)
+        XCTAssertNotNil(bench.link.heardInstead)
+
+        let came = await bench.driver.delete(title) { XCTFail("kept") }
+
+        let heard = ScalarError.http(status: 503, method: "getSystemSupportedFunction").explanation
+        XCTAssertEqual(came.altered, .notDone(heard))
+        XCTAssertEqual(bench.world.problem, heard)
+        expectFalse(await bench.gate.asked.contains("deleteContent"), "sent all the same")
+    }
+
+    /// A delete takes the row out, clears the line and reads the disk again, for the free space.
+    func testADeleteTakesTheRowOutAndReadsTheDisk() async throws {
+        let rows = [Self.recording(1, sizeMB: 2000), Self.recording(2, sizeMB: 2000)]
+        let bench = await attached(rows, diskMB: 20_000)
+        let title = try await row(of: rows[0], on: bench)
+        XCTAssertEqual(bench.driver.facts.storage?.freeMB, 15_400)
+        bench.world.problem = Self.left
+        var kept = 0
+
+        let came = await bench.driver.delete(title) { kept += 1 }
+
+        XCTAssertEqual(came.altered, .done(saying: nil))
+        XCTAssertFalse(came.readAgain)
+        XCTAssertEqual(kept, 1)
+        XCTAssertEqual(bench.world.begun.last, TVDriver.deletingTitleLine)
+        XCTAssertNil(bench.world.problem)
+        XCTAssertEqual(bench.driver.facts.storage?.freeMB, 17_400, "the free space was not read again")
+    }
+
+    /// A delete a read cannot fail: the disk that does not answer afterwards leaves the row taken out.
+    func testADeleteCountsThoughTheDiskIsNotReadAfterIt() async throws {
+        let recording = Self.recording(1)
+        let bench = await attached([recording], diskMB: 20_000)
+        let title = try await row(of: recording, on: bench)
+        await bench.gate.silence("getStorageList")
+        var kept = 0
+
+        let came = await bench.driver.delete(title) { kept += 1 }
+
+        XCTAssertEqual(came.altered, .done(saying: nil))
+        XCTAssertEqual(kept, 1)
+    }
+
+    /// 41000, a row protected on the television since the list was read, is said as the sheet says a protected
+    /// row: in the result alone, the row left, and the list to be read again, which shows it protected. 41001, a
+    /// row it no longer lists, is one already gone: the row is taken out and the result says so.
+    func testADeletesTwoRefusalsAreAnswers() async throws {
+        let recording = Self.recording(1)
+        let protected = await attached([recording])
+        let title = try await row(of: recording, on: protected)
+        let client = try XCTUnwrap(protected.link.client as? ScalarClient)
+        try await client.setDeleteProtection(uri: recording.uri, true)
+        protected.world.problem = Self.left
+
+        let refused = await protected.driver.delete(title) { XCTFail("kept") }
+
+        XCTAssertEqual(refused.altered, .notDone(RecorderDriver.protectedCannotBeDeleted))
+        XCTAssertTrue(refused.readAgain)
+        XCTAssertNil(protected.world.problem)
+        expectEqual(await protected.television.recordings.count, 1)
+
+        let gone = await attached([recording])
+        let goneRow = try await row(of: recording, on: gone)
+        await gone.television.records([])
+        var kept = 0
+        let already = await gone.driver.delete(goneRow) { kept += 1 }
+        XCTAssertEqual(already.altered, .done(saying: ItemCame.gone.reason))
+        XCTAssertEqual(kept, 1)
+        XCTAssertFalse(already.readAgain)
+    }
+
+    /// A protect of a row it no longer lists says so, and the list is to be read again, which takes the row away.
+    func testAProtectOfARowGoneSaysSo() async throws {
+        let recording = Self.recording(1)
+        let bench = await attached([recording])
+        let title = try await row(of: recording, on: bench)
+        await bench.television.records([])
+
+        let came = await bench.driver.protect(title, true) { XCTFail("kept") }
+
+        XCTAssertEqual(came.altered, .notDone(ItemCame.gone.reason ?? ""))
+        XCTAssertTrue(came.readAgain)
+    }
+
+    // MARK: - a run
+
+    /// A run begins while the television can be asked, by the doors of a single write, and neither begins nor
+    /// goes on without one: the sentence is why.
+    func testARunBeginsOnlyWithATelevisionThatCanBeAsked() async throws {
+        let bench = await attached([Self.recording(1)])
+        guard case .success(let run) = bench.driver.beginRun(.delete) else { return XCTFail("did not begin") }
+        expectNil(await bench.driver.mayGoOn(run))
+
+        func stop(of begun: Result<Run, RunStop>) -> RunStop? {
+            if case .failure(let stop) = begun { stop } else { nil }
+        }
+        bench.driver.facts.needsPairing = true
+        XCTAssertEqual(stop(of: bench.driver.beginRun(.delete)), .said(ScalarError.notRegistered.explanation))
+        expectEqual(await bench.driver.mayGoOn(run), .said(ScalarError.notRegistered.explanation))
+        bench.driver.facts.needsPairing = false
+
+        bench.link.forgetTheDevice()
+        expectEqual(await bench.driver.mayGoOn(run), .said(TVDriver.notConnected))
+        XCTAssertEqual(stop(of: bench.driver.beginRun(.delete)), .said(TVDriver.notConnected))
+    }
+
+    /// A run deletes what can go. A protected row and one being recorded are passed over with their sentences and
+    /// nothing asked; a row protected since the list was read, 41000, with the same sentence; a row gone comes
+    /// back as gone. The free space is read as it ends.
+    func testARunDeletesWhatCanGo() async throws {
+        let rows = [Self.recording(1, sizeMB: 2000), Self.recording(2, protected: true), Self.recording(3, recording: true),
+                    Self.recording(4), Self.recording(5)]
+        let bench = await attached(rows, diskMB: 50_000)
+        var titles: [RecordedTitle] = []
+        for row in rows { titles.append(try await self.row(of: row, on: bench)) }
+        guard case .success(let run) = bench.driver.beginRun(.delete) else { return XCTFail("did not begin") }
+
+        expectEqual(await bench.driver.delete(titles[0], in: run), .done)
+        let asked = await bench.gate.asked.filter { $0 == "deleteContent" }.count
+        expectEqual(await bench.driver.delete(titles[1], in: run), .passedOver(RecorderDriver.protectedCannotBeDeleted))
+        expectEqual(await bench.driver.delete(titles[2], in: run), .passedOver(TVDriver.stillRecording))
+        expectEqual(await bench.gate.asked.filter { $0 == "deleteContent" }.count, asked)
+
+        let client = try XCTUnwrap(bench.link.client as? ScalarClient)
+        try await client.setDeleteProtection(uri: rows[3].uri, true)
+        expectEqual(await bench.driver.delete(titles[3], in: run), .passedOver(RecorderDriver.protectedCannotBeDeleted))
+
+        try await client.deleteContent(uri: rows[4].uri)
+        expectEqual(await bench.driver.delete(titles[4], in: run), .gone)
+
+        let free = bench.driver.facts.storage?.freeMB
+        await bench.driver.end(run, deleted: 1, stopped: nil)
+        XCTAssertNotEqual(bench.driver.facts.storage?.freeMB, free, "the free space was not read again")
+    }
+
+    /// Protecting skips what is already so and a row being recorded, and sends the rest.
+    func testARunProtectsWhatIsNotYet() async throws {
+        let rows = [Self.recording(1), Self.recording(2, protected: true), Self.recording(3, recording: true)]
+        let bench = await attached(rows)
+        var titles: [RecordedTitle] = []
+        for row in rows { titles.append(try await self.row(of: row, on: bench)) }
+        guard case .success(let run) = bench.driver.beginRun(.protecting(true)) else { return XCTFail("did not begin") }
+
+        expectEqual(await bench.driver.protect(titles[0], true, in: run), .done)
+        expectEqual(await bench.driver.protect(titles[1], true, in: run), .passedOver("すでに保護されています"))
+        expectEqual(await bench.driver.protect(titles[2], true, in: run), .passedOver(TVDriver.stillRecording))
+        expectEqual(await bench.television.recordings.map(\.protected), [true, true, false])
+    }
+
+    /// Silence stops a run at that row, said as a write's, and it is not sent again. A refusal passes the row over
+    /// and the run goes on. A television let go of stops it with nothing sent.
+    func testWhatARunCameToWithoutAnAnswer() async throws {
+        let rows = [Self.recording(1), Self.recording(2)]
+        let silent = await attached(rows)
+        let first = try await row(of: rows[0], on: silent)
+        guard case .success(let run) = silent.driver.beginRun(.delete) else { return XCTFail("did not begin") }
+        await silent.gate.silence("deleteContent")
+        expectEqual(await silent.driver.delete(first, in: run), .stopped(.silent(afterSending: true)))
+        XCTAssertEqual(silent.world.problem, TVDriver.mayHaveArrived)
+        XCTAssertTrue(silent.link.session.unreachable)
+
+        let refused = await attached(rows)
+        let second = try await row(of: rows[1], on: refused)
+        guard case .success(let again) = refused.driver.beginRun(.delete) else { return XCTFail("did not begin") }
+        await refused.gate.answer("deleteContent", with: HTTPResponse(statusCode: 200, body: Data(
+            #"{"error":[12,"deleteContent"],"id":1}"#.utf8)))
+        let said = ScalarError.rpc(method: "deleteContent", version: "1.0", code: 12, message: "").explanation
+        expectEqual(await refused.driver.delete(second, in: again), .passedOver(said))
+        XCTAssertNil(refused.world.problem, "what a run passes over is said of that row alone")
+
+        refused.link.forgetTheDevice()
+        expectEqual(await refused.driver.delete(second, in: again), .stopped(.said(TVDriver.notConnected)))
+    }
+
+    /// Nothing is read as a run ends that deleted nothing, or that something stopped.
+    func testARunThatFreedNothingReadsNothing() async throws {
+        let bench = await attached([Self.recording(1)])
+        guard case .success(let run) = bench.driver.beginRun(.delete) else { return XCTFail("did not begin") }
+        let before = await bench.gate.asked.count
+        await bench.driver.end(run, deleted: 0, stopped: nil)
+        await bench.driver.end(run, deleted: 1, stopped: .silent(afterSending: true))
+        expectEqual(await bench.gate.asked.count, before)
+    }
+
+    /// What a run says it came to names the device that stopped answering.
+    func testARunSaysWhichDeviceStoppedAnswering() {
+        let silent = RunStop.silent(afterSending: true)
+        XCTAssertEqual(RecorderDriver.outcome(of: .delete, done: 2, changed: 2, passedOver: 1, cancelled: false,
+                                              stopped: silent, on: .tv),
+                       "2 件を削除したところで、テレビの応答がなくなったため中止しました（1 件はスキップ）")
+        XCTAssertEqual(RecorderDriver.outcome(of: .protecting(true), done: 2, changed: 2, passedOver: 0, cancelled: false,
+                                              stopped: silent),
+                       "2 件を保護したところで、レコーダーの応答がなくなったため中止しました")
+    }
 }
