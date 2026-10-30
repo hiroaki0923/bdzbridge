@@ -45,7 +45,10 @@ Android 版はないか、という問い合わせを受けての調査です。
   行の前にその回で 1 度だけ USB HDD を待ち、答えなければ行に理由を書くことを足している。作成の要求だけを持つ機器
   （`ReservationTarget`）は、レコーダー以外の機器を足すための継ぎ目として残る（いま適合するのはテストの機器だけ）。
   テレビ（BRAVIA）の接続と登録も、同じ `DeviceLink` に載る
-  `TVDriver` と、テレビとの通信の `ScalarClient` として RecorderKit にある。テレビの録画予約の一覧、変更、削除も
+  `TVDriver` と、テレビとの通信の `ScalarClient` として RecorderKit にある。テレビの録画（一覧、一覧が足りないときの
+  判断と待ち、保護、削除）も `TVDriver` の手順で（`TVRecordings`）、アプリのテレビのホストは一覧を持ち、モデルが
+  レコーダーの一覧と合わせて画面に渡す。一括の回は機器によらない約束（`RunDriver`）で、アプリの輪が行ごとに
+  その機器のドライバーに頼む。テレビの録画予約の一覧、変更、削除も
   `TVDriver` の手順で（1 行の読みと、変える前と消す前に同じ予約かを確かめる規則は `TVSchedule`）、結果ごとの文も
   そこにある。変更の結果は文ごと値で返り（`Altered`）、何に、いつまで変えられるかもドライバーが答える
   （`repeats(changing:)`、`whyNot(changing:)`）。アプリは返ってきた一覧を持ち、予約の行をその機器に振り分ける
@@ -84,7 +87,7 @@ Android 版はないか、という問い合わせを受けての調査です。
 |---|---|---|
 | 入出力を持たないロジック | 3,908 | Codes, Epg, Logo, Inflate, XsrsElements, XsrsParse, Soap, Xml, Series, Duplicates, Titles, Text, Models, Guide, RecorderTime, RecorderAddress, RecorderError, DeviceFailure, LinkRules, SessionState, Activities, ByProgram, TVSchedule, TVReservation, DemoLineUp |
 | SQLite の上のもの | 1,092 | GuideStore, Sqlite |
-| 非同期の段取り | 11,711 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, Discovery, TVDiscovery, DeviceSearch, ScanTally, Waking, Reach, DeviceLink, LinkOperation, ReservationDriver, RecorderDriver, RecorderRecordings, RecorderConditions, RecorderRuns, RecorderGuide, RecorderNoScreen, ScalarClient, TVDriver, TVNoScreen, NoScreen, DemoTV, DemoRecorder |
+| 非同期の段取り | 11,711 | RecorderClient, DeviceEndpoint, SerialQueue, PendingQueue, GuideRefresh, Discovery, TVDiscovery, DeviceSearch, ScanTally, Waking, Reach, DeviceLink, LinkOperation, ReservationDriver, RecorderDriver, RecorderRecordings, RecorderConditions, RecorderRuns, RecorderGuide, RecorderNoScreen, ScalarClient, TVDriver, TVRecordings, TVNoScreen, NoScreen, DemoTV, DemoRecorder |
 | OS に縛られるもの | 921 | LocalNetwork, LocalNetworkAccess, WakeOnLan, Http, ScanLog |
 
 本当に OS に縛られるのは 921 行だけです。SQLite はどちらの OS にもあり、番組表キャッシュの SQL はサーバーと同じ

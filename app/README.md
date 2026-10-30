@@ -66,7 +66,11 @@
   its host (`AppModelTV` makes and drops them), so that neither device's silence, trouble or work is the
   other's. Sending what waits in the phone's queue for the television is the driver's too
   (`TVDriver.sendWhatWaits`): the host asks for it when the link says to, and keeps what it came to for the
-  strip, which says it after what the recorder's sending came to (`AppModel.queueReport`). The screens read
+  strip, which says it after what the recorder's sending came to (`AppModel.queueReport`). So are the recordings
+  on the television's USB disk (`TVRecordings.swift`: the list with its disk, whether the two add up, the wait for
+  a list that may still be coming, protect, delete): the host keeps the rows, `AppModelRecordings` puts them with
+  the recorder's in one list (`allTitles`) and hands a write to the device that holds the row, and a bulk run is
+  one loop in `RecorderHostRuns.swift` that asks each row's driver (`RunDriver`). The screens read
   either host through the model's own names: `problem(for:)`, `isBusy(for:)`, `staleSince(for:)`, and the
   recorder's lists, job and strip under the names they had when the model held them. The app's tests read the
   recorder's host through the same names, and the television's host also directly (`model.tvHost`).
@@ -143,11 +147,13 @@ launches and a test that switched to CS would otherwise start the next one there
 The demo has a television too, which it starts without: the default demo, the screenshots' among them, is a
 home with a recorder alone, and its screens are that home's. The demo's search lists it, `KJ-SAMPLE` at
 192.0.2.64 (`DemoLineUp.television()`: the package's `DemoTV`, on, receiving every station of the demo's guide by
-its service id and name, listing what it records under the guide's titles, and holding one recording of its
-own from the start, as if set with its remote, two days ahead). Tapped, it is registered as a real one is with
+its service id and name, listing what it records under the guide's titles, holding one recording of its
+own from the start, as if set with its remote, two days ahead, and with invented recordings on a disk that adds
+up, in the shapes a real one gave them). Tapped, it is registered as a real one is with
 its panel on, by its number, which the sheet says, since there is no panel to read it from; from then on the
 demo is a home with both, and a programme can be reserved on it, its repeat changed and the reservation
-deleted, or the television taken away again. It is the model's for as long as the demo lasts, and in memory
+deleted, its recordings protected and deleted among the recorder's, or the television taken away again. It is the
+model's for as long as the demo lasts, and in memory
 alone (`demoTV`, `demoTVCredentials`, `demoTVHost`): the real television's address, MAC, Keychain item and key
 file, and what the runs with no screen told of it, are neither read nor written in the demo, and nothing in it
 asks the system about notifications for that television. In the demo every request to a television goes
