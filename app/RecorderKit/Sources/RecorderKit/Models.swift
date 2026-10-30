@@ -140,12 +140,17 @@ public struct RecordedTitle: Equatable, Sendable, Identifiable {
     /// Where playback stopped, in seconds.
     public var resumeSec: Int?
     /// The USB disk this row was read from, as the slot described it then; nil for a row of the internal disk's
-    /// list.
+    /// list. A row's id means something only on its own disk, so that is what says whether it can still be written
+    /// to, whichever list or sheet holds the row by then (`RecorderDriver.whyNot(altering:usb:)`).
     public var readFrom: RecorderDisk?
 
     public var end: Date { start.addingTimeInterval(TimeInterval(durationSec)) }
     public var broadcastingName: String? { Codes.broadcasting(code: broadcastingType) }
     public var qualityName: String? { Codes.quality(code: qualityCode) }
+    /// A recording in progress on a USB disk takes another id as it ends (seen once), so nothing is written to it
+    /// by this one and no text is kept under it. Whether the internal disk's do the same has not been seen, and
+    /// its recordings are left as they always were.
+    public var idChangesWhenItEnds: Bool { recording && readFrom != nil }
 }
 
 /// One of the disks the recorder records to, as `X_GetMediaInfo` describes it: its own, or whatever disk is in
@@ -207,6 +212,10 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
     public var identity: String { [destination, registered, name].joined(separator: "\n") }
 
     public func isSameDisk(as other: RecorderDisk?) -> Bool { other?.identity == identity }
+
+    /// Whether what was read from this disk still stands with `usb` the disk known in the slot now: it is the same
+    /// disk, and takes recordings.
+    public func isStill(_ usb: RecorderDisk?) -> Bool { usb?.takesRecordings == true && isSameDisk(as: usb) }
 
     /// What a disk is called on screen: the recorder's own name for it, or, where it gives none, the recorder's
     /// own id. So the internal disk is `HDD`, as the recorder writes it, and a slot whose disk is not known is

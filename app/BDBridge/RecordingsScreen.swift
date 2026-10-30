@@ -196,7 +196,8 @@ struct RecordingsScreen: View {
                                  logo: model.logo(for: title)).rowHitArea()
                 }
                 .buttonStyle(.plain)
-                .titleSwipe(title, held: !model.canAlterARecording, ask: { removing = title.id }, unprotect: {
+                .titleSwipe(title, whyNot: model.whyNot(deleting: title), held: !model.canAlterARecording,
+                            ask: { removing = title.id }, unprotect: {
                     Task { if case .notDone(let why) = await model.setProtected(title, false) { failure = why } }
                 })
             }
@@ -210,17 +211,17 @@ extension View {
     /// The trailing swipe on a recording. It asks before deleting -- this is the recorder's disk and there
     /// is no undo -- so a full swipe is off: a flick should not be able to spend a recording.
     ///
-    /// Offered only where the delete's own door would let it through (`RecorderDriver.whyNot(deleting:)`). The
-    /// recorder refuses to delete a protected recording, so the swipe offers 保護解除 instead, which has to happen
-    /// first. `title` is nil where the row should not be swipeable at all. Both are held while the recorder works
-    /// or a run is under way (`held`, `AppModel.canAlterARecording`), and on a programme's sheet while its own
-    /// request is out: a second delete or protect of a row while one is out, or beside a run that walks the
-    /// list, and nothing held by the television's work.
-    func titleSwipe(_ title: RecordedTitle?, held: Bool, ask: @escaping () -> Void,
+    /// Offered only where the delete's own door would let it through (`AppModel.whyNot(deleting:)`, handed in as
+    /// `whyNot`). The recorder refuses to delete a protected recording, so the swipe offers 保護解除 instead, which
+    /// has to happen first. `title` is nil where the row should not be swipeable at all. Both are held while the
+    /// recorder works or a run is under way (`held`, `AppModel.canAlterARecording`), and on a programme's sheet
+    /// while its own request is out: a second delete or protect of a row while one is out, or beside a run that
+    /// walks the list, and nothing held by the television's work.
+    func titleSwipe(_ title: RecordedTitle?, whyNot: String?, held: Bool, ask: @escaping () -> Void,
                     unprotect: @escaping () -> Void) -> some View {
         swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if let title {
-                switch RecorderDriver.whyNot(deleting: title) {
+                switch whyNot {
                 case nil:
                     Button("削除") { ask() }.tint(.red).disabled(held)
                 case RecorderDriver.protectedCannotBeDeleted?:
@@ -228,8 +229,9 @@ extension View {
                     // answer, and it stays away when the answer is no. The colour is all that is wanted.
                     Button("保護解除") { unprotect() }.tint(Color.legibleOrange).disabled(held)
                 default:
-                    // Nothing on offer: the recorder is writing to this one and refuses to delete it. The row
-                    // says 録画中, which is the answer to why there is no button here.
+                    // Nothing on offer: the recorder is writing to this one and refuses to delete it, and the row
+                    // says 録画中, which is the answer to why there is no button here; or its disk has left the
+                    // slot, and the list is about to be read again.
                     EmptyView()
                 }
             }
@@ -442,7 +444,7 @@ struct GroupSheet: View {
                 case .bulk:
                     Button("\(chosen.count) 件を削除する", role: .destructive) {
                         // The selection stays when the press was held off: nothing was started.
-                        let deletable = chosen.filter { RecorderDriver.whyNot(deleting: $0) == nil }.map(\.id)
+                        let deletable = chosen.filter { model.whyNot(deleting: $0) == nil }.map(\.id)
                         if model.startBulk(.delete, ids: deletable) {
                             selecting = false
                             selected = []
@@ -504,7 +506,7 @@ struct GroupSheet: View {
                     if selecting {
                         // Grey where a bulk delete would pass the recording over, by the delete's own door: a
                         // protected one, and one still being recorded.
-                        let deletable = RecorderDriver.whyNot(deleting: title) == nil
+                        let deletable = model.whyNot(deleting: title) == nil
                         Image(systemName: selected.contains(title.id) ? "checkmark.circle.fill" : "circle")
                             .foregroundStyle(deletable ? Color.accentColor : .secondary)
                             .accessibilityHidden(true)
@@ -518,8 +520,9 @@ struct GroupSheet: View {
             // The tick said to VoiceOver as the row being selected, rather than as the name of a circle.
             .accessibilityAddTraits(selecting && selected.contains(title.id) ? .isSelected : [])
             // Not while picking: a swipe there is how the reader scrolls a list of tick boxes.
-            .titleSwipe(selecting ? nil : title, held: !model.canAlterARecording || asking,
-                        ask: { removing = title.id }, unprotect: { ask { await model.setProtected(title, false) } })
+            .titleSwipe(selecting ? nil : title, whyNot: model.whyNot(deleting: title),
+                        held: !model.canAlterARecording || asking, ask: { removing = title.id },
+                        unprotect: { ask { await model.setProtected(title, false) } })
         }
         .listStyle(.plain)
     }
@@ -527,7 +530,7 @@ struct GroupSheet: View {
     private func selectionBar(members: [RecordedTitle], chosen: [RecordedTitle]) -> some View {
         HStack {
             Button("削除できるものをすべて選択") {
-                selected = Set(members.filter { RecorderDriver.whyNot(deleting: $0) == nil }.map(\.id))
+                selected = Set(members.filter { model.whyNot(deleting: $0) == nil }.map(\.id))
             }
             Button("選択解除") { selected = [] }
             Spacer()

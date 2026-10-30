@@ -21,10 +21,10 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertEqual(RecorderDriver.protectedCannotBeDeleted, protected)
         let titles = try await Self.titles()
 
-        XCTAssertNil(RecorderDriver.whyNot(deleting: titles.idle))
-        XCTAssertEqual(RecorderDriver.whyNot(deleting: titles.protected), protected)
-        XCTAssertEqual(RecorderDriver.whyNot(deleting: titles.recording), recording)
-        XCTAssertEqual(RecorderDriver.whyNot(deleting: titles.protectedAndRecording), recording)
+        XCTAssertNil(RecorderDriver.whyNot(deleting: titles.idle, usb: nil))
+        XCTAssertEqual(RecorderDriver.whyNot(deleting: titles.protected, usb: nil), protected)
+        XCTAssertEqual(RecorderDriver.whyNot(deleting: titles.recording, usb: nil), recording)
+        XCTAssertEqual(RecorderDriver.whyNot(deleting: titles.protectedAndRecording, usb: nil), recording)
     }
 
     /// With no link, with a link that holds no recorder's client, and with the recorder known to be away, each
@@ -1024,12 +1024,12 @@ final class RecorderRecordingsTests: XCTestCase {
         let titles = try await Self.titles()
         let rows = [titles.idle, titles.protected, titles.recording, titles.protectedAndRecording]
         XCTAssertEqual(rows.map { Duplicates.deletable($0) }, [true, false, false, false])
-        XCTAssertEqual(rows.map { Duplicates.deletable($0) }, rows.map { RecorderDriver.whyNot(deleting: $0) == nil })
+        XCTAssertEqual(rows.map { Duplicates.deletable($0) }, rows.map { RecorderDriver.whyNot(deleting: $0, usb: nil) == nil })
 
         let (run, driver, recorder) = try await Self.running(.delete, ["X_DeleteTitle": [Stub.soap("X_DeleteTitle")]])
         var came: [ItemCame] = []
         for title in rows.dropFirst() { came.append(await driver.delete(title, in: run)) }
-        XCTAssertEqual(came, rows.dropFirst().map { .passedOver(RecorderDriver.whyNot(deleting: $0) ?? "") })
+        XCTAssertEqual(came, rows.dropFirst().map { .passedOver(RecorderDriver.whyNot(deleting: $0, usb: nil) ?? "") })
         XCTAssertEqual(came.last, .passedOver("録画中のため削除できません。番組が終わるまでお待ちください。"))
         expectEqual(await recorder.actions, [], "a recording the door turns away was asked about, or sent")
     }

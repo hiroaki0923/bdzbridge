@@ -200,20 +200,62 @@ extension RecorderDriver {
     nonisolated static let stillRecording = "録画中のため削除できません。番組が終わるまでお待ちください。"
     /// Said when a recording that is protected is asked to be deleted: its protection is to come off first.
     public nonisolated static let protectedCannotBeDeleted = "保護されているため削除できません。先に保護を解除してください。"
+    /// Said when a recording of a USB disk that has left the slot is asked to be changed.
+    public nonisolated static let diskChanged = "録画先のディスクが変わったため、この操作は行っていません。一覧を読み直してから、もう一度お試しください"
+    /// Said of a recording still being recorded to a USB disk: its id goes as it ends, and the list read then has
+    /// the one to write to.
+    public nonisolated static let recordingOnTheUSBDisk = "録画中のため保護も削除もできません。番組が終わってから一覧を読み直してください"
 
-    /// Why a recording cannot be deleted now, or nil when it can, by the row as the phone holds it: one still
-    /// being recorded, by its own flag -- the recorder answers a bare HTTP 500 for a recording it is still
+    /// Why a recording of a USB disk cannot be changed now, or nil when it can, with `usb` the disk known in the
+    /// slot: a row is written to only while the disk it was read from is the one there (`RecorderDisk.isStill`),
+    /// since on another its id means nothing, or something else; and not while it is being recorded, since that
+    /// id goes as it ends (`RecordedTitle.idChangesWhenItEnds`). A row of the internal disk has nothing to answer
+    /// for here. For the doors of `protect` and `delete`, for the moment before either is sent, and for the
+    /// screens: the rule is written once.
+    public nonisolated static func whyNot(altering title: RecordedTitle, usb: RecorderDisk?) -> String? {
+        guard let read = title.readFrom else { return nil }
+        guard read.isStill(usb) else { return diskChanged }
+        return title.idChangesWhenItEnds ? recordingOnTheUSBDisk : nil
+    }
+
+    /// Why a recording cannot be deleted now, or nil when it can, by the row as the phone holds it and `usb`, the
+    /// disk known in the slot: what stands in the way of changing it at all (`whyNot(altering:usb:)`), then one
+    /// still being recorded, by its own flag -- the recorder answers a bare HTTP 500 for a recording it is still
     /// writing to, which on screen reads as a fault in the app -- and then one protected, which the recorder
     /// refuses to delete. For the door of `delete`, and for the screens, which offer no delete the door would
     /// turn away and say why from here: the rule is written once.
     ///
     /// A row is as old as the list it was read in. One protected since on the recorder's own screen is not seen
     /// here, and its delete goes, the recorder's answer being said; one whose protection was taken off there is
-    /// turned away until the list is read again. What the recordings of a USB disk add -- the disk the list was
-    /// read from, and when -- a row does not carry: they come as a parameter of this, not as a rule beside it.
-    public nonisolated static func whyNot(deleting title: RecordedTitle) -> String? {
+    /// turned away until the list is read again.
+    public nonisolated static func whyNot(deleting title: RecordedTitle, usb: RecorderDisk?) -> String? {
+        if let why = whyNot(altering: title, usb: usb) { return why }
         if title.recording { return stillRecording }
         return title.protected ? protectedCannotBeDeleted : nil
+    }
+
+    /// The moment before something is written to a recording of a USB disk, once the recorder has been made sure of
+    /// (`asked`), `client` being what that check was asked with. While the slot has not answered the disk known
+    /// since the recorder last answered, it is waited for first, as before anything that names it is sent
+    /// (`settleTheSlot`), and the door's rule is asked again of what it answered. Why not goes back as
+    /// `TurnedAway`, so that a single write says it in its result and a run stops there: no disk answered, or
+    /// another, is that the disk has changed; a recorder let go of, silence, which the link has said, or the wait
+    /// given up on are what they are for anything else. The client to send on is handed back: a connect to the same
+    /// recorder made during the wait has one of its own. A row of the internal disk goes as it always has.
+    func waitForTheDisk(of title: RecordedTitle, handed client: RecorderClient, since began: Int) async throws
+        -> RecorderClient {
+        guard title.readFrom != nil, let link else { return client }
+        let settled = await settleTheSlot(for: RecorderDisk.usbID)
+        guard !link.letGo(since: began) else { throw TurnedAway(why: whyLetGo(on: link)) }
+        switch settled {
+        case nil, .answered?: break
+        case .noDisk?: throw TurnedAway(why: Self.diskChanged)
+        case .silent?: throw TurnedAway(why: link.owner?.problem ?? whyNotConnected)
+        case .cancelled?: throw TurnedAway(why: Self.slotWaitGivenUp)
+        }
+        if let why = Self.whyNot(altering: title, usb: link.session.usbDisk) { throw TurnedAway(why: why) }
+        guard link.mayBeSent else { throw TurnedAway(why: whyNotSent(on: link)) }
+        return link.client as? RecorderClient ?? client
     }
 
     /// A write: the recorder stops deleting this one to make room. What it came to, with its sentence, and
@@ -244,15 +286,21 @@ extension RecorderDriver {
     /// after anything that was never sent -- turned away at a door, by the check, or across a let-go -- which
     /// changed nothing on the recorder, however the app stands with it; nor after silence across a let-go,
     /// which is not the recorder in play's.
+    ///
+    /// A recording of a USB disk that cannot be changed now (`whyNot(altering:usb:)`) is turned away first, with
+    /// that rule's sentence, in the result alone; and is asked again once the slot has been waited for
+    /// (`waitForTheDisk`).
     public func protect(_ title: RecordedTitle, _ on: Bool, keep: @MainActor () -> Void) async
         -> (altered: Altered, readAgain: Bool) {
         guard let link else { return (.notDone(Self.notConnected), false) }
+        if let why = Self.whyNot(altering: title, usb: link.session.usbDisk) { return (.notDone(why), false) }
         guard link.client is RecorderClient else { return (.notDone(whyNotConnected), false) }
         guard !link.session.unreachable else { return (.notDone(whyNotConnected), false) }
         guard canBeAsked(on: link) else { return (.notDone(whyNotConnected), false) }
         let began = link.generation
         let came = await asked(on ? Self.protectingLine : Self.unprotectingLine,
                                .aWrite(sending: Self.mayHaveArrived), on: link, since: began) { _, client in
+            let client = try await self.waitForTheDisk(of: title, handed: client, since: began)
             try await client.updateTitle(id: title.id, protected: on)
             if !link.letGo(since: began) { keep() }
         }
@@ -266,10 +314,11 @@ extension RecorderDriver {
     /// happened whatever that says, and silence on it is said on the line, where it stays. It is read only
     /// where a check would have nothing to ask; where it is not, the delete is done all the same.
     ///
-    /// A recording that cannot be deleted now (`whyNot(deleting:)`) -- still being recorded, or protected -- is
-    /// turned away before anything is sent, the result saying why and the line left as it was, and the
-    /// recordings are not to be read again for it. The screens do not offer it, but a row can be a few minutes
-    /// old.
+    /// A recording that cannot be deleted now (`whyNot(deleting:usb:)`) -- its disk gone from the slot, still being
+    /// recorded, or protected -- is turned away before anything is sent, the result saying why and the line left
+    /// as it was, and the recordings are not to be read again for it. The screens do not offer it, but a row can
+    /// be a few minutes old. A recording of a USB disk is asked about once the slot has been waited for
+    /// (`waitForTheDisk`).
     ///
     /// The recorder answers success for an id it no longer has, so the recording is asked about first, as a
     /// run's delete asks (`delete(_:in:)`), under the same line: something that acts on the recorder is to
@@ -288,13 +337,14 @@ extension RecorderDriver {
     public func delete(_ title: RecordedTitle, keep: @MainActor () -> Void) async
         -> (altered: Altered, readAgain: Bool) {
         guard let link else { return (.notDone(Self.notConnected), false) }
-        if let why = Self.whyNot(deleting: title) { return (.notDone(why), false) }
+        if let why = Self.whyNot(deleting: title, usb: link.session.usbDisk) { return (.notDone(why), false) }
         guard link.client is RecorderClient else { return (.notDone(whyNotConnected), false) }
         guard !link.session.unreachable else { return (.notDone(whyNotConnected), false) }
         guard canBeAsked(on: link) else { return (.notDone(whyNotConnected), false) }
         let began = link.generation
         return await link.underALine(Self.deletingTitleLine) { _ in
             let there = await self.asked(nil, .aWrite(sending: nil), on: link, since: began) { _, client in
+                let client = try await self.waitForTheDisk(of: title, handed: client, since: began)
                 do {
                     _ = try await client.titleDetail(id: title.id)
                     return true

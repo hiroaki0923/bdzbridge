@@ -113,13 +113,15 @@ struct TitleSheet: View {
                     Toggle("保護（自動削除の対象外にする）", isOn: Binding(
                         get: { current.protected },
                         set: { on in ask { await model.setProtected(current, on) } }))
-                    .disabled(!model.canAlterARecording || asking)
+                    // Not by an id about to go, nor one of a disk gone from the slot: the protect's door's rule,
+                    // which the sentence under the delete says as well.
+                    .disabled(model.whyNot(altering: current) != nil || !model.canAlterARecording || asking)
                     // Offered only where the delete's own door would let it through, and why not said from there.
-                    let whyNot = RecorderDriver.whyNot(deleting: current)
+                    let whyNot = model.whyNot(deleting: current)
                     Button("この録画を削除", role: .destructive) { confirmingDelete = true }
                         .disabled(whyNot != nil || !model.canAlterARecording || asking)
                     if let whyNot {
-                        Text(whyNot)
+                        Text(whyNot.asABody)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

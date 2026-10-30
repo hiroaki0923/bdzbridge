@@ -229,9 +229,11 @@ extension RecorderDriver {
     // MARK: - one recording of a run
 
     /// Deletes one recording of a run, and says what that came to. A recording that cannot be deleted now, by
-    /// the rule a single delete's door and the screens ask (`whyNot(deleting:)`) -- still being recorded, or
+    /// the rule a single delete's door and the screens ask (`whyNot(deleting:usb:)`) -- still being recorded, or
     /// protected -- is passed over with that rule's sentence and nothing asked: the screens offer neither to a
-    /// run, but a row can have changed since it was chosen.
+    /// run, but a row can have changed since it was chosen. That rule's first part, a USB disk gone from the slot,
+    /// is no reason to go on to the next recording: the run stops at the first of that disk's rows, with
+    /// nothing asked of it (`waitForTheDisk`).
     ///
     /// The recorder answers success for an id it no longer has. So the recording is asked about first: an id the
     /// recorder does not know comes back as UPnP error 820, which means it went away on its own and there is
@@ -253,9 +255,12 @@ extension RecorderDriver {
     /// to the question asked first stops the run as well, the delete not sent: nothing has been deleted yet, but
     /// the delete would only wait out the same silence; it is said as a read's.
     public func delete(_ title: RecordedTitle, in run: Run) async -> ItemCame {
-        if let why = Self.whyNot(deleting: title) { return .passedOver(why) }
+        if let why = Self.whyNot(deleting: title, usb: title.readFrom) { return .passedOver(why) }
 
-        switch await asked(in: run, .aWrite(sending: nil), { try await $0.titleDetail(id: title.id) }) {
+        let asking = await asked(in: run, .aWrite(sending: nil)) {
+            try await self.waitForTheDisk(of: title, handed: $0, since: run.began).titleDetail(id: title.id)
+        }
+        switch asking {
         case .went:
             break
         case .refused(.unknownItem, _):
@@ -275,19 +280,23 @@ extension RecorderDriver {
     }
 
     /// Why a recording is not sent to be protected, or to have its protection taken off (`on` false): it is
-    /// already the way it should be. Nil when it is not.
+    /// being recorded to a USB disk, its id going as it ends, or it is already the way it should be. Nil when
+    /// neither.
     public nonisolated static func whyNot(protecting title: RecordedTitle, _ on: Bool) -> String? {
+        if title.idChangesWhenItEnds { return recordingOnTheUSBDisk }
         guard title.protected == on else { return nil }
         return on ? "すでに保護されています" : "保護されていません"
     }
 
     /// Protects one recording of a run, or takes its protection off, and says what that came to. Nothing is
     /// sent when the recording is already the way it should be (`whyNot(protecting:_:)`). Silence stops the run,
-    /// as for `delete(_:in:)`, the line saying that the protect may have arrived.
+    /// as for `delete(_:in:)`, the line saying that the protect may have arrived, and so does a USB disk gone from
+    /// the slot (`waitForTheDisk`).
     public func protect(_ title: RecordedTitle, _ on: Bool, in run: Run) async -> ItemCame {
         if let why = Self.whyNot(protecting: title, on) { return .passedOver(why) }
         let came = await asked(in: run, .aWrite(sending: Self.mayHaveArrived)) {
-            try await $0.updateTitle(id: title.id, protected: on)
+            try await self.waitForTheDisk(of: title, handed: $0, since: run.began)
+                .updateTitle(id: title.id, protected: on)
         }
         switch came {
         case .went: return .done
@@ -298,9 +307,13 @@ extension RecorderDriver {
 
     /// The text the duplicate scan compares, and caches for good, so only what the recorder actually said counts
     /// as read: two failures kept as empty texts would agree with each other and come up as copies. Silence
-    /// stops the scan, as for `delete(_:in:)`, and is said as a read's.
+    /// stops the scan, as for `delete(_:in:)`, and is said as a read's; a USB disk gone from the slot stops it too
+    /// (`waitForTheDisk`), the text of another disk's recording being no text to keep under this id.
     public func text(of title: RecordedTitle, in run: Run) async -> TextCame {
-        switch await asked(in: run, .aWrite(sending: nil), { try await $0.titleDetail(id: title.id).summary }) {
+        let asking = await asked(in: run, .aWrite(sending: nil)) {
+            try await self.waitForTheDisk(of: title, handed: $0, since: run.began).titleDetail(id: title.id).summary
+        }
+        switch asking {
         case .went(let text): return .read(text)
         case .refused(.unknownItem, _): return .gone
         case .refused(_, let why): return .failed(why)

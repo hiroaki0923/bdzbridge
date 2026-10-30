@@ -59,6 +59,14 @@ extension AppModel {
         await recorderHost.detail(of: title)
     }
 
+    /// Why a recording cannot be changed now, for the screens to hold its buttons and say so: the driver's rule
+    /// (`RecorderDriver.whyNot(altering:usb:)`), with the USB disk known. Nil for a recording of the internal disk.
+    func whyNot(altering title: RecordedTitle) -> String? { RecorderDriver.whyNot(altering: title, usb: usbDisk) }
+
+    /// Why a recording cannot be deleted now, by the rule the delete's own door asks
+    /// (`RecorderDriver.whyNot(deleting:usb:)`).
+    func whyNot(deleting title: RecordedTitle) -> String? { RecorderDriver.whyNot(deleting: title, usb: usbDisk) }
+
     /// A write: the recorder stops deleting this one to make room (`RecorderHost.setProtected`).
     @discardableResult
     func setProtected(_ title: RecordedTitle, _ on: Bool) async -> Altered {
