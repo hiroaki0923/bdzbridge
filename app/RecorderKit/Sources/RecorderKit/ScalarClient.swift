@@ -71,9 +71,10 @@ public enum ScalarError: Error, Equatable, Sendable {
 
     /// What it means for the rules. Only the codes seen from the methods this app calls are told apart:
     /// 40005 (the television is off where the method needs it on), 41222 (the same programme reserved a second
-    /// time) and 41200 (a reservation id the television no longer has). Any other code is not taken for a refusal
-    /// of the request: an unknown answer holds nothing back for good. What a create's own codes say of a
-    /// reservation is read where one is sent (`ScalarClient.refusals`): a code means that in that method alone.
+    /// time), 41200 (a reservation id the television no longer has) and 41001 (a recording's uri it does not
+    /// list). Any other code is not taken for a refusal of the request: an unknown answer holds nothing back for
+    /// good. What a create's own codes say of a reservation is read where one is sent (`ScalarClient.refusals`): a
+    /// code means that in that method alone.
     public var failure: DeviceFailure {
         switch self {
         case .transport: .silent
@@ -82,7 +83,7 @@ public enum ScalarError: Error, Equatable, Sendable {
         case .http(503, _): .busy
         case .rpc(_, _, 40005, _): .needsPower
         case .rpc(_, _, 41222, _): .alreadyThere
-        case .rpc(_, _, 41200, _): .unknownItem
+        case .rpc(_, _, 41200, _), .rpc(_, _, 41001, _): .unknownItem
         case .http, .rpc, .unreadable, .notATelevision: .unexpected(explanation)
         }
     }
@@ -142,6 +143,10 @@ public struct TVStorage: Sendable, Equatable {
     public var mounted: Bool
     public var freeMB: Int?
     public var totalMB: Int?
+
+    /// The sizes in bytes, the unit the recorder's disks are shown in (`Format.storage`).
+    public var freeBytes: Int? { freeMB.map { $0 * 1_000_000 } }
+    public var totalBytes: Int? { totalMB.map { $0 * 1_000_000 } }
 }
 
 /// A value of a television's JSON as it came, for an answer whose fields no reader has been written for yet:
@@ -201,6 +206,21 @@ enum ScalarValue: Sendable, Hashable {
         case .object(let fields): fields.mapValues(\.json)
         case .null: NSNull()
         }
+    }
+
+    /// The value, where it was written as text.
+    var text: String? {
+        if case .string(let text) = self { text } else { nil }
+    }
+
+    /// The value, where it was written as a whole number.
+    var whole: Int? {
+        if case .int(let number) = self { number } else { nil }
+    }
+
+    /// The field of an object, nil for one it has not and for a value that is no object.
+    subscript(field: String) -> ScalarValue? {
+        if case .object(let fields) = self { fields[field] } else { nil }
     }
 
     /// The JSON type it was written as: `string`, `int`, `double`, `bool`, `list`, `object` or `null`.
@@ -599,6 +619,34 @@ public actor ScalarClient {
 
     /// Where a television keeps what it recorded: its USB disk, as a content list's source.
     static let recordingsSource = "usb:recStorage"
+    /// How many recordings a page of the list is asked for: what a television was read at.
+    static let recordingsToAPage = 50
+    /// The most pages one list is read for: five thousand recordings, more than a disk holds. A television whose
+    /// pages did not move on with `stIdx` would otherwise be asked for ever.
+    static let recordingPages = 100
+
+    /// What the television has recorded, in its own order, which is the order the rows came into its list and
+    /// not by date: `avContent.getContentList` 1.5 with `{uri, stIdx, cnt}`, the version that says the most, a
+    /// page at a time from nought. A short page ends it, and a list that ends on a whole page ends on the empty
+    /// page after it, which is no error. A row that cannot be read is left out and counted all the same
+    /// (`RecordedTitle.init(televisionRow:)`). Answered in standby with nothing lit.
+    ///
+    /// Any failure on any page throws, and nothing is handed back of the pages read before it: a list cut short
+    /// would say of every recording past that page that the television does not have it. So does a disk that is
+    /// not there, 41020. A list that has not ended after `recordingPages` throws as an answer that cannot be read.
+    func recordings() async throws -> [RecordedTitle] {
+        var titles: [RecordedTitle] = []
+        var index = 0
+        for _ in 0..<Self.recordingPages {
+            let rows = try await contentPage(version: "1.5", params: ["uri": .string(Self.recordingsSource),
+                                                                      "stIdx": .int(index),
+                                                                      "cnt": .int(Self.recordingsToAPage)])
+            titles += rows.compactMap(RecordedTitle.init(televisionRow:))
+            guard rows.count >= Self.recordingsToAPage else { return titles }
+            index += rows.count
+        }
+        throw ScalarError.unreadable(method: "getContentList")
+    }
 
     /// One page of a content list: `avContent.getContentList` in `version`, with `params` as its one parameter
     /// object, sent with the cookie as every request that needs the registration is. The rows as the television
