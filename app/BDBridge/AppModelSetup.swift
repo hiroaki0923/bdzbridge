@@ -62,9 +62,9 @@ extension AppModel {
 
     /// The invented recorder, made the first time the demo needs it and kept for as long as the demo lasts,
     /// because it holds what the reader has done to it: the link's requests and the demo's search both reach
-    /// this one.
+    /// this one. It has a USB disk, so that the screens of a home with one can be seen in the demo.
     func theDemoRecorder() -> DemoRecorder {
-        let recorder = demoRecorder ?? DemoRecorder(delay: DemoData.answerDelay)
+        let recorder = demoRecorder ?? DemoRecorder(delay: DemoData.answerDelay, usbDisk: true)
         demoRecorder = recorder
         return recorder
     }

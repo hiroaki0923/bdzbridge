@@ -503,7 +503,9 @@ actor NamedRecorder: HTTPTransport {
     /// Sony's OUI and the rest zeroed, as everywhere in this repository, with a last digit of its own.
     static func udn(_ last: Int) -> String { "uuid:00000000-0000-0000-0000-f84e1700000\(last)" }
 
-    private var recorder = DemoRecorder()
+    private var recorder: DemoRecorder
+    /// Whether it holds the demo's USB disk, which what it becomes holds as well (`become`).
+    private let usbDisk: Bool
     private var udn: String
     private var quiet = 0
     private var answersBeforeQuiet = 0
@@ -529,8 +531,11 @@ actor NamedRecorder: HTTPTransport {
     /// Whether its list of recordings gives one broadcast twice (`haveACopy`).
     private var hasACopy = false
 
-    init(_ last: Int) {
+    /// With `usbDisk` it answers the slot, and lists that disk's recordings, as the demo's recorder does with one.
+    init(_ last: Int, usbDisk: Bool = false) {
         udn = Self.udn(last)
+        self.usbDisk = usbDisk
+        recorder = DemoRecorder(usbDisk: usbDisk)
     }
 
     /// One that says it is a recorder and not which: its description carries no UDN.
@@ -540,11 +545,13 @@ actor NamedRecorder: HTTPTransport {
 
     private init(udn: String) {
         self.udn = udn
+        usbDisk = false
+        recorder = DemoRecorder()
     }
 
     func become(_ last: Int) {
         udn = Self.udn(last)
-        recorder = DemoRecorder()
+        recorder = DemoRecorder(usbDisk: usbDisk)
         // The list it was behind with was the other recorder's. What a test told it with `answer` stays, and so
         // does a copy on its disk (`haveACopy`), the second recorder numbering its recordings as the first did.
         (behind, lastList, staleList) = (false, nil, nil)

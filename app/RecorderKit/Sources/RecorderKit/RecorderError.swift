@@ -34,6 +34,9 @@ public enum RecorderError: Error, Equatable, Sendable {
             case "402": "レコーダーがこの要求を受け付けませんでした (402: \(action))"
             case "804": "この予約はレコーダーにありません (804: \(action))"
             case "820": "この録画はレコーダーにありません (820: \(action))"
+            // Seen on a BDZ-FBT4100 deleting a protected recording on a USB disk: the door's own sentence, for a row
+            // read before the recording was protected on the recorder's screen.
+            case "877" where action == "X_DeleteTitle": RecorderDriver.protectedCannotBeDeleted
             // Seen on a BDZ-FBT4100 creating a reservation that follows a programme on a pay channel the box
             // is not subscribed to; the same request without the programme's id is accepted. Recording it by
             // time would only capture a scrambled stream, so there is nothing to offer instead.

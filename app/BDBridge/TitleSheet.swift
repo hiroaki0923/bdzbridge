@@ -21,11 +21,11 @@ struct TitleSheet: View {
     @State private var asking = false
 
     /// The live copy, since protecting it changes the list underneath.
-    private var current: RecordedTitle { model.titles.first { $0.id == title.id } ?? title }
+    private var current: RecordedTitle { model.row(like: title) ?? title }
 
     /// Whether the list still has the recording: a bulk delete, or the list read again, can take it away under
     /// the sheet, which then closes as after its own delete. By the whole list, not by what a filter shows.
-    private var listed: Bool { model.titles.contains { $0.id == title.id } }
+    private var listed: Bool { model.row(like: title) != nil }
 
     /// Whether the sheet is to close for a recording gone from the list: once nothing of its own is out or up --
     /// a request, or an alert, the delete's question among them, whose closing closes it then.
@@ -63,6 +63,7 @@ struct TitleSheet: View {
                     if let quality = current.qualityName {
                         LabeledContent("録画モード", value: Codes.qualityLabel[quality] ?? quality)
                     }
+                    if let disk = model.diskShown(current) { LabeledContent("録画先", value: disk) }
                     LabeledContent("視聴状態", value: current.recording ? "録画中" : viewing)
                     if let genre = current.genre?.label {
                         LabeledContent("ジャンル", value: genre)
@@ -73,7 +74,9 @@ struct TitleSheet: View {
                     // Held off while the recorder works, and from the press until the sheet's own request is
                     // answered. 一時停止 is one toggle on the recorder, so a second tap while the first was still
                     // on its way resumed what the reader had meant to pause; and turning the recorder on to play
-                    // takes long enough to invite a second tap too.
+                    // takes long enough to invite a second tap too. 再生 alone is held where its own door would turn
+                    // it away, and says why below: 一時停止 and 停止 are about what is on the television.
+                    let whyNotPlayed = model.whyNot(playing: current)
                     Group {
                         Button {
                             ask { await model.play(current, "play") }
@@ -83,6 +86,7 @@ struct TitleSheet: View {
                             // button, rather than surprise a reader who expected to carry on where they left off.
                             Label(current.watchState == .partway ? "最初から再生" : "再生", systemImage: "play.fill")
                         }
+                        .disabled(whyNotPlayed != nil)
                         Button {
                             ask { await model.play(current, "pause") }
                         } label: {
@@ -103,7 +107,9 @@ struct TitleSheet: View {
                         }
                     }
                     .disabled(model.isBusy(for: .recorder) || asking)
-                    Text("レコーダーに接続されたテレビで再生されます。").font(.caption).foregroundStyle(.secondary)
+                    Text((whyNotPlayed ?? "レコーダーに接続されたテレビで再生されます。").asABody)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section {
@@ -113,13 +119,15 @@ struct TitleSheet: View {
                     Toggle("保護（自動削除の対象外にする）", isOn: Binding(
                         get: { current.protected },
                         set: { on in ask { await model.setProtected(current, on) } }))
-                    .disabled(!model.canAlterARecording || asking)
+                    // Not by an id about to go, nor one of a disk gone from the slot: the protect's door's rule,
+                    // which the sentence under the delete says as well.
+                    .disabled(model.whyNot(altering: current) != nil || !model.canAlterARecording || asking)
                     // Offered only where the delete's own door would let it through, and why not said from there.
-                    let whyNot = RecorderDriver.whyNot(deleting: current)
+                    let whyNot = model.whyNot(deleting: current)
                     Button("この録画を削除", role: .destructive) { confirmingDelete = true }
                         .disabled(whyNot != nil || !model.canAlterARecording || asking)
                     if let whyNot {
-                        Text(whyNot)
+                        Text(whyNot.asABody)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

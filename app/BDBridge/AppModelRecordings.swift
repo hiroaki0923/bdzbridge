@@ -24,9 +24,51 @@ extension AppModel {
     /// What pulling the recordings down asks for (`RecorderHost.refreshTitles`).
     func refreshTitles() async { await recorderHost.refreshTitles() }
 
+    /// Whether the list held has been left behind by the USB disk in the slot (`RecorderHost.usbListOutdated`), which
+    /// the screen goes by, and the read that puts that right.
+    var usbListOutdated: Bool { recorderHost.usbListOutdated }
+
+    /// Whether the screen has anything to put right after the USB disk: the list (`usbListOutdated`), or a filter on
+    /// a disk no longer offered.
+    var titlesOutOfStep: Bool { usbListOutdated || (titleDestination != nil && shownDestination == nil) }
+
+    /// Puts that right. A disk let go of takes the filter on it for good: come back, it is not to narrow the list by
+    /// itself. The read goes afresh: the flag goes up as a read hands its list over, with that read still out for
+    /// the free space, and folded into it this would come to nothing, the flag staying up and the screen not asking
+    /// again.
+    func loadOutdatedTitles() async {
+        if shownDestination == nil { titleDestination = nil }
+        if usbListOutdated { await recorderHost.loadTitles(force: true, afresh: true) }
+    }
+
+    /// The disk the recordings are narrowed to: the one picked, while it is offered. A disk that has left the slot
+    /// is let go of at once, since the menu that picked it goes with it and nothing else would get the reader out of
+    /// a list narrowed to nothing, and the pick after it (`loadOutdatedTitles`).
+    var shownDestination: String? {
+        titleDestination.flatMap { id in diskChoices.contains { $0.destination == id } ? id : nil }
+    }
+
+    /// The free space the title bar shows: the USB disk's when the list is narrowed to it, otherwise the internal
+    /// disk's, as it always was.
+    var shownFreeBytes: Int? {
+        shownDestination == RecorderDisk.usbID ? usbDisk?.freeBytes : storage?.free
+    }
+
+    /// The disk a recording's row names, or nil for none: the one rule (`RecorderDisk.shown`), so that a row of the
+    /// internal disk is drawn as it always was. By the disk the row was read from, which may no longer be the one in
+    /// the slot.
+    func diskShown(_ title: RecordedTitle) -> String? {
+        RecorderDisk.shown(title.destination, on: .recorder, usb: title.readFrom ?? usbDisk)
+    }
+
+    /// The recordings of the disk the list is narrowed to, or all of them.
+    var titlesOnTheShownDisk: [RecordedTitle] {
+        shownDestination.map { disk in titles.filter { $0.destination == disk } } ?? titles
+    }
+
     /// The recordings the screen is showing: filtered, then sorted.
     var shownTitles: [RecordedTitle] {
-        var shown = titles
+        var shown = titlesOnTheShownDisk
         if let titleGenre { shown = shown.filter { $0.genre?.level1 == titleGenre } }
         if let titleState { shown = shown.filter { $0.watchState == titleState } }
         switch titleSort {
@@ -39,13 +81,19 @@ extension AppModel {
 
     var titleGroups: [TitleGroup] { TitleGroup.group(shownTitles) }
 
-    /// How many recordings each genre holds, for the filter row.
+    /// How many recordings each genre holds, for the filter row, of the disk the list is narrowed to.
     var titleGenreCounts: [Int: Int] {
-        Dictionary(titles.compactMap { $0.genre?.level1 }.map { ($0, 1) }, uniquingKeysWith: +)
+        Dictionary(titlesOnTheShownDisk.compactMap { $0.genre?.level1 }.map { ($0, 1) }, uniquingKeysWith: +)
     }
 
     func members(of group: TitleGroup) -> [RecordedTitle] {
         shownTitles.filter { $0.seriesKey == group.key }
+    }
+
+    /// The row of the list that is `title`, or nil once it has left: by `RecordedTitle.listKey`, since a list read
+    /// again from another disk can hold another recording under the same number.
+    func row(like title: RecordedTitle) -> RecordedTitle? {
+        titles.first { $0.listKey == title.listKey }
     }
 
     func channelName(for title: RecordedTitle) -> String {
@@ -58,6 +106,18 @@ extension AppModel {
     func detail(of title: RecordedTitle) async -> (summary: String, details: [String])? {
         await recorderHost.detail(of: title)
     }
+
+    /// Why a recording cannot be changed now, for the screens to hold its buttons and say so: the driver's rule
+    /// (`RecorderDriver.whyNot(altering:usb:)`), with the USB disk known. Nil for a recording of the internal disk.
+    func whyNot(altering title: RecordedTitle) -> String? { RecorderDriver.whyNot(altering: title, usb: usbDisk) }
+
+    /// Why a recording cannot be deleted now, by the rule the delete's own door asks
+    /// (`RecorderDriver.whyNot(deleting:usb:)`).
+    func whyNot(deleting title: RecordedTitle) -> String? { RecorderDriver.whyNot(deleting: title, usb: usbDisk) }
+
+    /// Why a recording cannot be played now, by the rule the play's own door asks
+    /// (`RecorderDriver.whyNot(playing:usb:)`).
+    func whyNot(playing title: RecordedTitle) -> String? { RecorderDriver.whyNot(playing: title, usb: usbDisk) }
 
     /// A write: the recorder stops deleting this one to make room (`RecorderHost.setProtected`).
     @discardableResult

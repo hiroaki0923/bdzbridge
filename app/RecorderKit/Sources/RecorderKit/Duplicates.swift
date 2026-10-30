@@ -39,11 +39,13 @@ public struct DuplicateSet: Sendable, Identifiable {
 public enum Duplicates {
     /// Recordings that could be copies of one broadcast: the same title, then lengths within two minutes of
     /// each other. This costs nothing, which is why it comes first; confirming a set means asking the
-    /// recorder what each recording is about, one at a time.
+    /// recorder what each recording is about, one at a time. A recording in progress on a USB disk is none: what
+    /// the recorder says of it would be asked by an id about to go, and kept under it for good
+    /// (`RecordedTitle.idChangesWhenItEnds`). Once it has ended it is a recording like any other.
     public static func candidates(_ titles: [RecordedTitle]) -> [[RecordedTitle]] {
         var order: [String] = []
         var groups: [String: [RecordedTitle]] = [:]
-        for title in titles {
+        for title in titles where !title.idChangesWhenItEnds {
             let key = Series.sameTitleKey(title.title)
             if groups[key] == nil { order.append(key) }
             groups[key, default: []].append(title)
@@ -79,7 +81,7 @@ public enum Duplicates {
             var order: [String] = []
             var bySummary: [String: [RecordedTitle]] = [:]
             for title in members {
-                let key = Series.summaryKey(summaries[title.id] ?? "")
+                let key = Series.summaryKey(summaries[title.listKey] ?? "")
                 if bySummary[key] == nil { order.append(key) }
                 bySummary[key, default: []].append(title)
             }
@@ -96,11 +98,12 @@ public enum Duplicates {
     /// candidates were left out because theirs has not. This is the one for a screen that offers to delete:
     /// `sets` takes a missing text for an empty one, as the server its vectors come from does, and two
     /// recordings nobody has read would come up as copies. A text is missing when the scan was stopped before
-    /// it, the recorder could not give it, or it was recorded since; an empty text that was read is an answer.
+    /// it, the recorder could not give it, or it was recorded since; an empty text that was read is an answer. Texts
+    /// are held by `RecordedTitle.listKey`: one read of a disk says nothing of the same number on another.
     public static func readSets(_ titles: [RecordedTitle], summaries: [String: String],
                                 fixedBlurbs: Set<Blurb> = []) -> (sets: [DuplicateSet], unread: Int) {
         let candidates = candidates(titles)
-        let read = candidates.map { $0.filter { summaries[$0.id] != nil } }
+        let read = candidates.map { $0.filter { summaries[$0.listKey] != nil } }
         let unread = candidates.reduce(0) { $0 + $1.count } - read.reduce(0) { $0 + $1.count }
         return (sets(candidates: read, summaries: summaries, fixedBlurbs: fixedBlurbs), unread)
     }
@@ -182,10 +185,11 @@ public enum Duplicates {
     }
 
     /// Whether the recorder would delete it at all: it refuses a protected recording, and one it is still
-    /// writing to. The rule is the delete's own door's (`RecorderDriver.whyNot(deleting:)`), asked here and not
-    /// written again: which copy to keep and which to suggest deleting go by it too.
+    /// writing to. The rule is the delete's own door's (`RecorderDriver.whyNot(deleting:usb:)`), asked here and not
+    /// written again: which copy to keep and which to suggest deleting go by it too. Of the row as it was read: a
+    /// disk that has left the slot since stops the delete itself.
     public static func deletable(_ title: RecordedTitle) -> Bool {
-        RecorderDriver.whyNot(deleting: title) == nil
+        RecorderDriver.whyNot(deleting: title, usb: title.readFrom) == nil
     }
 
     /// Which copy to keep: one the recorder will not part with (protected, or still being recorded), then
