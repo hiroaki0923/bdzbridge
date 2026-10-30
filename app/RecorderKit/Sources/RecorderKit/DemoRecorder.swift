@@ -25,15 +25,26 @@ import Foundation
 /// answers and on vectors from real captures, so nothing of the app's or the driver's stands on this one's
 /// kindness: only the demo does, and the tests that hold this recorder itself, as it is.
 ///
+/// The demo gives it a USB disk (`usbDisk`), as invented as the rest, so that what a home with one is shown can
+/// be seen without one. The disk is described in the slot as a real one is, and its recordings are listed only
+/// for the slot's criteria, as a real recorder lists them. Made without it, as the tests make it, it answers
+/// the slot with nothing, which is a home with no USB disk.
+///
 /// It is an actor because the app's client sends from wherever it likes, and this holds state.
 public actor DemoRecorder: HTTPTransport {
     public static let host = "192.0.2.63"          // reserved for documentation (RFC 5737): never a real host
     public static let mac = "f8:4e:17:00:00:00"    // Sony's OUI, the rest zeroed, as everywhere else in this repo
     static let firmware = "1.234"
     public static let totalBytes = 2_000_000_000_000
+    /// The invented USB disk's name, its size in the recorder's MB and when it was registered.
+    static let usbName = "サンプルディスク"
+    static let usbTotalMB = 1_000_000
+    static let usbRegistered = "2026-01-02T03:04:05+0900"
 
+    private let usbDisk: Bool
     private var reservations = DemoRecorder.reservationItems
-    private var titles = DemoRecorder.titleItems
+    /// The recordings of both disks, each saying which it is on.
+    private var titles: [String]
     private var rules = DemoRecorder.ruleObjects
     private var nextID = 0xaf00
     /// How long each answer takes: the demo's pace, which the app gives it, nothing in a test unless it needs the
@@ -43,8 +54,10 @@ public actor DemoRecorder: HTTPTransport {
     /// It starts with its lists full -- the reservations, the recordings and the keyword conditions the demo
     /// shows -- since the demo and every test that makes one take it as it is; `DemoTV` starts with nothing it
     /// is not given, since its tests build their own.
-    public init(delay: Duration = .zero) {
+    public init(delay: Duration = .zero, usbDisk: Bool = false) {
         self.delay = delay
+        self.usbDisk = usbDisk
+        titles = DemoRecorder.titleItems + (usbDisk ? DemoRecorder.usbTitleItems : [])
     }
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -87,7 +100,10 @@ public actor DemoRecorder: HTTPTransport {
 
         // MARK: recordings
         case "X_GetTitleList":
-            return soap(result: DemoRecorder.wrap(titles), totalMatches: titles.count)
+            // No criteria is the internal disk's list, and the slot's is asked for by its id.
+            let onTheSlot = argument("SearchCriteria").contains(RecorderDisk.usbID)
+            let listed = titles.filter { DemoRecorder.isOnTheSlot($0) == onTheSlot }
+            return soap(result: DemoRecorder.wrap(listed), totalMatches: listed.count)
         case "X_DeleteTitle":
             let id = argument("TitleID")
             titles.removeAll { DemoRecorder.id(in: $0) == id }
@@ -127,6 +143,11 @@ public actor DemoRecorder: HTTPTransport {
             return soap(result: "<status><playStatus>stop</playStatus></status>")
         case "X_PowerControl":
             return soap(result: "<power><powerstatus>on</powerstatus></power>")
+        case "X_GetMediaInfo" where usbDisk && argument("recordDestinationID") == RecorderDisk.usbID:
+            return soap(result: DemoRecorder.wrap(["<name>\(DemoRecorder.usbName)</name><mount>1</mount>"
+                + "<remain>\(usbFreeMB)</remain><total>\(DemoRecorder.usbTotalMB)</total>"
+                + "<registeredTime>\(DemoRecorder.usbRegistered)</registeredTime>"
+                + "<recordableRemain>\(usbFreeMB)</recordableRemain>"]))
         case "X_HDLnkGetRecordDestinationInfo":
             let info = "<recordDestinationInfo totalCapacity=\"\(DemoRecorder.totalBytes)\" "
                 + "availableCapacity=\"\(free)\" />"
@@ -140,8 +161,14 @@ public actor DemoRecorder: HTTPTransport {
     /// The free space, which grows as recordings are deleted here, because a demo that deletes six hours of
     /// television and reports the same free space as before is telling a small lie.
     private var free: Int {
-        let used = titles.reduce(0) { $0 + DemoRecorder.sizeMB(in: $1) }
+        let used = titles.filter { !DemoRecorder.isOnTheSlot($0) }.reduce(0) { $0 + DemoRecorder.sizeMB(in: $1) }
         return max(0, DemoRecorder.totalBytes - used * 1_000_000 - DemoRecorder.otherUseBytes)
+    }
+
+    /// The same for the USB disk, in the recorder's MB, as the slot says it.
+    private var usbFreeMB: Int {
+        let used = titles.filter(DemoRecorder.isOnTheSlot).reduce(0) { $0 + DemoRecorder.sizeMB(in: $1) }
+        return max(0, DemoRecorder.usbTotalMB - used - DemoRecorder.usbOtherUseMB)
     }
 
     private func takeID() -> String {
@@ -311,10 +338,29 @@ extension DemoRecorder {
         return xml
     }
 
+    /// What is on the USB disk: older episodes of a programme the internal disk holds too, programmes of its own,
+    /// and a copy of one of the internal disk's. The ids as a BDZ-FBT4100 numbers the disk's recordings, which is
+    /// `0x0002` where the internal disk has `0x0000`.
+    private static var usbTitleItems: [String] {
+        let usb = RecorderDisk.usbID
+        return [
+            title(0x0002_0100_0000_8100, "サンプルアニメ　空色パズル（２）", DemoLineUp.moment("16:00", dayOffset: -30), 120,
+                  1048, quality: 240, genre: 112, size: 1_546, resume: 0, on: usb),
+            title(0x0002_0100_0000_8101, "サンプルアニメ　空色パズル（１）", DemoLineUp.moment("16:00", dayOffset: -37), 120,
+                  1048, quality: 240, genre: 112, size: 1_539, resume: 0, on: usb),
+            title(0x0002_0100_0000_8102, "BS名画サンプル", DemoLineUp.moment("10:00", dayOffset: -20), 180, 2048,
+                  broadcastingType: 3, quality: 100, genre: 96, size: 20_310, protected: true, resume: 0, on: usb),
+            title(0x0002_0100_0000_8103, "みほんドキュメント　森の記憶", DemoLineUp.moment("21:00", dayOffset: -23), 60, 1024,
+                  quality: 100, genre: 128, size: 11_500, isNew: true, on: usb),
+            title(0x0002_0100_0000_8104, "サンプル音楽館　夏の特集", DemoLineUp.moment("22:30", dayOffset: -12), 60, 1024,
+                  quality: 220, genre: 64, size: 2_650, resume: 1_800, on: usb),
+        ]
+    }
+
     private static func title(_ number: Int, _ name: String, _ start: Date, _ minutes: Int, _ service: Int,
                               broadcastingType: Int = 2, quality: Int, genre: Int, size: Int,
                               protected: Bool = false, isNew: Bool = false, resume: Int? = nil,
-                              recording: Bool = false) -> String {
+                              recording: Bool = false, on destination: String = RecorderDisk.internalID) -> String {
         let played: String
         if let resume {
             played = "<lastPlaybackTime resumePoint=\"\(resume)\">"
@@ -322,7 +368,7 @@ extension DemoRecorder {
         } else {
             played = "<lastPlaybackTime resumePoint=\"0\">notplayed</lastPlaybackTime>"
         }
-        return "<item id=\"" + String(format: "0x%016x", number) + "\">"
+        return "<item id=\"" + String(format: "0x%016llx", number) + "\">"
             + "<title>\(Soap.escape(name))</title>"
             + "<scheduledStartDateTime>\(RecorderTime.format(start))</scheduledStartDateTime>"
             + "<scheduledDuration>\(minutes * 60)</scheduledDuration>"
@@ -333,7 +379,7 @@ extension DemoRecorder {
             + "<titleProtectFlag>\(protected ? 1 : 0)</titleProtectFlag>"
             + "<titleNewFlag>\(isNew ? 1 : 0)</titleNewFlag>"
             + "<recordingFlag>\(recording ? 1 : 0)</recordingFlag>"
-            + "<recordDestinationID>HDD</recordDestinationID>"
+            + "<recordDestinationID>\(destination)</recordDestinationID>"
             + "<recordSize>\(size)</recordSize>" + played + "</item>"
     }
 
@@ -375,6 +421,11 @@ extension DemoRecorder {
     /// Roughly how much of the disk is taken by things this demo does not list, so that the free space moves
     /// with what is deleted but does not start at the whole disk.
     private static let otherUseBytes = 1_400_000_000_000
+    private static let usbOtherUseMB = 400_000
+
+    private static func isOnTheSlot(_ title: String) -> Bool {
+        title.contains("<recordDestinationID>\(RecorderDisk.usbID)</recordDestinationID>")
+    }
 
     /// The `id` attribute of the element a fragment starts with.
     private static func id(in xml: String) -> String {

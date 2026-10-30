@@ -340,6 +340,61 @@ final class DemoRecorderTests: XCTestCase {
         }
     }
 
+    // MARK: - its USB disk
+
+    /// With no USB disk, as tests make it, it answers the slot with nothing, which is no disk, and lists nothing
+    /// for the slot.
+    func testItHasNoUSBDiskUnlessToldTo() async throws {
+        let recorder = client()
+
+        let disk = try await recorder.disk(RecorderDisk.usbID)
+        XCTAssertNil(disk)
+        let rows = try await recorder.allTitles(on: RecorderDisk.usbID)
+        XCTAssertEqual(rows, [])
+    }
+
+    /// Told to, it has one, described in the slot as a real recorder describes one, with recordings of its own
+    /// that only the slot's criteria lists, as on a real recorder: the internal disk's list and free space are
+    /// the same as without it. A deleted recording gives its size back on its own disk, and a protect lands on
+    /// the recording it names.
+    func testItsUSBDisk() async throws {
+        let recorder = RecorderClient(host: "192.0.2.63", transport: DemoRecorder(usbDisk: true))
+
+        let read = try await recorder.disk(RecorderDisk.usbID)
+        var disk = try XCTUnwrap(read)
+        XCTAssertEqual(disk, RecorderDisk(destination: "USBHDD", name: "サンプルディスク", mounted: true, freeMB: 562_455,
+                                          totalMB: 1_000_000, registered: "2026-01-02T03:04:05+0900"))
+        XCTAssertTrue(disk.takesRecordings)
+
+        var rows = try await recorder.allTitles(on: RecorderDisk.usbID)
+        XCTAssertEqual(rows.map(line), [
+            "0x0002010000008100 サンプルアニメ　空色パズル（２） 1048/2 7200s q240 g112 1546MB USBHDD [] resume 0",
+            "0x0002010000008101 サンプルアニメ　空色パズル（１） 1048/2 7200s q240 g112 1539MB USBHDD [] resume 0",
+            "0x0002010000008102 BS名画サンプル 2048/3 10800s q100 g96 20310MB USBHDD [protected] resume 0",
+            "0x0002010000008103 みほんドキュメント　森の記憶 1024/2 3600s q100 g128 11500MB USBHDD [new] resume 0",
+            "0x0002010000008104 サンプル音楽館　夏の特集 1024/2 3600s q220 g64 2650MB USBHDD [] resume 1800",
+        ])
+        let own = try await recorder.allTitles()
+        let without = try await client().allTitles()
+        XCTAssertEqual(own.map(\.id), without.map(\.id), "the internal disk's list changed with a USB disk")
+        XCTAssertEqual(Set(own.map(\.destination)), ["HDD"])
+        let free = try await recorder.recordDestinationInfo().freeBytes
+        XCTAssertEqual(free, 490_433_000_000, "the internal disk's free space changed with a USB disk")
+
+        try await recorder.deleteTitle(id: "0x0002010000008103")
+        rows = try await recorder.allTitles(on: RecorderDisk.usbID)
+        XCTAssertEqual(rows.count, 4)
+        let again = try await recorder.disk(RecorderDisk.usbID)
+        disk = try XCTUnwrap(again)
+        XCTAssertEqual(disk.freeMB, 573_955, "the USB disk's free space did not follow a delete")
+        let after = try await recorder.recordDestinationInfo().freeBytes
+        XCTAssertEqual(after, free, "a delete on the USB disk moved the internal disk's free space")
+
+        try await recorder.updateTitle(id: "0x0002010000008100", protected: true)
+        rows = try await recorder.allTitles(on: RecorderDisk.usbID)
+        XCTAssertEqual(rows.first?.protected, true)
+    }
+
     // MARK: - its keyword conditions
 
     /// Two keyword conditions made, and one of them deleted by the id its create answered: that one goes, and
