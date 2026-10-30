@@ -68,9 +68,11 @@
   (`TVDriver.sendWhatWaits`): the host asks for it when the link says to, and keeps what it came to for the
   strip, which says it after what the recorder's sending came to (`AppModel.queueReport`). So are the recordings
   on the television's USB disk (`TVRecordings.swift`: the list with its disk, whether the two add up, the wait for
-  a list that may still be coming, protect, delete): the host keeps the rows, `AppModelRecordings` puts them with
-  the recorder's in one list (`allTitles`) and hands a write to the device that holds the row, and a bulk run is
-  one loop in `RecorderHostRuns.swift` that asks each row's driver (`RunDriver`). The screens read
+  a list that may still be coming, protect, delete, each write going only after the list just read shows the same
+  uri, start and title): the host keeps the rows, `AppModelRecordings` puts them with the recorder's in one list
+  (`allTitles`) and hands a write to the device that holds the row, and a bulk run is one loop in
+  `RecorderHostRuns.swift` that asks each row's driver (`RunDriver`), holds only the devices it has rows of, and
+  reads the television's list as it ends. The screens read
   either host through the model's own names: `problem(for:)`, `isBusy(for:)`, `staleSince(for:)`, and the
   recorder's lists, job and strip under the names they had when the model held them. The app's tests read the
   recorder's host through the same names, and the television's host also directly (`model.tvHost`).
