@@ -254,8 +254,10 @@ extension RecorderHost {
         let walkedTheTelevision = job?.onTV.isEmpty == false
         job?.finished = true
         jobTask = nil
+        // Beside the recorder's, so that neither waits for the other's silence.
+        let television = Task { await self.model?.tv?.connectIfOwed() }
         await link.connectIfOwed()
-        await model?.tv?.connectIfOwed()
+        await television.value
         if walkedTheTelevision { await model?.tvHost?.loadTitles() }
     }
 

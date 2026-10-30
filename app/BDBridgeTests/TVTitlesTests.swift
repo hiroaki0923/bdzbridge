@@ -491,6 +491,28 @@ final class TVTitlesTests: XCTestCase {
         await model.returnedToForeground()
     }
 
+    /// Two connects a job held off are made side by side as it ends: a recorder that does not answer holds nothing
+    /// of the television's.
+    func testTheConnectsAJobHeldOffAreMadeSideBySide() async throws {
+        let home = try await atHome()
+        let model = home.model
+        let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+        let attached = model.tv?.session.timesAttached
+        await home.door.hold(only: "deleteContent")
+        XCTAssertTrue(model.startBulk(.delete, ids: [title.id, try tvRow(model).id]))
+        try await until("the delete was never sent") { await home.door.isHolding }
+        await model.connect()
+        await model.tv?.connect()
+        await home.recorder.hold(only: "description.xml")
+
+        await home.door.letGo()
+        try await until("the television's connect waited for the recorder's", within: 5) {
+            model.tv?.session.timesAttached == attached.map { $0 + 1 }
+        }
+        await home.recorder.letGo()
+        try await untilIdle(model)
+    }
+
     /// While a job holds its rows a connect to the television is owed, and made as the job ends. One of the
     /// recorder's alone holds nothing of the television's.
     func testAJobOverItsRowsHoldsOffAConnectToTheTelevision() async throws {
