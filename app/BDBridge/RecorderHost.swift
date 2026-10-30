@@ -550,7 +550,7 @@ final class RecorderHost: RecorderLinkHost {
         guard client != nil, !unreachable, force || !self.said.titlesLoaded else { return }
         titleReads += 1
         defer { titleReads -= 1 }
-        _ = await recorderDriver?.titles { said.keep(titles: $0) }
+        _ = await recorderDriver?.titles { list, _ in said.keep(titles: list) }
     }
 
     /// What pulling the recordings down asks for: the list read again, or a connect when nothing can be written

@@ -10,18 +10,21 @@ extension RecorderDriver {
     /// The line on screen while the recordings are read.
     static let titlesLine = "録画一覧を取得中"
 
-    /// Reads every recording, in pages of 200, and then the free space, which is read again with the list. One
-    /// operation, as `DeviceLink.run` makes one: under a line of its own, the recorder made sure of first, the
-    /// list read on the client in hand at the door, which is the one the check is asked with. Whether the list
-    /// was read; when it was not, the host's line says why, as for any read. After a check that heard something
-    /// in place of the recorder saying which it is, nothing is read, as for the reservations: what it heard is
-    /// what the read fails as, and the next check asks again (`asked`).
+    /// Reads every recording, in pages of 200, the internal disk's and then those of a USB disk in the slot
+    /// (`usbTitles`), and then the free space, which is read again with the list. One operation, as `DeviceLink.run`
+    /// makes one: under a line of its own, the recorder made sure of first, the internal disk's list read on the
+    /// client in hand at the door, which is the one the check is asked with. Whether the list was read; when it
+    /// was not, the host's line says why, as for any read. After a check that heard something in place of the
+    /// recorder saying which it is, nothing is read, as for the reservations: what it heard is what the read fails
+    /// as, and the next check asks again (`asked`).
     ///
-    /// The list is handed to `keep` as it comes back, before the free space is asked, so that what the app holds
-    /// is the list from the moment it is read; the line of what went wrong is cleared then. The free space is a
-    /// step after it, under the same line, and is only shown: it cannot fail the list, a recorder that will not
-    /// say leaves it unknown (`storage(of:)`), and its silence is said as any read's (`learnTheFreeSpace`), on
-    /// the line the list cleared, where it stays. It is asked only where a check would have nothing to ask
+    /// One list is handed to `keep`, with the USB disk it holds the rows of, nil for none, before the free space
+    /// is asked, so that what the app holds is the list from the moment it is read; the line of what went wrong
+    /// is cleared as the internal disk's list comes back. The USB disk's list is a step after that, under the same
+    /// line: it cannot fail the internal disk's, and in a home with no USB disk nothing is asked for it. The free
+    /// space is a step after the list, and is only shown: it cannot fail the list, a recorder that will not say
+    /// leaves it unknown (`storage(of:)`), and its silence is said as any read's (`learnTheFreeSpace`), on the
+    /// line the list cleared, where it stays. It is asked only where a check would have nothing to ask
     /// (`learnTheFreeSpace`); where it is not, the list is read all the same.
     ///
     /// Nothing is asked when there is no recorder's client; whether to ask at all -- the recorder known to be
@@ -38,33 +41,76 @@ extension RecorderDriver {
     /// request is sent. One out for a recorder let go of, or on a client a connect has since put another in
     /// place of, is waited for before the list is read again, so that two clients do not ask the recorder at
     /// once: the newcomer's list, which its connect reads (`LinkHost.reached`), is read once that one is back.
-    public func titles(keep: @escaping @MainActor ([RecordedTitle]) -> Void) async -> Bool {
+    public func titles(keep: @escaping @MainActor ([RecordedTitle], RecorderDisk?) -> Void) async -> Bool {
         guard let link, let client = link.client as? RecorderClient else { return false }
         return await folded(\.titlesReading, on: link, client) { await self.readTitles(on: link, keep: keep) }
     }
 
     /// The read itself, and the free space after it.
-    private func readTitles(on link: DeviceLink, keep: @MainActor ([RecordedTitle]) -> Void) async -> Bool {
+    private func readTitles(on link: DeviceLink, keep: @MainActor ([RecordedTitle], RecorderDisk?) -> Void) async
+        -> Bool {
         let began = link.generation
         return await link.underALine(Self.titlesLine) { _ in
-            let came = await self.asked(nil, .aRead, on: link, since: began) { _, client -> RecorderClient? in
+            let came = await self.asked(nil, .aRead, on: link, since: began) { _, client
+                -> (list: [RecordedTitle], client: RecorderClient)? in
                 let list = try await client.allTitles()
-                guard !link.letGo(since: began) else { return nil }
-                keep(list)
-                return client
+                return link.letGo(since: began) ? nil : (list, client)
             }
-            guard case .went(let read) = came, let client = read else { return false }
+            guard case .went(let read) = came, let (list, client) = read else { return false }
+            let usb = await self.usbTitles(on: client, link, since: began)
+            guard !link.letGo(since: began) else { return false }
+            // Only beside the slot's own list: on its own, what the recorder gave is the list, as it always was.
+            keep(usb.disk == nil ? list : list.filter { $0.destination != RecorderDisk.usbID } + usb.titles, usb.disk)
             await self.learnTheFreeSpace(on: client, link, since: began)
             return true
         }
     }
 
+    /// The recordings of the USB disk in the slot, for the list, and the disk they were read from: a step of the
+    /// list, after the internal disk's. The empty criteria the internal disk's list is read with gives none of them
+    /// on a BDZ-FBT4100, and the slot's has to be asked for by its id.
+    ///
+    /// Nothing is asked in a home with no USB disk, nor of a disk that takes no recordings, nor where a check would
+    /// have something to ask (`checkWouldAskNothing`). The disk is the one known, once the slot has answered it
+    /// since the recorder last answered: right after a waking the slot answers none with the disk in it, so until
+    /// it has, it is waited for first, as before anything that names it is sent (`settleTheSlot`). A slot that
+    /// goes on answering none leaves the disk known and the read of it for later as they were, and no rows of
+    /// it in the list: the screens read the list again once the slot has answered (`usbListOutdated`).
+    ///
+    /// Whatever keeps the rows from being read leaves the internal disk's list as it is, with no disk read from.
+    /// A refusal, a recorder busy with somebody else, an answer that cannot be read: said nowhere, since the list
+    /// the reader asked for has come back. Silence is silence, and is said as any read's: the recorder lost, and
+    /// the line saying so.
+    private func usbTitles(on client: RecorderClient, _ link: DeviceLink, since began: Int) async
+        -> (titles: [RecordedTitle], disk: RecorderDisk?) {
+        guard link.session.usbDisk != nil, await checkWouldAskNothing(of: client, on: link) else { return ([], nil) }
+        _ = await settleTheSlot(for: RecorderDisk.usbID)
+        guard !link.letGo(since: began), !link.session.usbDiskUnanswered, let disk = link.session.usbDisk,
+              disk.takesRecordings, let client = link.client as? RecorderClient else { return ([], nil) }
+        do {
+            let rows = try await client.allTitles(on: RecorderDisk.usbID)
+            return (rows.map { row in
+                var row = row
+                row.readFrom = disk
+                return row
+            }, disk)
+        } catch let error as any DeviceError where error.failure == .silent {
+            _ = link.say(OperationFailure(error, sending: nil), since: began, ofARead: true)
+            return ([], nil)
+        } catch {
+            return ([], nil)
+        }
+    }
+
     /// The free space read again, after a delete or with the list of recordings, and kept in the session for
-    /// the screens: a step of that operation, after its own clear of the line. It is only shown, so a recorder
-    /// that will not say is not an error. Silence is still silence, and is said as any read's is, once
-    /// (`DeviceLink.say`, `takesSilenceOnARead`): the recorder lost, and the line saying that it did not answer,
-    /// where nothing clears it after. What comes back once the recorder has been let go of since `began` is about
-    /// that one: nothing is learned of it, and its silence is neither said nor taken.
+    /// the screens: the internal disk's, and the slot's while a USB disk is known, which is how the disk's own
+    /// figure follows them and how a disk swapped since the last attach is noticed. In a home with no USB disk the
+    /// slot is not asked. An answer of none is taken as an attach takes it (`learnTheSlot`). A step of that
+    /// operation, after its own clear of the line. It is only shown, so a recorder that will not say is not an
+    /// error. Silence is still silence, and is said as any read's is, once (`DeviceLink.say`,
+    /// `takesSilenceOnARead`): the recorder lost, and the line saying that it did not answer, where nothing clears
+    /// it after. What comes back once the recorder has been let go of since `began` is about that one: nothing is
+    /// learned of it, and its silence is neither said nor taken.
     ///
     /// The step makes no check of the recorder, and is not to go where one would have been needed. It asks only
     /// where a check made now would have nothing to ask (`checkWouldAskNothing`): not beside a check that is
@@ -82,6 +128,10 @@ extension RecorderDriver {
             let storage = try await Self.storage(of: client)
             guard !link.letGo(since: began) else { return }
             link.session.learned(storage: storage)
+            guard link.session.usbDisk != nil else { return }
+            let disk = try await Self.usbDisk(of: client)
+            guard !link.letGo(since: began) else { return }
+            await Self.learnTheSlot(disk, link, client: client)
         } catch {
             _ = link.say(OperationFailure(error, sending: nil), since: began, ofARead: true)
         }
@@ -508,29 +558,25 @@ extension RecorderDriver {
     }
 
     /// A read of a list that is out, for whoever asks for the same list meanwhile (`folded`): under which count of
-    /// recorders let go of (`DeviceLink.generation`) and on which client it went out, for which disk -- nil for
-    /// the one every read so far is of, so that a read of one disk is never taken for a read of another -- and
-    /// which read it is, by the count of those begun, which tells the one out from one begun after it.
+    /// recorders let go of (`DeviceLink.generation`) and on which client it went out, and which read it is, by the
+    /// count of those begun, which tells the one out from one begun after it.
     struct ReadOut<T: Sendable> {
         let generation: Int
         let client: ObjectIdentifier
-        let destination: String?
         let number: Int
         let value: Task<T, Never>
     }
 
     /// One read of a list at a time, kept at `out`, as the reservations' read is kept (`reading`): whoever asks
-    /// while one is out under the same count, on the same client and for the same disk, is handed what it came
-    /// to, and nothing is sent again. One that is out otherwise -- for a recorder let go of, or on a client a
+    /// while one is out under the same count and on the same client is handed what it came to, and nothing is
+    /// sent again. One that is out otherwise -- for a recorder let go of, or on a client a
     /// connect has since put another in place of -- is waited for first, whatever it comes to, its answer being
     /// another's: two clients do not ask the recorder at once, and the read asked now goes once the last is
     /// back. A read begun is let go of as it ends.
     func folded<T: Sendable>(_ out: ReferenceWritableKeyPath<RecorderDriver, ReadOut<T>?>, on link: DeviceLink,
-                   _ client: RecorderClient, destination: String? = nil,
-                   _ read: @escaping @MainActor () async -> T) async -> T {
+                   _ client: RecorderClient, _ read: @escaping @MainActor () async -> T) async -> T {
         while let reading = self[keyPath: out] {
-            if reading.generation == link.generation, reading.client == ObjectIdentifier(client),
-               reading.destination == destination {
+            if reading.generation == link.generation, reading.client == ObjectIdentifier(client) {
                 return await reading.value.value
             }
             _ = await reading.value.value
@@ -542,8 +588,8 @@ extension RecorderDriver {
             defer { if self[keyPath: out]?.number == number { self[keyPath: out] = nil } }
             return await read()
         }
-        self[keyPath: out] = ReadOut(generation: link.generation, client: ObjectIdentifier(client),
-                                      destination: destination, number: number, value: value)
+        self[keyPath: out] = ReadOut(generation: link.generation, client: ObjectIdentifier(client), number: number,
+                                     value: value)
         return await value.value
     }
 

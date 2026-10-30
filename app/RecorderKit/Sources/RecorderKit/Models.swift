@@ -139,6 +139,9 @@ public struct RecordedTitle: Equatable, Sendable, Identifiable {
     public var lastPlayed: Date?
     /// Where playback stopped, in seconds.
     public var resumeSec: Int?
+    /// The USB disk this row was read from, as the slot described it then; nil for a row of the internal disk's
+    /// list.
+    public var readFrom: RecorderDisk?
 
     public var end: Date { start.addingTimeInterval(TimeInterval(durationSec)) }
     public var broadcastingName: String? { Codes.broadcasting(code: broadcastingType) }

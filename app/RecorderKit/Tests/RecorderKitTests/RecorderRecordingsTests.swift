@@ -961,7 +961,7 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertTrue(up, "the recorder was meant to say which it is again")
         await recorder.forget()
         await recorder.holdTheNext("X_GetTitleList")
-        let reading = Task { await driver.titles { noted.list = $0.map(\.id) } }
+        let reading = Task { await driver.titles { list, _ in noted.list = list.map(\.id) } }
         try await recorder.whenHeld()
         await recorder.beBusyWhenAskedWhoItIs()
         behind = Task { await link.ensureUp(evenIfRecent: true) }

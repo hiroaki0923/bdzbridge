@@ -339,7 +339,7 @@ public final class RecorderDriver: LinkDriver {
     /// later (`readTheSlotAgain`), which lets it go if it answers no disk too. With no disk known, no disk is what
     /// there is, and nothing is left for later. Whatever was left for later by an earlier attach is over: this
     /// answer is newer.
-    private static func learnTheSlot(_ answered: RecorderDisk?, _ link: DeviceLink, client: RecorderClient) async {
+    static func learnTheSlot(_ answered: RecorderDisk?, _ link: DeviceLink, client: RecorderClient) async {
         link.endTheReadLeftForLater()
         let known = answered == nil ? await knownUSBDisk(link) : nil
         if let known {
