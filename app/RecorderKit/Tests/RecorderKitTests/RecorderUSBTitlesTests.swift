@@ -756,6 +756,16 @@ final class RecorderUSBTitlesTests: XCTestCase {
         XCTAssertEqual(came, .done)
     }
 
+    /// 877, what the recorder answers to the delete of a protected recording on a USB disk, is said as the door says
+    /// one it knows to be protected: a row can be older than a protect made on the recorder's own screen. Only of a
+    /// delete: nothing has been seen of the code otherwise.
+    func test877SaysTheRecordingIsProtected() {
+        let refused = RecorderError.soap(action: "X_DeleteTitle", status: 500, code: "877", body: "")
+        XCTAssertEqual(refused.explanation, RecorderDriver.protectedCannotBeDeleted)
+        let other = RecorderError.soap(action: "X_UpdateTitle", status: 500, code: "877", body: "")
+        XCTAssertEqual(other.explanation, "レコーダーがエラーを返しました (877: X_UpdateTitle, HTTP 500)")
+    }
+
     /// A row still being recorded on the USB disk is passed over by a run, in the sentence of its sheet, and the
     /// run goes on.
     func testARunPassesOverARecordingInProgressOnTheUSBDisk() async throws {

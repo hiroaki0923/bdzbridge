@@ -28,15 +28,22 @@ extension AppModel {
     /// the screen goes by, and the read that puts that right.
     var usbListOutdated: Bool { recorderHost.usbListOutdated }
 
-    /// Afresh: the flag goes up as a read hands its list over, with that read still out for the free space, and
-    /// folded into it this would come to nothing, the flag staying up and the screen not asking again.
+    /// Whether the screen has anything to put right after the USB disk: the list (`usbListOutdated`), or a filter on
+    /// a disk no longer offered.
+    var titlesOutOfStep: Bool { usbListOutdated || (titleDestination != nil && shownDestination == nil) }
+
+    /// Puts that right. A disk let go of takes the filter on it for good: come back, it is not to narrow the list by
+    /// itself. The read goes afresh: the flag goes up as a read hands its list over, with that read still out for
+    /// the free space, and folded into it this would come to nothing, the flag staying up and the screen not asking
+    /// again.
     func loadOutdatedTitles() async {
+        if shownDestination == nil { titleDestination = nil }
         if usbListOutdated { await recorderHost.loadTitles(force: true, afresh: true) }
     }
 
     /// The disk the recordings are narrowed to: the one picked, while it is offered. A disk that has left the slot
-    /// is let go of, since the menu that picked it goes with it and nothing else would get the reader out of a
-    /// list narrowed to nothing.
+    /// is let go of at once, since the menu that picked it goes with it and nothing else would get the reader out of
+    /// a list narrowed to nothing, and the pick after it (`loadOutdatedTitles`).
     var shownDestination: String? {
         titleDestination.flatMap { id in diskChoices.contains { $0.destination == id } ? id : nil }
     }
@@ -48,9 +55,10 @@ extension AppModel {
     }
 
     /// The disk a recording's row names, or nil for none: the one rule (`RecorderDisk.shown`), so that a row of the
-    /// internal disk is drawn as it always was.
+    /// internal disk is drawn as it always was. By the disk the row was read from, which may no longer be the one in
+    /// the slot.
     func diskShown(_ title: RecordedTitle) -> String? {
-        RecorderDisk.shown(title.destination, on: .recorder, usb: usbDisk)
+        RecorderDisk.shown(title.destination, on: .recorder, usb: title.readFrom ?? usbDisk)
     }
 
     /// The recordings of the disk the list is narrowed to, or all of them.

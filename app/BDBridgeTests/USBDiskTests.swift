@@ -401,9 +401,11 @@ final class USBDiskTests: XCTestCase {
 
     /// A disk chosen in the filter and gone from the slot leaves the filter, and the list, with everything: the
     /// reader is not left looking at nothing with no menu to get out by. The free space goes back to the
-    /// internal disk's with it.
+    /// internal disk's with it. The choice goes for good: a list narrowed to a disk by itself, when that disk comes
+    /// back, with only a filled-in icon to say so, reads as recordings gone missing.
     func testTheFilterLetsGoOfADiskThatHasGone() async throws {
         let (_, _, model) = try await connectedWithRecordings()
+        let disk = model.usbDisk
         model.titleDestination = "USBHDD"
         XCTAssertEqual(model.shownDestination, "USBHDD")
 
@@ -412,6 +414,43 @@ final class USBDiskTests: XCTestCase {
         XCTAssertNil(model.shownDestination)
         XCTAssertEqual(model.shownTitles.count, 27)
         XCTAssertEqual(model.shownFreeBytes, model.storage?.free)
+        XCTAssertTrue(model.titlesOutOfStep, "the screen was not asked to put the filter right")
+
+        await model.loadOutdatedTitles()
+        XCTAssertFalse(model.titlesOutOfStep)
+
+        model.session.slotAnswered(disk)
+        XCTAssertNil(model.shownDestination, "the filter came back with the disk")
+    }
+
+    /// A disk with no rows in the list goes too: no list out of date brings the screen here, and the filter is put
+    /// right all the same.
+    func testTheFilterLetsGoOfADiskWhoseListWasNeverRead() async throws {
+        let (_, _, model) = try await connected(answering: nil)
+        await model.loadTitles()
+        model.session.slotAnswered(Self.disk)
+        model.titleDestination = "USBHDD"
+        model.session.slotAnswered(nil)
+        XCTAssertFalse(model.usbListOutdated, "this was meant to be a list with nothing of the disk in it")
+
+        XCTAssertTrue(model.titlesOutOfStep)
+        await model.loadOutdatedTitles()
+
+        XCTAssertNil(model.titleDestination)
+    }
+
+    /// A row names the disk it was read from, not whichever disk is in the slot by now, for as long as it stands.
+    func testARowNamesItsOwnDisk() async throws {
+        let (_, _, model) = try await connectedWithRecordings()
+        let row = try aRow(model, on: "USBHDD")
+        let name = try XCTUnwrap(row.readFrom?.name)
+
+        model.session.slotAnswered(Self.disk)
+        XCTAssertNotEqual(Self.disk.name, name)
+        XCTAssertEqual(model.diskShown(row), name, "a row of the last disk took the name of the disk there now")
+
+        model.session.slotAnswered(nil)
+        XCTAssertEqual(model.diskShown(row), name)
     }
 
     /// The filter goes with the recorder's other filters when a recorder is let go of.
@@ -515,6 +554,12 @@ final class USBDiskTests: XCTestCase {
         XCTAssertEqual(model.duplicates.map(\.id), sets)
         XCTAssertEqual(model.duplicatePicks, [], "a set the reader had unticked came back ticked")
         XCTAssertTrue(model.usbListOutdated, "the list was taken for read")
+
+        // Held, they are the list's rows like any others: once the disk has gone they go with a read.
+        model.session.slotAnswered(nil)
+        XCTAssertTrue(model.usbListOutdated, "rows held of a disk that has gone stayed in the list")
+        await model.loadOutdatedTitles()
+        XCTAssertEqual(model.titles.count, 22)
     }
 
     /// Not of a disk that has gone: its rows leave with the read, though the next disk's could not be read.

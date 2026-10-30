@@ -115,7 +115,7 @@ struct RecordingsScreen: View {
             .task(id: model.connected && !model.offline) { await model.loadTitles() }
             // The disk in the slot has changed since the list was read, or could not be read into it: the
             // recordings of a disk that has gone leave the list, and an open sheet of one closes with its row.
-            .task(id: model.usbListOutdated) { await model.loadOutdatedTitles() }
+            .task(id: model.titlesOutOfStep) { await model.loadOutdatedTitles() }
             // Pulling down reads the list again from the recorder, though not while a bulk job is walking it.
             // With nothing that can be written to the recorder, it is the reader asking for another go, as the
             // strip's 再接続 is.

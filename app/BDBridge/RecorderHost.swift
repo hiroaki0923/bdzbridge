@@ -583,7 +583,10 @@ final class RecorderHost: RecorderLinkHost {
         guard said.titlesLoaded, !jobRunning, client != nil, !unreachable, !session.usbDiskUnanswered else {
             return false
         }
-        guard let read = said.titlesReadFrom else { return session.usbDisk?.takesRecordings == true }
+        guard let read = said.titlesReadFrom else {
+            // None read: a disk there is to be, and rows held of one that has gone since are to go.
+            return session.usbDisk?.takesRecordings == true || said.titles.contains { $0.readFrom != nil }
+        }
         return !read.isStill(session.usbDisk)
     }
 
