@@ -96,6 +96,7 @@ public enum ScalarError: Error, Equatable, Sendable {
             "テレビへの登録が必要です。設定の「テレビ」から登録してください"
         case .http(let status, let method): "テレビが HTTP \(status) を返しました (\(method))"
         case .rpc(_, _, 40005, _): "テレビの電源が入っていないため、操作できませんでした"
+        case .rpc(_, _, 41020, _): "録画用の USB HDD が見つかりません"
         case .rpc(let method, _, let code, _): "テレビがエラーを返しました (\(code): \(method))"
         case .unreadable(let method): "テレビの応答を読み取れませんでした (\(method))"
         case .notATelevision(let host): "\(host) はテレビとして応答しませんでした"

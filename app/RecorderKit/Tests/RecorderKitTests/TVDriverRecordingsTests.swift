@@ -120,6 +120,17 @@ final class TVDriverRecordingsTests: XCTestCase {
         expectEqual(Array(await bench.gate.asked.dropFirst(before)), ["getStorageList", Self.read])
     }
 
+    /// Rows short of the disk with no wait under way are said at once, and no wait begins: only an empty list may
+    /// be a start.
+    func testRowsShortOfTheDiskAreSaidAtOnce() async throws {
+        let rows = [Self.recording(1), Self.recording(2)]
+        let bench = await attached(rows, wait: TVTitlesWait(every: .seconds(60), for: 600))
+        await bench.television.leavesOutOfItsList([rows[1].uri])
+        let kept = Kept()
+        _ = await bench.driver.titles { kept.lists.append($0) }
+        XCTAssertEqual(kept.last?.account, .someAreMissing)
+    }
+
     /// A television that cannot be asked is sent nothing and nothing is said of it: the screens ask this as they
     /// appear, as for its reservations.
     func testATelevisionThatCannotBeAskedIsSentNothing() async throws {
@@ -240,8 +251,8 @@ final class TVDriverRecordingsTests: XCTestCase {
 
     // MARK: - the wait
 
-    /// The list after a restart: empty with the disk full. It is said to be still coming, read again until rows
-    /// come, each read handed over, and the wait ends there.
+    /// The list after a restart: empty with the disk full. It is said to be still coming and read again, rows
+    /// that come being shown as they come, some of them no end to it, until they add up.
     func testAListThatMayStillBeComingIsReadAgainUntilItComes() async throws {
         let rows = [Self.recording(1), Self.recording(2)]
         let bench = await attached(rows, wait: TVTitlesWait(every: .milliseconds(5), for: 30))
@@ -251,24 +262,31 @@ final class TVDriverRecordingsTests: XCTestCase {
         XCTAssertEqual(kept.last, TVTitles(rows: [], account: .mayStillBeComing))
 
         let television = bench.television
+        let gate = bench.gate
         let reads = await bench.gate.asked.filter { $0 == Self.read }.count
         await bench.gate.before(Self.read) {
-            guard await bench.gate.asked.filter({ $0 == Self.read }).count == reads + 3 else { return }
-            await television.leavesOutOfItsList([rows[1].uri])
+            let read = await gate.asked.filter({ $0 == Self.read }).count
+            if read == reads + 3 { await television.leavesOutOfItsList([rows[1].uri]) }
+            if read == reads + 5 { await television.leavesOutOfItsList([]) }
         }
         await bench.driver.waitForTitles { kept.lists.append($0) }
 
-        XCTAssertEqual(kept.last?.rows.map(\.id), [rows[0].uri], "rows that come are shown as they come")
-        XCTAssertEqual(kept.last?.account, .someAreMissing, "the rows that came are short of the disk")
-        expectEqual(await bench.gate.asked.filter { $0 == Self.read }.count, reads + 3)
+        XCTAssertEqual(kept.last?.rows.map(\.id), rows.map(\.uri))
+        XCTAssertEqual(kept.last?.account, .addsUp)
+        XCTAssertEqual(kept.lists.map(\.rows.count), [0, 0, 0, 1, 1, 2], "rows were not shown as they came")
+        XCTAssertEqual(kept.lists.map(\.account), Array(repeating: .mayStillBeComing, count: 5) + [.addsUp],
+                       "a list with some of its rows ended the wait")
+        expectEqual(await bench.gate.asked.filter { $0 == Self.read }.count, reads + 5)
         XCTAssertFalse(bench.world.begun.contains(TVDriver.titlesComingLine), "the wait is the host's to say")
     }
 
     /// The wait is bounded: a list that does not come within it is said to be short of what the disk holds, and
-    /// the wait does not begin again for as long as it stays so, a read after it included.
+    /// the wait does not begin again for as long as it stays so, a read after it included. So too a list some of
+    /// whose rows came.
     func testAListThatNeverComesIsSaidToBeShortOnceTheWaitIsOver() async throws {
-        let bench = await attached([Self.recording(1)])
-        await bench.television.leavesOutOfItsList([Self.recording(1).uri])
+        let rows = [Self.recording(1), Self.recording(2)]
+        let bench = await attached([rows[0]])
+        await bench.television.leavesOutOfItsList([rows[0].uri])
         let kept = Kept()
         _ = await bench.driver.titles { kept.lists.append($0) }
         XCTAssertEqual(kept.last?.account, .mayStillBeComing)
@@ -278,6 +296,14 @@ final class TVDriverRecordingsTests: XCTestCase {
 
         _ = await bench.driver.titles { kept.lists.append($0) }
         XCTAssertEqual(kept.last, TVTitles(rows: [], account: .someAreMissing), "the wait began again")
+
+        let some = await attached(rows)
+        await some.television.leavesOutOfItsList(Set(rows.map(\.uri)))
+        _ = await some.driver.titles { kept.lists.append($0) }
+        await some.television.leavesOutOfItsList([rows[1].uri])
+        await some.driver.waitForTitles { kept.lists.append($0) }
+        XCTAssertEqual(kept.last?.rows.map(\.id), [rows[0].uri])
+        XCTAssertEqual(kept.last?.account, .someAreMissing)
     }
 
     /// The wait is counted from when the list was first read empty, so a screen left and come back to goes on
@@ -484,6 +510,23 @@ final class TVDriverRecordingsTests: XCTestCase {
         let stale = await bench.driver.protect(title, true) { XCTFail("kept") }
         XCTAssertEqual(stale.altered, .notDone(ScalarError.http(status: 403, method: "setDeleteProtection").explanation))
         XCTAssertTrue(bench.driver.facts.needsPairing)
+    }
+
+    /// A disk gone since the list was read is said so, and the list is to be read again, which empties it; a run
+    /// stops at the first of its rows, the others being on that disk.
+    func testAWriteToADiskThatHasGoneSaysSo() async throws {
+        let rows = [Self.recording(1), Self.recording(2)]
+        let bench = await attached(rows)
+        let title = try await row(of: rows[0], on: bench)
+        guard case .success(let run) = bench.driver.beginRun(.delete) else { return XCTFail("did not begin") }
+        await bench.television.unmount()
+
+        let came = await bench.driver.delete(title) { XCTFail("kept") }
+
+        XCTAssertEqual(came.altered, .notDone("録画用の USB HDD が見つかりません"))
+        XCTAssertTrue(came.readAgain)
+        XCTAssertEqual(bench.world.problem, "録画用の USB HDD が見つかりません")
+        expectEqual(await bench.driver.delete(title, in: run), .stopped(.said("録画用の USB HDD が見つかりません")))
     }
 
     /// A check that heard something else than the television saying which it is has nothing sent, and what it
