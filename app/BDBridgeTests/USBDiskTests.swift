@@ -323,6 +323,7 @@ final class USBDiskTests: XCTestCase {
     private func connectedWithRecordings() async throws -> (bench: Bench, recorder: NamedRecorder, model: AppModel) {
         let bench = try aBench()
         try await bench.cacheAGuide()
+        bench.slotSettling = SlotSettling(every: .milliseconds(5), for: .milliseconds(25))
         let recorder = NamedRecorder(1, usbDisk: true)
         let model = bench.model(recorders: [Bench.host: recorder])
         await model.start()
@@ -506,26 +507,47 @@ final class USBDiskTests: XCTestCase {
     }
 
     /// A bulk job over both disks stops at the first recording of a disk that has left the slot, with why, and
-    /// what it did before stands.
+    /// what it did before stands. Nothing tells the app the disk has gone but the slot, read for that recording:
+    /// another disk, or none, where a recording's details would answer as one deleted and the row would leave
+    /// the list as 「すでに削除されています」 though it is intact on the disk unplugged.
     func testABulkJobStopsAtARecordingOfADiskThatHasGone() async throws {
+        for answer in [Self.anotherDisk, Self.wakingSlot] {
+            let (_, recorder, model) = try await connectedWithRecordings()
+            let own = try aRow(model, on: "HDD")
+            let usb = try aRow(model, on: "USBHDD")
+            await recorder.hold(only: "X_DeleteTitle")
+            let before = await recorder.asked
+
+            XCTAssertTrue(model.startBulk(.delete, ids: [own.id, usb.id]))
+            try await until("the first recording's delete never came") {
+                await recorder.asked("X_DeleteTitle", since: before) == 1
+            }
+            await recorder.answer("X_GetMediaInfo", with: .result(answer), times: 1000)
+            await recorder.answer("X_GetTitleDetail", with: .fault(820), times: 1000)
+            await recorder.letGo()
+            try await until("the job never ended") { model.job?.finished == true }
+
+            XCTAssertEqual(model.job?.changed, [own.id])
+            XCTAssertEqual(model.job?.skipped, [], "a recording of a disk gone was reported as gone from the recorder")
+            XCTAssertEqual(model.job?.stopped, .said(RecorderDriver.diskChanged))
+            expectEqual(await recorder.asked("X_DeleteTitle", since: before), 1)
+            XCTAssertTrue(model.titles.contains { $0.id == usb.id })
+        }
+    }
+
+    /// A single write with no connect finds a disk swapped from the slot, as a run does, and sends nothing.
+    func testASingleWriteFindsADiskSwappedWithNoConnect() async throws {
         let (_, recorder, model) = try await connectedWithRecordings()
-        let own = try aRow(model, on: "HDD")
-        let usb = try aRow(model, on: "USBHDD")
-        await recorder.hold(only: "X_DeleteTitle")
+        let row = try aRow(model, on: "USBHDD")
+        await recorder.answer("X_GetMediaInfo", with: .result(Self.anotherDisk), times: 1000)
         let before = await recorder.asked
 
-        XCTAssertTrue(model.startBulk(.delete, ids: [own.id, usb.id]))
-        try await until("the first recording's delete never came") {
-            await recorder.asked("X_DeleteTitle", since: before) == 1
-        }
-        model.session.slotAnswered(nil)
-        await recorder.letGo()
-        try await until("the job never ended") { model.job?.finished == true }
+        let protected = await model.setProtected(row, true)
 
-        XCTAssertEqual(model.job?.changed, [own.id])
-        XCTAssertEqual(model.job?.stopped, .said(RecorderDriver.diskChanged))
-        expectEqual(await recorder.asked("X_DeleteTitle", since: before), 1)
-        XCTAssertTrue(model.titles.contains { $0.id == usb.id })
+        XCTAssertEqual(protected, .notDone(RecorderDriver.diskChanged))
+        expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 1)
+        expectEqual(await recorder.asked("X_UpdateTitle", since: before), 0)
+        XCTAssertTrue(model.usbListOutdated, "the list did not go out of date with what the slot answered")
     }
 
     /// A bulk protect and a scan for duplicates walk both disks alike.

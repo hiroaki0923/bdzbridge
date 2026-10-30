@@ -235,21 +235,31 @@ extension RecorderDriver {
     }
 
     /// The moment before something is written to a recording of a USB disk, once the recorder has been made sure of
-    /// (`asked`), `client` being what that check was asked with. While the slot has not answered the disk known
-    /// since the recorder last answered, it is waited for first, as before anything that names it is sent
-    /// (`settleTheSlot`), and the door's rule is asked again of what it answered. Why not goes back as
-    /// `TurnedAway`, so that a single write says it in its result and a run stops there: no disk answered, or
-    /// another, is that the disk has changed; a recorder let go of, silence, which the link has said, or the wait
-    /// given up on are what they are for anything else. The client to send on is handed back: a connect to the same
-    /// recorder made during the wait has one of its own. A row of the internal disk goes as it always has.
+    /// (`asked`), `client` being what that check was asked with. The disk the session remembers is only as old as
+    /// the last read, and nothing tells the app of a disk swapped or unplugged: not a check, which asks who answers,
+    /// and not the connect a return would make, which a run holds off. So the slot is read here, one request for
+    /// each recording, and waited for as before anything that names it is sent (`settleTheSlot`), the disk known
+    /// standing as one not yet answered (`SessionState.answeredWithAUSBDiskKnown`); and the door's rule is asked
+    /// again of what it answered, which is kept. With no disk known there is nothing to read it for.
+    ///
+    /// Why not goes back as `TurnedAway`, so that a single write says it in its result and a run stops there: another
+    /// disk answered, or none, is that the disk has changed. That comes before anything is asked of the recording,
+    /// since a recording on a disk unplugged answers as one deleted (820), and the row would leave the list for it.
+    /// None does not let the disk known go, as at an attach: the slot is read once more later (`learnTheSlot`), and
+    /// nothing else would end the wait begun here. A recorder let go of, silence, which the link has said, or the
+    /// wait given up on are what they are for anything else. The client to send on is handed back: a connect to the
+    /// same recorder made during the wait has one of its own. A row of the internal disk goes as it always has.
     func waitForTheDisk(of title: RecordedTitle, handed client: RecorderClient, since began: Int) async throws
         -> RecorderClient {
         guard title.readFrom != nil, let link else { return client }
+        if link.session.usbDisk != nil { link.session.answeredWithAUSBDiskKnown() }
         let settled = await settleTheSlot(for: RecorderDisk.usbID)
         guard !link.letGo(since: began) else { throw TurnedAway(why: whyLetGo(on: link)) }
         switch settled {
         case nil, .answered?: break
-        case .noDisk?: throw TurnedAway(why: Self.diskChanged)
+        case .noDisk?:
+            await Self.learnTheSlot(nil, link, client: link.client as? RecorderClient ?? client)
+            throw TurnedAway(why: Self.diskChanged)
         case .silent?: throw TurnedAway(why: link.owner?.problem ?? whyNotConnected)
         case .cancelled?: throw TurnedAway(why: Self.slotWaitGivenUp)
         }

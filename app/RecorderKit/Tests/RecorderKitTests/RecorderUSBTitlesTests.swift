@@ -10,6 +10,8 @@ final class RecorderUSBTitlesTests: XCTestCase {
     private static let disk = RecorderDiskTests.disk()
     private static let another = RecorderDiskTests.disk(registered: "2026-02-03T04:05:06+0900")
     private static let slot = Stub.soap("X_GetMediaInfo", result: RecorderDiskTests.slot())
+    private static let anotherSlot = Stub.soap("X_GetMediaInfo",
+                                               result: RecorderDiskTests.slot(registered: "2026-02-03T04:05:06+0900"))
     private nonisolated static let finished = "0x0002010000034f5d"
     private nonisolated static let inProgress = "0x0002010000034f5e"
 
@@ -43,6 +45,7 @@ final class RecorderUSBTitlesTests: XCTestCase {
         private var slotAhead: [Reply] = []
         private let own: HTTPResponse
         private var usb: Reply
+        private var details = Stub.soap("X_GetTitleDetail", result: "<detail><summary>サンプルの番組内容です</summary></detail>")
         private let description: String
         private(set) var asked: [String] = []
         private var holdsTheUSBList = false
@@ -58,6 +61,7 @@ final class RecorderUSBTitlesTests: XCTestCase {
 
         func answer(slot: Reply) { self.slot = slot }
         func answer(usb: Reply) { self.usb = usb }
+        func answer(details: HTTPResponse) { self.details = details }
         func answerNext(slot: [Reply]) { slotAhead = slot }
         func forget() { asked = [] }
         func holdTheUSBList() { holdsTheUSBList = true }
@@ -94,9 +98,15 @@ final class RecorderUSBTitlesTests: XCTestCase {
                 return Stub.soap(action, extra: "<RecordDestinationInfo>"
                     + Soap.escape("<info totalCapacity=\"100\" availableCapacity=\"30\" />")
                     + "</RecordDestinationInfo>")
-            case "X_UpdateTitle", "X_DeleteTitle", "X_GetTitleDetail":
+            case "X_UpdateTitle":
                 asked.append(action)
-                return Stub.soap(action, result: "<detail><summary>サンプルの番組内容です</summary></detail>")
+                return Stub.soap(action)
+            case "X_GetTitleDetail":
+                asked.append(action)
+                return details
+            case "X_DeleteTitle":
+                asked.append(action)
+                return Stub.soap(action)
             default:
                 return HTTPResponse(statusCode: 500)
             }
@@ -324,8 +334,8 @@ final class RecorderUSBTitlesTests: XCTestCase {
 
         _ = await driver.delete(usb) {}
 
-        expectEqual(await recorder.asked, ["X_GetTitleDetail", "X_DeleteTitle", "X_HDLnkGetRecordDestinationInfo",
-                                           "X_GetMediaInfo"])
+        expectEqual(await recorder.asked, ["X_GetMediaInfo", "X_GetTitleDetail", "X_DeleteTitle",
+                                           "X_HDLnkGetRecordDestinationInfo", "X_GetMediaInfo"])
         XCTAssertEqual(link.session.usbDisk?.freeMB, 100_000)
 
         await recorder.forget()
@@ -391,17 +401,58 @@ final class RecorderUSBTitlesTests: XCTestCase {
         XCTAssertEqual(RecorderDriver.whyNot(deleting: row, usb: Self.disk), RecorderDriver.stillRecording)
     }
 
-    /// A protect and a delete of a row of the USB disk go while its disk is in the slot.
+    /// A protect and a delete of a row of the USB disk go while its disk is in the slot, the slot being read
+    /// once before each: what the session remembers of it is only as old as the last read.
     func testAProtectAndADeleteGoWhileTheDiskIsInTheSlot() async throws {
         let recorder = try TwoDisks(slot: .answer(Self.slot))
-        let (driver, _, _, _, usb, _) = try await rows(of: recorder)
+        let (driver, link, _, _, usb, _) = try await rows(of: recorder)
 
         let protected = await driver.protect(usb, true) {}
         let deleted = await driver.delete(usb) {}
 
         XCTAssertEqual(protected.altered, .done(saying: nil))
         XCTAssertEqual(deleted.altered, .done(saying: nil))
-        expectEqual(await recorder.asked.prefix(3), ["X_UpdateTitle", "X_GetTitleDetail", "X_DeleteTitle"])
+        expectEqual(await recorder.asked.prefix(4), ["X_GetMediaInfo", "X_UpdateTitle", "X_GetMediaInfo",
+                                                     "X_GetTitleDetail"])
+        XCTAssertFalse(link.session.usbDiskUnanswered, "the slot's answer left the disk waited for")
+    }
+
+    /// The disk swapped in the slot with nothing having told the session: no attach, no read left for later. A
+    /// protect and a delete find that out from the slot, keep what it answered and send nothing.
+    func testAWriteFindsADiskSwappedWithNothingTelling() async throws {
+        let recorder = try TwoDisks(slot: .answer(Self.slot))
+        let (driver, link, _, _, usb, _) = try await rows(of: recorder)
+        await recorder.answer(slot: .answer(Self.anotherSlot))
+
+        let protected = await driver.protect(usb, true) {}
+
+        XCTAssertEqual(protected.altered, .notDone(RecorderDriver.diskChanged))
+        XCTAssertEqual(link.session.usbDisk, Self.another, "what the slot answered was not kept")
+        expectEqual(await recorder.asked, ["X_GetMediaInfo"])
+
+        let again = try TwoDisks(slot: .answer(Self.slot))
+        let (second, secondLink, _, _, row, _) = try await rows(of: again)
+        await again.answer(slot: .answer(Self.anotherSlot))
+
+        let deleted = await second.delete(row) {}
+
+        XCTAssertEqual(deleted.altered, .notDone(RecorderDriver.diskChanged))
+        XCTAssertEqual(secondLink.session.usbDisk, Self.another)
+        expectEqual(await again.asked, ["X_GetMediaInfo"])
+    }
+
+    /// A row of the internal disk asks the slot nothing, whatever it is written, and a home with no USB disk has
+    /// nothing added.
+    func testARowOfTheInternalDiskAsksTheSlotNothing() async throws {
+        let recorder = try TwoDisks(slot: .answer(Self.slot))
+        let (driver, _, _, own, _, _) = try await rows(of: recorder)
+
+        _ = await driver.protect(own, true) {}
+        let run = try driver.beginRun(.protecting(true)).get()
+        _ = await driver.protect(own, true, in: run)
+        _ = await driver.text(of: own, in: run)
+
+        expectEqual(await recorder.asked, ["X_UpdateTitle", "X_UpdateTitle", "X_GetTitleDetail"])
     }
 
     /// A protect and a delete of a row whose disk has left the slot send nothing, and say so in the result alone.
@@ -497,28 +548,88 @@ final class RecorderUSBTitlesTests: XCTestCase {
 
     // MARK: - a run
 
+    /// What one recording of a run came to, as what stopped the run there; nil when the run went on.
+    private func stop(at title: RecordedTitle, in run: Run, _ kind: RunKind,
+                      through driver: RecorderDriver) async -> RunStop? {
+        switch kind {
+        case .delete:
+            if case .stopped(let why) = await driver.delete(title, in: run) { return why }
+        case .protecting:
+            if case .stopped(let why) = await driver.protect(title, true, in: run) { return why }
+        case .scanning:
+            if case .stopped(let why) = await driver.text(of: title, in: run) { return why }
+        }
+        return nil
+    }
+
     /// A run stops at a row whose disk has left the slot, with why and nothing sent for it: the rows after it are
-    /// of the same disk, and the list they came from is out of date. What it did before stands.
+    /// of the same disk, and the list they came from is out of date. The session has not been told: the slot is
+    /// read for that row, as the swap may have come at any moment of a run the app was away for.
     func testARunStopsAtARowOfAnotherDisk() async throws {
         for kind: RunKind in [.delete, .protecting(true), .scanning] {
             let recorder = try TwoDisks(slot: .answer(Self.slot))
             let (driver, link, _, _, usb, _) = try await rows(of: recorder)
             let run = try driver.beginRun(kind).get()
-            link.session.slotAnswered(Self.another)
+            await recorder.answer(slot: .answer(Self.anotherSlot))
 
-            let stop: RunStop?
-            switch kind {
-            case .delete:
-                if case .stopped(let why) = await driver.delete(usb, in: run) { stop = why } else { stop = nil }
-            case .protecting:
-                if case .stopped(let why) = await driver.protect(usb, true, in: run) { stop = why } else { stop = nil }
-            case .scanning:
-                if case .stopped(let why) = await driver.text(of: usb, in: run) { stop = why } else { stop = nil }
-            }
+            let stopped = await stop(at: usb, in: run, kind, through: driver)
 
-            XCTAssertEqual(stop, .said(RecorderDriver.diskChanged), "\(kind)")
-            expectEqual(await recorder.asked, [], "\(kind)")
+            XCTAssertEqual(stopped, .said(RecorderDriver.diskChanged), "\(kind)")
+            expectEqual(await recorder.asked, ["X_GetMediaInfo"], "\(kind)")
+            XCTAssertEqual(link.session.usbDisk, Self.another, "\(kind)")
         }
+    }
+
+    /// The disk unplugged under a run, the session not told: the slot answers none, and a recording's details,
+    /// asked all the same, would answer 820, which reads as a recording deleted on the recorder. The run stops
+    /// there with the row left alone, and the slot is left to be read again, so that the disk does not stay waited
+    /// for with nothing to end the wait.
+    func testAnUnpluggedDiskStopsARunRatherThanGivingItsRowsUp() async throws {
+        for kind: RunKind in [.delete, .protecting(true), .scanning] {
+            let recorder = try TwoDisks(slot: .answer(Self.slot))
+            let (driver, link, _, _, usb, _) = try await rows(of: recorder)
+            let run = try driver.beginRun(kind).get()
+            await recorder.answer(slot: .answer(RecorderDiskTests.wakingAnswer))
+            await recorder.answer(details: Stub.fault("820"))
+
+            let stopped = await stop(at: usb, in: run, kind, through: driver)
+
+            XCTAssertEqual(stopped, .said(RecorderDriver.diskChanged), "\(kind)")
+            expectFalse(await recorder.asked.contains("X_GetTitleDetail"), "\(kind)")
+            expectFalse(await recorder.asked.contains("X_UpdateTitle"), "\(kind)")
+            XCTAssertEqual(link.session.usbDisk, Self.disk, "one wait's none let the disk known go")
+            XCTAssertNotNil(link.readLeftForLater, "nothing is left to end the wait: \(kind)")
+        }
+    }
+
+    /// The single write's half of the same: nothing sent, the row left, the slot left to be read again.
+    func testAnUnpluggedDiskStopsASingleWrite() async throws {
+        let recorder = try TwoDisks(slot: .answer(Self.slot))
+        let (driver, link, _, _, usb, _) = try await rows(of: recorder)
+        await recorder.answer(slot: .answer(RecorderDiskTests.wakingAnswer))
+        await recorder.answer(details: Stub.fault("820"))
+        var kept = 0
+
+        let deleted = await driver.delete(usb) { kept += 1 }
+
+        XCTAssertEqual(deleted.altered, .notDone(RecorderDriver.diskChanged))
+        XCTAssertEqual(kept, 0, "a row taken out of the list for a disk that was only unplugged")
+        expectFalse(await recorder.asked.contains("X_GetTitleDetail"))
+        XCTAssertNotNil(link.readLeftForLater)
+    }
+
+    /// With the disk let go of already there is nothing to read the slot for: the row stops the run at once.
+    func testARunStopsAtOnceWithNoDiskKnown() async throws {
+        let recorder = try TwoDisks(slot: .answer(Self.slot))
+        let (driver, link, _, _, usb, _) = try await rows(of: recorder)
+        let run = try driver.beginRun(.delete).get()
+        link.session.slotAnswered(nil)
+
+        let came = await driver.delete(usb, in: run)
+
+        XCTAssertEqual(came, .stopped(.said(RecorderDriver.diskChanged)))
+        expectEqual(await recorder.asked, [])
+        XCTAssertFalse(link.session.usbDiskUnanswered, "no disk known was left waited for")
     }
 
     /// The internal disk's rows of a run go on whatever has become of the USB disk.
