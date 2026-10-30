@@ -75,11 +75,7 @@ final class RecorderSaid {
     /// stays nil, which keeps the list out of date until they have been read (`RecorderHost.usbListOutdated`).
     func keep(titles read: [RecordedTitle], readFrom disk: RecorderDisk?, usb: RecorderDisk?) {
         let held = disk == nil ? titles.filter { $0.readFrom?.isStill(usb) == true } : []
-        let list = held.isEmpty ? read : read.filter { $0.destination != RecorderDisk.usbID } + held
-        // A tick is by id, and goes with its row: the same number on the next disk is not the recording ticked.
-        let listed = Set(list.map(\.listKey))
-        duplicatePicks.subtract(titles.filter { !listed.contains($0.listKey) }.map(\.id))
-        titles = list
+        titles = held.isEmpty ? read : read.filter { $0.destination != RecorderDisk.usbID } + held
         titlesReadFrom = disk
         titlesLoaded = true
         // The sets on screen were built from the list as it was. A copy one says it keeps may have gone since,
