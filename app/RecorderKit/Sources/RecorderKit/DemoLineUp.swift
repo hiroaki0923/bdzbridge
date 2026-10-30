@@ -293,11 +293,11 @@ public enum DemoLineUp {
     /// transport): on, so that it is registered as a real one is with its panel on, by its number; receiving
     /// every station of the guide, terrestrial and BS, by the same service ids and names, so that any programme
     /// of the guide can be reserved on it; listing what it records under the guide's titles, as a real one
-    /// lists its own guide's; and holding one recording from the start (`heldOnTheTelevision`). It answers at
-    /// once.
+    /// lists its own guide's; holding one recording from the start (`heldOnTheTelevision`); and with recordings of
+    /// its own on a disk that adds up (`recordedOnTheTelevision`). It answers at once.
     public static func television() -> DemoTV {
         DemoTV(power: "active", stations: tvStations, holding: [heldOnTheTelevision].compactMap { $0 },
-               titles: tvTitles)
+               titles: tvTitles, recordings: recordedOnTheTelevision, diskMB: 500_000)
     }
 
     private static var tvStations: [DemoTV.Station] {
@@ -317,6 +317,29 @@ public enum DemoLineUp {
             }
         }
         return titles
+    }
+
+    /// What is on the television's disk when the reader adds it, in the order it came into its list, which a real
+    /// one's was not by date: programmes of the guide some days back, one watched and protected, one with no text.
+    private static var recordedOnTheTelevision: [DemoTV.Recording] {
+        [recorded(1, "サンプルドラマ「みなとの灯」第７話", at: 1040, daysAgo: 3, watched: true),
+         recorded(2, "サンプルクイズ王", at: 1040, daysAgo: 1),
+         recorded(3, "サンプル映画劇場「遠い灯台」", at: 1048, daysAgo: 5),
+         recorded(4, "みほんスポーツニュース", at: 1048, daysAgo: 2)].compactMap { $0 }
+    }
+
+    /// A programme of the guide as the television's disk holds it, at the size an hour of DR comes to. Its text is
+    /// the guide's, as a real one's is the broadcast's, and none where the guide has none.
+    private static func recorded(_ contentID: Int, _ title: String, at serviceID: Int, daysAgo: Int,
+                                 watched: Bool = false) -> DemoTV.Recording? {
+        guard let station = stations.first(where: { $0.serviceID == serviceID }),
+              let slot = station.schedule.first(where: { $0.title == title }) else { return nil }
+        let details = details(of: slot)
+        return DemoTV.Recording(contentID: contentID, title: title, station: station.name,
+                                start: at(slot.at, dayOffset: -daysAgo), durationSec: slot.minutes * 60,
+                                sizeMB: slot.minutes * 100, protected: watched, played: watched,
+                                summary: slot.summary.isEmpty ? nil : slot.summary,
+                                details: details.isEmpty ? nil : details, genre: slot.level1 * 16 + slot.level2)
     }
 
     /// What the television holds when the reader adds it, as if set with its remote: a programme of the guide

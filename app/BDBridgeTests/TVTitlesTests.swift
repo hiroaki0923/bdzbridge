@@ -554,4 +554,19 @@ final class TVTitlesTests: XCTestCase {
                        model.diskChoices.map { RecorderDisk.label($0.destination, named: $0.name) })
         XCTAssertEqual(model.titleDestinationLabel(RecorderDisk.usbID), model.diskLabel(RecorderDisk.usbID))
     }
+
+    // MARK: - the demo's television
+
+    /// The demo's television holds invented recordings, a real one's shape, on a disk that adds up.
+    func testTheDemosTelevisionHasRecordingsThatAddUp() async throws {
+        let television = DemoLineUp.television()
+        let credentials = MemoryTVCredentials(TVCredentials(clientID: "c", cookie: "kept"))
+        await television.knows("c", cookie: "kept")
+        let client = ScalarClient(host: DemoData.tvHost, transport: television, credentials: credentials)
+        let storage = try await client.storage()
+        let recordings = await television.recordings
+        XCTAssertEqual(recordings.count, 4)
+        let used = try XCTUnwrap(storage.totalMB) - (try XCTUnwrap(storage.freeMB))
+        XCTAssertEqual(used - recordings.reduce(0) { $0 + $1.sizeMB }, 600, "its disk does not add up")
+    }
 }

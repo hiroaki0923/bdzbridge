@@ -298,6 +298,77 @@ final class DemoModeTests: XCTestCase {
         endTheDemo(app)
     }
 
+    /// The demo's television, once added, has recordings of its own in the one list, テレビ named on their rows and
+    /// offered in the filter, which the list and the title bar's free space follow. A row's sheet says what the row
+    /// says and offers no playing; its protection holds its delete; and its delete takes it off the list. They go
+    /// with the demo.
+    func testTheTelevisionsRecordingsAreInTheOneList() {
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        app.tabBars.buttons["設定"].tap()
+        searchForTheDemosTelevision(app).tap()
+        let number = app.textFields["4 桁の番号"]
+        XCTAssertTrue(number.waitForExistence(timeout: 20), "the sheet did not go straight to the number")
+        number.tap()
+        number.typeText("1234")
+        app.buttons["登録する"].tap()
+        XCTAssertTrue(app.navigationBars["テレビを追加"].waitForNonExistence(timeout: 20), "the sheet did not close")
+
+        app.tabBars.buttons["録画"].tap()
+        let mode = app.buttons["表示を変える"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 20), "the recordings screen had no display menu")
+        mode.tap()
+        let flat = app.buttons["一覧"]
+        XCTAssertTrue(flat.waitForExistence(timeout: 10), "the menu did not offer 一覧")
+        flat.tap()
+        let everything = app.staticTexts["31 件"]
+        XCTAssertTrue(everything.waitForExistence(timeout: 20), "the list was not both devices': \(app.debugDescription)")
+        let free = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "残り")).firstMatch
+        let internalFree = free.label
+
+        let filter = app.buttons["録画先・ジャンル・並び順・視聴状態で絞り込む"]
+        filter.tap()
+        let television = app.buttons["テレビ"]
+        XCTAssertTrue(television.waitForExistence(timeout: 10), "the menu did not offer the television")
+        television.tap()
+        XCTAssertTrue(app.staticTexts["テレビ · 4 件"].waitForExistence(timeout: 10),
+                      "the list was not narrowed to the television")
+        XCTAssertNotEqual(free.label, internalFree, "the free space did not follow the television")
+
+        let row = app.staticTexts.matching(labelContains("サンプルクイズ王")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "the list did not hold the television's recording")
+        XCTAssertTrue(app.staticTexts.matching(labelContains("  テレビ  ")).firstMatch.exists,
+                      "no row named テレビ: \(app.debugDescription)")
+        row.tap()
+        let sheet = app.navigationBars["録画"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "the recording did not open")
+        XCTAssertTrue(app.staticTexts["全国のサンプル名人が集まる大会。"].waitForExistence(timeout: 10),
+                      "the sheet did not say the row's text")
+        XCTAssertFalse(app.staticTexts["テレビで再生"].exists, "a television's row offered playing")
+
+        let protection = app.switches["保護"]
+        XCTAssertTrue(protection.waitForExistence(timeout: 10), "the sheet offered no protection")
+        let delete = app.buttons["この録画を削除"]
+        XCTAssertTrue(delete.isEnabled, "a recording that can go could not be deleted")
+        protection.switches.firstMatch.tap()
+        let held = expectation(for: NSPredicate(format: "enabled == false"), evaluatedWith: delete)
+        wait(for: [held], timeout: 10)
+        protection.switches.firstMatch.tap()
+        let free2 = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: delete)
+        wait(for: [free2], timeout: 10)
+        delete.tap()
+        let confirm = app.alerts.buttons["削除する"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "この録画を削除 asked nothing")
+        XCTAssertTrue(app.alerts.staticTexts.matching(labelContains("テレビから削除され")).firstMatch.exists,
+                      "the question did not name the television")
+        confirm.tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 20), "the sheet did not close once deleted")
+        XCTAssertTrue(app.staticTexts["テレビ · 3 件"].waitForExistence(timeout: 10), "the row stayed in the list")
+
+        endTheDemo(app)
+    }
+
     /// The mode a new reservation starts at is the one in the settings, and choosing another on a programme
     /// is for that reservation only. The sheet used to be bound to the setting, so trying a mode changed it.
     func testChoosingAModeOnAProgrammeLeavesTheDefaultAlone() {

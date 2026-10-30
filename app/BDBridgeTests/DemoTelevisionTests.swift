@@ -86,6 +86,46 @@ final class DemoTelevisionTests: XCTestCase {
         await expectNothingReal(home, since: then, keeping: before)
     }
 
+    /// The demo's television has invented recordings, beside the demo's recorder's in the one list: read, one
+    /// protected and one deleted on its own disk, and a run over both devices, in memory alone. They go with it.
+    func testTheDemosTelevisionsRecordingsAreReadWrittenToAndGoWithIt() async throws {
+        let home = try await atHome()
+        let model = home.model
+        let before = kept(home)
+        let then = try await intoTheDemo(home)
+        try await register(model)
+        await model.loadTitles()
+        await model.loadTVTitles()
+
+        let rows = try XCTUnwrap(model.tvHost?.titles)
+        XCTAssertEqual(rows.count, 4, "the demo's television held no recordings of its own")
+        XCTAssertEqual(model.allTitles.count, model.titles.count + 4)
+        XCTAssertNil(model.tvTitlesNote, "the demo's disk does not add up")
+        XCTAssertEqual(model.titleDestinations.last?.label, "テレビ")
+        let free = try XCTUnwrap(model.tvDriver?.facts.storage?.freeMB)
+
+        let first = try XCTUnwrap(rows.first { !$0.protected })
+        expectTrue(await protectARecording(model, first, true), model.problem(for: .tv) ?? "no reason given")
+        XCTAssertEqual(model.row(like: first)?.protected, true)
+        expectTrue(await protectARecording(model, first, false), model.problem(for: .tv) ?? "no reason given")
+        expectTrue(await deleteARecording(model, first), model.problem(for: .tv) ?? "no reason given")
+        XCTAssertNil(model.row(like: first))
+        let after = try XCTUnwrap(model.tvDriver?.facts.storage?.freeMB)
+        XCTAssertEqual(after, free + (first.sizeMB ?? 0), "the demo's free space did not follow the delete")
+
+        let second = try XCTUnwrap(model.tvHost?.titles.first { !$0.protected })
+        let recorders = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+        XCTAssertTrue(model.startBulk(.delete, ids: [recorders.id, second.id]))
+        try await until("the job never ended") { model.job?.finished == true }
+        XCTAssertEqual(model.job?.changed.count, 2, model.job?.outcome ?? "no job")
+        XCTAssertNil(model.row(like: second))
+        XCTAssertNil(model.row(like: recorders))
+
+        await expectNothingReal(home, since: then, keeping: before)
+        model.removeTV()
+        XCTAssertEqual(model.allTitles, model.titles)
+    }
+
     /// テレビを外す in the demo takes the demo's television away as it takes a real one: what waits for it is
     /// deleted unsent, and its link and its registration go, in memory. The demo goes on, and the real
     /// television's address, MAC, registration and what was told of it stay as they were.
