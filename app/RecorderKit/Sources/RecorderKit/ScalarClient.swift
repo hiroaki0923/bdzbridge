@@ -144,6 +144,85 @@ public struct TVStorage: Sendable, Equatable {
     public var totalMB: Int?
 }
 
+/// A value of a television's JSON as it came, for an answer whose fields no reader has been written for yet:
+/// the rows of its recordings (`ScalarClient.contentPage`). A JSON number is told from a JSON boolean, and a whole
+/// number from one with a fraction, by what it was written as: which a field is, is part of what is measured.
+enum ScalarValue: Sendable, Hashable {
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+    case list([ScalarValue])
+    case object([String: ScalarValue])
+    case null
+
+    /// What `JSONSerialization` read, or nil for anything it does not give.
+    init?(json: Any) {
+        switch json {
+        case let text as String:
+            self = .string(text)
+        case let number as NSNumber:
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                self = .bool(number.boolValue)
+            } else if CFNumberIsFloatType(number) {
+                self = .double(number.doubleValue)
+            } else {
+                self = .int(number.intValue)
+            }
+        case let items as [Any]:
+            var values: [ScalarValue] = []
+            for item in items {
+                guard let value = ScalarValue(json: item) else { return nil }
+                values.append(value)
+            }
+            self = .list(values)
+        case let fields as [String: Any]:
+            var values: [String: ScalarValue] = [:]
+            for (key, item) in fields {
+                guard let value = ScalarValue(json: item) else { return nil }
+                values[key] = value
+            }
+            self = .object(values)
+        case is NSNull:
+            self = .null
+        default:
+            return nil
+        }
+    }
+
+    /// The value as `JSONSerialization` writes it.
+    var json: Any {
+        switch self {
+        case .string(let text): text
+        case .int(let number): number
+        case .double(let number): number
+        case .bool(let flag): flag
+        case .list(let values): values.map(\.json)
+        case .object(let fields): fields.mapValues(\.json)
+        case .null: NSNull()
+        }
+    }
+
+    /// The JSON type it was written as: `string`, `int`, `double`, `bool`, `list`, `object` or `null`.
+    var kind: String {
+        switch self {
+        case .string: "string"
+        case .int: "int"
+        case .double: "double"
+        case .bool: "bool"
+        case .list: "list"
+        case .object: "object"
+        case .null: "null"
+        }
+    }
+}
+
+extension ScalarValue: ExpressibleByStringLiteral, ExpressibleByIntegerLiteral, ExpressibleByBooleanLiteral {
+    init(stringLiteral value: String) { self = .string(value) }
+    init(integerLiteral value: Int) { self = .int(value) }
+    init(booleanLiteral value: Bool) { self = .bool(value) }
+}
+
 /// One Sony BRAVIA on the LAN, through its own control API: JSON-RPC over plain HTTP on port 80,
 /// `POST /sony/<service>` with `{"method", "id", "params", "version"}`. Every answer comes back as HTTP 200, the
 /// method's errors included, except 401 from the registration and 403 for a request without a working cookie.
@@ -514,6 +593,83 @@ public actor ScalarClient {
         let result = try await authenticated("recording", "addSchedule", version: "1.2",
                                              params: [row.changing(to: repeatType)])
         return (result as? [[String: Any]])?.first?["annotation"] as? Int
+    }
+
+    // MARK: - the recordings on its disk
+
+    /// Where a television keeps what it recorded: its USB disk, as a content list's source.
+    static let recordingsSource = "usb:recStorage"
+
+    /// One page of a content list: `avContent.getContentList` in `version`, with `params` as its one parameter
+    /// object, sent with the cookie as every request that needs the registration is. The rows as the television
+    /// wrote them, each an object (`contentRows`). The versions take their parameters differently -- 1.0 and 1.2
+    /// a `source`, 1.5 a `uri` -- and are said to fill different fields, so which to read the recordings with, and
+    /// what each of its fields is, are measured through this before a reader of them is written on it. The
+    /// method's own errors are thrown as any method's are, 41020 among them, which a television answered while its
+    /// disk was not connected. `timeout` is the client's own unless given.
+    func contentPage(version: String, params: [String: ScalarValue],
+                     timeout: TimeInterval? = nil) async throws -> [[String: ScalarValue]] {
+        try Self.contentRows(try await contentResult(version: version, params: params, timeout: timeout))
+    }
+
+    /// The whole `result` of `avContent.getContentList` in `version`, sent as `contentPage` sends it, as the
+    /// television wrote it: what a page is read from, and what is left to look at when it is not a page.
+    func contentResult(version: String, params: [String: ScalarValue],
+                       timeout: TimeInterval? = nil) async throws -> ScalarValue {
+        let result = try await authenticated("avContent", "getContentList", version: version,
+                                             params: [params.mapValues(\.json)], timeout: timeout)
+        guard let value = ScalarValue(json: result) else { throw ScalarError.unreadable(method: "getContentList") }
+        return value
+    }
+
+    /// The rows of a content list's `result`: a list of objects in a list. Anything else throws as an answer that
+    /// cannot be read.
+    static func contentRows(_ result: ScalarValue) throws -> [[String: ScalarValue]] {
+        guard case .list(let outer) = result, case .list(let rows)? = outer.first else {
+            throw ScalarError.unreadable(method: "getContentList")
+        }
+        return try rows.map { row in
+            guard case .object(let fields) = row else { throw ScalarError.unreadable(method: "getContentList") }
+            return fields
+        }
+    }
+
+    /// How many items a content list holds: `avContent.getContentCount` in `version`, with `params` as its one
+    /// parameter object, sent as `contentPage` sends. An answer without a whole `count` throws as one that cannot
+    /// be read.
+    func contentCount(version: String, params: [String: ScalarValue],
+                      timeout: TimeInterval? = nil) async throws -> Int {
+        let result = try await authenticated("avContent", "getContentCount", version: version,
+                                             params: [params.mapValues(\.json)], timeout: timeout)
+        guard let written = (result as? [[String: Any]])?.first?["count"],
+              case .int(let count)? = ScalarValue(json: written) else {
+            throw ScalarError.unreadable(method: "getContentCount")
+        }
+        return count
+    }
+
+    /// What the television says of its recording: `recording.getRecordingStatus` 1.0, which needs no
+    /// registration. `notStarted` is all a television has been seen to say, on and in standby.
+    func recordingStatus(timeout: TimeInterval? = nil) async throws -> String {
+        let result = try await call("recording", "getRecordingStatus", version: "1.0", timeout: timeout)
+        guard let status = (result as? [[String: Any]])?.first?["status"] as? String else {
+            throw ScalarError.unreadable(method: "getRecordingStatus")
+        }
+        return status
+    }
+
+    /// Protects a recording on the television from deletion, or lifts that: `avContent.setDeleteProtection` 1.0
+    /// with `{uri, isProtected}`, the uri as the content list gave it. The television's signature for it says
+    /// no more than that, and gives nothing back. Nothing is sent a second time for silence.
+    func setDeleteProtection(uri: String, _ protected: Bool) async throws {
+        _ = try await authenticated("avContent", "setDeleteProtection", version: "1.0",
+                                    params: [["uri": uri, "isProtected": protected]])
+    }
+
+    /// Deletes a recording on the television: `avContent.deleteContent` 1.0 with `{uri}`, the uri as the content
+    /// list gave it; it gives nothing back. Nothing is sent a second time for silence: the first may have arrived.
+    func deleteContent(uri: String) async throws {
+        _ = try await authenticated("avContent", "deleteContent", version: "1.0", params: [["uri": uri]])
     }
 
     // MARK: - plumbing

@@ -1274,3 +1274,134 @@ enum DriverCheck {
 private struct TurnedDown: Error, CustomStringConvertible {
     var description: String
 }
+
+extension LiveRecorderTests {
+    /// **Writes to the recorder, and puts a recording on the television.** Plays a finished recording on the
+    /// recorder's USB disk and stops it, by the request the driver's play and stop send (`playControl`), through the
+    /// app's own client and transport. The recorder's playback of a recording on its internal disk is known; of
+    /// one on the USB disk, not.
+    ///
+    /// Without RECORDER_WRITE it only reads, and sends nothing that plays: it lists the USB disk's recordings, each
+    /// by its place in the list, its start (HH:mm, Japan time), its length in minutes, and whether it is protected
+    /// or still being recorded -- never a title or an id -- so that the one to play can be named by its start:
+    ///
+    ///     RECORDER_HOST=192.0.2.63 swift test --filter LiveRecorderTests/testPlayingAndStoppingAUSBRecording
+    ///
+    /// Then, with the one named:
+    ///
+    ///     RECORDER_HOST=192.0.2.63 RECORDER_WRITE=1 RECORDER_PLAY_START=21:00 \
+    ///         swift test --filter LiveRecorderTests/testPlayingAndStoppingAUSBRecording
+    ///
+    /// The recorder is to be fully on (`PowerOn`): in network standby a play is answered 880, and the test refuses
+    /// before anything is sent. Its USB disk is connected with a finished recording on it, and the owner is at the
+    /// television it is wired to, which may come on for the play. The owner watches whether the television comes
+    /// on or turns to the recorder's input, whether the recording plays from its beginning, and that it stops.
+    ///
+    /// It refuses, sending nothing, unless exactly one recording on the USB disk starts at RECORDER_PLAY_START and
+    /// it is no longer being recorded. It reads the play status, plays the recording, reads the status every five
+    /// seconds for RECORDER_LOOK seconds (a whole number, fifteen unless set, from five to sixty), stops it and
+    /// reads the status again; and it reads the list before and after, saying whether the recording is still
+    /// listed under the same id, and its new mark and resume point before and after. A stop is sent whenever the
+    /// play was taken or went unanswered, since an unanswered one may have arrived, whatever fails after it. It
+    /// prints the power and play states, codes and seconds; a request that fails is said by its code alone.
+    func testPlayingAndStoppingAUSBRecording() async throws {
+        let client = try liveClient()
+        let environment = ProcessInfo.processInfo.environment
+        let before = try await Self.byItsCode("the USB disk's list") {
+            try await client.allTitles(on: RecorderDisk.usbID)
+        }
+        print("USB disk: \(before.count) recordings")
+        for (index, title) in before.enumerated() {
+            print("  \(index + 1): starts \(Self.clock(title.start)), \(title.durationSec / 60) min,"
+                  + " protected \(title.protected), being recorded \(title.recording)")
+        }
+        guard environment["RECORDER_WRITE"] == "1" else {
+            throw XCTSkip("set RECORDER_WRITE=1 to let this play a recording")
+        }
+        guard let start = environment["RECORDER_PLAY_START"], !start.isEmpty else {
+            throw XCTSkip("set RECORDER_PLAY_START to the start (HH:mm) of the recording to play, as listed")
+        }
+        let named = before.filter { Self.clock($0.start) == start }
+        guard named.count == 1, let target = named.first else {
+            throw XCTSkip("\(named.count) recordings on the USB disk start at \(start): exactly one is wanted")
+        }
+        guard !target.recording, target.end < Date() else {
+            throw XCTSkip("the recording named is still being recorded")
+        }
+        let power = try await Self.byItsCode("the play status") { try await client.playStatus() }
+        print("before the play: \(Self.playState(power))")
+        guard power["powerstatus"] == "PowerOn" else {
+            throw XCTSkip("the recorder is not on (\(power["powerstatus"] ?? "-")): turn it on with its remote first")
+        }
+
+        let look = min(max(Int(environment["RECORDER_LOOK"] ?? "") ?? 15, 5), 60)
+        let began = ContinuousClock.now
+        func at() -> String { String(format: "%.1f s", (ContinuousClock.now - began) / .seconds(1)) }
+        var played = false
+        do {
+            try await client.playControl(titleID: target.id, operation: "play")
+            played = true
+            print("play: taken (\(at()))")
+        } catch {
+            print("play: \(Self.code(error)) (\(at()))")
+            if case .transport? = error as? RecorderError {
+                played = true
+                print("  the play may have arrived: it is stopped all the same")
+            }
+        }
+        if played {
+            while ContinuousClock.now - began < .seconds(look) {
+                try? await Task.sleep(for: .seconds(5))
+                do {
+                    print("playing, \(at()): \(Self.playState(try await client.playStatus()))")
+                } catch {
+                    print("playing, \(at()): \(Self.code(error))")
+                }
+            }
+            do {
+                try await client.playControl(titleID: target.id, operation: "stop")
+                print("stop: taken (\(at()))")
+            } catch {
+                print("stop: \(Self.code(error)) (\(at())): stop it with the remote")
+            }
+            try? await Task.sleep(for: .seconds(3))
+        }
+        do {
+            print("after: \(Self.playState(try await client.playStatus())) (\(at()))")
+        } catch {
+            print("after: \(Self.code(error)) (\(at()))")
+        }
+
+        let after = try await Self.byItsCode("the USB disk's list after") {
+            try await client.allTitles(on: RecorderDisk.usbID)
+        }
+        let again = after.first { $0.id == target.id }
+        print("USB disk afterwards: \(after.count) recordings; the one played listed under the same id: \(again != nil)")
+        print("its new mark: \(target.isNew) before, \(again.map { "\($0.isNew)" } ?? "-") after")
+        print("its resume point: \(target.resumeSec.map { "\($0) s" } ?? "none") before,"
+              + " \(again.map { $0.resumeSec.map { "\($0) s" } ?? "none" } ?? "-") after")
+        print("last played changed: \(again.map { $0.lastPlayed != target.lastPlayed } ?? false)")
+    }
+
+    /// What `request` hands back, or a failure thrown by its code alone: the error as it came can hold the
+    /// address, the URL or the SOAP body.
+    fileprivate static func byItsCode<T>(_ what: String, _ request: () async throws -> T) async throws -> T {
+        do { return try await request() } catch { throw TurnedDown(description: "\(what): \(code(error))") }
+    }
+
+    /// A start as its time of day in Japan, HH:mm: all of it that is printed.
+    fileprivate static func clock(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = RecorderTime.timeZone
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    /// The play status by its two states, and the names of whatever else it holds.
+    fileprivate static func playState(_ status: [String: String]) -> String {
+        let others = status.keys.filter { $0 != "powerstatus" && $0 != "playstatus" }.sorted()
+        return "powerstatus \(status["powerstatus"] ?? "-"), playstatus \(status["playstatus"] ?? "-")"
+            + (others.isEmpty ? "" : ", also \(others.joined(separator: " "))")
+    }
+}
