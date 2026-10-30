@@ -432,6 +432,26 @@ final class TVTitlesTests: XCTestCase {
         expectEqual(await home.television.calls.filter { $0.hasPrefix("deleteContent") }.count, 1)
     }
 
+    /// A television's silence says nothing of the recorder: what the run deleted there has its free space read as
+    /// the run ends, so that the title bar's 残り is not left as it was.
+    func testAStopOnOneDeviceLeavesTheOthersFreeSpaceToBeRead() async throws {
+        let home = try await atHome()
+        let model = home.model
+        let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+        await home.door.hold(only: "deleteContent")
+
+        XCTAssertTrue(model.startBulk(.delete, ids: [title.id, try tvRow(model).id]))
+        try await until("the delete was never sent") { await home.door.isHolding }
+        let before = await home.recorder.asked("X_HDLnkGetRecordDestinationInfo")
+        await home.television.goSilent()
+        await home.door.letGo()
+        try await until("the job never ended") { model.job?.finished == true }
+
+        XCTAssertEqual(model.job?.stoppedOn, .tv)
+        expectEqual(await home.recorder.asked("X_HDLnkGetRecordDestinationInfo"), before + 1,
+                    "the recorder's free space was left as it was before its delete")
+    }
+
     /// A run that cannot begin on the television says why, and asks nothing of either.
     func testARunThatCannotBeginOnTheTelevisionSaysWhy() async throws {
         let home = try await atHome()

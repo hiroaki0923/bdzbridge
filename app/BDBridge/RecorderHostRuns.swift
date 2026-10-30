@@ -228,11 +228,14 @@ extension RecorderHost {
         job?.stopped = stopped
         // The free space, when a driver reads it: a request like a recording's, finished under the same
         // hold if the reader leaves meanwhile. The hold is taken whatever the run came to, and given back at
-        // once where a driver reads nothing: whether it reads is the driver's to say.
+        // once where a driver reads nothing: whether it reads is the driver's to say. A stop is told only to the
+        // device it was on: the other has its deletes to read for, whatever became of its neighbour.
+        let stoppedOn = job?.stoppedOn
         for side in [DeviceSlot.recorder, .tv].compactMap({ sides[$0] }) {
             let changed = job?.changed.filter { onTV.contains($0) == (side.device == .tv) }.count ?? 0
             let deleted = kind == .delete ? changed : 0
-            await keepingAlive { await side.driver.end(side.run, deleted: deleted, stopped: stopped) }
+            let itsStop = stoppedOn == side.device ? stopped : nil
+            await keepingAlive { await side.driver.end(side.run, deleted: deleted, stopped: itsStop) }
         }
         // the sets were built from recordings that may no longer all be there
         if !said.duplicates.isEmpty { said.recomputeDuplicates() }
