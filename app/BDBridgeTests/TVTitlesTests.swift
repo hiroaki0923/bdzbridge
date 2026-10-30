@@ -422,6 +422,56 @@ final class TVTitlesTests: XCTestCase {
         try await until("the job never ended") { model.job?.finished == true }
     }
 
+    // MARK: - that it is still the same recording
+
+    /// A uri that now names another recording is sent nothing, the sheet is told why, and the list is read again,
+    /// which shows the one it names. So for a row the list does not hold, which is not said to be deleted.
+    func testAWriteByAUriThatNoLongerNamesTheRowIsNotSent() async throws {
+        let home = try await atHome()
+        let model = home.model
+        let row = try tvRow(model)
+        await home.television.records([Self.recording(1, title: "別の番組"), Self.recording(2)])
+
+        expectEqual(await model.delete(row), .notDone(TVDriver.titleChanged))
+        expectEqual(await model.setProtected(row, true), .notDone(TVDriver.titleChanged))
+
+        XCTAssertEqual(model.row(like: row)?.title, "別の番組", "the list was not read again")
+        expectEqual(await home.television.recordings.count, 2, "another recording was deleted")
+        expectEqual(await home.television.recordings.first?.protected, false, "another recording was protected")
+
+        let second = try tvRow(model, 2)
+        await home.television.leavesOutOfItsList([second.id])
+        expectEqual(await model.delete(second), .notDone(TVDriver.titleNotInList))
+        XCTAssertNil(model.row(like: second), "the list was not read again")
+        expectEqual(await home.television.recordings.count, 2, "a row the list lacks was deleted")
+    }
+
+    /// A run left half way, the television restarted meanwhile, and the app come back to: its list is empty for the
+    /// moment and the disk holds what it held. The return lets the run go on, a connect is held off by it and nothing
+    /// has read the list, so what is held of the row is hours old: the run reads the list itself, and stops. The
+    /// recording it would have deleted stays.
+    func testARunComeBackToAfterARestartSendsNothing() async throws {
+        let home = try await atHome()
+        let model = home.model
+        let ids = [try tvRow(model).id, try tvRow(model, 2).id]
+        await home.door.hold(only: "deleteContent")
+        XCTAssertTrue(model.startBulk(.delete, ids: ids))
+        try await until("the delete was never sent") { await home.door.isHolding }
+        model.wentToBackground()
+        await home.door.letGo()
+        try await until("the run did not stop to wait for the app") { model.backInFront != nil }
+        await home.television.leavesOutOfItsList(Set(ids))
+        let deletes = await home.television.calls.filter { $0.hasPrefix("deleteContent") }.count
+
+        await model.returnedToForeground()
+        try await until("the job never ended") { model.job?.finished == true }
+
+        XCTAssertEqual(model.job?.stopped, .said(TVDriver.titleNotInList))
+        XCTAssertEqual(model.job?.outcome, "1 件を削除したところで中止しました")
+        expectEqual(await home.television.calls.filter { $0.hasPrefix("deleteContent") }.count, deletes)
+        expectEqual(await home.television.recordings.map(\.contentID), [2])
+    }
+
     // MARK: - a list that does not add up
 
     /// After a restart: no rows, the disk full. The line says so for as long as it is read again, holding none of

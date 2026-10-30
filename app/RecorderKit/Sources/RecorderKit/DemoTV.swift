@@ -597,11 +597,10 @@ public actor DemoTV: HTTPTransport {
     /// 41001 for one it does not have, as a real one answered a delete. A row left out of the list is on the disk,
     /// and is found.
     ///
-    /// What was seen of a real one is of a write with its panel on, to a recording that was over. Taken, not seen:
-    /// that a protect of an unknown uri is answered as a delete is; that a disk that is away is 41020 here as it
-    /// is for the list; and that standby makes no difference, which is to be measured. A write to a row being
-    /// recorded, which the app does not send, is answered with the invented error, so that a client that sends
-    /// one is caught.
+    /// What was seen of a real one is of a write to a recording that was over, with its panel on and in standby
+    /// alike, which it stayed in. Taken, not seen: that a protect of an unknown uri is answered as a delete is; and
+    /// that a disk that is away is 41020 here as it is for the list. A write to a row being recorded, which the app
+    /// does not send, is answered with the invented error, so that a client that sends one is caught.
     private func writing(_ uri: Any?, _ id: Int, _ write: (Int) -> HTTPResponse) -> HTTPResponse {
         guard let uri = uri as? String else { return refused(id) }
         guard mounted else { return noDisk(id) }
