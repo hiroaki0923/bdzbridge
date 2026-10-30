@@ -47,11 +47,20 @@ public final class TVDriver: LinkDriver {
     private let inFront: @MainActor () -> Bool
     /// The read of the reservations that is out, which whoever asks meanwhile waits for.
     private var reading: Task<[Reservation]?, Never>?
+    /// The read of the recordings that is out, as `reading` is of the reservations.
+    var titlesReading: Task<TVTitles?, Never>?
+    /// When the list of recordings was first read empty over a disk that holds something, nil while it is not:
+    /// what the wait for it is counted from (`settled`).
+    var listEmptySince: Date?
+    /// How long a list that may still be coming is waited for.
+    let titlesWait: TVTitlesWait
 
-    public init(credentials: any TVCredentialStore, nickname: String, inFront: @escaping @MainActor () -> Bool) {
+    public init(credentials: any TVCredentialStore, nickname: String, inFront: @escaping @MainActor () -> Bool,
+                titlesWait: TVTitlesWait = .afterAStart) {
         self.credentials = credentials
         self.nickname = nickname
         self.inFront = inFront
+        self.titlesWait = titlesWait
     }
 
     public var probeTimeout: TimeInterval { 5 }
@@ -131,6 +140,7 @@ public final class TVDriver: LinkDriver {
             // a check heard in its place is over.
             lookedInVain = []
             link.heardInstead = nil
+            listEmptySince = nil
             link.session.identified(as: identity, heardBy: client)
             owner?.keepAddress(link.host)
             if !identity.isEmpty { owner?.keepMAC(identity) }
@@ -308,7 +318,7 @@ public final class TVDriver: LinkDriver {
     /// and sends only once a check has heard it (`mayBeSent`).
     public var canBeAsked: Bool { link.map { canBeAsked(on: $0) } ?? false }
 
-    private func canBeAsked(on link: DeviceLink) -> Bool {
+    func canBeAsked(on link: DeviceLink) -> Bool {
         link.clientIsAttached && link.session.connected && !facts.needsPairing
     }
 
@@ -319,7 +329,7 @@ public final class TVDriver: LinkDriver {
     /// (`DeviceLink.heardInstead`), which this driver's check writes there, nothing that carries the cookie is
     /// sent, and an operation makes its check whatever the time since the address last answered
     /// (`DeviceLink.checksAgain`).
-    private func mayBeSent(on link: DeviceLink) -> Bool {
+    func mayBeSent(on link: DeviceLink) -> Bool {
         link.mayBeSent && !facts.needsPairing
     }
 
@@ -439,7 +449,7 @@ public final class TVDriver: LinkDriver {
     /// link (`OperationFailure.init`, `DeviceLink.say`), and noted here. It is said as a read's is, in the
     /// television's own words: silence met by what changes the television has a sentence of its own, which
     /// the operation that sent it says itself (`cancel`, `update`).
-    private func say(_ error: any Error, on link: DeviceLink) {
+    func say(_ error: any Error, on link: DeviceLink) {
         note(link.say(OperationFailure(error, sending: nil)))
     }
 
@@ -447,7 +457,7 @@ public final class TVDriver: LinkDriver {
     /// at once: the app was taken off the television's list while the link stood, the next attach may be a
     /// long way off, and the screens are to ask for the registration now; the next attach that goes through
     /// takes it back.
-    private func note(_ failure: OperationFailure) {
+    func note(_ failure: OperationFailure) {
         if case .refused(.needsPairing, _) = failure { facts.needsPairing = true }
     }
 
