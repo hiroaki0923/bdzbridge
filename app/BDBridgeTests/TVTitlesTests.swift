@@ -422,6 +422,40 @@ final class TVTitlesTests: XCTestCase {
         try await until("the job never ended") { model.job?.finished == true }
     }
 
+    /// A run holds what it walks and no more: a run of the television's rows alone leaves the recorder's rows, its
+    /// pull-down and its connect as they were, and a run of the recorder's alone the television's. One of both holds
+    /// both.
+    func testARunHoldsOnlyTheDevicesItHasRowsOf() async throws {
+        let home = try await atHome()
+        let model = home.model
+        let onTV = try tvRow(model)
+        let onTheRecorder = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+
+        await home.door.hold(only: "deleteContent")
+        XCTAssertTrue(model.startBulk(.delete, ids: [onTV.id]))
+        try await until("the delete was never sent") { await home.door.isHolding }
+        XCTAssertFalse(model.canAlter(onTV), "its own rows were not held")
+        XCTAssertTrue(model.canAlter(onTheRecorder), "a run of the television's rows held the recorder's")
+        XCTAssertFalse(model.recorderHost.holdsOffConnect, "and the recorder's connect")
+        let reads = await home.recorder.asked("X_GetTitleList")
+        await model.pullDownTitles()
+        expectTrue(await home.recorder.asked("X_GetTitleList") > reads, "and the recorder's pull-down")
+        await home.door.letGo()
+        try await until("the job never ended") { model.job?.finished == true }
+
+        await home.recorder.hold(only: "X_DeleteTitle")
+        XCTAssertTrue(model.startBulk(.delete, ids: [onTheRecorder.id]))
+        try await until("the delete was never sent") { await home.recorder.asked("X_DeleteTitle") > 0 }
+        XCTAssertTrue(model.canAlter(try tvRow(model, 2)), "a run of the recorder's rows held the television's")
+        XCTAssertFalse(model.canAlterARecording, "its own rows were not held")
+        let tvReads = await home.television.calls.filter { $0.hasPrefix("getContentList") }.count
+        await model.pullDownTitles()
+        expectTrue(await home.television.calls.filter { $0.hasPrefix("getContentList") }.count > tvReads,
+                   "and the television's pull-down")
+        await home.recorder.letGo()
+        try await until("the job never ended") { model.job?.finished == true }
+    }
+
     // MARK: - that it is still the same recording
 
     /// A uri that now names another recording is sent nothing, the sheet is told why, and the list is read again,

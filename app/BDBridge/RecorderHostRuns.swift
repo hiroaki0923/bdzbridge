@@ -43,8 +43,11 @@ extension RecorderHost {
         /// (`RunStop`), and which device; nil for a run that came to its end or that 中止 stopped.
         var stopped: RunStop?
         var stoppedOn = DeviceSlot.recorder
-        /// The ids of the recordings of the run that are the television's.
+        /// The ids of the recordings of the run that are the television's, and whether it has any of the
+        /// recorder's: what it holds of either device goes by these (`jobIsOnTheRecorder`,
+        /// `jobIsOnTheTelevision`). A scan's are all the recorder's.
         var onTV: Set<String> = []
+        var onTheRecorder = true
         var finished = false
 
         var verb: String { RecorderDriver.verb(of: kind) }
@@ -72,6 +75,10 @@ extension RecorderHost {
     /// Whether the job under way has recordings of the television's among it (`TVHost.holdsOffConnect`).
     var jobIsOnTheTelevision: Bool { jobRunning && job?.onTV.isEmpty == false }
 
+    /// Whether the job under way has recordings of the recorder's among it: what holds the recorder's own rows, its
+    /// pull-down and its connect. A run of the television's rows alone walks no list of the recorder's.
+    var jobIsOnTheRecorder: Bool { jobRunning && job?.onTheRecorder == true }
+
     /// Whether a run may be started now, for the buttons that start one -- a bulk delete, a bulk protect, the
     /// scan for duplicates -- and for `startBulk` and `startDuplicateScan` themselves, which a confirm or a menu
     /// left open can reach after its button has gone grey: only with the recorder at rest. Not beside another
@@ -84,10 +91,10 @@ extension RecorderHost {
     var canStartARun: Bool { !jobRunning && !isBusy && !session.connecting && !refreshesTheGuideAfterAConnect }
 
     /// Whether one recording may be deleted or protected now, for the buttons that do it: not while the recorder
-    /// works, and not while a run is under way, which puts no line on the strip and walks the list those would
-    /// write to. Playback and the power go by the recorder's work alone (`isBusy(for:)`): none of them writes
-    /// the list, and a playback begun before a long scan has to be stoppable from the app.
-    var canAlterARecording: Bool { !isBusy && !jobRunning }
+    /// works, and not while a run over its rows is under way, which puts no line on the strip and walks the list
+    /// those would write to. Playback and the power go by the recorder's work alone (`isBusy(for:)`): none of them
+    /// writes the list, and a playback begun before a long scan has to be stoppable from the app.
+    var canAlterARecording: Bool { !isBusy && !jobIsOnTheRecorder }
 
     /// Whether the duplicates have been looked for, for their screen to say that none were found: kept on what
     /// the recorder said (`RecorderSaid.lookedForDuplicates`), and not read off the job that stands, which a later
@@ -111,7 +118,7 @@ extension RecorderHost {
         guard !ids.isEmpty, let driver = recorderDriver else { return true }
         let television = model?.tvHost
         let onTV = Set(television?.titles.map(\.id) ?? []).intersection(ids)
-        job = BulkJob(kind: kind, total: ids.count, onTV: onTV)
+        job = BulkJob(kind: kind, total: ids.count, onTV: onTV, onTheRecorder: onTV.count < Set(ids).count)
         let said = self.said
         var sides: [DeviceSlot: RunSide] = [:]
         if onTV.count < Set(ids).count {

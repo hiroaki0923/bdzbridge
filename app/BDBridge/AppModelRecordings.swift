@@ -30,9 +30,9 @@ extension AppModel {
     func refreshTitles() async { await recorderHost.refreshTitles() }
 
     /// Pulling the recordings' tab down, which is the reader asking: both devices side by side, so that neither
-    /// device's silence holds the other's list up, and no television's while a job walks the list.
+    /// device's silence holds the other's list up, and each but while a job walks its own.
     func pullDownTitles() async {
-        async let television: Void? = jobRunning ? nil : tvHost?.refreshTitles()
+        async let television: Void? = jobIsOnTheTelevision ? nil : tvHost?.refreshTitles()
         await refreshTitles()
         await television
     }
@@ -208,10 +208,10 @@ extension AppModel {
     }
 
     /// Whether one recording may be deleted or protected now, for the buttons that do it: a recorder's by the
-    /// recorder's work (`RecorderHost.canAlterARecording`), a television's by its own, and neither beside a run,
-    /// which walks the list those would write to.
+    /// recorder's work (`RecorderHost.canAlterARecording`), a television's by its own, and neither beside a run over
+    /// that device's rows, which walks the list those would write to.
     func canAlter(_ title: RecordedTitle) -> Bool {
-        title.device == .tv ? !isBusy(for: .tv) && !jobRunning : canAlterARecording
+        title.device == .tv ? !isBusy(for: .tv) && !jobIsOnTheTelevision : canAlterARecording
     }
 
     /// Why a recording cannot be played now, by the rule the play's own door asks

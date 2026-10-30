@@ -172,6 +172,7 @@ extension AppModel {
 
     /// The recorder's bulk job, as its host runs it (`RecorderHostRuns`), under the names the screens call.
     var jobRunning: Bool { recorderHost.jobRunning }
+    var jobIsOnTheTelevision: Bool { recorderHost.jobIsOnTheTelevision }
     var canStartARun: Bool { recorderHost.canStartARun }
     var canAlterARecording: Bool { recorderHost.canAlterARecording }
     var scannedForDuplicates: Bool { recorderHost.scannedForDuplicates }
