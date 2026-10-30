@@ -90,6 +90,19 @@ extension RecorderHost {
     /// it is on a client of its own.
     var canStartARun: Bool { !jobRunning && !isBusy && !session.connecting && !refreshesTheGuideAfterAConnect }
 
+    /// Whether a run over these rows may be started now, by their ids: the recorder's conditions (`canStartARun`) only
+    /// where one of them is the recorder's, what the recorder is doing being nothing to the television's rows. Not
+    /// beside another run either way.
+    func canStartARun(over ids: [String]) -> Bool {
+        let chosen = Set(ids)
+        return chosen.isEmpty || !chosen.isSubset(of: onTheTelevision(ids)) ? canStartARun : !jobRunning
+    }
+
+    /// Which of `ids` are the television's rows, as they are held now.
+    private func onTheTelevision(_ ids: [String]) -> Set<String> {
+        Set(model?.tvHost?.titles.map(\.id) ?? []).intersection(ids)
+    }
+
     /// Whether one recording may be deleted or protected now, for the buttons that do it: not while the recorder
     /// works, and not while a run over its rows is under way, which puts no line on the strip and walks the list
     /// those would write to. Playback and the power go by the recorder's work alone (`isBusy(for:)`): none of them
@@ -104,9 +117,9 @@ extension RecorderHost {
     /// A run a driver will not begin (`RunDriver.beginRun`) is a job all the same, one that has ended
     /// already with why, so that the screen that asked for it says so where it says what a run came to.
     ///
-    /// Nothing starts, and nothing is said, while a run may not be started (`canStartARun`): the press came
-    /// from a confirm or a menu left open after its button went grey, and the job that stands is left as it
-    /// is. False then, for the screen to keep the selection the press was about; true otherwise, a job set or
+    /// Nothing starts, and nothing is said, while a run over these may not be started (`canStartARun(over:)`): the
+    /// press came from a confirm or a menu left open after its button went grey, and the job that stands is left as
+    /// it is. False then, for the screen to keep the selection the press was about; true otherwise, a job set or
     /// none asked for.
     ///
     /// `ids` are the rows' ids, whichever device holds them: a television's is its uri, which no recorder's number
@@ -114,10 +127,10 @@ extension RecorderHost {
     /// recorder that is away, and a recorder's are as they always were with a television that is.
     @discardableResult
     func startBulk(_ kind: BulkJob.Kind, ids: [String]) -> Bool {
-        guard canStartARun, jobTask == nil else { return false }
+        guard canStartARun(over: ids), jobTask == nil else { return false }
         guard !ids.isEmpty, let driver = recorderDriver else { return true }
         let television = model?.tvHost
-        let onTV = Set(television?.titles.map(\.id) ?? []).intersection(ids)
+        let onTV = onTheTelevision(ids)
         job = BulkJob(kind: kind, total: ids.count, onTV: onTV, onTheRecorder: onTV.count < Set(ids).count)
         let said = self.said
         var sides: [DeviceSlot: RunSide] = [:]

@@ -491,9 +491,9 @@ struct GroupSheet: View {
                     }
                     .accessibilityLabel("保護をまとめて変更")
                     // What starts a run is held while one is under way, and while the recorder works or
-                    // connects (`AppModel.canStartARun`): here, on the bar under the selection, and on the
-                    // confirm of the bulk delete.
-                    .disabled(!model.canStartARun || members.isEmpty)
+                    // connects, where a recorder's row is among them (`AppModel.canStartARun(over:)`): here, on
+                    // the bar under the selection, and on the confirm of the bulk delete.
+                    .disabled(!model.canStartARun(over: members) || members.isEmpty)
                 }
                 ToolbarItem(placement: .topBarTrailing) { SheetCloseButton().disabled(asking) }
             }
@@ -516,7 +516,7 @@ struct GroupSheet: View {
                             selected = []
                         }
                     }
-                    .disabled(!model.canStartARun)
+                    .disabled(!model.canStartARun(over: chosen))
                     Button("キャンセル", role: .cancel) {}
                 case .one(let title):
                     Button("削除する", role: .destructive) { ask { await model.delete(title) } }
@@ -623,7 +623,7 @@ struct GroupSheet: View {
             }
             .buttonStyle(.bordered)
         }
-        .disabled(!model.canStartARun)
+        .disabled(!model.canStartARun(over: chosen))
         .padding(12)
         .background(.regularMaterial)
     }

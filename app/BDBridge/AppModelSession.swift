@@ -174,6 +174,7 @@ extension AppModel {
     var jobRunning: Bool { recorderHost.jobRunning }
     var jobIsOnTheTelevision: Bool { recorderHost.jobIsOnTheTelevision }
     var canStartARun: Bool { recorderHost.canStartARun }
+    func canStartARun(over titles: [RecordedTitle]) -> Bool { recorderHost.canStartARun(over: titles.map(\.id)) }
     var canAlterARecording: Bool { recorderHost.canAlterARecording }
     var scannedForDuplicates: Bool { recorderHost.scannedForDuplicates }
     @discardableResult

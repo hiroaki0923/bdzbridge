@@ -456,6 +456,33 @@ final class TVTitlesTests: XCTestCase {
         try await until("the job never ended") { model.job?.finished == true }
     }
 
+    /// What the recorder is doing is nothing to a run of the television's rows alone, which starts; a run with a row
+    /// of the recorder's among them is held as it always was, and an empty one goes by the recorder's conditions.
+    func testTheRowsChosenSayWhoseConditionsAreAsked() async throws {
+        let home = try await atHome()
+        let model = home.model
+        let onTV = try tvRow(model)
+        let onTheRecorder = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+
+        await home.recorder.hold(only: "X_GetTitleList")
+        let reading = Task { await model.loadTitles(force: true) }
+        try await until("the recorder was never busy") { model.isBusy }
+
+        XCTAssertFalse(model.canStartARun)
+        XCTAssertTrue(model.canStartARun(over: [onTV]), "the recorder's work held a run of the television's rows")
+        XCTAssertFalse(model.canStartARun(over: [onTV, onTheRecorder]))
+        XCTAssertFalse(model.canStartARun(over: []))
+        XCTAssertFalse(model.startBulk(.delete, ids: [onTV.id, onTheRecorder.id]))
+        XCTAssertNil(model.job, "a run with a row of the recorder's started beside its work")
+
+        XCTAssertTrue(model.startBulk(.protecting(true), ids: [onTV.id]))
+        try await until("the job never ended") { model.job?.finished == true }
+        XCTAssertEqual(try tvRow(model).protected, true)
+
+        await home.recorder.letGo()
+        await reading.value
+    }
+
     // MARK: - that it is still the same recording
 
     /// A uri that now names another recording is sent nothing, the sheet is told why, and the list is read again,
