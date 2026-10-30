@@ -782,6 +782,53 @@ extension LiveTVTests {
         }
     }
 
+    /// The recordings asked for in every other way the television's signatures offer: `getContentCount` 1.1 by
+    /// `type` and `target`, and `getContentList` 1.5 by `view`, `target`, `type` and `filter`. Makes nothing; run
+    /// when the television's own list shows more recordings than `testReadingTheRecordings` read. It says the
+    /// disk's capacity and free space, to hold against the sizes of the rows, and for each way how many rows came
+    /// or the error's code, with the rows themselves where they are not the plain list's.
+    ///
+    ///     TV_HOST=192.0.2.20 TV_JAR=<the jar> swift test --filter LiveTVTests/testOtherWaysOfAskingForTheRecordings
+    func testOtherWaysOfAskingForTheRecordings() async throws {
+        let client = try recordingsClient()
+        let say = Self.sayAtOnce
+        await Self.sayingPower(of: client, say, "at first")
+        await ask("getStorageList", of: client, say, afterwards: false) {
+            let disk = try await client.storage()
+            return "mounted \(disk.mounted), free \(disk.freeMB ?? -1) MB of \(disk.totalMB ?? -1) MB"
+        }
+        let source = ScalarClient.recordingsSource
+        for type in [nil, "", "video", "recording", "recorded", "tv", "movie"] as [String?] {
+            for target in [nil, "", "all", "video", "recording", "recorded", "new"] as [String?] {
+                var params: [String: ScalarValue] = ["source": .string(source)]
+                if let type { params["type"] = .string(type) }
+                if let target { params["target"] = .string(target) }
+                await ask("count, type \(type ?? "-"), target \(target ?? "-")", of: client, say, afterwards: false) {
+                    "\(try await client.contentCount(version: "1.1", params: params))"
+                }
+            }
+        }
+        let plain = try await client.contentPage(version: "1.5", params: ["uri": .string(source), "stIdx": 0, "cnt": 50])
+        say("the plain list: \(plain.count) rows")
+        for line in RecordingRows.each(plain) { say("  " + line) }
+        let ways: [(String, [String: ScalarValue])] =
+            ["flat", "tree", "all", "folder", "group"].map { ("view \($0)", ["view": .string($0)]) }
+            + ["all", "video", "recording", "recorded", "new"].map { ("target \($0)", ["target": .string($0)]) }
+            + ["video", "recording", "recorded", "tv", "movie"].map { ("type \($0)", ["type": .list([.string($0)])]) }
+            + ["all", "new", "recorded", "recording", "protected"].map { ("filter \($0)", ["filter": .list([.string($0)])]) }
+            + [("view flat, target all", ["view": "flat", "target": "all"])]
+        for (label, extra) in ways {
+            var params: [String: ScalarValue] = ["uri": .string(source), "stIdx": 0, "cnt": 50]
+            params.merge(extra) { _, new in new }
+            await ask("list, \(label)", of: client, say, afterwards: false) {
+                let rows = try await client.contentPage(version: "1.5", params: params)
+                if rows != plain { for line in RecordingRows.each(rows) { say("  " + line) } }
+                return "\(rows.count) rows\(rows == plain ? ", as the plain list" : "")"
+            }
+        }
+        await Self.sayingPower(of: client, say, "at the end")
+    }
+
     /// The pages of a list in the version `TV_CONTENT_VERSION` names, at and past its end: the list read fifty
     /// rows at a time until a short page, then a page from the row one past the last, from the number of rows,
     /// from one more and from fifty more, pages of a hundred and of two hundred from the first, and one row from
