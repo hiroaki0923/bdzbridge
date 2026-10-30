@@ -431,6 +431,31 @@ USB HDD がつながっているかとその残容量を 3 つの経路で確か
   答えるまでにかかった時間を出します。起こしてから USB HDD を答えるまでの時間は `LiveSlotAfterAWakeTests`
   （読むだけ。5 秒ごとに最長 3 分読み、読むたびの経過時間と、登録済みのディスクがあったかどうかだけを出す）。
 
+### USB HDD の録画
+
+USB HDD を 1 台つないで登録した BDZ-FBT4100 で確かめたものです。
+
+- **`X_GetTitleList` は、SearchCriteria が空だと本体の HDD の行だけを返します。** USB HDD の行は
+  `recordDestinationID="USBHDD"` で読みます。行の要素は本体の HDD と同じで、`recordingFlag` と
+  `recordDestinationID` も埋まり、id の上位だけが違います（本体の HDD は `0x0000`、USB HDD は `0x0002`）。読めない
+  条件は全件として扱われるので、USB HDD として読んだ行は `recordDestinationID` で絞り直します。
+  アプリは、USB HDD が答えていて録画できるディスクなら、本体の HDD のあとに続けて読み、1 つの一覧にします
+  （`RecorderDriver.titles`）。起こした直後で USB HDD がまだ答えていなければ、先に最長 10 秒待ちます。USB HDD の
+  読み取りが断られても、答えられなくても、本体の HDD の一覧はそのまま使います。USB HDD の無い家では何も増えません。
+- `X_GetTitleDetail` は USB HDD の行にも答え、知らない id には本体の HDD と同じ **820** を返します。
+- `X_UpdateTitle` の保護と名前の変更、`X_DeleteTitle` も通ります（一度）。保護したままの削除は **877** です。
+- 再生は、`powerstatus` が `PowerOn` のときに `play` と `stop` が通りました（一度。終わった録画で。`play` から
+  `Playing` まで約 4 秒、`stop` から `Stopped` まで約 3.5 秒）。再生中の `X_GetPlayStatus` には `chapterNumber`、
+  `item`、`position`、`recordDestinationID` が増えます。再生のあとも id は同じで、`titleNewFlag` は消え、
+  `lastPlaybackTime` に続きの位置と日時が入ります。録画中の行の再生は確かめていません。
+- **USB HDD の録画は、録画が終わると id が変わります**（一度。録画中の id より 1 小さい値になった）。本体の HDD で
+  変わるかは確かめていません。そのためアプリは、USB HDD で録画中の行には保護も削除も送らず（一括では飛ばす）、重複の
+  検出でも番組内容を尋ねず、残しません（`RecordedTitle.idChangesWhenItEnds`）。本体の HDD の録画中の行は今までどおりです。
+- **id はそのディスクの上でしか意味を持ちません。** アプリの行は読んだときのディスクを持ち、USB HDD がそのディスク
+  でなくなったとき（別のディスク、または「無し」）は、その行への保護と削除を送らず、一括の処理と重複の検出はそこで
+  止め、一覧を読み直します（`RecorderDriver.whyNot(altering:usb:)`）。USB HDD がまだ答えていない間は、送る前に上と
+  同じに待ちます。抜き差しの前後で id が同じかは確かめていません。
+
 ### 受信できないチャンネルは番組指定で予約できない（831）
 
 `X_CreateRecordSchedule` に `desiredMatchingID` を付けて**受信契約のないチャンネル**を指定すると **831** が返ります。
@@ -462,8 +487,8 @@ USB HDD がつながっているかとその残容量を 3 つの経路で確か
 **`recordingFlag` は録画中を意味します。** 録画は始まった時点で一覧に現れ、そのタイトルを
 `X_DeleteTitle` しようとすると **errorCode の無い HTTP 500** が返ります（「保護中」の 820 のような
 手がかりは無い）。したがって削除の前にこのフラグを見ること。実機（BDZ-FBT4100）では完了した
-タイトルが `0` であることを確認済みで、録画中に `1` になるところは未観測です — 予約一覧側の
-同名フラグと同じ意味だと解釈しています。
+タイトルが `0`、USB HDD に録画中のタイトルが `1` であることを確認済みです。本体の HDD に録画中の行が `1` に
+なるところは未観測で、予約一覧側の同名フラグと同じ意味だと解釈しています。
 
 `X_GetTitleList` の item（17 項目）:
 `desiredQualityMode` `genreID` `lastPlaybackTime` `markingID` `portableRecordFile` `recordDestinationID`
