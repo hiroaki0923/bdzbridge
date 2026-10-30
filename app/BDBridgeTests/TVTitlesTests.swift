@@ -626,6 +626,71 @@ final class TVTitlesTests: XCTestCase {
         XCTAssertNil(model.tvTitlesNote)
     }
 
+    /// The wait is a television's line, after everything about the recorder: what the recorder has to say, and the
+    /// way to reconnect to it, stay. Nor does it keep the tab from saying that the recorder is not there, which
+    /// has the way to connect: rows, or the note, do that.
+    func testTheWaitGivesWayToTheRecordersLines() async throws {
+        let rows = [Self.recording(1)]
+        let home = try await atHome(rows, read: false)
+        let model = home.model
+        await home.television.leavesOutOfItsList(Set(rows.map(\.uri)))
+        await model.loadTVTitles()
+        await home.recorder.goQuiet(for: 1000)
+        await model.connect()
+        try await untilGivenUp(model)
+        XCTAssertFalse(model.connected)
+
+        await home.door.hold(only: "getContentList")
+        let waiting = Task { await model.waitForTVTitles() }
+        try await until("the wait never began") { await home.door.isHolding }
+        XCTAssertTrue(model.waitingForTVTitles)
+        XCTAssertEqual(model.strip(), .recorderGaveUp, "the wait hid the recorder's 再接続")
+        XCTAssertFalse(model.tvHasSomethingToShow, "the wait alone kept the tab from saying so")
+        model.tvHost?.report = "送信の結果"
+        XCTAssertEqual(model.strip(), .report("送信の結果", inFull: true), "the wait hid what a sending came to")
+        model.closeQueueReport()
+
+        waiting.cancel()
+        await home.door.letGo()
+        await waiting.value
+    }
+
+    /// With nothing above it, the wait is on the strip.
+    func testTheWaitIsOnTheStripWithNothingAboveIt() async throws {
+        let rows = [Self.recording(1)]
+        let home = try await atHome(rows, read: false)
+        let model = home.model
+        await home.television.leavesOutOfItsList(Set(rows.map(\.uri)))
+        await model.loadTVTitles()
+        await home.door.hold(only: "getContentList")
+        let waiting = Task { await model.waitForTVTitles() }
+        try await until("the wait never began") { await home.door.isHolding }
+        XCTAssertEqual(model.strip(), .busy(TVDriver.titlesComingLine))
+        waiting.cancel()
+        await home.door.letGo()
+        await waiting.value
+    }
+
+    /// A wait a failed read ended leaves a disk that holds something and no rows: the empty list still says that they
+    /// are on their way and not that there are none. Of the television's rows only: narrowed to the recorder's disk
+    /// it says what that list says.
+    func testAnEmptyListGoesByWhatTheLastReadSaid() async throws {
+        let rows = [Self.recording(1)]
+        let home = try await atHome(rows, read: false)
+        let model = home.model
+        XCTAssertFalse(model.tvTitlesStillComing)
+        await home.television.leavesOutOfItsList(Set(rows.map(\.uri)))
+        await model.loadTVTitles()
+        await home.television.goSilent()
+
+        await model.waitForTVTitles()
+
+        XCTAssertFalse(model.waitingForTVTitles)
+        XCTAssertTrue(model.tvTitlesStillComing, "the list would say that there are no recordings")
+        model.titleDestination = RecorderDisk.internalID
+        XCTAssertFalse(model.tvTitlesStillComing)
+    }
+
     /// Still short once the wait is over, the note is said, under the list: of the television's rows, so not of a
     /// list narrowed to the recorder's disk. Not an error: nothing is on the strip or on either device's line.
     func testAListThatNeverComesHasItsNote() async throws {
@@ -686,6 +751,7 @@ final class TVTitlesTests: XCTestCase {
         XCTAssertEqual(model.shownFreeBytes, model.storage?.free)
         XCTAssertNil(model.tvTitlesNote)
         XCTAssertFalse(model.waitingForTVTitles)
+        XCTAssertFalse(model.tvTitlesStillComing)
         XCTAssertFalse(model.tvHasSomethingToShow, "rows held of a recorder that is away would be shown")
         XCTAssertEqual(model.tvTitlesToRead, "0-0")
         let row = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })

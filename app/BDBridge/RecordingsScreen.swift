@@ -238,7 +238,7 @@ struct RecordingsScreen: View {
     /// is on its way.
     @ViewBuilder
     private var noTitles: some View {
-        if model.waitingForTVTitles {
+        if model.tvTitlesStillComing {
             ContentUnavailableView {
                 Label("読み込み中", systemImage: "play.rectangle")
             } description: {

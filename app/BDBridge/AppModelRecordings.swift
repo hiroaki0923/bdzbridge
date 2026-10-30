@@ -58,20 +58,24 @@ extension AppModel {
     /// Whether that wait is under way, for the strip and the screen to say so.
     var waitingForTVTitles: Bool { tvHost?.waitingForTitles == true }
 
+    /// Whether the television's rows are among what the list shows.
+    private var tvRowsAreShown: Bool { shownDestination == nil || shownDestination == TVDriver.recordsTo }
+
     /// What the list says of the television's recordings under its rows: only where a read has found more on the
     /// disk than the list holds, and while its rows are among what is shown. Not an error, which the strip would say.
     var tvTitlesNote: String? {
-        guard tvHost?.titlesAccount == .someAreMissing,
-              shownDestination == nil || shownDestination == TVDriver.recordsTo else { return nil }
-        return TVDriver.titlesMissing
+        tvHost?.titlesAccount == .someAreMissing && tvRowsAreShown ? TVDriver.titlesMissing : nil
     }
 
+    /// What an empty list goes by: whether the television's list may still be coming, the last read having said so,
+    /// while its rows are among what is shown. So with no read under way as well: a wait a failed read ended leaves
+    /// a disk that holds something, and the list is not to say that there is nothing.
+    var tvTitlesStillComing: Bool { tvHost?.titlesAccount == .mayStillBeComing && tvRowsAreShown }
+
     /// Whether the television has anything for the tab to show with no recorder connected: its rows, or that they
-    /// are on their way or short of its disk. Otherwise the tab says what it says of a recorder that is not there,
-    /// as it does with no television, rows held of that recorder or not.
-    var tvHasSomethingToShow: Bool {
-        tvHost?.titles.isEmpty == false || tvTitlesNote != nil || waitingForTVTitles
-    }
+    /// are short of its disk. Otherwise the tab says what it says of a recorder that is not there, as it does with no
+    /// television, rows held of that recorder or not, and a wait alone does not take that way of connecting away.
+    var tvHasSomethingToShow: Bool { tvHost?.titles.isEmpty == false || tvTitlesNote != nil }
 
     /// The recordings of both devices, the recorder's first and in no order of the list's: put together each time
     /// they are read, and kept apart where they are held, since a read of either replaces its own list whole.
