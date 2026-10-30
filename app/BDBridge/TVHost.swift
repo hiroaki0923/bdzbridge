@@ -102,22 +102,30 @@ final class TVHost: LinkHost {
         titlesAccount = read.account
     }
 
+    /// Whether a job is walking the television's rows. Nothing reads the list beside it: a read is two requests,
+    /// the disk's and the list's, and with a delete between them the disk counts a row the list no longer has, which
+    /// would be said as rows missing. The job reads the list as it ends (`RecorderHost.jobEnded`).
+    private var aJobWalksTheList: Bool { model?.recorderHost.jobIsOnTheTelevision == true }
+
     /// Reads the recordings, as the recordings tab does when it opens. What cannot be read leaves what is held,
     /// and the line says why.
     func loadTitles() async {
         await model?.start()
+        guard !aJobWalksTheList else { return }
         _ = await driver?.titles { self.keep($0) }
     }
 
     /// What pulling the recordings down asks of the television: the list read now, or a connect (`TVDriver`).
     func refreshTitles() async {
         await model?.start()
+        guard !aJobWalksTheList else { return }
         await driver?.refreshTitles { self.keep($0) }
     }
 
-    /// Reads again a list that may still be coming, for as long as the screen's task lasts (`TVDriver`).
+    /// Reads again a list that may still be coming, for as long as the screen's task lasts (`TVDriver`), and not
+    /// beside a job, which the screen's task is ended for.
     func waitForTitles() async {
-        guard titlesAccount == .mayStillBeComing, let driver, driver.canBeAsked else { return }
+        guard titlesAccount == .mayStillBeComing, !aJobWalksTheList, let driver, driver.canBeAsked else { return }
         waitingForTitles = true
         defer { waitingForTitles = false }
         await driver.waitForTitles { self.keep($0) }

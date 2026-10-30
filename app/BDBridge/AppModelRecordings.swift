@@ -32,7 +32,7 @@ extension AppModel {
     /// Pulling the recordings' tab down, which is the reader asking: both devices side by side, so that neither
     /// device's silence holds the other's list up, and each but while a job walks its own.
     func pullDownTitles() async {
-        async let television: Void? = jobIsOnTheTelevision ? nil : tvHost?.refreshTitles()
+        async let television: Void? = tvHost?.refreshTitles()
         await refreshTitles()
         await television
     }
@@ -45,8 +45,11 @@ extension AppModel {
     var tvTitlesToRead: String { "\(tvTimesForgotten)-\(tv?.session.timesAttached ?? 0)" }
 
     /// What says when a list that may still be coming is to be waited for: as `tvTitlesToRead`, for a television
-    /// lost during a wait, and as the list comes to be one.
-    var tvTitlesToWaitFor: String { "\(tvTitlesToRead)-\(tvHost?.titlesAccount == .mayStillBeComing)" }
+    /// lost during a wait, as the list comes to be one, and as a job begins or ends on its rows, the task ending
+    /// with it and beginning again after.
+    var tvTitlesToWaitFor: String {
+        "\(tvTitlesToRead)-\(tvHost?.titlesAccount == .mayStillBeComing)-\(jobIsOnTheTelevision)"
+    }
 
     /// Reads again a television's list that may still be coming, for as long as the screen's task lasts
     /// (`TVHost.waitForTitles`), a screen left going on with what is left of the wait.

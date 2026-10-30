@@ -243,12 +243,17 @@ extension RecorderHost {
     /// ran -- a return to the app, a look that found another network -- is made now (`DeviceLink.connectIfOwed`),
     /// as it would have been without the job: unless the job, or anything else, met silence after it was turned
     /// away, which has given the recorder up (`DeviceLink.lost`). The television's the same, for a job that held
-    /// its connect off. The last thing either loop does.
+    /// its connect off. A job that walked the television's rows reads its list, which nothing read meanwhile: what
+    /// it found there as it stopped or passed a row over -- a disk gone, a row protected, another recording under a
+    /// uri -- is shown by that, as a single write's read again shows it (`TVHost.delete`). The last thing either
+    /// loop does.
     private func jobEnded() async {
+        let walkedTheTelevision = job?.onTV.isEmpty == false
         job?.finished = true
         jobTask = nil
         await link.connectIfOwed()
         await model?.tv?.connectIfOwed()
+        if walkedTheTelevision { await model?.tvHost?.loadTitles() }
     }
 
     /// Waits, before a bulk job or the scan takes its next step, for as long as the app is in the background.

@@ -335,7 +335,64 @@ final class TVTitlesTests: XCTestCase {
         XCTAssertEqual(model.tvDriver?.facts.storage?.freeMB, 19_400)
         let asked = await home.television.calls.dropFirst(calls)
         XCTAssertEqual(asked.filter { $0.hasPrefix("deleteContent") }.count, 2)
-        XCTAssertEqual(asked.filter { $0.hasPrefix("getStorageList") }.count, 1, "read once, as the run ended")
+        XCTAssertEqual(asked.filter { $0.hasPrefix("getStorageList") }.count, 2,
+                       "the free space as the run ended, and the list's own read after it")
+    }
+
+    /// Nothing reads the list beside a run over its rows, at the tab, on a pull-down or in the wait: with a delete
+    /// between a read's two requests the disk counts a row the list no longer has, which would be said as rows
+    /// missing. The wait's task is told, and one read is made as the run ends.
+    func testNoReadGoesBesideARunOverItsRows() async throws {
+        let rows = [Self.recording(1), Self.recording(2)]
+        let home = try await atHome(rows)
+        let model = home.model
+        await home.television.leavesOutOfItsList(Set(rows.map(\.uri)))
+        await model.loadTVTitles()
+        await home.television.leavesOutOfItsList([rows[1].uri])
+        await model.loadTVTitles()
+        XCTAssertEqual(model.tvHost?.titlesAccount, .mayStillBeComing)
+        let row = try tvRow(model)
+        let idle = model.tvTitlesToWaitFor
+
+        await home.door.hold(only: "deleteContent")
+        XCTAssertTrue(model.startBulk(.delete, ids: [row.id]))
+        try await until("the delete was never sent") { await home.door.isHolding }
+        XCTAssertNotEqual(model.tvTitlesToWaitFor, idle, "the wait's task was not told")
+
+        try await within(2, "a read went behind the delete") { await model.loadTVTitles() }
+        try await within(2, "a pull-down went behind the delete") { await model.tvHost?.refreshTitles() }
+        try await within(2, "the wait went on beside the job") { await model.waitForTVTitles() }
+        XCTAssertFalse(model.isBusy(for: .tv), "a read's line went up beside the run")
+
+        await home.television.leavesOutOfItsList([])
+        await home.door.letGo()
+        try await until("the job never ended") { model.job?.finished == true }
+        try await until("the list was not read as the run ended") { model.tvHost?.titles.count == 1 }
+        XCTAssertEqual(model.tvHost?.titlesAccount, .addsUp)
+        XCTAssertNil(model.tvTitlesNote, "the note was said of a run's own delete")
+    }
+
+    /// What a run finds and does not act on, the end of it shows, as a single write's read again does: a row
+    /// protected since it was read, and a disk gone.
+    func testARunsEndShowsWhatItFound() async throws {
+        let home = try await atHome()
+        let model = home.model
+        let row = try tvRow(model)
+        await home.television.records([Self.recording(1, protected: true), Self.recording(2)])
+        XCTAssertFalse(row.protected)
+
+        XCTAssertTrue(model.startBulk(.delete, ids: [row.id]))
+        try await until("the list was not read as the run ended") {
+            model.job?.finished == true && model.row(like: row)?.protected == true
+        }
+        XCTAssertEqual(model.job?.skipped.map(\.reason), [RecorderDriver.protectedCannotBeDeleted])
+
+        let gone = try await atHome()
+        await gone.television.unmount()
+        XCTAssertTrue(gone.model.startBulk(.delete, ids: [try tvRow(gone.model).id]))
+        try await until("the rows stayed with the disk gone") { gone.model.tvHost?.titles.isEmpty == true }
+        XCTAssertEqual(gone.model.job?.stopped, .said("録画用の USB HDD が見つかりません"))
+        XCTAssertEqual(gone.model.titleDestinations, [], "the filter offered a disk that has gone")
     }
 
     /// A bulk protect the same, and what is already so is passed over in the driver's sentence.
