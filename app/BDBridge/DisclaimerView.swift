@@ -11,7 +11,7 @@ struct DisclaimerView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    Text("BD Bridge は、ソニー製ブルーレイディスクレコーダー（BDZ シリーズ）を家庭内ネットワーク"
+                    Text("RecBridge は、ソニー製ブルーレイディスクレコーダー（BDZ シリーズ）を家庭内ネットワーク"
                          + "越しに操作する、個人が作った非公式のアプリです。ソニーグループとは関係がなく、"
                          + "同社の公式アプリではありません。")
 

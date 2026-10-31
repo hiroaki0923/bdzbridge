@@ -14,7 +14,7 @@ final class TVDriverTests: XCTestCase {
                           inFront: Bool = true) -> (DeviceLink, TVDriver, LinkWorld) {
         let world = LinkWorld()
         world.devices[Stub.host] = television
-        let driver = TVDriver(credentials: credentials, nickname: "BD Bridge", inFront: { inFront })
+        let driver = TVDriver(credentials: credentials, nickname: "RecBridge", inFront: { inFront })
         let link = DeviceLink(host: Stub.host, session: SessionState(device: saved), driver: driver,
                               environment: world.environment)
         link.owner = world
@@ -2202,7 +2202,7 @@ final class TVDriverTests: XCTestCase {
     /// passed and not before: while it is on air, which a programme reserved after it began is from the
     /// first, and at its end, the answer is still that nothing is known to have been made.
     func testWhatARoundForOneRowCameToIsReadAsWhatTheReservationCameTo() {
-        let driver = TVDriver(credentials: MemoryTVCredentials(), nickname: "BD Bridge", inFront: { true })
+        let driver = TVDriver(credentials: MemoryTVCredentials(), nickname: "RecBridge", inFront: { true })
         let row = waiting("サンプル劇場", 50101), other = waiting("サンプル紀行", 50102, in: 3)
         var clashing = row, unlisted = row, daily = row
         clashing.problem = ScalarClient.wouldStop(naming: [Self.weather.row])

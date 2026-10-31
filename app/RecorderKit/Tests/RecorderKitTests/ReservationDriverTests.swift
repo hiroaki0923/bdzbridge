@@ -31,7 +31,7 @@ final class ReservationDriverTests: XCTestCase {
         let televisionWorld = LinkWorld()
         televisionWorld.cache = try temporaryStore()
         televisionWorld.devices[Stub.host] = television
-        let tv = TVDriver(credentials: credentials, nickname: "BD Bridge", inFront: { true })
+        let tv = TVDriver(credentials: credentials, nickname: "RecBridge", inFront: { true })
         let tvLink = DeviceLink(host: Stub.host, session: SessionState(device: nil), driver: tv,
                                 environment: televisionWorld.environment)
         tvLink.owner = televisionWorld

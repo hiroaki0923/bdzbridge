@@ -559,13 +559,13 @@ final class DemoTVTests: XCTestCase {
         let television = DemoTV()
         let tv = ScalarClient(host: Stub.host, transport: television, credentials: MemoryTVCredentials())
         expectEqual(await tv.presence(), .standby(model: DemoTV.model))
-        expectEqual(await tv.enrol(clientID: "BDBridge:test", nickname: "BD Bridge", pin: nil),
+        expectEqual(await tv.enrol(clientID: "BDBridge:test", nickname: "RecBridge", pin: nil),
                     .failed(ScalarClient.screenIsOff))
 
         await television.turn("active")
         expectEqual(await television.power, "active")
         expectEqual(await tv.presence(), .on(model: DemoTV.model))
-        expectEqual(await tv.enrol(clientID: "BDBridge:test", nickname: "BD Bridge", pin: nil), .pinNeeded)
+        expectEqual(await tv.enrol(clientID: "BDBridge:test", nickname: "RecBridge", pin: nil), .pinNeeded)
 
         await television.turn("standby")
         expectEqual(await tv.presence(), .standby(model: DemoTV.model))

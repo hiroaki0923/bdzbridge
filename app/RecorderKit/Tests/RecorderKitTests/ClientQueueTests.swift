@@ -1034,7 +1034,7 @@ final class ClientQueueTests: XCTestCase {
         let gate = TVGate(television)
         let world = LinkWorld()
         world.devices[Stub.host] = gate
-        let driver = TVDriver(credentials: credentials, nickname: "BD Bridge", inFront: { false })
+        let driver = TVDriver(credentials: credentials, nickname: "RecBridge", inFront: { false })
         let link = DeviceLink(host: Stub.host, session: SessionState(), driver: driver,
                               environment: world.environment)
         let host = NoRecorder(world)
