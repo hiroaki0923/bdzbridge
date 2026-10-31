@@ -95,6 +95,14 @@ final class ScreenshotTests: XCTestCase {
             let found = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "詳細：")).firstMatch
             XCTAssertTrue(found.waitForExistence(timeout: 20), "no result said it was found in the details")
         }
+
+        // 9. A television's recordings among the recorder's in the one list. The demo's television is kept in
+        //    memory only, so it is added here, in the launch that is photographed, as a reader adds it.
+        try shot("09_television", arguments: ["-startTab", "settings", "-recordingsMode", "list"]) { app in
+            self.addTheDemosTelevision(app)
+            app.tabBars.buttons["録画"].tap()
+            self.waitFor(app.staticTexts.matching(labelContains("  テレビ  ")).firstMatch, "09_television")
+        }
     }
 
     // MARK: - plumbing
@@ -117,6 +125,27 @@ final class ScreenshotTests: XCTestCase {
 
     private func waitFor(_ element: XCUIElement, _ name: String) {
         XCTAssertTrue(element.waitForExistence(timeout: 30), "\(name): the screen never appeared")
+    }
+
+    /// Finds the demo's television from the settings and registers it by its number. The demo's own connect
+    /// holds the search back at first.
+    private func addTheDemosTelevision(_ app: XCUIApplication) {
+        let search = app.buttons["レコーダーとテレビを探す"]
+        for _ in 0..<8 where !search.waitForExistence(timeout: 2) || !search.isHittable {
+            app.swipeUp()
+        }
+        let enabled = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: search)
+        wait(for: [enabled], timeout: 30)
+        search.tap()
+        let found = app.buttons.matching(labelContains("KJ-SAMPLE")).firstMatch
+        XCTAssertTrue(found.waitForExistence(timeout: 20), "the demo's search did not list its television")
+        found.tap()
+        let number = app.textFields["4 桁の番号"]
+        XCTAssertTrue(number.waitForExistence(timeout: 20), "the sheet did not go straight to the number")
+        number.tap()
+        number.typeText("1234")
+        app.buttons["登録する"].tap()
+        XCTAssertTrue(app.navigationBars["テレビを追加"].waitForNonExistence(timeout: 20), "the sheet did not close")
     }
 
     /// Launches the app on the demo recorder, lets the caller get the screen ready, and attaches the picture.

@@ -57,7 +57,7 @@ final class TVCredentialStoreTests: XCTestCase {
         let kept = try aKeychain()
         let client = ScalarClient(host: "192.0.2.30", transport: DemoTV(power: "active"), credentials: kept.store)
 
-        let enrolled = await client.enrol(clientID: Self.registration.clientID, nickname: "BD Bridge",
+        let enrolled = await client.enrol(clientID: Self.registration.clientID, nickname: "RecBridge",
                                           pin: DemoTV.pin)
 
         XCTAssertEqual(enrolled, .registered(mac: DemoTV.mac))

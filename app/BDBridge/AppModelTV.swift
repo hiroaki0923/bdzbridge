@@ -19,7 +19,7 @@ extension AppModel {
     var tvDriver: TVDriver? { tv?.driver as? TVDriver }
 
     /// What the television is listed as among the devices registered with it.
-    static let tvNickname = "BD Bridge"
+    static let tvNickname = "RecBridge"
 
     /// The line that says what went wrong with a device, for whatever shows a reservation's failure: each
     /// device's host's. Each device's operations write to its own.

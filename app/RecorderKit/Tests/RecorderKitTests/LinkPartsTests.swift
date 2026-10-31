@@ -545,7 +545,7 @@ final class LinkPartsTests: XCTestCase {
         let credentials = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "kept",
                                                             cookieReceived: Date(), cookieMaxAge: 1_209_600))
         let link = DeviceLink(host: Stub.host, session: SessionState(),
-                              driver: TVDriver(credentials: credentials, nickname: "BD Bridge", inFront: { false }),
+                              driver: TVDriver(credentials: credentials, nickname: "RecBridge", inFront: { false }),
                               environment: world.environment)
         link.owner = world
         await link.connect()
@@ -562,7 +562,7 @@ final class LinkPartsTests: XCTestCase {
         let credentials = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "kept",
                                                             cookieReceived: Date(), cookieMaxAge: 1_209_600))
         let link = DeviceLink(host: Stub.host, session: SessionState(),
-                              driver: TVDriver(credentials: credentials, nickname: "BD Bridge", inFront: { false }),
+                              driver: TVDriver(credentials: credentials, nickname: "RecBridge", inFront: { false }),
                               environment: world.environment)
         link.owner = world
         return (world, link)
@@ -587,7 +587,7 @@ final class LinkPartsTests: XCTestCase {
         host.world.cache = store
         let credentials = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "kept",
                                                             cookieReceived: Date(), cookieMaxAge: 1_209_600))
-        let driver = TVDriver(credentials: credentials, nickname: "BD Bridge", inFront: { true })
+        let driver = TVDriver(credentials: credentials, nickname: "RecBridge", inFront: { true })
         let link = DeviceLink(host: Stub.host, session: SessionState(device: DemoTV.mac), driver: driver,
                               environment: host.world.environment)
         link.owner = host

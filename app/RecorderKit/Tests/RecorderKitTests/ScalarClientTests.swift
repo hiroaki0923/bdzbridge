@@ -166,12 +166,12 @@ final class ScalarClientTests: XCTestCase {
         }
         let (tv, store) = client(transport)
 
-        let first = try await tv.register(clientID: "BDBridge:test", nickname: "BD Bridge", pin: nil)
+        let first = try await tv.register(clientID: "BDBridge:test", nickname: "RecBridge", pin: nil)
         XCTAssertEqual(first, .pinNeeded)
         XCTAssertNil(store.load(), "a 401 kept something")
 
         let before = Date()
-        let second = try await tv.register(clientID: "BDBridge:test", nickname: "BD Bridge", pin: "1234")
+        let second = try await tv.register(clientID: "BDBridge:test", nickname: "RecBridge", pin: "1234")
         XCTAssertEqual(second, .registered)
         let kept = try XCTUnwrap(store.load())
         XCTAssertEqual(kept.clientID, "BDBridge:test")
@@ -196,7 +196,7 @@ final class ScalarClientTests: XCTestCase {
         let renewed = HTTPResponse(statusCode: 200, body: Data(#"{"result":[],"id":1}"#.utf8),
                                    headers: ["Set-Cookie": "auth=renewed; Path=/sony/; Max-Age=1209600"])
         let (tv, store) = client(StubTransport(always: renewed), TVCredentials(clientID: "BDBridge:test", cookie: "kept"))
-        let kept = try await tv.renew(nickname: "BD Bridge")
+        let kept = try await tv.renew(nickname: "RecBridge")
         XCTAssertTrue(kept)
         XCTAssertEqual(store.load()?.clientID, "BDBridge:test")
         XCTAssertEqual(store.load()?.cookie, "renewed")
@@ -206,7 +206,7 @@ final class ScalarClientTests: XCTestCase {
             taken.remove()
             return renewed
         }, credentials: taken)
-        let keptAfterwards = try await away.renew(nickname: "BD Bridge")
+        let keptAfterwards = try await away.renew(nickname: "RecBridge")
         XCTAssertFalse(keptAfterwards)
         XCTAssertNil(taken.load(), "a registration taken away while the renewal was out came back")
     }
@@ -218,7 +218,7 @@ final class ScalarClientTests: XCTestCase {
         let displayOff = failed(40005, "display off")
         let (tv, store) = client(StubTransport(always: displayOff))
         do {
-            _ = try await tv.register(clientID: "BDBridge:test", nickname: "BD Bridge", pin: nil)
+            _ = try await tv.register(clientID: "BDBridge:test", nickname: "RecBridge", pin: nil)
             XCTFail("a registration turned down passed for one that wants a PIN")
         } catch let error as ScalarError {
             XCTAssertEqual(error.failure, .needsPower)
@@ -228,7 +228,7 @@ final class ScalarClientTests: XCTestCase {
         let kept = TVCredentials(clientID: "BDBridge:test", cookie: "kept")
         let (off, held) = client(StubTransport(always: displayOff), kept)
         do {
-            _ = try await off.renew(nickname: "BD Bridge")
+            _ = try await off.renew(nickname: "RecBridge")
             XCTFail("a renewal turned down passed for one that went through")
         } catch let error as ScalarError {
             XCTAssertEqual(error.failure, .needsPower)
@@ -236,7 +236,7 @@ final class ScalarClientTests: XCTestCase {
         XCTAssertEqual(held.load(), kept)
 
         let (asked, same) = client(StubTransport(always: HTTPResponse(statusCode: 401)), kept)
-        let renewed = try await asked.renew(nickname: "BD Bridge")
+        let renewed = try await asked.renew(nickname: "RecBridge")
         XCTAssertFalse(renewed)
         XCTAssertEqual(same.load(), kept)
     }
@@ -258,7 +258,7 @@ final class ScalarClientTests: XCTestCase {
             let tv = ScalarClient(host: Stub.host, transport: StubTransport { _, index in index == 0 ? mac : given },
                                   credentials: store)
 
-            let enrolled = await tv.enrol(clientID: "BDBridge:test", nickname: "BD Bridge", pin: "1234")
+            let enrolled = await tv.enrol(clientID: "BDBridge:test", nickname: "RecBridge", pin: "1234")
 
             XCTAssertNotEqual(enrolled, .registered(mac: DemoTV.mac), "\(name): answered as registered")
             XCTAssertEqual(enrolled, .failed(ScalarClient.registrationNotKept), name)
@@ -267,7 +267,7 @@ final class ScalarClientTests: XCTestCase {
 
         let renewing = KeepsNothing(before)
         let tv = ScalarClient(host: Stub.host, transport: StubTransport(always: given), credentials: renewing)
-        let renewed = try await tv.renew(nickname: "BD Bridge")
+        let renewed = try await tv.renew(nickname: "RecBridge")
         XCTAssertFalse(renewed, "a renewal the phone could not keep was said to be kept")
         XCTAssertEqual(renewing.load(), before)
     }
@@ -299,13 +299,13 @@ final class ScalarClientTests: XCTestCase {
         for (name, expected, saving) in ways {
             let tv = ScalarClient(host: Stub.host, transport: StubTransport { _, index in index == 0 ? mac : given },
                                   credentials: SavesOver(before, saving))
-            let enrolled = await tv.enrol(clientID: "BDBridge:test", nickname: "BD Bridge", pin: "1234")
+            let enrolled = await tv.enrol(clientID: "BDBridge:test", nickname: "RecBridge", pin: "1234")
             XCTAssertEqual(enrolled, expected, name)
         }
 
         let renewing = SavesOver(before) { [$0, renewal] }
         let tv = ScalarClient(host: Stub.host, transport: StubTransport(always: given), credentials: renewing)
-        let renewed = try await tv.renew(nickname: "BD Bridge")
+        let renewed = try await tv.renew(nickname: "RecBridge")
         XCTAssertTrue(renewed, "a renewal renewed again in between was said not to be kept")
         XCTAssertEqual(renewing.load(), renewal)
     }
@@ -337,7 +337,7 @@ final class ScalarClientTests: XCTestCase {
             let tv = ScalarClient(host: Stub.host, transport: television, credentials: store)
             let before = await television.calls.count
 
-            expectEqual(await tv.enrol(clientID: "BDBridge:test", nickname: "BD Bridge", pin: pin), expected, name)
+            expectEqual(await tv.enrol(clientID: "BDBridge:test", nickname: "RecBridge", pin: pin), expected, name)
 
             expectEqual(Array(await television.calls.dropFirst(before)), sent, name)
             guard case .registered = expected else {
@@ -353,8 +353,8 @@ final class ScalarClientTests: XCTestCase {
         let mac = ok(#"[[{"option":"WOL","value":"\#(DemoTV.mac)"}]]"#)
         let asked = StubTransport { _, index in index % 2 == 0 ? mac : HTTPResponse(statusCode: 401) }
         let (tv, _) = client(asked)
-        _ = await tv.enrol(clientID: "BDBridge:test", nickname: "BD Bridge", pin: nil)
-        _ = await tv.enrol(clientID: "BDBridge:test", nickname: "BD Bridge", pin: nil, timeout: 2)
+        _ = await tv.enrol(clientID: "BDBridge:test", nickname: "RecBridge", pin: nil)
+        _ = await tv.enrol(clientID: "BDBridge:test", nickname: "RecBridge", pin: nil, timeout: 2)
         expectEqual(await asked.requests.map(\.timeout), [5, ScalarClient.timeout, 2, ScalarClient.timeout])
     }
 
@@ -382,7 +382,7 @@ final class ScalarClientTests: XCTestCase {
             let store = MemoryTVCredentials()
             let tv = ScalarClient(host: Stub.host, transport: television, credentials: store)
 
-            expectEqual(await tv.enrol(clientID: "BDBridge:test", nickname: "BD Bridge", pin: pin,
+            expectEqual(await tv.enrol(clientID: "BDBridge:test", nickname: "RecBridge", pin: pin,
                                        expecting: expecting), expected, name)
 
             expectEqual(await television.calls, sent, name)
@@ -1110,7 +1110,7 @@ final class ScalarClientTests: XCTestCase {
         try await tv.deleteSchedule(TVScheduleRow(id: "recording.31", type: "recording", uri: Self.uri,
                                                   startDateTime: "2026-11-01T21:00:00+0900", durationSec: 1800,
                                                   title: "サンプル劇場"))
-        _ = try await tv.register(clientID: "BDBridge:test", nickname: "BD Bridge", pin: nil)
+        _ = try await tv.register(clientID: "BDBridge:test", nickname: "RecBridge", pin: nil)
         try await tv.changeSchedule(TVScheduleRow(id: "recording.31", type: "recording", uri: Self.uri,
                                                   startDateTime: "2026-11-01T21:00:00+0900", durationSec: 1800,
                                                   title: "サンプル劇場", repeatType: "1", eventId: "12345"),
@@ -1130,7 +1130,7 @@ final class ScalarClientTests: XCTestCase {
                 + #""startDateTime":"2026-11-01T21:00:00+0900","title":"サンプル劇場","type":"recording","#
                 + #""uri":"\#(Self.uri)"}]],"version":"1.1"}"#,
             #"{"id":8,"method":"actRegister","params":[{"clientid":"BDBridge:test","level":"private","#
-                + #""nickname":"BD Bridge"},[{"function":"WOL","value":"no"}]],"version":"1.0"}"#,
+                + #""nickname":"RecBridge"},[{"function":"WOL","value":"no"}]],"version":"1.0"}"#,
             #"{"id":9,"method":"addSchedule","params":[{"durationSec":1800,"eventId":"12345","id":"recording.31","#
                 + #""repeatType":"w7","startDateTime":"2026-11-01T21:00:00+0900","title":"サンプル劇場","#
                 + #""type":"recording","uri":"\#(Self.uri)"}],"version":"1.2"}"#,

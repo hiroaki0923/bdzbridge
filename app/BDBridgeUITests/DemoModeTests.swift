@@ -610,7 +610,7 @@ final class DemoModeTests: XCTestCase {
     }
 
     private func startTheDemo(_ app: XCUIApplication) {
-        XCTAssertTrue(app.staticTexts["BD Bridge"].waitForExistence(timeout: 20), "the tutorial did not come up")
+        XCTAssertTrue(app.staticTexts["RecBridge"].waitForExistence(timeout: 20), "the tutorial did not come up")
         // At a large text size it is further down the tutorial's list than the screen reaches, and a list row
         // is not there to find until it has been scrolled to. Waiting for the tutorial first rather than for
         // the button: the button's own wait would run its full length there before the scroll began.

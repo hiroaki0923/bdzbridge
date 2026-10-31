@@ -509,7 +509,7 @@ struct LocalNetworkNotice: View {
 
     static func detail(scanning: Bool) -> String {
         (scanning ? "許可されると、そのまま検索が始まります。" : "許可されると、そのまま接続します。")
-            + "「許可しない」を選んだ場合は、設定アプリの「BD Bridge」で「ローカルネットワーク」をオンにしてください。"
+            + "「許可しない」を選んだ場合は、設定アプリの「RecBridge」で「ローカルネットワーク」をオンにしてください。"
     }
 
     var body: some View {

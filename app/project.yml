@@ -2,9 +2,8 @@
 # committed all the same (see app/README.md). After editing it, run this and commit what it writes:
 #   brew install xcodegen && cd app && xcodegen generate
 #
-# The app is called BD Bridge. The target is BDBridge without the space, so that the product, the scheme and
-# the archive are one word on a command line; the space belongs to CFBundleDisplayName, which is what a
-# reader sees.
+# The app is called RecBridge, which is CFBundleDisplayName and what a reader sees. The target, the product, the
+# scheme, the archive and the bundle identifier keep the name it was first published under, BDBridge.
 name: BDBridge
 options:
   bundleIdPrefix: jp.hiroaki
@@ -38,7 +37,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: jp.hiroaki.bdbridge
-        MARKETING_VERSION: "0.3.1"
+        MARKETING_VERSION: "0.4"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
@@ -56,7 +55,7 @@ targets:
     info:
       path: BDBridge/Info.plist
       properties:
-        CFBundleDisplayName: BD Bridge
+        CFBundleDisplayName: RecBridge
         # Said outright as well as through the development region, so that what the store lists does not
         # depend on how a build setting resolves.
         CFBundleLocalizations:

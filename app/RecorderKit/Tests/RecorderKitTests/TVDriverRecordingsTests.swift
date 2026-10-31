@@ -38,7 +38,7 @@ final class TVDriverRecordingsTests: XCTestCase {
         let gate = TVGate(television)
         let world = LinkWorld()
         world.devices[Stub.host] = gate
-        let driver = TVDriver(credentials: credentials, nickname: "BD Bridge", inFront: { true }, titlesWait: wait)
+        let driver = TVDriver(credentials: credentials, nickname: "RecBridge", inFront: { true }, titlesWait: wait)
         let link = DeviceLink(host: Stub.host, session: SessionState(device: nil), driver: driver,
                               environment: world.environment)
         link.owner = world

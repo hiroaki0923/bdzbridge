@@ -25,7 +25,7 @@ struct WelcomeView: View {
             List {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("BD Bridge").font(.largeTitle.bold())
+                        Text("RecBridge").font(.largeTitle.bold())
                         // Which recorders first: somebody with another maker's would otherwise go through the
                         // steps below and learn it only from a scan that found nothing. The television is
                         // somewhere to send a reservation, not a guide.

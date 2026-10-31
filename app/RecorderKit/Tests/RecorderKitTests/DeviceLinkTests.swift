@@ -457,7 +457,7 @@ final class DeviceLinkTests: XCTestCase {
         let credentials = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "kept",
                                                             cookieReceived: Date(), cookieMaxAge: 1_209_600))
         let link = DeviceLink(host: Stub.host, session: SessionState(device: saved),
-                              driver: TVDriver(credentials: credentials, nickname: "BD Bridge", inFront: { true }),
+                              driver: TVDriver(credentials: credentials, nickname: "RecBridge", inFront: { true }),
                               environment: world.environment)
         link.owner = world
         return link
