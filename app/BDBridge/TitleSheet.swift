@@ -1,7 +1,8 @@
 import RecorderKit
 import SwiftUI
 
-/// One recording: what it is, playing it on the television, protecting it, and deleting it.
+/// One recording: what it is, playing it on the television, protecting it, and deleting it. A television's row is
+/// not played from here, and what it says of itself is all that is shown of it.
 struct TitleSheet: View {
     let title: RecordedTitle
     @Environment(AppModel.self) private var model
@@ -56,7 +57,7 @@ struct TitleSheet: View {
                     Text(current.title).font(.headline)
                     LabeledContent("放送", value: model.channelName(for: current))
                     LabeledContent("録画", value: Format.dateTime.string(from: current.start))
-                    LabeledContent("長さ", value: Format.duration(current.durationSec))
+                    if current.lengthKnown { LabeledContent("長さ", value: Format.duration(current.durationSec)) }
                     if let size = current.sizeMB {
                         LabeledContent("サイズ", value: String(format: "%.1f GB", Double(size) / 1024))
                     }
@@ -70,62 +71,64 @@ struct TitleSheet: View {
                     }
                 }
 
-                Section("テレビで再生") {
-                    // Held off while the recorder works, and from the press until the sheet's own request is
-                    // answered. 一時停止 is one toggle on the recorder, so a second tap while the first was still
-                    // on its way resumed what the reader had meant to pause; and turning the recorder on to play
-                    // takes long enough to invite a second tap too. 再生 alone is held where its own door would turn
-                    // it away, and says why below: 一時停止 and 停止 are about what is on the television.
-                    let whyNotPlayed = model.whyNot(playing: current)
-                    Group {
-                        Button {
-                            ask { await model.play(current, "play") }
-                        } label: {
-                            // The recorder cannot be told where to start: `play` begins at the beginning whatever
-                            // position is sent (docs/xsrs-api.md). A recording watched partway says so on the
-                            // button, rather than surprise a reader who expected to carry on where they left off.
-                            Label(current.watchState == .partway ? "最初から再生" : "再生", systemImage: "play.fill")
-                        }
-                        .disabled(whyNotPlayed != nil)
-                        Button {
-                            ask { await model.play(current, "pause") }
-                        } label: {
-                            Label("一時停止 / 再開", systemImage: "pause.fill")
-                        }
-                        Button {
-                            ask { await model.play(current, "stop") }
-                        } label: {
-                            Label("停止", systemImage: "stop.fill")
-                        }
-                        if model.needsPower {
+                if current.device == .recorder {
+                    Section("テレビで再生") {
+                        // Held off while the recorder works, and from the press until the sheet's own request is
+                        // answered. 一時停止 is one toggle on the recorder, so a second tap while the first was still
+                        // on its way resumed what the reader had meant to pause; and turning the recorder on to play
+                        // takes long enough to invite a second tap too. 再生 alone is held where its own door would turn
+                        // it away, and says why below: 一時停止 and 停止 are about what is on the television.
+                        let whyNotPlayed = model.whyNot(playing: current)
+                        Group {
                             Button {
-                                ask { await model.powerOn() }
+                                ask { await model.play(current, "play") }
                             } label: {
-                                Label("レコーダーの電源を入れる", systemImage: "power")
+                                // The recorder cannot be told where to start: `play` begins at the beginning whatever
+                                // position is sent (docs/xsrs-api.md). A recording watched partway says so on the
+                                // button, rather than surprise a reader who expected to carry on where they left off.
+                                Label(current.watchState == .partway ? "最初から再生" : "再生", systemImage: "play.fill")
                             }
-                            .foregroundStyle(Color.legibleOrange)
+                            .disabled(whyNotPlayed != nil)
+                            Button {
+                                ask { await model.play(current, "pause") }
+                            } label: {
+                                Label("一時停止 / 再開", systemImage: "pause.fill")
+                            }
+                            Button {
+                                ask { await model.play(current, "stop") }
+                            } label: {
+                                Label("停止", systemImage: "stop.fill")
+                            }
+                            if model.needsPower {
+                                Button {
+                                    ask { await model.powerOn() }
+                                } label: {
+                                    Label("レコーダーの電源を入れる", systemImage: "power")
+                                }
+                                .foregroundStyle(Color.legibleOrange)
+                            }
                         }
+                        .disabled(model.isBusy(for: .recorder) || asking)
+                        Text((whyNotPlayed ?? "レコーダーに接続されたテレビで再生されます。").asABody)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .disabled(model.isBusy(for: .recorder) || asking)
-                    Text((whyNotPlayed ?? "レコーダーに接続されたテレビで再生されます。").asABody)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
                 Section {
-                    // Held while a run is under way as well as while the recorder works
-                    // (`AppModel.canAlterARecording`): a run walks the list these two write to. Playback and the
-                    // power above are not: a playback has to be stoppable through a long scan.
-                    Toggle("保護（自動削除の対象外にする）", isOn: Binding(
+                    // Held while a run is under way as well as while the device works (`AppModel.canAlter`): a run
+                    // walks the list these two write to. Playback and the power above are not: a playback has to
+                    // be stoppable through a long scan.
+                    Toggle(current.device == .tv ? "保護" : "保護（自動削除の対象外にする）", isOn: Binding(
                         get: { current.protected },
                         set: { on in ask { await model.setProtected(current, on) } }))
                     // Not by an id about to go, nor one of a disk gone from the slot: the protect's door's rule,
                     // which the sentence under the delete says as well.
-                    .disabled(model.whyNot(altering: current) != nil || !model.canAlterARecording || asking)
+                    .disabled(model.whyNot(altering: current) != nil || !model.canAlter(current) || asking)
                     // Offered only where the delete's own door would let it through, and why not said from there.
                     let whyNot = model.whyNot(deleting: current)
                     Button("この録画を削除", role: .destructive) { confirmingDelete = true }
-                        .disabled(whyNot != nil || !model.canAlterARecording || asking)
+                        .disabled(whyNot != nil || !model.canAlter(current) || asking)
                     if let whyNot {
                         Text(whyNot.asABody)
                             .font(.caption)
@@ -141,7 +144,7 @@ struct TitleSheet: View {
                         if !text.isEmpty { Section("詳細") { Text(text) } }
                     }
                 }
-                if let problem = model.problem(for: .recorder) {
+                if let problem = model.problem(for: current.device) {
                     Section { Text(problem.asABody).foregroundStyle(.red).font(.callout) }
                 }
             }
@@ -170,7 +173,7 @@ struct TitleSheet: View {
                             return came
                         }
                     }
-                    .disabled(!model.canAlterARecording)
+                    .disabled(!model.canAlter(current))
                     Button("キャンセル", role: .cancel) {}
                 } else {
                     Button("OK", role: .cancel) {}
@@ -181,12 +184,12 @@ struct TitleSheet: View {
                 } else if let told {
                     Text(told.asABody)
                 } else {
-                    Text("\(current.title)\nレコーダーから削除され、元に戻せません。")
+                    Text("\(current.title)\n" + [current].deletedForGood.asABody)
                 }
             }
             .onChange(of: deleted) { if $1 { dismiss() } }
             .onChange(of: goneFromTheList) { if $1 { dismiss() } }
-            .closesWithItsRecorder()
+            .closesWithItsDevice(title.device)
         }
     }
 

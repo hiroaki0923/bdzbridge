@@ -156,6 +156,7 @@ extension AppModel {
         if demo, DemoData.banner, !inSheet { return .demo }
         if connectBlocked { return .blocked }
         if gaveUp { return .recorderGaveUp }
+        if waitingForTVTitles { return .busy(TVDriver.titlesComingLine) }
         if tv?.session.connectBlocked == true { return .blocked }
         if tvDriver?.facts.needsPairing == true { return .tvNeedsPairing }
         if tv?.session.gaveUp == true { return .tvGaveUp }

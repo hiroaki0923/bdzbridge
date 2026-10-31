@@ -41,9 +41,8 @@ struct TVSection: View {
                     if let storage = model.tvDriver?.facts.storage {
                         // The television's MB taken as a million bytes, as the recorder's are.
                         LabeledContent("USB ハードディスク",
-                                       value: Format.storage(mounted: storage.mounted,
-                                                             freeBytes: storage.freeMB.map { $0 * 1_000_000 },
-                                                             totalBytes: storage.totalMB.map { $0 * 1_000_000 }))
+                                       value: Format.storage(mounted: storage.mounted, freeBytes: storage.freeBytes,
+                                                             totalBytes: storage.totalBytes))
                     }
                     if model.tvDriver?.facts.needsPairing == true {
                         Button("登録する") { sheet = TVSheetRequest(host: tv.host, connectAtOnce: false, again: true) }

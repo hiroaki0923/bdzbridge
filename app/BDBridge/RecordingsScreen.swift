@@ -1,7 +1,8 @@
 import RecorderKit
 import SwiftUI
 
-/// What the recorder has on its disk: a flat list, or the same recordings gathered into programmes.
+/// What the recorder has on its disks and the television on its own: a flat list, or the same recordings gathered
+/// into programmes.
 struct RecordingsScreen: View {
     @Environment(AppModel.self) private var model
     // A launch argument for this key pins it for the whole run: the argument domain outranks what is
@@ -30,7 +31,7 @@ struct RecordingsScreen: View {
     private var shown: Shown? {
         if let failure { return .failed(failure) }
         if let told { return .told(told) }
-        if let key = removing, let title = model.titles.first(where: { $0.listKey == key }) {
+        if let key = removing, let title = model.allTitles.first(where: { $0.listKey == key }) {
             return .confirm(title)
         }
         return nil
@@ -68,14 +69,13 @@ struct RecordingsScreen: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        // Only where there is more than one disk to tell apart.
-                        if !model.diskChoices.isEmpty {
+                        // Only where there is more than one place to tell apart.
+                        if !model.titleDestinations.isEmpty {
                             Picker("録画先", selection: Binding(get: { model.shownDestination },
                                                              set: { model.titleDestination = $0 })) {
                                 Text("すべて").tag(String?.none)
-                                ForEach(model.diskChoices, id: \.destination) { disk in
-                                    Text(RecorderDisk.label(disk.destination, named: disk.name))
-                                        .tag(String?.some(disk.destination))
+                                ForEach(model.titleDestinations, id: \.destination) { place in
+                                    Text(place.label).tag(String?.some(place.destination))
                                 }
                             }
                         }
@@ -105,26 +105,35 @@ struct RecordingsScreen: View {
                         Image(systemName: filtering ? "line.3.horizontal.decrease.circle.fill"
                                                     : "line.3.horizontal.decrease.circle")
                     }
-                    .accessibilityLabel(model.diskChoices.isEmpty ? "ジャンル・並び順・視聴状態で絞り込む"
-                                                                  : "録画先・ジャンル・並び順・視聴状態で絞り込む")
+                    .accessibilityLabel(model.titleDestinations.isEmpty ? "ジャンル・並び順・視聴状態で絞り込む"
+                                                                        : "録画先・ジャンル・並び順・視聴状態で絞り込む")
                 }
             }
             // Keyed on `connected`, and on what the load itself checks, as the keyword conditions' screen is.
             // `connected` turns true partway through a connect, while the recorder is still marked silent
             // from before, and a load set going by it alone finds nothing to ask and is not tried again.
             .task(id: model.connected && !model.offline) { await model.loadTitles() }
+            // The television's beside them, at each opening and each time it is attached: neither waits on the
+            // other, and what becomes of the television is no reason to ask the recorder again.
+            .task(id: model.tvTitlesToRead) { await model.loadTVTitles() }
+            // Its list, come back empty over a disk that holds something, read again while the tab is open.
+            .task(id: model.tvTitlesToWaitFor) { await model.waitForTVTitles() }
             // The disk in the slot has changed since the list was read, or could not be read into it: the
             // recordings of a disk that has gone leave the list, and an open sheet of one closes with its row.
             .task(id: model.titlesOutOfStep) { await model.loadOutdatedTitles() }
-            // Pulling down reads the list again from the recorder, though not while a bulk job is walking it.
-            // With nothing that can be written to the recorder, it is the reader asking for another go, as the
+            // Pulling down reads the list again from both devices, though not while a bulk job is walking it.
+            // With nothing that can be written to a device, it is the reader asking for another go, as the
             // strip's 再接続 is.
-            .refreshable { await model.refreshTitles() }
+            .refreshable { await model.pullDownTitles() }
             .sheet(item: $opened) { TitleSheet(title: $0) }
             .sheet(item: $openedGroup) { GroupSheet(group: $0) }
             // The recording picked for deletion is the last recorder's when its lists are let go of: see
-            // `timesForgotten`. The sheets close themselves.
+            // `timesForgotten`. The sheets close themselves. A television's rows go with its host, and a row of
+            // the other device's stays picked.
             .onChange(of: model.timesForgotten) { removing = nil }
+            .onChange(of: model.tvTimesForgotten) {
+                if !model.allTitles.contains(where: { $0.listKey == removing }) { removing = nil }
+            }
             .alert(shownTitle,
                    isPresented: Binding(get: { shown != nil },
                                         set: { if !$0 { removing = nil; failure = nil; told = nil } }),
@@ -139,7 +148,7 @@ struct RecordingsScreen: View {
                             }
                         }
                     }
-                    .disabled(!model.canAlterARecording)
+                    .disabled(!model.canAlter(title))
                     Button("キャンセル", role: .cancel) {}
                 case .failed, .told:
                     Button("OK", role: .cancel) {}
@@ -166,7 +175,7 @@ struct RecordingsScreen: View {
     static func deleteMessage(_ title: RecordedTitle) -> String {
         var lines = [title.title, Format.dateTime.string(from: title.start)]
         if let size = title.sizeMB { lines.append(String(format: "%.1f GB", Double(size) / 1024)) }
-        return lines.joined(separator: "\n") + "\nレコーダーから削除され、元に戻せません。"
+        return lines.joined(separator: "\n") + "\n" + [title].deletedForGood.asABody
     }
 
     private var filtering: Bool {
@@ -179,16 +188,16 @@ struct RecordingsScreen: View {
         if let busy = model.busy { return busy }
         if duplicating { return "\(model.duplicates.count) 組の重複" }
         let what = grouped ? "\(model.titleGroups.count) 番組" : "\(model.shownTitles.count) 件"
-        let disk = model.shownDestination.map(model.diskLabel)
+        let disk = model.shownDestination.map(model.titleDestinationLabel)
         let genre = model.titleGenre.flatMap { Codes.genreLabel[$0] }
         return ([disk, genre].compactMap { $0 } + [what]).joined(separator: " · ")
     }
 
     @ViewBuilder
     private var content: some View {
-        if !model.connected {
+        if !model.connected, !model.tvHasSomethingToShow {
             NoRecorderView(icon: "play.rectangle", welcoming: $welcoming)
-        } else if model.recorderBusy != nil && model.titles.isEmpty {
+        } else if model.recorderBusy != nil && model.allTitles.isEmpty {
             ContentUnavailableView {
                 Label("読み込み中", systemImage: "play.rectangle")
             } description: {
@@ -204,7 +213,8 @@ struct RecordingsScreen: View {
                     .buttonStyle(.plain)
             }
             .listStyle(.plain)
-            .overlay { if groups.isEmpty { ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle") } }
+            .overlay { if groups.isEmpty { noTitles } }
+            .safeAreaInset(edge: .bottom) { noteOfTheTelevision }
         } else {
             let listed = model.shownTitles
             List(listed) { title in
@@ -213,13 +223,42 @@ struct RecordingsScreen: View {
                                  logo: model.logo(for: title), disk: model.diskShown(title)).rowHitArea()
                 }
                 .buttonStyle(.plain)
-                .titleSwipe(title, whyNot: model.whyNot(deleting: title), held: !model.canAlterARecording,
+                .titleSwipe(title, whyNot: model.whyNot(deleting: title), held: !model.canAlter(title),
                             ask: { removing = title.listKey }, unprotect: {
                     Task { if case .notDone(let why) = await model.setProtected(title, false) { failure = why } }
                 })
             }
             .listStyle(.plain)
-            .overlay { if listed.isEmpty { ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle") } }
+            .overlay { if listed.isEmpty { noTitles } }
+            .safeAreaInset(edge: .bottom) { noteOfTheTelevision }
+        }
+    }
+
+    /// What an empty list says: that there is nothing, or, while a television's list may still be coming, that it
+    /// is on its way.
+    @ViewBuilder
+    private var noTitles: some View {
+        if model.tvTitlesStillComing {
+            ContentUnavailableView {
+                Label("読み込み中", systemImage: "play.rectangle")
+            } description: {
+                Text(TVDriver.titlesComingLine.asABody)
+            }
+        } else {
+            ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle")
+        }
+    }
+
+    /// Under the list, once whatever the rows: there is more on the television's disk than the list holds.
+    @ViewBuilder
+    private var noteOfTheTelevision: some View {
+        if let note = model.tvTitlesNote {
+            Text(note.asABody)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(.regularMaterial)
         }
     }
 }
@@ -231,9 +270,9 @@ extension View {
     /// Offered only where the delete's own door would let it through (`AppModel.whyNot(deleting:)`, handed in as
     /// `whyNot`). The recorder refuses to delete a protected recording, so the swipe offers 保護解除 instead, which
     /// has to happen first. `title` is nil where the row should not be swipeable at all. Both are held while the
-    /// recorder works or a run is under way (`held`, `AppModel.canAlterARecording`), and on a programme's sheet
-    /// while its own request is out: a second delete or protect of a row while one is out, or beside a run that
-    /// walks the list, and nothing held by the television's work.
+    /// device that holds the row works or a run is under way (`held`, `AppModel.canAlter`), and on a programme's
+    /// sheet while its own request is out: a second delete or protect of a row while one is out, or beside a run
+    /// that walks the list, and nothing held by the other device's work.
     func titleSwipe(_ title: RecordedTitle?, whyNot: String?, held: Bool, ask: @escaping () -> Void,
                     unprotect: @escaping () -> Void) -> some View {
         swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -302,7 +341,7 @@ struct TitleRowView: View {
         } else if !channel.isEmpty {
             parts.append(Text(channel))
         }
-        parts.append(Text(Format.duration(title.durationSec)))
+        if title.lengthKnown { parts.append(Text(Format.duration(title.durationSec))) }
         if let size = title.sizeMB { parts.append(Text(String(format: "%.1fGB", Double(size) / 1024))) }
         if let quality = title.qualityName { parts.append(Text(quality)) }
         return parts.dropFirst().reduce(parts[0]) { $0 + Text.rowGap + $1 }
@@ -452,9 +491,9 @@ struct GroupSheet: View {
                     }
                     .accessibilityLabel("保護をまとめて変更")
                     // What starts a run is held while one is under way, and while the recorder works or
-                    // connects (`AppModel.canStartARun`): here, on the bar under the selection, and on the
-                    // confirm of the bulk delete.
-                    .disabled(!model.canStartARun || members.isEmpty)
+                    // connects, where a recorder's row is among them (`AppModel.canStartARun(over:)`): here, on
+                    // the bar under the selection, and on the confirm of the bulk delete.
+                    .disabled(!model.canStartARun(over: members) || members.isEmpty)
                 }
                 ToolbarItem(placement: .topBarTrailing) { SheetCloseButton().disabled(asking) }
             }
@@ -477,11 +516,11 @@ struct GroupSheet: View {
                             selected = []
                         }
                     }
-                    .disabled(!model.canStartARun)
+                    .disabled(!model.canStartARun(over: chosen))
                     Button("キャンセル", role: .cancel) {}
                 case .one(let title):
                     Button("削除する", role: .destructive) { ask { await model.delete(title) } }
-                        .disabled(!model.canAlterARecording || asking)
+                        .disabled(!model.canAlter(title) || asking)
                     Button("キャンセル", role: .cancel) {}
                 case .failed, .told:
                     Button("OK", role: .cancel) {}
@@ -489,8 +528,8 @@ struct GroupSheet: View {
             } message: { shown in
                 switch shown {
                 case .bulk:
-                    Text(String(format: "合計 %.1fGB。保護された録画と録画中のものは削除されません。\n"
-                                + "レコーダーから削除され、元に戻せません。", Self.gigabytes(chosen)))
+                    Text(String(format: "合計 %.1fGB。保護された録画と録画中のものは削除されません。\n",
+                                Self.gigabytes(chosen)) + chosen.deletedForGood.asABody)
                 case .one(let title): Text(RecordingsScreen.deleteMessage(title))
                 case .failed(let reason), .told(let reason): Text(reason.asABody)
                 }
@@ -548,7 +587,7 @@ struct GroupSheet: View {
             .accessibilityAddTraits(selecting && selected.contains(title.listKey) ? .isSelected : [])
             // Not while picking: a swipe there is how the reader scrolls a list of tick boxes.
             .titleSwipe(selecting ? nil : title, whyNot: model.whyNot(deleting: title),
-                        held: !model.canAlterARecording || asking, ask: { removing = title.listKey },
+                        held: !model.canAlter(title) || asking, ask: { removing = title.listKey },
                         unprotect: { ask { await model.setProtected(title, false) } })
         }
         .listStyle(.plain)
@@ -584,7 +623,7 @@ struct GroupSheet: View {
             }
             .buttonStyle(.bordered)
         }
-        .disabled(!model.canStartARun)
+        .disabled(!model.canStartARun(over: chosen))
         .padding(12)
         .background(.regularMaterial)
     }

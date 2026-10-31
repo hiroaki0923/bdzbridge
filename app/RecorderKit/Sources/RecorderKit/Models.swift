@@ -143,6 +143,16 @@ public struct RecordedTitle: Equatable, Sendable, Identifiable {
     /// list. A row's id means something only on its own disk, so that is what says whether it can still be written
     /// to, whichever list or sheet holds the row by then (`RecorderDriver.whyNot(altering:usb:)`).
     public var readFrom: RecorderDisk?
+    /// The device that holds it, as a reservation has it. A television's row is one of its USB disk, its id the uri
+    /// the television lists it by, and whatever writes goes by this first (`AppModel.setProtected`).
+    public var device: DeviceSlot = .recorder
+    /// The station as a television's row names it: it says no service id, so the numbers above are nought. Nil for
+    /// a recorder's, which is named by those numbers.
+    public var channelName: String?
+    /// What a television's row says the programme is about, and more of it: each nil where it says nothing. A
+    /// recorder's says so only when asked (`RecorderDriver.detail`).
+    public var summary: String?
+    public var details: String?
 
     public var end: Date { start.addingTimeInterval(TimeInterval(durationSec)) }
     public var broadcastingName: String? { Codes.broadcasting(code: broadcastingType) }
@@ -151,11 +161,18 @@ public struct RecordedTitle: Equatable, Sendable, Identifiable {
     /// by this one and no text is kept under it. Whether the internal disk's do the same has not been seen, and
     /// its recordings are left as they always were.
     public var idChangesWhenItEnds: Bool { recording && readFrom != nil }
+    /// Whether its length can be said. Not of one a television is recording: its row says nought until it ends. A
+    /// recorder lists what a recording was set to, from the moment it starts.
+    public var lengthKnown: Bool { !(device == .tv && recording) }
     /// What tells this row from another past the read that gave it. A row of the internal disk's list is its id as
     /// it stands, as it always was; one of a USB disk carries the disk in front, since whether two disks give out
-    /// the same number has not been seen, and a number means nothing off its own disk. What is held of a row by
-    /// more than the list goes by this: its programme text, kept for good, a selection on a sheet, a sheet itself.
-    public var listKey: String { readFrom.map { "\($0.registered)|\(id)" } ?? id }
+    /// the same number has not been seen, and a number means nothing off its own disk; and a television's carries
+    /// the device, as its reservations do. What is held of a row by more than the list goes by this: its programme
+    /// text, kept for good, a selection on a sheet, a sheet itself.
+    public var listKey: String {
+        guard device == .recorder else { return "\(device.rawValue)|\(id)" }
+        return readFrom.map { "\($0.registered)|\(id)" } ?? id
+    }
 }
 
 /// One of the disks the recorder records to, as `X_GetMediaInfo` describes it: its own, or whatever disk is in

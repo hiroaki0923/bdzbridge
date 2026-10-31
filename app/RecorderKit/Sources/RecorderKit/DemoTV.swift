@@ -2,8 +2,9 @@ import Foundation
 
 /// An invented Sony BRAVIA: it answers the methods the app uses, in the shapes a real one gives them, and remembers
 /// what it was told -- the clients registered with it, the cookies it gave out, the stations it receives, and
-/// the reservations put on it or made on it by a request until they are deleted. For the tests of the package
-/// and of the app, and for the demo, as `DemoRecorder` is for the recorder. Every value in it is invented.
+/// the reservations put on it or made on it by a request until they are deleted, and the recordings on its disk.
+/// For the tests of the package and of the app, and for the demo, as `DemoRecorder` is for the recorder. Every
+/// value in it is invented.
 ///
 /// Where a real one was sent the app's own requests and what it answered was written down, this one answers
 /// the same and is no kinder: a reservation made by a request is listed under a title of the television's
@@ -43,6 +44,13 @@ public actor DemoTV: HTTPTransport {
     private var numbered = 0
     /// Whether the disk it records to is there.
     private var mounted = true
+    /// What is on that disk, in the order it came into the list, which a real one's was not by date: one by one
+    /// as `Recording` writes them. Worked into the disk's free space (`usedMB`).
+    public private(set) var recordings: [Recording]
+    /// The size of the disk in the television's MB.
+    private let diskMB: Int
+    /// The recordings left out of the list for now, by their uris (`leavesOutOfItsList`).
+    private var leftOut: Set<String> = []
     /// What the next create comes to in place of what it would, when a test has said so.
     private var nextCreate: NextCreate?
     /// The titles it lists a reservation of a programme under, by the programme, as a real one lists its guide's:
@@ -53,17 +61,20 @@ public actor DemoTV: HTTPTransport {
     /// sent, to the byte.
     public private(set) var bodies: [String] = []
 
-    /// `stations` and `holding` are what `receives` and `put` would give it, and `titles` what it lists a
-    /// reservation of a programme under: given as it is made, for whoever makes it where nothing can be
-    /// awaited, as the app makes the demo's television in its transport. Each is empty unless given.
+    /// `stations` and `holding` are what `receives` and `put` would give it, `recordings` what is on its disk, and
+    /// `titles` what it lists a reservation of a programme under: given as it is made, for whoever makes it where
+    /// nothing can be awaited, as the app makes the demo's television in its transport. Each is empty unless given.
     public init(power: String = "standby", mac: String = DemoTV.mac, stations: [Station] = [],
-                holding: [Schedule] = [], titles: [Programme: String] = [:]) {
+                holding: [Schedule] = [], titles: [Programme: String] = [:], recordings: [Recording] = [],
+                diskMB: Int = 1000) {
         self.power = power
         self.mac = mac
         self.stations = stations
         held = holding
         numbered = holding.map(\.number).max() ?? 0
         self.titles = titles
+        self.recordings = recordings
+        self.diskMB = diskMB
     }
 
     /// A programme as a guide knows it: the station's service id and the programme's id, which a reservation
@@ -89,6 +100,73 @@ public actor DemoTV: HTTPTransport {
     /// one has been sent a create with its disk away -- the official app does not send one -- so a client
     /// that sends one is caught here rather than told something no television said.
     public func unmount(_ value: Bool = true) { mounted = !value }
+
+    /// One recording on the invented television's disk, as a real one wrote a row of its list: version 1.5, with
+    /// every field a real one gave but `index`, which is the row's place. Being recorded, it says nought for its
+    /// length and size, whatever `durationSec` and `sizeMB` say of it, and fills the disk all the same.
+    public struct Recording: Sendable, Equatable {
+        /// What its uri is made of, as a real one's was: `usb:recStorage?contentId=<n>`.
+        public var contentID: Int
+        public var title: String
+        public var station: String
+        public var start: Date
+        public var durationSec: Int
+        public var sizeMB: Int
+        public var protected: Bool
+        public var played: Bool
+        public var recording: Bool
+        /// The text, where it has any: a real one left the field out, or wrote it empty, where it had none.
+        public var summary: String?
+        public var details: String?
+        public var genre: Int?
+
+        public init(contentID: Int, title: String = "サンプル番組", station: String = "サンプルテレビ", start: Date,
+                    durationSec: Int = 1800, sizeMB: Int = 3000, protected: Bool = false, played: Bool = false,
+                    recording: Bool = false, summary: String? = nil, details: String? = nil, genre: Int? = nil) {
+            self.contentID = contentID
+            self.title = title
+            self.station = station
+            self.start = start
+            self.durationSec = durationSec
+            self.sizeMB = sizeMB
+            self.protected = protected
+            self.played = played
+            self.recording = recording
+            self.summary = summary
+            self.details = details
+            self.genre = genre
+        }
+
+        public var uri: String { "\(DemoTV.recordingsSource)?contentId=\(contentID)" }
+
+        /// Its row as the list gives it, at `index`: a real one's flags as strings, the length in an object, and
+        /// -1 for `fileSizeByte` where the size does not fit in 32 bits, as a real one wrote it on recordings of
+        /// three gigabytes and more; where the line runs is taken, not seen.
+        func fields(at index: Int) -> [String: Any] {
+            let size = recording ? 0 : sizeMB
+            let bytes = size * 1_000_000
+            var fields: [String: Any] = [
+                "title": title, "channelName": station, "uri": uri, "index": index,
+                "startDateTime": DemoTV.startText(start), "duration": ["durationSec": recording ? 0 : durationSec],
+                "sizeMB": size, "fileSizeByte": bytes > Int(Int32.max) ? -1 : bytes,
+                "isProtected": String(protected), "isAlreadyPlayed": String(played),
+                "recordingInfo": ["isRecording": String(recording)],
+            ]
+            if summary != nil || details != nil {
+                fields["description"] = ["summary": summary ?? "", "detail": details ?? ""]
+            }
+            if let genre { fields["broadcastGenreInfo"] = [["genreId": genre]] }
+            return fields
+        }
+    }
+
+    /// Holds these recordings and no others, each kept in the order given.
+    public func records(_ recordings: [Recording]) { self.recordings = recordings }
+
+    /// Leaves these uris out of its list from now on, and only these, while its disk goes on counting them: as a
+    /// real one's list was short of rows its own screen showed, and empty for a minute or two after a restart, a
+    /// disk full of recordings all the same.
+    public func leavesOutOfItsList(_ uris: Set<String>) { leftOut = uris }
 
     /// What one create can be made to come to, in place of what it would: the things a television or the
     /// network between can do to a create that no test can otherwise bring about.
@@ -383,7 +461,8 @@ public actor DemoTV: HTTPTransport {
             guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
             // A real one whose disk was not there was seen to say that and nothing of its size.
             guard mounted else { return ok(#"[[{"uri":"usb:recStorage","mounted":"unmounted"}]]"#, id) }
-            return ok(#"[[{"uri":"usb:recStorage","mounted":"mounted","wholeCapacityMB":1000,"freeCapacityMB":400}]]"#, id)
+            return ok(#"[[{"uri":"usb:recStorage","mounted":"mounted","wholeCapacityMB":\#(diskMB),"#
+                      + #""freeCapacityMB":\#(diskMB - usedMB)}]]"#, id)
         case "getScheduleList":
             guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
             return json(["result": [listed.map(\.fields)], "id": id])
@@ -395,8 +474,22 @@ public actor DemoTV: HTTPTransport {
             return delete(object, id)
         case "getContentList":
             guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
+            if Self.asks(request, object, of: "avContent", version: "1.5") { return recordingPage(object, id) }
             guard Self.asks(request, object, of: "avContent", version: "1.0") else { return unknown(method, id) }
             return stationPage(object, id)
+        case "getContentCount":
+            guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
+            guard Self.asks(request, object, of: "avContent", version: "1.0")
+                    || Self.asks(request, object, of: "avContent", version: "1.1") else { return unknown(method, id) }
+            return recordingCount(object, id)
+        case "setDeleteProtection":
+            guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
+            guard Self.asks(request, object, of: "avContent", version: "1.0") else { return unknown(method, id) }
+            return setProtection(object, id)
+        case "deleteContent":
+            guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
+            guard Self.asks(request, object, of: "avContent", version: "1.0") else { return unknown(method, id) }
+            return deleteRecording(object, id)
         case "getConflictScheduleList":
             guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
             guard Self.asks(request, object, of: "recording", version: "1.0") else { return unknown(method, id) }
@@ -460,6 +553,82 @@ public actor DemoTV: HTTPTransport {
         let page = stations.filter { "tv:\($0.scheme)" == source }.enumerated()
             .dropFirst(from).prefix(min(count, 50))
         return json(["result": [page.map { $0.element.fields(at: $0.offset) }], "id": id])
+    }
+
+    /// The source a real one's recordings are read from.
+    static let recordingsSource = "usb:recStorage"
+    /// What its disk holds with nothing on it. A real one's used 72 MB; this one's has always read 600, which is
+    /// below the margin the app allows all the same (`TVDriver.titlesMarginMB`).
+    private static let emptyDiskMB = 600
+
+    /// What its disk has used, of `diskMB`: every recording on it, listed or not, and one being recorded though its
+    /// row says nought.
+    private var usedMB: Int { recordings.reduce(Self.emptyDiskMB) { $0 + $1.sizeMB } }
+
+    /// The list as it stands: what is on the disk less what it leaves out.
+    private var listedRecordings: [Recording] { recordings.filter { !leftOut.contains($0.uri) } }
+
+    /// What a real one answered with its disk not there.
+    private func noDisk(_ id: Int) -> HTTPResponse {
+        json(["error": [41020, "Storage doesn't exist."], "id": id])
+    }
+
+    /// One page of the recordings, as a real one lists them: from `stIdx`, as many as `cnt` says and never more
+    /// than fifty, the most it was read at. Past the end it answers an empty page. With other fields than these
+    /// three, or another source, it answers with the invented error, as for the stations.
+    private func recordingPage(_ object: [String: Any], _ id: Int) -> HTTPResponse {
+        guard let sent = Self.parameter(of: object), Set(sent.keys) == ["uri", "stIdx", "cnt"],
+              sent["uri"] as? String == Self.recordingsSource, let from = sent["stIdx"] as? Int, from >= 0,
+              let count = sent["cnt"] as? Int, count > 0 else { return refused(id) }
+        guard mounted else { return noDisk(id) }
+        let page = listedRecordings.enumerated().dropFirst(from).prefix(min(count, 50))
+        return json(["result": [page.map { $0.element.fields(at: $0.offset) }], "id": id])
+    }
+
+    /// How many recordings the list holds, as a real one counted them: `source`, with `target` or without it.
+    private func recordingCount(_ object: [String: Any], _ id: Int) -> HTTPResponse {
+        guard let sent = Self.parameter(of: object), Set(sent.keys).subtracting(["target"]) == ["source"],
+              sent["source"] as? String == Self.recordingsSource else { return refused(id) }
+        guard mounted else { return noDisk(id) }
+        return json(["result": [["count": listedRecordings.count]], "id": id])
+    }
+
+    /// `write`, with the place of the recording it names by its uri, or what such a write is answered instead:
+    /// 41001 for one it does not have, as a real one answered a delete. A row left out of the list is on the disk,
+    /// and is found.
+    ///
+    /// What was seen of a real one is of a write to a recording that was over, with its panel on and in standby
+    /// alike, which it stayed in. Taken, not seen: that a protect of an unknown uri is answered as a delete is; and
+    /// that a disk that is away is 41020 here as it is for the list. A write to a row being recorded, which the app
+    /// does not send, is answered with the invented error, so that a client that sends one is caught.
+    private func writing(_ uri: Any?, _ id: Int, _ write: (Int) -> HTTPResponse) -> HTTPResponse {
+        guard let uri = uri as? String else { return refused(id) }
+        guard mounted else { return noDisk(id) }
+        guard let index = recordings.firstIndex(where: { $0.uri == uri }) else {
+            return json(["error": [41001, "no such content"], "id": id])
+        }
+        return recordings[index].recording ? refused(id) : write(index)
+    }
+
+    /// Protects a recording or lifts that, for `{uri, isProtected}` and nothing else, and gives nothing back.
+    private func setProtection(_ object: [String: Any], _ id: Int) -> HTTPResponse {
+        guard let sent = Self.parameter(of: object), Set(sent.keys) == ["uri", "isProtected"],
+              let on = sent["isProtected"] as? Bool else { return refused(id) }
+        return writing(sent["uri"], id) { index in
+            recordings[index].protected = on
+            return json(["result": [Any](), "id": id])
+        }
+    }
+
+    /// Takes a recording off the disk, for `{uri}` and nothing else, and gives nothing back. One that is protected
+    /// is answered with 41000 and stays, as a real one answered.
+    private func deleteRecording(_ object: [String: Any], _ id: Int) -> HTTPResponse {
+        guard let sent = Self.parameter(of: object), Set(sent.keys) == ["uri"] else { return refused(id) }
+        return writing(sent["uri"], id) { index in
+            guard !recordings[index].protected else { return json(["error": [41000, "protected"], "id": id]) }
+            recordings.remove(at: index)
+            return json(["result": [Any](), "id": id])
+        }
     }
 
     /// What a create and the question before it both say of a reservation. The title has to be there and is

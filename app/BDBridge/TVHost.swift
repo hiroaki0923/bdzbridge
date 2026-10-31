@@ -8,13 +8,13 @@ import RecorderKit
 /// what is under way are the app's one list, the television's marked as its own (`televisionLines`).
 ///
 /// What the television said is kept here as well, and not in the model: its reservations, and when they were
-/// read. The steps of reading and deleting them, and the sentence for each way they can end, are the driver's
-/// (`TVDriver`); this asks, and keeps what comes back. The app makes a host with each link and lets go of the
-/// two together -- the television taken away, registered again, or left for the demo -- so a list goes with the
-/// television it was read from, and nothing has to empty it or to ask whose it was before keeping it. A host
-/// let go of asks nothing more and says nothing on the screens -- the lines it had up come down as the app lets
-/// go of it (`takeDownLines`), and one begun after is on no list -- and writes nothing down for an attach that
-/// was still out.
+/// read, and its recordings. The steps of reading and deleting them, and the sentence for each way they can end,
+/// are the driver's (`TVDriver`); this asks, and keeps what comes back. The app makes a host with each link and
+/// lets go of the two together -- the television taken away, registered again, or left for the demo -- so a list
+/// goes with the television it was read from, and nothing has to empty it or to ask whose it was before keeping
+/// it. A host let go of asks nothing more and says nothing on the screens -- the lines it had up come down as the
+/// app lets go of it (`takeDownLines`), and one begun after is on no list -- and writes nothing down for an attach
+/// that was still out.
 ///
 /// What waits in the phone's queue for the television is sent the same way: the driver has the steps, and
 /// this asks for them when the link says to and keeps what the sending came to, for the strip (`report`).
@@ -42,6 +42,16 @@ final class TVHost: LinkHost {
     /// When the list was last read from the television, or nil when it has not been: a television that cannot
     /// be asked leaves the last list standing, and this says how old it is.
     private(set) var reservationsRead: Date?
+    /// The recordings on its disk, as last read from it: its rows only, and never among the recorder's
+    /// (`RecorderSaid.titles`), the model putting the two together for the screens. A television that cannot be
+    /// asked leaves them standing, as it does its reservations.
+    var titles: [RecordedTitle] = []
+    /// What the last read of them came to beside what the disk has used (`TVDriver.account`).
+    private(set) var titlesAccount = TVTitlesAccount.addsUp
+    /// Set for as long as a list that may still be coming is read again, which the strip says
+    /// (`TVDriver.titlesComingLine`). Not a line of the television's: that would hold its buttons for minutes, and
+    /// nothing that is under way stands in the way of them.
+    private(set) var waitingForTitles = false
     /// What the sendings to the television came to, for the strip, each added to what the one before said
     /// (`tell`) until the reader closes it or leaves the app (`AppModel.queueReport`). It goes with the
     /// host, as the television's list does.
@@ -85,6 +95,67 @@ final class TVHost: LinkHost {
         reservationsRead = Date()
     }
 
+    // MARK: - its recordings
+
+    private func keep(_ read: TVTitles) {
+        titles = read.rows
+        titlesAccount = read.account
+    }
+
+    /// Whether a job is walking the television's rows. Nothing reads the list beside it: a read is two requests,
+    /// the disk's and the list's, and with a delete between them the disk counts a row the list no longer has, which
+    /// would be said as rows missing. The job reads the list as it ends (`RecorderHost.jobEnded`).
+    private var aJobWalksTheList: Bool { model?.recorderHost.jobIsOnTheTelevision == true }
+
+    /// Reads the recordings, as the recordings tab does when it opens. What cannot be read leaves what is held,
+    /// and the line says why.
+    func loadTitles() async {
+        await model?.start()
+        guard !aJobWalksTheList else { return }
+        _ = await driver?.titles { self.keep($0) }
+    }
+
+    /// What pulling the recordings down asks of the television: the list read now, or a connect (`TVDriver`).
+    func refreshTitles() async {
+        await model?.start()
+        guard !aJobWalksTheList else { return }
+        await driver?.refreshTitles { self.keep($0) }
+    }
+
+    /// Reads again a list that may still be coming, for as long as the screen's task lasts (`TVDriver`), and not
+    /// beside a job or with the app away, which the screen's task is ended for.
+    func waitForTitles() async {
+        guard titlesAccount == .mayStillBeComing, !aJobWalksTheList, model?.inBackground != true, let driver,
+              driver.canBeAsked else { return }
+        waitingForTitles = true
+        defer { waitingForTitles = false }
+        await driver.waitForTitles { self.keep($0) }
+    }
+
+    /// A write: the television refuses to delete it until this is taken off (`TVDriver.protect`). What it came
+    /// to, for the screen to say.
+    func setProtected(_ title: RecordedTitle, _ on: Bool) async -> Altered {
+        await model?.start()
+        guard let driver else { return .notDone(TVDriver.notConnected) }
+        let came = await driver.protect(title, on) {
+            if let index = self.titles.firstIndex(where: { $0.id == title.id }) { self.titles[index].protected = on }
+        }
+        if came.readAgain { await loadTitles() }
+        return came.altered
+    }
+
+    /// A write, and not one that can be undone (`TVDriver.delete`). What it came to, for the screen to say.
+    func delete(_ title: RecordedTitle) async -> Altered {
+        await model?.start()
+        guard let driver else { return .notDone(TVDriver.notConnected) }
+        let came = await driver.delete(title) { self.titles.removeAll { $0.id == title.id } }
+        if came.readAgain { await loadTitles() }
+        return came.altered
+    }
+
+    /// What a run over recordings asks of the television (`RecorderHost.runBulk`), and the list it walks.
+    var runDriver: (any RunDriver)? { driver }
+
     // MARK: - what the link tells the app
 
     /// On the app's one list, marked as the television's. From a host the app has let go of the line goes on
@@ -127,8 +198,9 @@ final class TVHost: LinkHost {
 
     /// Busy with the television: its own lines only.
     var isBusy: Bool { !(model?.televisionLines.isEmpty ?? true) }
-    /// A bulk job is the recorder's, on its link, not the television's.
-    var holdsOffConnect: Bool { false }
+    /// A job over recordings that holds rows of the television's: no connect starts beside it, as none does beside
+    /// the recorder's, and one turned away is made as the job ends (`RecorderHost.jobEnded`).
+    var holdsOffConnect: Bool { model?.recorderHost.jobIsOnTheTelevision ?? false }
     var isDemo: Bool { model?.demo ?? false }
     var cache: GuideStore? { model?.store }
     func cacheForAttempt() async { await model?.openCache() }

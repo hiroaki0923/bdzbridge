@@ -2,10 +2,22 @@ import Foundation
 import RecorderKit
 import SwiftUI
 
+/// Whoever holds a device's recordings in memory, for a run to walk and write to: what the recorder said, and the
+/// television's host.
+@MainActor
+protocol TitlesHeld: AnyObject, Sendable {
+    var titles: [RecordedTitle] { get set }
+}
+
+extension RecorderSaid: TitlesHeld {}
+extension TVHost: TitlesHeld {}
+
 /// Work over many recordings at once: the bulk delete and protect with their progress, pausing in the
 /// background, and the scan for duplicates. The job is the recorder's host's: it is what stands of a recorder,
 /// which the host's rules read, stop and clear (`holdsOffConnect`, `anotherAnsweredTheCheck`,
-/// `forgetWhatTheRecorderSaid`).
+/// `forgetWhatTheRecorderSaid`). A bulk delete or protect takes the recordings of both devices, as the list shows
+/// them: the loop is one, and what is asked of a row is its device's (`RunDriver`). A scan is the recorder's alone,
+/// a television's rows not always having a text to compare.
 extension RecorderHost {
     // MARK: - bulk work
 
@@ -27,9 +39,15 @@ extension RecorderHost {
         var changed: [String] = []
         var skipped: [Skip] = []
         var cancelled = false
-        /// What stopped the run on the recorder's account, or kept it from beginning, in the driver's own terms
-        /// (`RunStop`); nil for a run that came to its end or that 中止 stopped.
+        /// What stopped the run on a device's account, or kept it from beginning, in the driver's own terms
+        /// (`RunStop`), and which device; nil for a run that came to its end or that 中止 stopped.
         var stopped: RunStop?
+        var stoppedOn = DeviceSlot.recorder
+        /// The ids of the recordings of the run that are the television's, and whether it has any of the
+        /// recorder's: what it holds of either device goes by these (`jobIsOnTheRecorder`,
+        /// `jobIsOnTheTelevision`). A scan's are all the recorder's.
+        var onTV: Set<String> = []
+        var onTheRecorder = true
         var finished = false
 
         var verb: String { RecorderDriver.verb(of: kind) }
@@ -39,11 +57,27 @@ extension RecorderHost {
         /// What to tell the reader once it has stopped, in the recorder's words (`RecorderDriver.outcome`).
         var outcome: String {
             RecorderDriver.outcome(of: kind, done: done, changed: changed.count, passedOver: skipped.count,
-                                   cancelled: cancelled, stopped: stopped)
+                                   cancelled: cancelled, stopped: stopped, on: stoppedOn)
         }
     }
 
+    /// One device's side of a run: the driver that answers for its recordings, the run begun with it, and the list
+    /// it walks and writes to, which is the one held as the run was set up, whatever has been let go of since.
+    struct RunSide {
+        let device: DeviceSlot
+        let driver: any RunDriver
+        let run: Run
+        let list: any TitlesHeld
+    }
+
     var jobRunning: Bool { job.map { !$0.finished } ?? false }
+
+    /// Whether the job under way has recordings of the television's among it (`TVHost.holdsOffConnect`).
+    var jobIsOnTheTelevision: Bool { jobRunning && job?.onTV.isEmpty == false }
+
+    /// Whether the job under way has recordings of the recorder's among it: what holds the recorder's own rows, its
+    /// pull-down and its connect. A run of the television's rows alone walks no list of the recorder's.
+    var jobIsOnTheRecorder: Bool { jobRunning && job?.onTheRecorder == true }
 
     /// Whether a run may be started now, for the buttons that start one -- a bulk delete, a bulk protect, the
     /// scan for duplicates -- and for `startBulk` and `startDuplicateScan` themselves, which a confirm or a menu
@@ -56,39 +90,75 @@ extension RecorderHost {
     /// it is on a client of its own.
     var canStartARun: Bool { !jobRunning && !isBusy && !session.connecting && !refreshesTheGuideAfterAConnect }
 
+    /// Whether a run over these rows may be started now, by their ids: the recorder's conditions (`canStartARun`) only
+    /// where one of them is the recorder's, what the recorder is doing being nothing to the television's rows. Not
+    /// beside another run either way.
+    func canStartARun(over ids: [String]) -> Bool {
+        let chosen = Set(ids)
+        return chosen.isEmpty || !chosen.isSubset(of: onTheTelevision(ids)) ? canStartARun : !jobRunning
+    }
+
+    /// Which of `ids` are the television's rows, as they are held now.
+    private func onTheTelevision(_ ids: [String]) -> Set<String> {
+        Set(model?.tvHost?.titles.map(\.id) ?? []).intersection(ids)
+    }
+
     /// Whether one recording may be deleted or protected now, for the buttons that do it: not while the recorder
-    /// works, and not while a run is under way, which puts no line on the strip and walks the list those would
-    /// write to. Playback and the power go by the recorder's work alone (`isBusy(for:)`): none of them writes
-    /// the list, and a playback begun before a long scan has to be stoppable from the app.
-    var canAlterARecording: Bool { !isBusy && !jobRunning }
+    /// works, and not while a run over its rows is under way, which puts no line on the strip and walks the list
+    /// those would write to. Playback and the power go by the recorder's work alone (`isBusy(for:)`): none of them
+    /// writes the list, and a playback begun before a long scan has to be stoppable from the app.
+    var canAlterARecording: Bool { !isBusy && !jobIsOnTheRecorder }
 
     /// Whether the duplicates have been looked for, for their screen to say that none were found: kept on what
     /// the recorder said (`RecorderSaid.lookedForDuplicates`), and not read off the job that stands, which a later
     /// bulk job or the bar's ✕ replaces while the sets still stand.
     var scannedForDuplicates: Bool { said.lookedForDuplicates }
 
-    /// A run the driver will not begin (`RecorderDriver.beginRun`) is a job all the same, one that has ended
+    /// A run a driver will not begin (`RunDriver.beginRun`) is a job all the same, one that has ended
     /// already with why, so that the screen that asked for it says so where it says what a run came to.
     ///
-    /// Nothing starts, and nothing is said, while a run may not be started (`canStartARun`): the press came
-    /// from a confirm or a menu left open after its button went grey, and the job that stands is left as it
-    /// is. False then, for the screen to keep the selection the press was about; true otherwise, a job set or
+    /// Nothing starts, and nothing is said, while a run over these may not be started (`canStartARun(over:)`): the
+    /// press came from a confirm or a menu left open after its button went grey, and the job that stands is left as
+    /// it is. False then, for the screen to keep the selection the press was about; true otherwise, a job set or
     /// none asked for.
+    ///
+    /// `ids` are the rows' ids, whichever device holds them: a television's is its uri, which no recorder's number
+    /// can be. A run begins with each device it has rows of, and only those: a television's rows are nothing to a
+    /// recorder that is away, and a recorder's are as they always were with a television that is.
     @discardableResult
     func startBulk(_ kind: BulkJob.Kind, ids: [String]) -> Bool {
-        guard canStartARun, jobTask == nil else { return false }
+        guard canStartARun(over: ids), jobTask == nil else { return false }
         guard !ids.isEmpty, let driver = recorderDriver else { return true }
-        job = BulkJob(kind: kind, total: ids.count)
-        switch driver.beginRun(kind) {
-        case .success(let run):
-            let said = self.said
-            jobTask = Task { [weak self] in
-                await self?.runBulk(kind, ids: ids, run, driver, on: said)
-            }
-        case .failure(let stop):
-            endJob(stoppedBy: stop)
+        let television = model?.tvHost
+        let onTV = onTheTelevision(ids)
+        job = BulkJob(kind: kind, total: ids.count, onTV: onTV, onTheRecorder: onTV.count < Set(ids).count)
+        let said = self.said
+        var sides: [DeviceSlot: RunSide] = [:]
+        if onTV.count < Set(ids).count {
+            guard let side = begin(kind, on: .recorder, driver, said) else { return true }
+            sides[.recorder] = side
+        }
+        if !onTV.isEmpty, let television, let tvDriver = television.runDriver {
+            guard let side = begin(kind, on: .tv, tvDriver, television) else { return true }
+            sides[.tv] = side
+        }
+        jobTask = Task { [weak self] in
+            await self?.runBulk(kind, ids: ids, sides, on: said)
         }
         return true
+    }
+
+    /// One device's side of a run begun, or nil with the job ended, its run not begun, with why.
+    private func begin(_ kind: BulkJob.Kind, on device: DeviceSlot, _ driver: any RunDriver,
+                       _ list: any TitlesHeld) -> RunSide? {
+        switch driver.beginRun(kind) {
+        case .success(let run):
+            return RunSide(device: device, driver: driver, run: run, list: list)
+        case .failure(let stop):
+            job?.stoppedOn = device
+            endJob(stoppedBy: stop)
+            return nil
+        }
     }
 
     /// Ends the job just set up, its run not begun, with why.
@@ -107,18 +177,23 @@ extension RecorderHost {
         job = nil
     }
 
-    /// The loop of a bulk delete or protect. Whether the run may go on to a recording, what is asked of the
-    /// recorder for one, what stops the run on its account and the free space read as it ends are the driver's
-    /// (`RecorderDriver.mayGoOn`, `delete(_:in:)`, `protect(_:_:in:)`, `end`), on the run begun as the job was set
-    /// up; whatever stops it there is kept with the job, which says it (`BulkJob.stopped`).
+    /// The loop of a bulk delete or protect. Whether the run may go on to a recording, what is asked of its device
+    /// for one, what stops the run on its account and the free space read as it ends are the drivers'
+    /// (`RunDriver`), each on the run begun with it as the job was set up; whatever stops it there is kept with the
+    /// job, which says it (`BulkJob.stopped`). The first stop is the end, whichever device's: rows of the other are
+    /// not walked past it.
     ///
     /// `said` is what the recorder said as the run was set up: the list it walks and writes to, whatever has
     /// been let go of since, as the scan keeps to its own (`runScan`). The run stops before anything more is sent
-    /// once its recorder has been let go of (`RecorderDriver.mayGoOn`), and the newcomer's list is left alone.
-    private func runBulk(_ kind: BulkJob.Kind, ids: [String], _ run: Run, _ driver: RecorderDriver,
+    /// once its recorder has been let go of (`RecorderDriver.mayGoOn`), and the newcomer's list is left alone. A
+    /// television's list goes with its host, the run with it.
+    private func runBulk(_ kind: BulkJob.Kind, ids: [String], _ sides: [DeviceSlot: RunSide],
                          on said: RecorderSaid) async {
+        let onTV = job?.onTV ?? []
         var stopped: RunStop?
         for id in ids {
+            guard let side = sides[onTV.contains(id) ? .tv : .recorder] else { continue }
+            job?.stoppedOn = side.device
             // Before the wait for the app to come back: a run the reader stopped on the way out, a recording's
             // request still out, ends here, in the turn after that recording, and does not wait for the return
             // to say so.
@@ -127,34 +202,41 @@ extension RecorderHost {
             // And before the recorder is made sure of: a run stopped while it waited for the app is not worth
             // asking who answers for, nor waking a recorder gone to sleep.
             if job?.cancelled == true { break }
-            stopped = await driver.mayGoOn(run)
+            stopped = await side.driver.mayGoOn(side.run)
             guard stopped == nil else { break }
             // and after the wait, so that 中止 tapped while the recorder was being woken is heeded
             if job?.cancelled == true { break }
             stopped = await keepingAlive { () -> RunStop? in
                 switch kind {
-                case .delete: return await deleteOne(id, in: run, driver, on: said)
-                case .protecting(let on): return await protectOne(id, on, in: run, driver, on: said)
+                case .delete: return await deleteOne(id, on: side)
+                case .protecting(let on): return await protectOne(id, on, on: side)
                 case .scanning: return nil
                 }
             }
             if let stop = stopped {
-                // Stop at the first. Silence has lost the recorder: every recording after it would wait out
+                // Stop at the first. Silence has lost the device: every recording after it would wait out
                 // the same timeout. A delete or a protect that met it is not sent again, since it may have
-                // gone through -- the list is read again once the recorder answers, which settles what became
-                // of it. Not after silence to the question a delete asks first, nor for a run turned away
-                // between two requests for a recording: nothing was sent that changes one.
-                if case .silent(afterSending: true) = stop { said.titlesLoaded = false }
+                // gone through -- the recorder's list is read again once it answers, which settles what became
+                // of it, and a television's as the tab next reads it. Not after silence to the question a delete
+                // asks first, nor for a run turned away between two requests for a recording: nothing was sent
+                // that changes one.
+                if case .silent(afterSending: true) = stop, side.device == .recorder { said.titlesLoaded = false }
                 break
             }
             job?.done += 1
         }
         job?.stopped = stopped
-        // The free space, when the driver reads it: a request like a recording's, finished under the same
+        // The free space, when a driver reads it: a request like a recording's, finished under the same
         // hold if the reader leaves meanwhile. The hold is taken whatever the run came to, and given back at
-        // once where the driver reads nothing: whether it reads is the driver's to say.
-        let deleted = kind == .delete ? job?.changed.count ?? 0 : 0
-        await keepingAlive { await driver.end(run, deleted: deleted, stopped: stopped) }
+        // once where a driver reads nothing: whether it reads is the driver's to say. A stop is told only to the
+        // device it was on: the other has its deletes to read for, whatever became of its neighbour.
+        let stoppedOn = job?.stoppedOn
+        for side in [DeviceSlot.recorder, .tv].compactMap({ sides[$0] }) {
+            let changed = job?.changed.filter { onTV.contains($0) == (side.device == .tv) }.count ?? 0
+            let deleted = kind == .delete ? changed : 0
+            let itsStop = stoppedOn == side.device ? stopped : nil
+            await keepingAlive { await side.driver.end(side.run, deleted: deleted, stopped: itsStop) }
+        }
         // the sets were built from recordings that may no longer all be there
         if !said.duplicates.isEmpty { said.recomputeDuplicates() }
         await jobEnded()
@@ -163,11 +245,20 @@ extension RecorderHost {
     /// The job is over: it no longer holds a connect off (`holdsOffConnect`), and a connect turned away while it
     /// ran -- a return to the app, a look that found another network -- is made now (`DeviceLink.connectIfOwed`),
     /// as it would have been without the job: unless the job, or anything else, met silence after it was turned
-    /// away, which has given the recorder up (`DeviceLink.lost`). The last thing either loop does.
+    /// away, which has given the recorder up (`DeviceLink.lost`). The television's the same, for a job that held
+    /// its connect off. A job that walked the television's rows reads its list, which nothing read meanwhile: what
+    /// it found there as it stopped or passed a row over -- a disk gone, a row protected, another recording under a
+    /// uri -- is shown by that, as a single write's read again shows it (`TVHost.delete`). The last thing either
+    /// loop does.
     private func jobEnded() async {
+        let walkedTheTelevision = job?.onTV.isEmpty == false
         job?.finished = true
         jobTask = nil
+        // Beside the recorder's, so that neither waits for the other's silence.
+        let television = Task { await self.model?.tv?.connectIfOwed() }
         await link.connectIfOwed()
+        await television.value
+        if walkedTheTelevision { await model?.tvHost?.loadTitles() }
     }
 
     /// Waits, before a bulk job or the scan takes its next step, for as long as the app is in the background.
@@ -305,24 +396,23 @@ extension RecorderHost {
         await jobEnded()
     }
 
-    /// One recording of a bulk delete: looked up in the list as it is now, asked of the driver, and the list and
+    /// One recording of a bulk delete: looked up in the list as it is now, asked of its driver, and the list and
     /// the job brought into step with what that came to. What stopped the run at it -- silence, a no before
-    /// its delete was sent (`RecorderDriver.mayGoOn`), or the recorder let go of, when nothing is counted and
-    /// the list, which is no longer that recorder's, is left alone -- or nil: see `runBulk`.
-    private func deleteOne(_ id: String, in run: Run, _ driver: RecorderDriver, on said: RecorderSaid) async
-        -> RunStop? {
-        guard let title = said.titles.first(where: { $0.id == id }) else {
+    /// its delete was sent (`RecorderDriver.mayGoOn`), or the device let go of, when nothing is counted and
+    /// the list, which is no longer that device's, is left alone -- or nil: see `runBulk`.
+    private func deleteOne(_ id: String, on side: RunSide) async -> RunStop? {
+        guard let title = side.list.titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: RecorderDriver.notInTheList))
             return nil
         }
-        let came = await driver.delete(title, in: run)
+        let came = await side.driver.delete(title, in: side.run)
         switch came {
         case .done:
-            said.titles.removeAll { $0.id == id }
+            side.list.titles.removeAll { $0.id == id }
             job?.changed.append(id)
         case .gone:
-            // the recorder had already lost it, so the list should not keep showing it either
-            said.titles.removeAll { $0.id == id }
+            // the device had already lost it, so the list should not keep showing it either
+            side.list.titles.removeAll { $0.id == id }
             job?.skipped.append(.init(id: id, reason: came.reason ?? ""))
         case .passedOver(let reason):
             job?.skipped.append(.init(id: id, reason: reason))
@@ -333,19 +423,18 @@ extension RecorderHost {
     }
 
     /// One recording of a bulk protect, as `deleteOne`.
-    private func protectOne(_ id: String, _ on: Bool, in run: Run, _ driver: RecorderDriver,
-                            on said: RecorderSaid) async -> RunStop? {
-        guard let title = said.titles.first(where: { $0.id == id }) else {
+    private func protectOne(_ id: String, _ on: Bool, on side: RunSide) async -> RunStop? {
+        guard let title = side.list.titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: RecorderDriver.notInTheList))
             return nil
         }
-        let came = await driver.protect(title, on, in: run)
+        let came = await side.driver.protect(title, on, in: side.run)
         switch came {
         case .done:
             // Found again rather than by the place it had before the request: the list can change while the
-            // recorder answers -- a recording deleted from its sheet, the list read again -- and that place
+            // device answers -- a recording deleted from its sheet, the list read again -- and that place
             // may then be another recording's, which would be marked protected instead, or past the end.
-            if let index = said.titles.firstIndex(where: { $0.id == id }) { said.titles[index].protected = on }
+            if let index = side.list.titles.firstIndex(where: { $0.id == id }) { side.list.titles[index].protected = on }
             job?.changed.append(id)
         case .gone, .passedOver:
             job?.skipped.append(.init(id: id, reason: came.reason ?? ""))

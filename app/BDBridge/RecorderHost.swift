@@ -272,14 +272,15 @@ final class RecorderHost: RecorderLinkHost {
         guard let model else { return false }
         return model.activities.any(besides: model.televisionLines)
     }
-    /// A job holds a connect off while it runs, and so does the refresh of the guide a connect started, while
-    /// it is out for the recorder still in play: a second connect would put a client of its own beside the
-    /// refresh's files. A let-go lifts the refresh's hold at once, so that the connect whoever let go makes is
-    /// not kept behind a refresh of the recorder let go of, which may still be waiting its turn behind another.
+    /// A job over the recorder's rows holds a connect off while it runs, and so does the refresh of the guide a
+    /// connect started, while it is out for the recorder still in play: a second connect would put a client of its
+    /// own beside the refresh's files. A let-go lifts the refresh's hold at once, so that the connect whoever let go
+    /// makes is not kept behind a refresh of the recorder let go of, which may still be waiting its turn behind
+    /// another.
     /// A connect turned away for either is made once it ends (`DeviceLink.connectIfOwed`), unless silence met the
     /// recorder after it was turned away (`DeviceLink.lost`).
     var holdsOffConnect: Bool {
-        jobRunning || guideAfterAConnect.map { !link.letGo(since: $0) } ?? false
+        jobIsOnTheRecorder || guideAfterAConnect.map { !link.letGo(since: $0) } ?? false
     }
     /// Whether the refresh of the guide a connect started is out, whichever recorder it was for: the turns
     /// before it has put its line up count as the connect's did, for what is held while a connect is under way
@@ -573,10 +574,10 @@ final class RecorderHost: RecorderLinkHost {
     ///
     /// Not while the disk known has yet to be answered by the slot, which has not said anything of it yet, right
     /// after a waking above all: that read would be waited out, and the list goes out of date only once the slot has
-    /// answered. Not while nothing could be read, nor while a job walks the list, as a pull-down: both end with this
+    /// answered. Not while nothing could be read, nor while a job walks that list, as a pull-down: both end with this
     /// turning true if the list still is, which is what the screen goes by.
     var usbListOutdated: Bool {
-        guard said.titlesLoaded, !jobRunning, client != nil, !unreachable, !session.usbDiskUnanswered else {
+        guard said.titlesLoaded, !jobIsOnTheRecorder, client != nil, !unreachable, !session.usbDiskUnanswered else {
             return false
         }
         guard let read = said.titlesReadFrom else {
@@ -588,13 +589,13 @@ final class RecorderHost: RecorderLinkHost {
 
     /// What pulling the recordings down asks for: the list read again, or a connect when nothing can be written
     /// to the recorder -- the driver's to decide (`RecorderDriver.refresh`), after `start()` whichever it does.
-    /// Not while a bulk job is walking the list. Counted as a read of the list across the connect it may make
+    /// Not while a bulk job is walking its list. Counted as a read of the list across the connect it may make
     /// (`titleReads`): one that takes another recorder up has the newcomer's connect read the list, read before
     /// or not, and the pull-down reads nothing after it.
     func refreshTitles() async {
         let said = self.said
         await model?.start()
-        guard !jobRunning else { return }
+        guard !jobIsOnTheRecorder else { return }
         titleReads += 1
         defer { titleReads -= 1 }
         await recorderDriver?.refresh { await self.loadTitlesNow(force: true, into: said) }

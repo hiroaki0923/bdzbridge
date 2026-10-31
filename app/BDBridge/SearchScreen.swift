@@ -54,7 +54,7 @@ struct SearchScreen: View {
                 (withTelevision ? "レコーダーとテレビ" : "レコーダー")
                     + "にある予約を番組名で検索します。おまかせ・まる録による予約も含みます。"
             case .recordings:
-                "レコーダーに録画されている番組を番組名で検索します。"
+                (withTelevision ? "レコーダーとテレビ" : "レコーダー") + "に録画されている番組を番組名で検索します。"
             }
         }
     }
@@ -72,7 +72,7 @@ struct SearchScreen: View {
     }
 
     private var recordings: [RecordedTitle] {
-        model.titles.filter { matches($0.title) }
+        model.allTitles.filter { matches($0.title) }
     }
 
     /// Nothing to look for: an empty box, or spaces alone, which would otherwise match every reservation.
@@ -179,10 +179,11 @@ struct SearchScreen: View {
                 case .recordings: await model.loadTitles()
                 }
             }
-            // The television's reservations in a task of its own, as on the reservations' tab: the one above
-            // asks the recorder, and is not to run again for anything that becomes of the television.
+            // The television's in a task of its own, as on their own tabs: the one above asks the recorder, and
+            // is not to run again for anything that becomes of the television.
             .task(id: scope) {
                 if scope == .reservations { await model.loadReservations(of: .tv) }
+                if scope == .recordings { await model.loadTVTitles() }
             }
             .sheet(item: $openedProgram) { ProgramSheet(program: $0) }
             .sheet(item: $openedReservation) { ReservationSheet(reservation: $0) }

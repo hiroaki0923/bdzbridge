@@ -73,6 +73,7 @@ extension AppModel {
         recorder.setTheReadLeftForLaterAside()
         // So does a connect a job held off: made once the job ends while the app is away, it would meet silence.
         recorder.dropTheConnectOwed()
+        tv?.dropTheConnectOwed()
     }
 
     /// The app is active again. The recorder may have gone to sleep meanwhile, and connecting again also sends
@@ -172,7 +173,9 @@ extension AppModel {
 
     /// The recorder's bulk job, as its host runs it (`RecorderHostRuns`), under the names the screens call.
     var jobRunning: Bool { recorderHost.jobRunning }
+    var jobIsOnTheTelevision: Bool { recorderHost.jobIsOnTheTelevision }
     var canStartARun: Bool { recorderHost.canStartARun }
+    func canStartARun(over titles: [RecordedTitle]) -> Bool { recorderHost.canStartARun(over: titles.map(\.id)) }
     var canAlterARecording: Bool { recorderHost.canAlterARecording }
     var scannedForDuplicates: Bool { recorderHost.scannedForDuplicates }
     @discardableResult

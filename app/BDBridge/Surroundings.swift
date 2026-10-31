@@ -54,6 +54,9 @@ struct Surroundings {
     var tvTransport: (_ host: String) -> any HTTPTransport = { _ in NoTelevision() }
     /// Where the television's registration is kept: the Keychain in the app, memory in a test.
     var tvCredentials: any TVCredentialStore = MemoryTVCredentials()
+    /// How long a television's list of recordings that may still be coming is waited for: the driver's three
+    /// minutes, shortened only by a test.
+    var tvTitlesWait: TVTitlesWait = .afterAStart
     /// The one look at the local network permission an address given for a television has when nothing
     /// answered there, and the wait for the permission when the look says the system keeps the app off
     /// (`AppModel.findTV`): the links' own look and wait in the app (`LocalNetwork.access`,
