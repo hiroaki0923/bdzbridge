@@ -48,6 +48,9 @@ struct WelcomeView: View {
                     step(3, "「レコーダーとテレビを探す」をタップする",
                          "「ローカルネットワークへのアクセス」の確認が表示されたら「許可」を選んでください。"
                          + "そのまま検索が始まります。")
+                    step(4, "見つかったレコーダーやテレビをタップする",
+                         "レコーダーはそのまま接続します。テレビは登録を始めるので、テレビの画面に出る 4 桁の番号を"
+                         + "入力してください。")
                 }
                 Section {
                     Button {
@@ -211,7 +214,8 @@ struct AddressNote: View {
 }
 
 /// What a scan came to, under the button in both the tutorial and the settings. When it found nothing, the
-/// likely reasons follow, one to a line, for the reader to go down.
+/// likely reasons follow, one to a line, for the reader to go down; when it found a television alone, what a
+/// recorder that did not answer wants.
 struct ScanOutcomeText: View {
     let outcome: AppModel.ScanOutcome
 
@@ -220,6 +224,9 @@ struct ScanOutcomeText: View {
             Text(outcome.text)
                 .font(.callout)
                 .foregroundStyle(outcome.failed ? Color.red : Color.secondary)
+            if let line = outcome.noRecorderBeside {
+                Text(line).font(.caption).foregroundStyle(.secondary)
+            }
             if !outcome.causes.isEmpty {
                 Text("考えられる原因").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 ForEach(outcome.causes, id: \.self) { cause in
@@ -238,7 +245,9 @@ struct ScanOutcomeText: View {
 
 /// 見つかったテレビ, under the recorders a scan found, in the tutorial and the settings alike. A row is a button
 /// while no television is saved, and opens the television's sheet going straight on to テレビに接続; the search
-/// goes on behind it. With one saved the rows are only listed, the saved one in use, and the foot says why.
+/// goes on behind it. The row and the foot say so: the tap puts a number on the television's panel, and nothing
+/// but the tap does, so the row waits for it and does not open by itself. With one saved the rows are only
+/// listed, the saved one in use, and the foot says why.
 struct FoundTelevisionsSection: View {
     @Environment(AppModel.self) private var model
     @Binding var sheet: TVSheetRequest?
@@ -247,7 +256,8 @@ struct FoundTelevisionsSection: View {
         if !model.foundTelevisions.isEmpty {
             Section {
                 ForEach(model.foundTelevisions, id: \.host) { television in
-                    let row = FoundTelevisionRow(television: television, inUse: model.inUse(television))
+                    let row = FoundTelevisionRow(television: television, inUse: model.inUse(television),
+                                                 registers: model.canAddAFoundTelevision)
                     if model.canAddAFoundTelevision {
                         Button { sheet = TVSheetRequest(host: television.host, connectAtOnce: true) } label: { row }
                             .buttonStyle(.plain)
@@ -258,7 +268,9 @@ struct FoundTelevisionsSection: View {
             } header: {
                 Text("見つかったテレビ")
             } footer: {
-                if !model.canAddAFoundTelevision {
+                if model.canAddAFoundTelevision {
+                    Text("タップすると登録を始めます。テレビの画面に 4 桁の番号が出るので、その番号を入力してください。")
+                } else {
                     Text("使えるテレビは 1 台です。別のテレビを使うときは、設定の「テレビ」でいまのテレビを外してから、"
                          + "もう一度探してください。")
                 }
@@ -267,10 +279,29 @@ struct FoundTelevisionsSection: View {
     }
 }
 
-/// One television the scan turned up: the model it gave, and its address. The one saved says so.
+/// What tapping a found device's row does, at the row's end: a row looks like any other, and nothing else on it
+/// says that it can be tapped.
+private struct FoundRowAction: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(title).font(.subheadline).foregroundStyle(.tint)
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
+        }
+        .fixedSize()
+    }
+}
+
+/// One television the scan turned up: the model it gave, and its address. The one saved says so; one that
+/// can be added says that a tap registers it.
 struct FoundTelevisionRow: View {
     let television: TVSighting
     var inUse = false
+    var registers = false
 
     var body: some View {
         HStack {
@@ -285,6 +316,9 @@ struct FoundTelevisionRow: View {
                 Label("使用中", systemImage: "checkmark")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tint)
+            } else if registers {
+                Spacer()
+                FoundRowAction(title: "登録する")
             }
         }
         .rowHitArea()
@@ -293,7 +327,8 @@ struct FoundTelevisionRow: View {
 }
 
 /// One recorder the scan turned up, as both the tutorial and the settings list it. The one the app is set to
-/// says so: a scan from the settings finds it as well, beside any second one on the same network.
+/// says so: a scan from the settings finds it as well, beside any second one on the same network. Any other
+/// says that a tap connects to it.
 struct FoundRecorderRow: View {
     let recorder: RecorderDescription
     var inUse = false
@@ -307,11 +342,13 @@ struct FoundRecorderRow: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+            Spacer()
             if inUse {
-                Spacer()
                 Label("使用中", systemImage: "checkmark")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tint)
+            } else {
+                FoundRowAction(title: "接続する")
             }
         }
         .rowHitArea()

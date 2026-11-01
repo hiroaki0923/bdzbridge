@@ -99,6 +99,16 @@ public enum DeviceSearch {
             ]
         }
 
+        /// What is said under a television found with no recorder beside it, for the reader who has one: "found"
+        /// is not a failure, and the causes are not said, so the recorder would go unmentioned. A first add
+        /// cannot wake it, no MAC being known before a first connect, and a recorder is off the network for much
+        /// of the day (`docs/porting.md`). Nil otherwise.
+        public var noRecorderBeside: String? {
+            guard case .found(0, _) = self else { return nil }
+            return "レコーダーをお持ちなら、電源を入れて少し待ってから、もう一度探してください。"
+                + "しばらく使っていないレコーダーは、ネットワークから外れて見つからないことがあります。"
+        }
+
         /// Whether it is said as a failure: anything but something found.
         public var failed: Bool {
             if case .found = self { return false }

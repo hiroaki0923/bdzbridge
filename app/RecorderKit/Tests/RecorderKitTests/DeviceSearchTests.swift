@@ -165,9 +165,23 @@ final class DeviceSearchTests: XCTestCase {
         XCTAssertTrue(DeviceSearch.Outcome.nothing.causes.contains { $0.hasPrefix("テレビの電源が切れている。") })
         XCTAssertEqual(DeviceSearch.Outcome.found(recorders: 1, televisions: 1).causes, [])
         XCTAssertEqual(DeviceSearch.Outcome.noWiFi.causes, [])
+        XCTAssertEqual(DeviceSearch.Outcome.found(recorders: 0, televisions: 1).causes, [])
         XCTAssertFalse(DeviceSearch.Outcome.found(recorders: 0, televisions: 1).failed)
         XCTAssertTrue(DeviceSearch.Outcome.nothing.failed)
         XCTAssertTrue(DeviceSearch.Outcome.noWiFi.failed)
+    }
+
+    /// A television found with no recorder beside it says what a recorder off the network wants, for the reader
+    /// who has one: a look cannot wake it, no MAC being known before a first connect. Nothing of the kind where
+    /// a recorder was found, where nothing was (the causes say it), or with no Wi-Fi.
+    func testATelevisionFoundAloneSaysWhatARecorderOffTheNetworkWants() {
+        XCTAssertEqual(DeviceSearch.Outcome.found(recorders: 0, televisions: 1).noRecorderBeside,
+                       "レコーダーをお持ちなら、電源を入れて少し待ってから、もう一度探してください。"
+                           + "しばらく使っていないレコーダーは、ネットワークから外れて見つからないことがあります。")
+        XCTAssertNil(DeviceSearch.Outcome.found(recorders: 1, televisions: 1).noRecorderBeside)
+        XCTAssertNil(DeviceSearch.Outcome.found(recorders: 1, televisions: 0).noRecorderBeside)
+        XCTAssertNil(DeviceSearch.Outcome.nothing.noRecorderBeside)
+        XCTAssertNil(DeviceSearch.Outcome.noWiFi.noRecorderBeside)
     }
 
     /// Waits for `condition`, a few seconds at most: for what the search's own tasks get round to.
