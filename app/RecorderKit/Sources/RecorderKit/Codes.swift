@@ -16,6 +16,13 @@ public enum Codes {
         return label.last?.isASCII == true ? label + " " : label
     }
 
+    /// Several types' names at the start of a sentence, as `broadcastingInSentence` has one.
+    public static func broadcastingsInSentence(_ types: [String]) -> String {
+        guard let last = types.last else { return "" }
+        let before = types.dropLast().map { (broadcastingLabel[$0] ?? $0) + "、" }
+        return before.joined() + broadcastingInSentence(last)
+    }
+
     public static let epgFiles: [String: String] = [
         "td": "EPG_TRDEPG_FILE.dat",
         "bs": "EPG_BSEPG_FILE.dat",

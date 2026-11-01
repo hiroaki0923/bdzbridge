@@ -685,7 +685,7 @@ final class FunnelGateTests: XCTestCase {
     }
 
     /// A guide asked for by hand passes over a type the recorder has no file for -- it answers 500 until it has
-    /// built its files again -- fetches the rest, keeps the recorder and says a line for each type that failed,
+    /// built its files again -- fetches the rest, keeps the recorder and says a line for the types that failed,
     /// on the line of what went wrong and in what it hands back for its screen to say.
     /// The task that asked being cancelled does not stop it before a file: the guide is the app's rather than a
     /// screen's, and a pull-down's task goes with its screen. Silence stops it there, loses the recorder and
@@ -710,8 +710,7 @@ final class FunnelGateTests: XCTestCase {
         await recorder.letGo()
         expectTrue(await asking.value, "a refresh that passed two types over was said not to have gone through")
         for file in Kind.guide { expectEqual(await recorder.asked(file, since: before), 1, file) }
-        XCTAssertEqual(model.problem(for: .recorder),
-                       "地上デジタルの番組表：\(missing(Kind.guide[0]))\nBS の番組表：\(missing(Kind.guide[1]))")
+        XCTAssertEqual(model.problem(for: .recorder), "地上デジタル、BS の番組表：\(missing(Kind.guide[0]))")
         XCTAssertEqual(whyNotJustNow(model), model.problem(for: .recorder),
                        "what was handed back does not say what the line says")
         XCTAssertTrue(model.connected, "a file the recorder has not built was taken for the recorder going")
@@ -736,7 +735,7 @@ final class FunnelGateTests: XCTestCase {
     /// that failed was said where nobody reads it, and the press seemed to do nothing.
     ///
     /// Over a guide on screen, with two types the recorder has not built: the refresh went through, and what it
-    /// hands back to say is a line for each, the two the line of what went wrong holds; the guide on screen
+    /// hands back to say is one line for the two, what the line of what went wrong holds; the guide on screen
     /// stays. Pressed again with every type answered for, it went through and has nothing to say.
     ///
     /// Pressed while the recorder is being made sure of, by a check that then meets silence: nothing is asked
@@ -754,7 +753,7 @@ final class FunnelGateTests: XCTestCase {
         await recorder.answer(Kind.guide[0], with: .status(500))
         await recorder.answer(Kind.guide[1], with: .status(500))
         expectTrue(await refreshTheGuideByHand(model), "a refresh that passed two types over did not go through")
-        let lines = "地上デジタルの番組表：\(missing(Kind.guide[0]))\nBS の番組表：\(missing(Kind.guide[1]))"
+        let lines = "地上デジタル、BS の番組表：\(missing(Kind.guide[0]))"
         XCTAssertEqual(whyNotJustNow(model), lines, "what was handed back does not say the two types that failed")
         XCTAssertEqual(model.problem(for: .recorder), lines)
         for file in Kind.guide { expectEqual(await recorder.asked(file, since: before), 1, file) }
@@ -850,7 +849,7 @@ final class FunnelGateTests: XCTestCase {
     ///
     /// A type the recorder could not give has no mark, and is asked for once more by whichever comes second:
     /// with none of the four files built, each is asked for twice, the press went through, and what it says is
-    /// a line for each type, the four the line of what went wrong holds.
+    /// one line for the four, what the line of what went wrong holds.
     ///
     /// With the recorder busy still as the press connects, the connect comes to no recorder that can be asked:
     /// nothing is fetched, the app stays connected from the attach before, and the press says what the connect
@@ -932,9 +931,7 @@ final class FunnelGateTests: XCTestCase {
             expectEqual(await unbuilt.asked(file, since: asked), 2,
                         "\(file): once by the press and once by the refresh its connect started")
         }
-        let lines = zip(["地上デジタル", "BS ", "CS ", "BS4K "], Kind.guide).map { type, file in
-            "\(type)の番組表：\(RecorderError.guideFileMissing(name: file, status: 500).explanation)"
-        }.joined(separator: "\n")
+        let lines = RecorderError.guideFileMissing(name: Kind.guide[0], status: 500).explanation
         XCTAssertEqual(whyNotJustNow(home), lines, "the press does not say the types its connect could not fetch")
         XCTAssertEqual(home.problem(for: .recorder), lines)
         XCTAssertEqual(home.guideDownloads, 0)

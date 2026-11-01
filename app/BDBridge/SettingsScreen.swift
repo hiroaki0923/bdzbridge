@@ -259,7 +259,7 @@ struct SettingsScreen: View {
             .sheet(item: $tvSheet) {
                 TVRegisterSheet(host: $0.host, connectAtOnce: $0.connectAtOnce, again: $0.again)
             }
-            .alert("エラー",
+            .alert("番組表を取得できませんでした",
                    isPresented: Binding(get: { guideFailure != nil }, set: { if !$0 { guideFailure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
