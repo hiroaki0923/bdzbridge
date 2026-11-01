@@ -177,7 +177,7 @@ final class DeviceSearchTests: XCTestCase {
     func testATelevisionFoundAloneSaysWhatARecorderOffTheNetworkWants() {
         XCTAssertEqual(DeviceSearch.Outcome.found(recorders: 0, televisions: 1).noRecorderBeside,
                        "レコーダーをお持ちなら、電源を入れて少し待ってから、もう一度探してください。"
-                           + "しばらく使っていないレコーダーは、ネットワークから外れて見つからないことがあります。")
+                           + "電源を入れた直後や、しばらく使っていないときは見つからないことがあります。")
         XCTAssertNil(DeviceSearch.Outcome.found(recorders: 1, televisions: 1).noRecorderBeside)
         XCTAssertNil(DeviceSearch.Outcome.found(recorders: 1, televisions: 0).noRecorderBeside)
         XCTAssertNil(DeviceSearch.Outcome.nothing.noRecorderBeside)
