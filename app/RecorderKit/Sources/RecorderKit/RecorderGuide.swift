@@ -33,12 +33,12 @@ public struct GuideRefreshed: Sendable, Equatable {
     public var stored = 0
     public var answered: [String] = []
     public var failed: [GuideRefresh.Failure] = []
-    /// What there is to say of it, nil for nothing. Of a refresh that went through: a line for each type that
-    /// failed, as the step wrote them on the host's line of what went wrong. Turned away at the door: that the
+    /// What there is to say of it, nil for nothing. Of a refresh that went through: the types that failed
+    /// (`RecorderDriver.guideFailed`), as the step wrote them on the host's line of what went wrong. Turned away at the door: that the
     /// app is not connected. A press whose own connect let go of the recorder: what a write says then; and one
     /// whose own connect came to no recorder that can be asked: what that connect left on the host's line, or
-    /// that the app is not connected where it left nothing (`refreshGuideByHand`). Stopped by silence: a line
-    /// for each type that failed before it, which are not on the host's line, and then that the recorder did
+    /// that the app is not connected where it left nothing (`refreshGuideByHand`). Stopped by silence: the
+    /// types that failed before it, which are not on the host's line, and then that the recorder did
     /// not answer, as a read says it. Otherwise -- the check before it said no, or its door was found shut
     /// once it had waited its turn -- whatever stands on the host's line of what went wrong, or that the app
     /// is not connected where the line is empty: what the check wrote there if it wrote, and if it did not,
@@ -46,12 +46,12 @@ public struct GuideRefreshed: Sendable, Equatable {
     /// it: a check that ends waiting for the local network permission empties the line. And where that check
     /// heard something in place of the recorder saying which it is, nothing having been asked for: what it
     /// heard, in the recorder's words, as the step wrote it on the host's line. Stopped before a later file,
-    /// the recorder made sure of there and not to be asked: a line for each type that failed before it, and
-    /// then why it stopped, in the sentence it would have been turned away with once its turn had come. But
+    /// the recorder made sure of there and not to be asked: the types that failed before it, and then why it
+    /// stopped, in the sentence it would have been turned away with once its turn had come. But
     /// ended because another client than the one its files were asked of is in hand for the same recorder, a
     /// connect having been made meanwhile -- found so before a later file, whether that connect has gone
-    /// through or is under way still, or as a file that was out on the client before met silence: a line for
-    /// each type that failed before it, and nothing of a door or of that silence; nil where none had failed.
+    /// through or is under way still, or as a file that was out on the client before met silence: the types
+    /// that failed before it, and nothing of a door or of that silence; nil where none had failed.
     /// Of a refresh whose recorder was let go of while it was out, the check before it included, and whatever
     /// it had come to: what a write says then (`RecorderDriver.whyLetGo`), and nothing of the types.
     public var said: String?
@@ -74,16 +74,24 @@ extension RecorderDriver {
         "\(guideLine) (\(Codes.broadcastingLabel[broadcasting] ?? broadcasting))"
     }
 
-    /// Said of a type that could not be fetched or stored, a line to a type.
-    public nonisolated static func guideFailed(_ failure: GuideRefresh.Failure) -> String {
-        "\(Codes.broadcastingInSentence(failure.broadcasting))の番組表：\(failure.reason)"
+    /// Said of the types that could not be fetched or stored: a line to a reason, in the order the reasons were
+    /// met, naming the types it was, and with no names where it was every type. A recorder with no files to give
+    /// says one thing, and not the same thing four times.
+    public nonisolated static func guideFailed(_ failures: [GuideRefresh.Failure]) -> [String] {
+        var reasons: [String] = []
+        for failure in failures where !reasons.contains(failure.reason) { reasons.append(failure.reason) }
+        return reasons.map { reason in
+            let types = failures.filter { $0.reason == reason }.map(\.broadcasting)
+            guard types.count < GuideRefresh.broadcastingTypes.count else { return reason }
+            return "\(Codes.broadcastingsInSentence(types))の番組表：\(reason)"
+        }
     }
 
     /// Downloads the broadcasting types asked for and replaces what the cache holds for each. One operation, as
     /// `DeviceLink.run` makes one, written on its parts: under a line of its own, which says the type being
     /// fetched, the recorder made sure of first, and going through clears the line of what went wrong. A type
     /// that fails is passed over (`GuideRefresh.run`) and the recorder kept; the types that failed are then
-    /// written on that line, a line to a type, and are fetched again at the next connect.
+    /// written on that line (`guideFailed`), and are fetched again at the next connect.
     ///
     /// The line of what went wrong is cleared only by a refresh that asked the recorder for a type. One that
     /// came to fetch and found nothing to -- every type answered for since the moment it was asked with
@@ -154,9 +162,9 @@ extension RecorderDriver {
     /// type's logos, which follow its guide. A refresh is as many requests as it has files, and a file can be
     /// minutes in coming. A no stops the refresh there, with what was stored before it handed back, and says
     /// what it would have said once the turn had come: what a check left on the line, what stands on the line
-    /// at a door found shut, or what was heard, which goes on the line as well. Before it comes a line for
-    /// each type that failed before the stop, which are not on the line, as a refresh that silence stopped
-    /// says them. It is not said as a recorder let go of, unless that is what it was. Stopped before a type's
+    /// at a door found shut, or what was heard, which goes on the line as well. Before it come the
+    /// types that failed before the stop, which are not on the line, as a refresh that silence stopped says
+    /// them. It is not said as a recorder let go of, unless that is what it was. Stopped before a type's
     /// logos, the type is in the cache with the logos it had, and is reported as stored. As in a run, a
     /// recorder free again by the time the check asks is heard saying which it is, and the refresh goes on.
     /// The answer to a file counts as the recorder's last answer, like any other, so this check asks nothing
@@ -173,8 +181,8 @@ extension RecorderDriver {
     /// that finds a door shut on a recorder that cannot be asked: nothing is known to be wrong with the
     /// recorder, which has just been connected to or is being connected to, and no sentence there is says
     /// what happened. That connect says its own failure on the line, should it fail. The refresh did not go
-    /// through; what it hands back says a line for each type that failed before it, as a refresh that silence
-    /// stopped says them, and nothing where none had; and the line of what went wrong is left as it stands. A
+    /// through; what it hands back says the types that failed before it, as a refresh that silence stopped
+    /// says them, and nothing where none had; and the line of what went wrong is left as it stands. A
     /// connect that has ended with its client not having heard which recorder answers it -- answered busy
     /// with somebody else -- is under way no longer and has said why on the line: the door on the recorder
     /// is asked first then, as ever, is shut, and says what stands there.
@@ -254,7 +262,7 @@ extension RecorderDriver {
             refreshed.said = whyLetGo(on: link)
             return refreshed
         }
-        var lines = outcome.failed.map(Self.guideFailed)
+        var lines = Self.guideFailed(outcome.failed)
         switch outcome.stopped {
         case nil: if !lines.isEmpty { link.owner?.problem = lines.joined(separator: "\n") }
         case .turnedAway(let why?): lines.append(why)

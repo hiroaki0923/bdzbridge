@@ -90,13 +90,23 @@ public enum DeviceSearch {
             return [
                 "iPhone が、ゲスト用の Wi-Fi など、レコーダーやテレビとは別のネットワークにつながっている。",
                 "レコーダーがネットワークから外れている。電源を切ってしばらくたつと外れることがあるので、"
-                    + "電源を入れてから探し直してください。",
+                    + "電源を入れて少し待ってから探し直してください。",
                 "テレビの電源が切れている。機種や設定によっては、電源を切ったテレビは見つからないことがあります。"
                     + "テレビの電源を入れてから探し直してください。",
                 "レコーダーやテレビがネットワークにつながっていない。本体のネットワーク設定で確認できます。",
                 "ソニーの BDZ シリーズ以外のレコーダーや、ソニー以外のテレビ。"
                     + "このアプリで使えるのは、ソニーの BDZ シリーズのレコーダーと、ソニーのテレビです。",
             ]
+        }
+
+        /// What is said under a television found with no recorder beside it, for the reader who has one: "found"
+        /// is not a failure, and the causes are not said, so the recorder would go unmentioned. A first add
+        /// cannot wake it, no MAC being known before a first connect, a recorder is off the network for much of
+        /// the day (`docs/porting.md`), and one just switched on takes a while to answer. Nil otherwise.
+        public var noRecorderBeside: String? {
+            guard case .found(0, _) = self else { return nil }
+            return "レコーダーをお持ちなら、電源を入れて少し待ってから、もう一度探してください。"
+                + "電源を入れた直後や、しばらく使っていないときは見つからないことがあります。"
         }
 
         /// Whether it is said as a failure: anything but something found.

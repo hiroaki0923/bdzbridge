@@ -129,7 +129,7 @@ struct GuideScreen: View {
             .sheet(item: $tapped) { ProgramSheet(program: $0) }
             .sheet(isPresented: $arranging) { ChannelsSheet(broadcasting: model.broadcasting) }
             // Said here, where it was asked for: the line of what went wrong is not shown over a guide.
-            .alert("エラー",
+            .alert("番組表を取得できませんでした",
                    isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -341,7 +341,7 @@ struct GuideEmptyView: View {
             ContentUnavailableView("このレコーダーは番組表に対応していません", systemImage: "calendar",
                                    description: Text("この機種からは番組表を取得できません"))
         } else if let problem = model.whyNothingToShow {
-            ContentUnavailableView("エラー", systemImage: "exclamationmark.triangle", description: Text(problem))
+            ContentUnavailableView("番組表を表示できません", systemImage: "calendar", description: Text(problem))
         } else if cached == 0, model.counts.values.contains(where: { $0.programs > 0 }) {
             // The other types came in and this one did not: the recorder had no file for it, which is what a
             // model without that kind of tuner answers.

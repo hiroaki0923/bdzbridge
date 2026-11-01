@@ -1371,7 +1371,7 @@ final class RecorderRecordingsTests: XCTestCase {
     /// leaves the line an earlier failure left, and says in what it hands back that the app is not connected.
     /// Asked for two types of a recorder that has built neither file, it goes through: its line goes up and
     /// says each type in turn, nothing is reported stored, both types are handed back as failed with why, and
-    /// what it says is what it wrote on the line of what went wrong, a line to a type.
+    /// what it says is what it wrote on the line of what went wrong, a line to a reason.
     func testAGuideRefreshHandsBackWhatItCameToAndSaysWhatItWroteOnTheLine() async throws {
         let (world, driver, recorder) = try await Self.playing([:])
         let begun = world.begun.count
@@ -1413,7 +1413,7 @@ final class RecorderRecordingsTests: XCTestCase {
         world.cache = try temporaryStore()
         let refreshed = await driver.refreshGuide(.only(["td", "bs"])) { world.put("stored \($0)") }
         func missing(_ file: String) -> String { RecorderError.guideFileMissing(name: file, status: 500).explanation }
-        let lines = "地上デジタルの番組表：\(missing("EPG_TRDEPG_FILE.dat"))\nBS の番組表：\(missing("EPG_BSEPG_FILE.dat"))"
+        let lines = "地上デジタル、BS の番組表：\(missing("EPG_TRDEPG_FILE.dat"))"
         XCTAssertTrue(refreshed.wentThrough, "a file the recorder has not built was taken for the refresh failing")
         XCTAssertEqual(refreshed.stored, 0)
         XCTAssertEqual(refreshed.answered, [])

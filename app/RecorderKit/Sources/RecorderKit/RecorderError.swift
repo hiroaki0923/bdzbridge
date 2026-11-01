@@ -49,9 +49,10 @@ public enum RecorderError: Error, Equatable, Sendable {
         case .transport: "レコーダーに接続できませんでした。電源とネットワーク接続を確かめてください"
         case .badResponse(let status): "レコーダーから正しい応答がありませんでした (HTTP \(status))"
         case .unexpectedAnswer(let action): "レコーダーの応答を読み取れませんでした (\(action))"
-        case .guideFileMissing(let name, let status):
-            "レコーダーから番組表ファイルを取得できませんでした (HTTP \(status): \(name))。"
-                + "レコーダーの再起動やチャンネルの再スキャンの直後は、番組表が作り直されるまで取得できません。"
+        // Not a fault, and the reader has nothing to do: the same for every type, so said once for all of them
+        // (`RecorderDriver.guideFailed`), with no file or status in it (`docs/epg-format.md`).
+        case .guideFileMissing:
+            "レコーダーの番組表ファイルがまだできていません。ふつうは夜のあいだに作り直され、取得できるようになります。"
         case .notHTTP: "レコーダーの応答を解釈できませんでした"
         case .notARecorder(let host): "\(host) はソニー製レコーダーとして応答しませんでした"
         case .busy(let action):

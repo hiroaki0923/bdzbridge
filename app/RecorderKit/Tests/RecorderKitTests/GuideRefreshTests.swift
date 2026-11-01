@@ -3,6 +3,27 @@ import XCTest
 
 /// Fetching the guide a broadcasting type at a time, which the screens and the overnight run share.
 final class GuideRefreshTests: XCTestCase {
+    /// What is said of the types that failed: one line to a reason, the types it was named once, and none of
+    /// them where it was all four, so that a recorder with no files to give says one thing and not four. The
+    /// reasons in the order they were first met, and a file's name and its status in neither.
+    func testTheTypesThatFailedAreSaidOnceForEachReason() {
+        func failed(_ types: [String], _ reason: String) -> [GuideRefresh.Failure] {
+            types.map { GuideRefresh.Failure(broadcasting: $0, reason: reason) }
+        }
+        let notBuilt = RecorderError.guideFileMissing(name: "EPG_TRDEPG_FILE.dat", status: 500).explanation
+        XCTAssertEqual(notBuilt, "レコーダーの番組表ファイルがまだできていません。"
+                                 + "ふつうは夜のあいだに作り直され、取得できるようになります。")
+        XCTAssertEqual(RecorderDriver.guideFailed(failed(GuideRefresh.broadcastingTypes, notBuilt)), [notBuilt])
+        XCTAssertEqual(RecorderDriver.guideFailed(failed(["td"], notBuilt)), ["地上デジタルの番組表：\(notBuilt)"])
+        XCTAssertEqual(RecorderDriver.guideFailed(failed(["bs4k"], notBuilt)), ["BS4K の番組表：\(notBuilt)"])
+        XCTAssertEqual(RecorderDriver.guideFailed(failed(["td", "bs", "cs"], notBuilt)),
+                       ["地上デジタル、BS、CS の番組表：\(notBuilt)"])
+        XCTAssertEqual(RecorderDriver.guideFailed(failed(["bs"], "読めない") + failed(["cs", "td"], notBuilt)
+                                                  + failed(["bs4k"], "読めない")),
+                       ["BS、BS4K の番組表：読めない", "CS、地上デジタルの番組表：\(notBuilt)"])
+        XCTAssertEqual(RecorderDriver.guideFailed([]), [])
+    }
+
     private func file(_ vector: String) throws -> Data {
         let expected = try Vectors.load(vector)
         return try Data(contentsOf: Vectors.directory.appendingPathComponent(expected.string("file")))
@@ -48,7 +69,7 @@ final class GuideRefreshTests: XCTestCase {
         XCTAssertEqual(outcome.stored, 5)
         XCTAssertEqual(outcome.answered, ["td", "bs4k"])
         XCTAssertEqual(outcome.failed.map(\.broadcasting), ["bs", "cs"])
-        XCTAssertTrue(outcome.failed[0].reason.contains("HTTP 500"), outcome.failed[0].reason)
+        XCTAssertEqual(outcome.failed[0].reason, RecorderError.guideFileMissing(name: "", status: 500).explanation)
         XCTAssertEqual(outcome.failed[1].reason, "レコーダーから受け取った番組表ファイルを読み取れませんでした")
         XCTAssertFalse(outcome.cancelled)
         XCTAssertEqual(stored.types, ["td"])
