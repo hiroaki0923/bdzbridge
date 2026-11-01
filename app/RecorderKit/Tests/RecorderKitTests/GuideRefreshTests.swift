@@ -12,7 +12,7 @@ final class GuideRefreshTests: XCTestCase {
         }
         let notBuilt = RecorderError.guideFileMissing(name: "EPG_TRDEPG_FILE.dat", status: 500).explanation
         XCTAssertEqual(notBuilt, "レコーダーの番組表ファイルがまだできていません。"
-                                 + "ふつうは夜のあいだに作り直され、取得できるようになります。")
+                                 + "ふつうは数時間から一晩で作り直され、取得できるようになります。")
         XCTAssertEqual(RecorderDriver.guideFailed(failed(GuideRefresh.broadcastingTypes, notBuilt)), [notBuilt])
         XCTAssertEqual(RecorderDriver.guideFailed(failed(["td"], notBuilt)), ["地上デジタルの番組表：\(notBuilt)"])
         XCTAssertEqual(RecorderDriver.guideFailed(failed(["bs4k"], notBuilt)), ["BS4K の番組表：\(notBuilt)"])

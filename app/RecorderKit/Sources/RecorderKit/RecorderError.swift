@@ -52,7 +52,7 @@ public enum RecorderError: Error, Equatable, Sendable {
         // Not a fault, and the reader has nothing to do: the same for every type, so said once for all of them
         // (`RecorderDriver.guideFailed`), with no file or status in it (`docs/epg-format.md`).
         case .guideFileMissing:
-            "レコーダーの番組表ファイルがまだできていません。ふつうは夜のあいだに作り直され、取得できるようになります。"
+            "レコーダーの番組表ファイルがまだできていません。ふつうは数時間から一晩で作り直され、取得できるようになります。"
         case .notHTTP: "レコーダーの応答を解釈できませんでした"
         case .notARecorder(let host): "\(host) はソニー製レコーダーとして応答しませんでした"
         case .busy(let action):
