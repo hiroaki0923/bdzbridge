@@ -11,7 +11,7 @@
 html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 -apple-system, "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; -webkit-text-size-adjust: 100%; }
 button, select, input { font: inherit; color: inherit; }
 button { border: 0; background: none; padding: 0; cursor: pointer; }
-main { padding: 0 12px calc(72px + env(safe-area-inset-bottom)); max-width: 720px; margin: 0 auto; }
+main { padding: calc(env(safe-area-inset-top) + 14px) 12px calc(72px + env(safe-area-inset-bottom)); max-width: 720px; margin: 0 auto; }
 h1 { font-size: 20px; margin: 14px 0 8px; }
 .card { background: var(--card); border-radius: 12px; padding: 12px; margin: 10px 0; }
 .row { display: flex; align-items: center; gap: 10px; }
