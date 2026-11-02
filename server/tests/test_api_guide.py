@@ -5,9 +5,12 @@ import base64
 import httpx
 
 from bdzbridge.recorder import codes
+from bdzbridge.recorder.client import RecorderClient
 from bdzbridge.services import epg
 from tests.conftest import (
     H,
+    autorec_client,
+    make_services,
 )
 
 
@@ -80,6 +83,74 @@ def test_a_guide_file_not_made_yet_is_said_once(client):
     client.post("/api/v1/epg/refresh", headers=H)
     assert len(asked) == len(codes.EPG_FILES)
     assert client.bridge.last_error == epg.FILE_NOT_MADE
+
+
+def refused(bt):
+    request = httpx.Request("GET", f"http://192.0.2.10//{codes.EPG_FILES[bt]}")
+    return httpx.HTTPStatusError("500", request=request, response=httpx.Response(500, request=request))
+
+
+def answering(rec, *types):
+    """The recorder gives a guide for `types` and refuses every other file, as a recorder without a tuner does."""
+    async def fetch_epg(bt):
+        if bt not in types:
+            raise refused(bt)
+        return make_services()
+    rec.fetch_epg = fetch_epg
+
+
+def test_a_type_never_read_is_no_failure_while_the_others_are_read(client):
+    client = autorec_client(client)
+    answering(client.bridge.recorder, "td", "bs", "cs")
+    res = client.post("/api/v1/epg/refresh", headers=H).json()
+    assert res["bs4k"] == res["cs4k"] == epg.NO_CHANNELS
+    assert res["td"]["programs"] > 0
+    assert client.bridge.last_error is None
+
+
+def test_a_type_read_before_is_said_when_its_file_goes_missing(client):
+    client = autorec_client(client)
+    rec = client.bridge.recorder
+    answering(rec, "td", "bs", "cs", "bs4k")
+    client.post("/api/v1/epg/refresh", headers=H)
+    assert client.bridge.last_error is None
+    answering(rec, "td", "bs", "cs")
+    res = client.post("/api/v1/epg/refresh", headers=H).json()
+    assert res["bs4k"] == {"error": epg.FILE_NOT_MADE}
+    assert res["cs4k"] == epg.NO_CHANNELS  # never read, as before
+    assert client.bridge.last_error == epg.FILE_NOT_MADE
+
+
+def test_a_type_appears_once_it_is_read(client):
+    client = autorec_client(client)
+    rec = client.bridge.recorder
+    answering(rec, "td")
+    client.post("/api/v1/epg/refresh", headers=H)
+    assert client.get("/api/v1/recorder", headers=H).json()["epg"]["bs4k"]["channels"] == 0
+    answering(rec, "td", "bs4k")
+    client.post("/api/v1/epg/refresh", headers=H)
+    assert client.get("/api/v1/recorder", headers=H).json()["epg"]["bs4k"]["channels"] > 0
+
+
+def test_a_failure_that_is_no_refusal_is_said_though_the_type_was_never_read(client):
+    client = autorec_client(client)
+    rec = client.bridge.recorder
+
+    async def garbled(bt):
+        if bt == "bs4k":
+            raise ValueError("not a guide file")
+        return make_services() if bt == "td" else None
+    rec.fetch_epg = garbled
+    res = client.post("/api/v1/epg/refresh", headers=H).json()
+    assert res["bs4k"] == {"error": "not a guide file"}
+    assert client.bridge.last_error == "bs4k: not a guide file"
+
+
+async def test_a_file_the_recorder_does_not_know_is_no_guide():
+    recorder = RecorderClient("192.0.2.10")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(404))) as http:
+        recorder.http = http
+        assert await recorder.fetch_epg("bs4k") is None
 
 
 def test_a_recorder_gone_partway_ends_the_refresh(client):

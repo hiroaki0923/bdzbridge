@@ -94,14 +94,14 @@ class RecorderClient:
         return self.stream_port
 
     async def fetch_epg(self, broadcasting: str) -> list[Service] | None:
-        """Download and decode one broadcasting type's EPG. Returns None when the recorder has no such channels (HTTP 416)
-        or does not provide an EPG at all (EPG_CAP 00)."""
+        """Download and decode one broadcasting type's EPG. Returns None when the recorder has no such channels (HTTP 416
+        or 404) or does not provide an EPG at all (EPG_CAP 00)."""
         if self.info is not None and not self.info.epg_capable:
             return None
         url = f"http://{self.host}:{self.stream_port}//{codes.EPG_FILES[broadcasting]}"
         async with self.lock:
             r = await past_busy(lambda: self.http.get(url))
-        if r.status_code == 416:
+        if r.status_code in (404, 416):
             return None
         r.raise_for_status()
         return decode_epg_file(r.content)

@@ -18,6 +18,7 @@ NO_ANSWER = "the recorder does not answer, even after Wake-on-LAN"
 # A guide file answered with an HTTP error is not a fault: the recorder has not made it yet, after a restart or a
 # night off the network, and it comes back within hours (docs/epg-format.md). The same for every type, so said once.
 FILE_NOT_MADE = "レコーダーの番組表ファイルがまだできていません。ふつうは数時間から一晩で作り直され、取得できるようになります。"
+NO_CHANNELS = {"programs": 0, "channels": 0, "note": "no channels"}
 
 
 async def _awake(bridge) -> bool:
@@ -30,6 +31,19 @@ async def _awake(bridge) -> bool:
     if session.mac(bridge) and await session.wake(bridge):
         return True
     return await session.find_moved(bridge) or not session.mac(bridge)
+
+
+def _pass_over_what_it_never_had(bridge, result: dict) -> None:
+    """A recorder without 4K tuners answers 500 for those files for good, as one with them does for a file not made
+    yet, so the answer cannot tell the two apart (docs/epg-format.md). What can is what the recorder has given: a
+    type it has never given a channel of, in a refresh that read others, is taken to be one it does not have. If it
+    does have it, the type is read at a later refresh like any other."""
+    if not any(v.get("programs") for v in result.values()):
+        return
+    held = bridge.store.summary()
+    for bt, outcome in result.items():
+        if outcome.get("error") == FILE_NOT_MADE and not held[bt]["channels"]:
+            result[bt] = NO_CHANNELS
 
 
 async def refresh_epg(bridge) -> dict:
@@ -49,7 +63,6 @@ async def refresh_epg(bridge) -> dict:
                 services = await recorder.fetch_epg(bt)
             except httpx.HTTPStatusError as e:  # keep serving the cache
                 log.warning("EPG %s fetch failed: %s", bt, e)
-                errors.append(FILE_NOT_MADE)
                 result[bt] = {"error": FILE_NOT_MADE}
                 continue
             except httpx.TransportError as e:  # the recorder has gone: the next type would only wait for it too
@@ -63,7 +76,7 @@ async def refresh_epg(bridge) -> dict:
                 result[bt] = {"error": str(e)}
                 continue
             if services is None:
-                result[bt] = {"programs": 0, "channels": 0, "note": "no channels"}
+                result[bt] = NO_CHANNELS
                 continue
             n = await asyncio.to_thread(bridge.store.replace_services, bt, services)
             result[bt] = {"programs": n, "channels": len(services)}
@@ -75,6 +88,8 @@ async def refresh_epg(bridge) -> dict:
             if logos is not None:
                 await asyncio.to_thread(bridge.store.replace_logos, bt, logos)
                 result[bt]["logos"] = len(logos)
+        _pass_over_what_it_never_had(bridge, result)
+        errors += [v["error"] for v in result.values() if v.get("error") == FILE_NOT_MADE]
         bridge.last_error = "; ".join(dict.fromkeys(errors)) or None
     if any("programs" in v and v["programs"] for v in result.values()):
         try:
