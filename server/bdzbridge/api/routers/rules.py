@@ -113,7 +113,8 @@ async def recorder_rule_delete(request: Request, rule_id: str):
         async with rec.lock:
             await rec.xsrs.delete_recorder_rule(rule_id)
     except XsrsError as e:
-        raise HTTPException(502, e.explanation)
+        # 892 is the recorder saying it has no such condition: gone, or renumbered by an edit on its own screen.
+        raise HTTPException(404 if e.code == "892" else 502, e.explanation)
 
 
 @router.post("/monitor/run", response_model=S.MonitorResult)

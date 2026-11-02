@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { reservationAgain, RESERVATION_CHANGED, RESERVATION_NOT_LISTED, whyNotChanging } from '../src/api.js'
+import { conditionStillListed, reservationAgain, RESERVATION_CHANGED, RESERVATION_NOT_LISTED, whyNotChanging } from '../src/api.js'
 
 const row = (over = {}) => ({
   id: '0x1', broadcasting: 'td', service_id: 1024, event_id: 100, start: '2026-11-02T21:00:00+09:00',
@@ -47,4 +47,12 @@ test('a reservation is not changed while it records or once it has ended', () =>
   assert.equal(whyNotChanging({ recording: false, end: '2026-11-02T21:30:00+09:00' }, now), '')
   assert.equal(whyNotChanging({ recording: true, end: '2026-11-02T21:30:00+09:00' }, now), '録画中の予約は変更できません。')
   assert.equal(whyNotChanging({ recording: false, end: '2026-11-02T21:00:00+09:00' }, now), '放送が終わった予約は変更できません。')
+})
+
+test('a condition is deleted only as the screen showed it', () => {
+  const held = { id: '0x1', name: 'サンプル', keywords: ['サンプル'], excluded: [] }
+  assert.equal(conditionStillListed([{ ...held }], held), true)
+  assert.equal(conditionStillListed([{ ...held, keywords: ['別の語'] }], held), false)
+  assert.equal(conditionStillListed([{ ...held, id: '0x2' }], held), false)
+  assert.equal(conditionStillListed([], held), false)
 })

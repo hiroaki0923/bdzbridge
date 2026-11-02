@@ -10,7 +10,7 @@ from bdzbridge.api.app import create_app
 from bdzbridge.config import Settings
 from bdzbridge.recorder import wol
 from bdzbridge.recorder.epg import JST
-from bdzbridge.recorder.xsrs import Reservation
+from bdzbridge.recorder.xsrs import Reservation, XsrsError
 from bdzbridge.state import Bridge
 from bdzbridge.store import Store
 from tests.conftest import (
@@ -203,3 +203,11 @@ def test_recorder_rule_defaults_and_limits(client):
     assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": ["a"] * 6}).status_code == 422
     assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": ["a"], "excluded": ["x", "y", "z"]}).status_code == 422
     assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": ["a"], "logic": "XOR"}).status_code == 422
+
+
+def test_deleting_a_condition_the_recorder_no_longer_holds_is_a_404(client):
+    async def not_held(rule_id):
+        raise XsrsError("X_DeletePrefRecSetting", 500, "892")
+    client.bridge.recorder.xsrs.delete_recorder_rule = not_held
+    r = client.delete("/api/v1/recorder-rules/0x1", headers=H)
+    assert r.status_code == 404 and "この条件がありません" in r.json()["detail"]

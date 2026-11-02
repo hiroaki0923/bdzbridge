@@ -1,6 +1,6 @@
 <script>
   import { loadPref, savePref } from '../prefs.js'
-  import { api, fmtDateTime, repeatOptions, whyNotChanging } from '../api.js'
+  import { api, ApiError, conditionStillListed, CONDITION_NOT_LISTED, fmtDateTime, repeatOptions, whyNotChanging } from '../api.js'
   import { actOnReservation, app, loadReservations, toast } from '../store.svelte.js'
   let confirmTarget = $state(null)
   let busy = $state(false)
@@ -61,7 +61,12 @@
   }
   async function deleteRecRule(r) {
     if (!window.confirm(`「${r.name}」を本体から削除します。本体で設定したチャンネルの絞り込みも一緒に消えます。`)) return
-    try { await api(`/recorder-rules/${r.id}`, { method: 'DELETE' }); toast('本体から削除しました'); await loadRecRules() } catch (err) { toast(err.message) }
+    try {
+      if (!conditionStillListed(await api('/recorder-rules'), r)) throw new ApiError(404, CONDITION_NOT_LISTED)
+      await api(`/recorder-rules/${r.id}`, { method: 'DELETE' })
+      toast('本体から削除しました')
+    } catch (err) { toast(err.status === 404 ? CONDITION_NOT_LISTED : err.message) }
+    await loadRecRules()
   }
   const SORTS = [['time', '日時'], ['genre', 'ジャンル'], ['channel', '局']]
   let sort = $state(loadPref('resSort', null) || 'time')

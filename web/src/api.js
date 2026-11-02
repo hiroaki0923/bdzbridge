@@ -78,6 +78,14 @@ export function whyNotChanging(r, now = Date.now()) {
   return new Date(r.end).getTime() <= now ? '放送が終わった予約は変更できません。' : ''
 }
 
+export const CONDITION_NOT_LISTED = 'この条件はレコーダーのおまかせ・まる録の一覧に見つかりませんでした。レコーダーで変更された場合も含みます。一覧を更新しました。'
+
+// Whether a condition of the recorder's is in the list just read as the screen showed it, by its id and all it was
+// read with. The recorder renumbers a condition its own screen edits, so an id read a while ago can be another's.
+export function conditionStillListed(list, held) {
+  return list.some((r) => JSON.stringify(r) === JSON.stringify(held))
+}
+
 export function findReservation(idx, p) {
   if (!idx) return null
   return idx.byEvent.get(reservationKey(p.broadcasting, p.service_id, p.event_id))
