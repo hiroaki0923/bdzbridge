@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import httpx
+from fastapi import HTTPException
 
 from ..api import schemas as S
 from ..api.serializers import title_out
@@ -25,6 +26,9 @@ if TYPE_CHECKING:
 log = logging.getLogger("bdzbridge.titles")
 
 USB = "USBHDD"
+DISK_CHANGED = "録画先のディスクが変わったため、この操作は行っていません。一覧を読み直してから、もう一度お試しください"
+RECORDING_ON_USB = "録画中のため保護も削除もできません。番組が終わってから一覧を読み直してください"
+NOT_PLAYED_WHILE_RECORDING = "録画中のため再生できません。番組が終わってから一覧を読み直してください"
 
 
 async def all_titles(bridge, max_age: float = 300) -> list[XTitle]:
@@ -63,6 +67,28 @@ def forget_titles(bridge) -> None:
     if bridge.titles_cache:
         bridge.usb_titles_held = [t for t in bridge.titles_cache[1] if t.destination == USB]
     bridge.titles_cache = None
+
+
+async def why_not_altering(bridge, t: XTitle) -> str | None:
+    """Why nothing is to be written to a recording now, or None. Only of the USB disk's rows. An id means something
+    only on the disk it was read from, and nothing says a disk was swapped or pulled, so the slot is read before each
+    write. A row still recording is left alone too, as its id changes when it ends."""
+    if t.destination != USB:
+        return None
+    disk = await usb.settled(bridge)
+    if disk is None or not disk.takes_recordings or bridge.titles_disk is None or disk.identity != bridge.titles_disk.identity:
+        forget_titles(bridge)
+        return DISK_CHANGED
+    return RECORDING_ON_USB if t.recording else None
+
+
+async def row_or_refuse(bridge, title_id: str, playing: bool = False) -> XTitle | None:
+    """The row of a recording about to be written to, or a 409 that says why it is not to be. None for an id not in
+    the list, which goes on to the recorder as it always has."""
+    t = next((x for x in await all_titles(bridge) if x.id == title_id), None)
+    if t is not None and (why := await why_not_altering(bridge, t)):
+        raise HTTPException(409, NOT_PLAYED_WHILE_RECORDING if playing and why == RECORDING_ON_USB else why)
+    return t
 
 
 def duplicate_candidates(titles: list[XTitle]) -> list[list[XTitle]]:
@@ -150,6 +176,12 @@ def duplicate_sets(candidates: list[list[XTitle]], summaries: dict[str, str], st
     return sorted(sets, key=lambda s: s["size_mb"], reverse=True)
 
 
+def _summary_key(bridge, t: XTitle) -> str:
+    """What a programme text is kept under. Whether two USB disks use the same ids has not been seen, so a USB row's
+    goes with the disk it was read from."""
+    return f"{bridge.titles_disk.registered}:{t.id}" if t.destination == USB and bridge.titles_disk else t.id
+
+
 async def scan_duplicates(bridge, job: Job) -> None:
     """Group recordings that look like copies of one broadcast (same title and length, then the same programme
     text, which the recorder is asked for one title at a time and cached; the guide tells a text that is the same
@@ -158,18 +190,20 @@ async def scan_duplicates(bridge, job: Job) -> None:
     (820) leaves the list. Result: {"sets": [...], "unread": n}."""
     rec = bridge.recorder
     bridge.store.clear_blank_summaries_once()
-    candidates = duplicate_candidates(await all_titles(bridge))
+    titles = [t for t in await all_titles(bridge) if not (t.destination == USB and t.recording)]
+    candidates = duplicate_candidates(titles)
     job.total = sum(len(c) for c in candidates)
     summaries: dict[str, str] = {}
     gone: set[str] = set()
     for members in candidates:
         for t in members:
-            summ = bridge.store.title_summary(t.id)
+            key = _summary_key(bridge, t)
+            summ = bridge.store.title_summary(key)
             if summ is None:
                 try:
                     async with rec.lock:
                         summ = (await rec.xsrs.title_detail(t.id)).get("summary") or ""
-                    bridge.store.set_title_summary(t.id, summ)
+                    bridge.store.set_title_summary(key, summ)
                 except (XsrsError, httpx.HTTPError) as e:
                     log.debug("no detail for %s: %s", t.id, e)
                     if isinstance(e, XsrsError) and e.code == "820":
@@ -192,10 +226,15 @@ async def protect_titles(bridge, job: Job, ids: list[str], protected: bool) -> N
     rec = bridge.recorder
     try:
         known = {t.id: t for t in await all_titles(bridge)}
-        for tid in ids:
+        for n, tid in enumerate(ids):
             t = known.get(tid)
+            why = await why_not_altering(bridge, t) if t else None
             if t is None:
                 job.result["skipped"].append({"id": tid, "reason": "not found"})
+            elif why:
+                job.result["skipped"] += [{"id": i, "reason": why} for i in (ids[n:] if why == DISK_CHANGED else [tid])]
+                if why == DISK_CHANGED:
+                    break
             elif t.protected == protected:
                 job.result["skipped"].append({"id": tid, "reason": "unchanged"})
             else:
@@ -212,14 +251,20 @@ async def protect_titles(bridge, job: Job, ids: list[str], protected: bool) -> N
 
 async def delete_titles(bridge, job: Job, ids: list[str]) -> None:
     """Delete recordings one by one (each takes the recorder a few seconds).
-    Result: {"deleted": [ids], "skipped": [{"id", "reason"}]}; protected, in-progress and unknown ids are skipped."""
+    Result: {"deleted": [ids], "skipped": [{"id", "reason"}]}; protected, in-progress and unknown ids are skipped, and
+    the job stops at a USB row whose disk has changed."""
     rec = bridge.recorder
     try:
         known = {t.id: t for t in await all_titles(bridge)}
-        for tid in ids:
+        for n, tid in enumerate(ids):
             t = known.get(tid)
+            why = await why_not_altering(bridge, t) if t else None
             if t is None:
                 job.result["skipped"].append({"id": tid, "reason": "not found"})
+            elif why:
+                job.result["skipped"] += [{"id": i, "reason": why} for i in (ids[n:] if why == DISK_CHANGED else [tid])]
+                if why == DISK_CHANGED:
+                    break
             elif t.protected:
                 job.result["skipped"].append({"id": tid, "reason": "protected"})
             elif t.recording:
