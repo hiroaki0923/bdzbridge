@@ -678,6 +678,8 @@ channel narrowing the recorder's screen offers cannot be set over the LAN.
 
 - `free_gb`: number | null （省略可）
 - `low_space`: boolean
+- `usb_free_gb`: number | null （省略可）
+- `low_space_usb`: boolean （省略可、既定 `false`）
 - `new_conflicts`: list[string]
 - `notified`: list[string]
 

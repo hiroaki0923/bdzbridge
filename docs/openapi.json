@@ -2569,6 +2569,22 @@
       "type": "boolean",
       "title": "Low Space"
      },
+     "usb_free_gb": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Usb Free Gb"
+     },
+     "low_space_usb": {
+      "type": "boolean",
+      "title": "Low Space Usb",
+      "default": false
+     },
      "new_conflicts": {
       "items": {
        "type": "string"

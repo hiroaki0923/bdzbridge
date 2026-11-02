@@ -22,6 +22,7 @@ from tests.conftest import (
     free_space,
     recorder_answering,
     soap_answer,
+    usb_disk,
 )
 
 
@@ -135,6 +136,35 @@ def test_monitor_warns_again_only_after_space_recovers(client):
     x.record_destination_info = lambda destination="HDD": free_space(10e9)
     assert c.post("/api/v1/monitor/run", headers=H).json()["low_space"] is True
     assert len(c.bridge.notifier.sent) == 2
+
+def test_the_usb_disk_is_warned_about_once_and_another_disk_too(client):
+    c = autorec_client(client)
+    x = c.bridge.recorder.xsrs
+    x.usb = usb_disk(free_mb=10_000)
+
+    def run():
+        return c.post("/api/v1/monitor/run", headers=H).json()
+    first = run()
+    assert first["low_space_usb"] is True and first["usb_free_gb"] == 10.0
+    assert "ＵＳＢ ＨＤＤ１ の残りが 10.0 GB です" in c.bridge.notifier.sent[-1][1]
+    assert "USB HDD 残量警告" in c.bridge.notifier.sent[-1][0]
+    assert run()["low_space_usb"] is False
+    x.usb = usb_disk(name="別のディスク", free_mb=10_000, registered="2026-02-02T03:04:05+0900")
+    assert run()["low_space_usb"] is True
+    x.usb = usb_disk(name="別のディスク", free_mb=500_000, registered="2026-02-02T03:04:05+0900")
+    assert run()["low_space_usb"] is False
+    x.usb = usb_disk(name="別のディスク", free_mb=10_000, registered="2026-02-02T03:04:05+0900")
+    assert run()["low_space_usb"] is True
+
+
+def test_a_disk_not_answered_for_is_not_warned_about(client):
+    c = autorec_client(client)
+    x = c.bridge.recorder.xsrs
+    x.usb = usb_disk(free_mb=100_000)
+    c.post("/api/v1/monitor/run", headers=H)
+    x.usb = None
+    assert c.post("/api/v1/monitor/run", headers=H).json()["usb_free_gb"] is None
+
 
 def test_monitor_free_space_check_can_be_disabled(tmp_path, monkeypatch):
 

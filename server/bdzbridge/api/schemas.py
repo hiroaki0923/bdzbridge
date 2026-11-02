@@ -365,6 +365,8 @@ class AutoRunResult(BaseModel):
 class MonitorResult(BaseModel):
     free_gb: float | None = None
     low_space: bool
+    usb_free_gb: float | None = None
+    low_space_usb: bool = False
     new_conflicts: list[str]
     notified: list[str]
 
