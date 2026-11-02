@@ -125,6 +125,8 @@ class FakeXsrs:
         return self._titles()
 
     async def title_detail(self, title_id):
+        if error := getattr(self, "detail_errors", {}).get(title_id):
+            raise error
         summaries = getattr(self, "summaries", {})
         return {"summary": summaries.get(title_id, SUMMARY), "details": ["番組内容 本文"]}
 

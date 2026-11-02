@@ -69,6 +69,7 @@
   </div>
 {:else}
   <p class="muted">{#if job.cancelled}中止しました。「更新」でやり直せます。{:else}{sets.length} 組の重複{sets.length ? '。チェックを付けたものを削除し、チェックの無いものは残します。番組内容も同じ組では、先に放送された方（保護中や視聴途中のものがあればそちら）を残して、ほかにチェックを付けています。説明文が毎回同じ番組の組と、内容を確かめられない組にはチェックを付けていません。' : 'はありません。'}{/if}</p>
+  {#if job.result.unread}<p class="muted">番組内容をまだ取得できていない録画が {job.result.unread} 件あり、比べていません。</p>{/if}
   {#each sets as s, i (i)}
     <div class="card">
       <div class="title">{s.title}</div>

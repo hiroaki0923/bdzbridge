@@ -126,11 +126,15 @@ def duplicate_sets(candidates: list[list[XTitle]], summaries: dict[str, str], st
 async def scan_duplicates(bridge, job: Job) -> None:
     """Group recordings that look like copies of one broadcast (same title and length, then the same programme
     text, which the recorder is asked for one title at a time and cached; the guide tells a text that is the same
-    every time). Result: {"sets": [...]}."""
+    every time). Only a text that was read is kept, an empty one among them: a recording whose read failed is
+    left out of the comparison and counted, and asked for again next time, and one the recorder no longer has
+    (820) leaves the list. Result: {"sets": [...], "unread": n}."""
     rec = bridge.recorder
+    bridge.store.clear_blank_summaries_once()
     candidates = duplicate_candidates(await all_titles(bridge))
     job.total = sum(len(c) for c in candidates)
     summaries: dict[str, str] = {}
+    gone: set[str] = set()
     for members in candidates:
         for t in members:
             summ = bridge.store.title_summary(t.id)
@@ -138,14 +142,21 @@ async def scan_duplicates(bridge, job: Job) -> None:
                 try:
                     async with rec.lock:
                         summ = (await rec.xsrs.title_detail(t.id)).get("summary") or ""
-                except Exception as e:
+                    bridge.store.set_title_summary(t.id, summ)
+                except (XsrsError, httpx.HTTPError) as e:
                     log.debug("no detail for %s: %s", t.id, e)
-                    summ = ""
-                bridge.store.set_title_summary(t.id, summ)
-            summaries[t.id] = summ
+                    if isinstance(e, XsrsError) and e.code == "820":
+                        gone.add(t.id)
+            if summ is not None:
+                summaries[t.id] = summ
             job.step()
-    fixed = fixed_blurbs(bridge.store.guide_blurbs(), {same_title_key(members[0].title) for members in candidates})
-    job.result["sets"] = duplicate_sets(candidates, summaries, bridge.store, fixed)
+    if gone:
+        forget_titles(bridge)
+    read = [[t for t in members if t.id in summaries] for members in candidates]
+    job.result["unread"] = sum(len(c) for c in candidates) - sum(len(m) for m in read) - len(gone)
+    read = [members for members in read if len(members) > 1]
+    fixed = fixed_blurbs(bridge.store.guide_blurbs(), {same_title_key(members[0].title) for members in read})
+    job.result["sets"] = duplicate_sets(read, summaries, bridge.store, fixed)
 
 
 async def protect_titles(bridge, job: Job, ids: list[str], protected: bool) -> None:

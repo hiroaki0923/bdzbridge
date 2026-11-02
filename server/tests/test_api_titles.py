@@ -7,6 +7,7 @@ import httpx
 
 from bdzbridge.recorder.client import RecorderClient
 from bdzbridge.recorder.epg import JST, Program, Service
+from bdzbridge.recorder.xsrs import XsrsError
 from tests.conftest import (
     SUMMARY,
     H,
@@ -82,6 +83,35 @@ def test_duplicate_scan_suggests_the_later_copy(client):
     assert s["keep"] == "0x0000010000034d7b" and s["suggest_delete"] == ["0x0000010000034d78"]  # the earlier broadcast stays
     assert s["reasons"]["0x0000010000034d7b"] == "先に放送" and s["reasons"]["0x0000010000034d78"] == "後の放送"
     assert client.bridge.store.title_summary("0x0000010000034d78") == SUMMARY
+
+def test_a_text_that_could_not_be_read_is_left_out_and_asked_for_again(client):
+    x = client.bridge.recorder.xsrs
+    x.detail_errors = {"0x0000010000034d78": XsrsError("X_GetTitleDetail", 503, None)}
+    r = wait_job(client, client.post("/api/v1/titles/duplicates", headers=H).json()["id"])
+    assert r["result"]["sets"] == [] and r["result"]["unread"] == 1
+    assert client.bridge.store.title_summary("0x0000010000034d78") is None
+    x.detail_errors = {}
+    r = wait_job(client, client.post("/api/v1/titles/duplicates", headers=H).json()["id"])
+    assert len(r["result"]["sets"]) == 1 and r["result"]["unread"] == 0
+
+
+def test_a_recording_the_recorder_no_longer_has_leaves_the_list(client):
+    client.bridge.recorder.xsrs.detail_errors = {"0x0000010000034d78": XsrsError("X_GetTitleDetail", 500, "820")}
+    r = wait_job(client, client.post("/api/v1/titles/duplicates", headers=H).json()["id"])
+    assert r["result"]["sets"] == [] and r["result"]["unread"] == 0
+    assert client.bridge.titles_cache is None
+
+
+def test_texts_saved_blank_by_an_earlier_version_are_cleared_once(client):
+    store = client.bridge.store
+    store.set_title_summary("0x1", "")
+    store.set_title_summary("0x2", "読めた本文")
+    store.clear_blank_summaries_once()
+    assert store.title_summary("0x1") is None and store.title_summary("0x2") == "読めた本文"
+    store.set_title_summary("0x1", "")  # read and really empty
+    store.clear_blank_summaries_once()
+    assert store.title_summary("0x1") == ""
+
 
 def test_bulk_protect_job(client):
     job = client.post("/api/v1/titles/protect", headers=H, json={"ids": ["0x0000010000034d78", "0x0000010000034d79", "0x1"], "protected": True})
