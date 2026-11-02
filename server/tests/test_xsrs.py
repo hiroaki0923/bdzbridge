@@ -2,6 +2,7 @@ import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 import pytest
 
@@ -11,6 +12,7 @@ from bdzbridge.recorder.xsrs import (
     build_create_elements,
     build_recorder_rule_elements,
     build_update_elements,
+    parse_disk,
     parse_recorder_rule,
     parse_reservation,
 )
@@ -196,3 +198,33 @@ async def test_a_recorder_still_busy_after_that_says_so():
     with pytest.raises(XsrsError) as e:
         await recorder_answering(answer).list_reservations()
     assert e.value.busy and len(sent) == 3
+
+
+USB_ANSWER = ('<?xml version="1.0"?><xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/"><name>ＵＳＢ ＨＤＤ１</name>'
+              "<mount>1</mount><remain>500000</remain><total>2000000</total>"
+              "<registeredTime>2026-01-02T03:04:05+0900</registeredTime><recordableRemain>500000</recordableRemain></xsrs>")
+NO_USB_ANSWER = ('<?xml version="1.0"?><xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/"><name></name><mount>0</mount>'
+                 "<remain>0</remain><total>0</total><registeredTime></registeredTime></xsrs>")
+
+
+def test_a_disk_is_read_from_the_media_info():
+    d = parse_disk(USB_ANSWER, "USBHDD")
+    assert (d.name, d.mounted, d.free_bytes, d.total_bytes) == ("ＵＳＢ ＨＤＤ１", True, 500_000_000_000, 2_000_000_000_000)
+    assert d.takes_recordings and d.registered == "2026-01-02T03:04:05+0900"
+
+
+def test_an_answer_that_describes_no_disk_is_none():
+    assert parse_disk("", "USBHDD") is None and parse_disk("not xml", "USBHDD") is None
+    assert parse_disk("<xsrs><name>x</name></xsrs>", "USBHDD") is None
+
+
+async def test_only_a_registered_disk_counts():
+    def answering(result):
+        return recorder_answering(lambda action: (200, soap_answer(action, f"<Result>{escape(result)}</Result>")))
+    assert (await answering(USB_ANSWER).usb_disk()).name == "ＵＳＢ ＨＤＤ１"
+    assert await answering(NO_USB_ANSWER).usb_disk() is None
+
+
+def test_a_disk_of_no_size_says_nothing_of_its_room():
+    d = parse_disk(NO_USB_ANSWER.replace("<registeredTime></registeredTime>", "<registeredTime>x</registeredTime>"), "USBHDD")
+    assert not d.takes_recordings and d.free_bytes is None and d.total_bytes is None

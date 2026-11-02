@@ -3382,6 +3382,17 @@
        }
       ]
      },
+     "usb": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/UsbDisk"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "the registered disk in the USB slot, when there is one"
+     },
      "reachable": {
       "anyOf": [
        {
@@ -4249,6 +4260,53 @@
      "protected"
     ],
     "title": "TitlesProtect"
+   },
+   "UsbDisk": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name",
+      "description": "the recorder's name for the disk, which can be changed on its screen"
+     },
+     "mounted": {
+      "type": "boolean",
+      "title": "Mounted"
+     },
+     "total_bytes": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Total Bytes"
+     },
+     "free_bytes": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Free Bytes"
+     },
+     "answered": {
+      "type": "boolean",
+      "title": "Answered",
+      "description": "False: the disk last known, shown while the recorder has not said it is there"
+     }
+    },
+    "type": "object",
+    "required": [
+     "name",
+     "mounted",
+     "answered"
+    ],
+    "title": "UsbDisk"
    },
    "ValidationError": {
     "properties": {

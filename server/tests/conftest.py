@@ -15,6 +15,7 @@ from bdzbridge.recorder import wol, xsrs
 from bdzbridge.recorder.epg import JST, Program, Service
 from bdzbridge.recorder.logo import Logo, with_palette
 from bdzbridge.recorder.xsrs import (
+    Disk,
     RecordedTitle,
     RecorderRule,
     Reservation,
@@ -166,6 +167,11 @@ class FakeXsrs:
     async def record_destination_info(self, destination="HDD"):
         return {"total_bytes": 4_294_967_296_000, "free_bytes": 8_556_380_160}
 
+    async def usb_disk(self):
+        if error := getattr(self, "usb_error", None):
+            raise error
+        return getattr(self, "usb", None)
+
 
 class FakeRecorder:
     def __init__(self):
@@ -225,6 +231,10 @@ class FakeNotifier:
     async def send(self, subject, body):
         self.sent.append((subject, body))
         return ["email"]
+
+
+def usb_disk(name="ＵＳＢ ＨＤＤ１", free_mb=500_000, total_mb=2_000_000, registered="2026-01-02T03:04:05+0900", mounted=True):
+    return Disk("USBHDD", name, mounted, free_mb, total_mb, registered)
 
 
 def autorec_client(client):

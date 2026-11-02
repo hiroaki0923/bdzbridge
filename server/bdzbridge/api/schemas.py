@@ -219,6 +219,14 @@ class Storage(BaseModel):
     free_bytes: int
 
 
+class UsbDisk(BaseModel):
+    name: str = Field(description="the recorder's name for the disk, which can be changed on its screen")
+    mounted: bool
+    total_bytes: int | None = None
+    free_bytes: int | None = None
+    answered: bool = Field(description="False: the disk last known, shown while the recorder has not said it is there")
+
+
 class RecorderStatus(BaseModel):
     configured: bool
     host: str | None = None
@@ -231,6 +239,7 @@ class RecorderStatus(BaseModel):
     power: str | None = None
     play: str | None = None
     storage: Storage | None = None
+    usb: UsbDisk | None = Field(default=None, description="the registered disk in the USB slot, when there is one")
     reachable: bool | None = Field(default=None, description="False when the recorder is not answering on the network (try POST /recorder/wake)")
     mac: str | None = None
     epg: dict

@@ -89,6 +89,10 @@ class StoreBase:
         with self._lock, self.db:
             self.db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
 
+    def delete_meta(self, key: str) -> None:
+        with self._lock, self.db:
+            self.db.execute("DELETE FROM meta WHERE key=?", (key,))
+
     def forget_recorder(self) -> None:
         """Drops what one recorder said, when another takes its place. A list of recordings or a logged reservation
         means nothing on the next one, and a recording's id can stand for another recording there. The reader's own
@@ -97,5 +101,5 @@ class StoreBase:
             for table in ("programs", "channels", "logos", "auto_log", "title_summaries"):
                 self.db.execute(f"DELETE FROM {table}")
             self.db.execute("DELETE FROM meta WHERE key LIKE 'epg_refreshed:%' "
-                            "OR key IN ('warned_low_space', 'notified_conflicts', 'recorder_mac')")
+                            "OR key IN ('warned_low_space', 'warned_low_usb', 'notified_conflicts', 'recorder_mac', 'usb_disk')")
 

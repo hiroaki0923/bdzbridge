@@ -456,6 +456,7 @@ Stop after the item being processed; what is done stays done.
 - `power`: string | null （省略可）
 - `play`: string | null （省略可）
 - `storage`: Storage | null （省略可）
+- `usb`: UsbDisk | null （省略可） — the registered disk in the USB slot, when there is one
 - `reachable`: boolean | null （省略可） — False when the recorder is not answering on the network (try POST /recorder/wake)
 - `mac`: string | null （省略可）
 - `epg`: dict
@@ -465,6 +466,14 @@ Stop after the item being processed; what is done stays done.
 - `destination`: string （省略可、既定 `"HDD"`）
 - `total_bytes`: integer
 - `free_bytes`: integer
+
+### UsbDisk
+
+- `name`: string — the recorder's name for the disk, which can be changed on its screen
+- `mounted`: boolean
+- `total_bytes`: integer | null （省略可）
+- `free_bytes`: integer | null （省略可）
+- `answered`: boolean — False: the disk last known, shown while the recorder has not said it is there
 
 ### RecorderSelect
 

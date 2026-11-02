@@ -32,7 +32,7 @@ async def set_recorder(bridge, host: str, persist: bool = True) -> RecorderClien
     if old is not None:
         await old.close()
     if another:
-        bridge.titles_cache = bridge.last_error = bridge.last_autorec = None
+        bridge.titles_cache = bridge.last_error = bridge.last_autorec = bridge.usb_none_since = None
         bridge.store.forget_recorder()
     if persist or another:
         bridge.store.set_meta("recorder_udn", info.udn)

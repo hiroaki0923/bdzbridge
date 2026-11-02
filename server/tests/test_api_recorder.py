@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import httpx
 from fastapi.testclient import TestClient
 
 from bdzbridge.api.app import create_app
 from bdzbridge.config import PLACEHOLDER_TOKEN, Settings
 from bdzbridge.recorder import discovery, wol
-from bdzbridge.services import session
+from bdzbridge.recorder.xsrs import XsrsError
+from bdzbridge.services import session, usb
 from bdzbridge.state import Bridge
 from bdzbridge.store import Store
 from tests.conftest import (
@@ -16,6 +18,7 @@ from tests.conftest import (
     H,
     autorec_client,
     make_services,
+    usb_disk,
 )
 
 
@@ -236,3 +239,46 @@ async def test_choosing_another_recorder_forgets_what_the_last_one_said(tmp_path
     assert store.get_meta("recorder_udn") == "uuid:second"
     assert len(store.rules()) == 1  # the reader's own
     await bridge.close()
+
+
+def test_the_status_gives_the_usb_disk(client):
+    client.bridge.recorder.xsrs.usb = usb_disk()
+    u = client.get("/api/v1/recorder", headers=H).json()["usb"]
+    assert u == {"name": "ＵＳＢ ＨＤＤ１", "mounted": True, "total_bytes": 2_000_000_000_000, "free_bytes": 500_000_000_000, "answered": True}
+
+
+def test_the_status_has_no_usb_disk_when_there_is_none(client):
+    assert client.get("/api/v1/recorder", headers=H).json()["usb"] is None
+
+
+def test_one_answer_of_no_disk_is_not_believed_until_a_reading_later_says_the_same(client):
+    x = client.bridge.recorder.xsrs
+    x.usb = usb_disk()
+    client.get("/api/v1/recorder", headers=H)
+    x.usb = None
+    u = client.get("/api/v1/recorder", headers=H).json()["usb"]
+    assert u["name"] == "ＵＳＢ ＨＤＤ１" and u["answered"] is False
+    x.usb = usb_disk()  # it was the recorder just woken
+    assert client.get("/api/v1/recorder", headers=H).json()["usb"]["answered"] is True
+    assert client.bridge.usb_none_since is None
+    x.usb = None
+    client.get("/api/v1/recorder", headers=H)
+    client.bridge.usb_none_since -= usb.SETTLE_SECONDS
+    assert client.get("/api/v1/recorder", headers=H).json()["usb"] is None
+    assert client.bridge.store.get_meta(usb.KNOWN) is None
+
+
+def test_silence_and_a_busy_recorder_say_nothing_of_the_slot(client):
+    x = client.bridge.recorder.xsrs
+    x.usb = usb_disk()
+    client.get("/api/v1/recorder", headers=H)
+    x.usb_error = XsrsError("X_GetMediaInfo", 503, None)
+    assert client.get("/api/v1/recorder", headers=H).json()["usb"]["answered"] is False
+    x.usb_error = httpx.ConnectTimeout("no answer")
+    assert client.get("/api/v1/recorder", headers=H).json()["usb"]["answered"] is False
+    assert client.bridge.usb_none_since is None
+
+
+def test_a_refusal_is_no_disk(client):
+    client.bridge.recorder.xsrs.usb_error = XsrsError("X_GetMediaInfo", 500, "803")
+    assert client.get("/api/v1/recorder", headers=H).json()["usb"] is None

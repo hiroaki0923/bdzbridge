@@ -8,10 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ...recorder import codes
 from ...services import epg as epg_service
-from ...services import session
+from ...services import session, usb
 from ...state import Bridge
 from .. import schemas as S
 from ..deps import auth, bridge_of
+from ..serializers import usb_out
 
 log = logging.getLogger("bdzbridge")
 router = APIRouter(prefix="/api/v1", tags=["recorder"], dependencies=[Depends(auth)])
@@ -49,7 +50,8 @@ async def recorder_status(request: Request):
     reachable = await session.reachable(b)
     if not reachable:
         return S.RecorderStatus(configured=True, host=b.recorder.host, reachable=False, mac=session.mac(b), epg=epg,
-                                friendly_name=b.store.get_meta("recorder_name"), udn=b.store.get_meta("recorder_udn"))
+                                friendly_name=b.store.get_meta("recorder_name"), udn=b.store.get_meta("recorder_udn"),
+                                usb=usb_out(usb.known(b), False))
     info = b.recorder.info or await b.recorder.discover()
     fw = power = play = storage = None
     try:
@@ -63,8 +65,10 @@ async def recorder_status(request: Request):
         power, play = st.get("powerstatus"), st.get("playstatus")
     except Exception as e:
         log.warning("status query failed: %s", e)
+    disk, answered = await usb.read(b)
     return S.RecorderStatus(configured=True, host=info.host, friendly_name=info.friendly_name, model=info.model,
                             product=info.product, epg_capable=info.epg_capable, udn=info.udn, firmware=fw, storage=storage,
+                            usb=usb_out(disk, answered),
                             power=power, play=play, epg=epg, reachable=True, mac=session.mac(b))
 
 @router.post("/recorder/wake", response_model=S.WakeResult)

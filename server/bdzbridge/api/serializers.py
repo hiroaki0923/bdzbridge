@@ -8,6 +8,7 @@ from ..recorder import codes
 from ..recorder.client import RecorderClient
 from ..recorder.epg import JST
 from ..recorder.series import series_key
+from ..recorder.xsrs import Disk
 from ..recorder.xsrs import RecordedTitle as XTitle
 from ..recorder.xsrs import RecorderRule as XRecorderRule
 from ..recorder.xsrs import Reservation as XReservation
@@ -54,6 +55,13 @@ def reservation_out(r: XReservation, store: Store | None = None) -> S.Reservatio
                          conflict=r.conflict, destination=r.destination, size_mb=r.size_mb,
                          creator=r.creator, created_by_app=r.creator == "2200", created_by_recorder=r.creator == "1100",
                          genres=genres)
+
+
+def usb_out(disk: Disk | None, answered: bool) -> S.UsbDisk | None:
+    if disk is None:
+        return None
+    return S.UsbDisk(name=disk.name, mounted=disk.mounted, total_bytes=disk.total_bytes, free_bytes=disk.free_bytes,
+                     answered=answered)
 
 
 def title_out(t: XTitle, store: Store | None = None) -> S.RecordedTitle:

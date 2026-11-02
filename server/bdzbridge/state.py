@@ -27,6 +27,7 @@ class Bridge:
         self.clock = lambda: datetime.now(JST)  # tests override this
         self.last_autorec: dict | None = None
         self.titles_cache: tuple[float, list[XTitle]] | None = None  # (monotonic time, every recorded title)
+        self.usb_none_since: float | None = None  # when the slot first answered no disk while one was known
         self.jobs = Jobs()
 
     @property

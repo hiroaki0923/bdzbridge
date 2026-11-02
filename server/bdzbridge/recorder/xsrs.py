@@ -201,6 +201,57 @@ def build_update_elements(reservation_id: str, **kwargs) -> str:
     return build_create_elements(**kwargs).replace('<item id="">', f'<item id="{reservation_id}">', 1)
 
 
+@dataclass
+class Disk:
+    """One of the disks the recorder records to, as X_GetMediaInfo describes it. The USB slot is one id; the disk
+    behind it can change: unplugged, swapped, or renamed on the recorder's own screen (docs/xsrs-api.md)."""
+    destination: str
+    name: str             # the recorder's name for it, which its owner can change there
+    mounted: bool
+    free_mb: int | None   # in the recorder's MB, 10^6 bytes
+    total_mb: int | None
+    registered: str       # never read as a time, only compared: it tells one registered disk from another
+
+    @property
+    def takes_recordings(self) -> bool:
+        return self.mounted and (self.total_mb or 0) > 0
+
+    @property
+    def free_bytes(self) -> int | None:
+        return self.free_mb * 1_000_000 if self.free_mb is not None and (self.total_mb or 0) > 0 else None
+
+    @property
+    def total_bytes(self) -> int | None:
+        return self.total_mb * 1_000_000 if self.total_mb else None
+
+    @property
+    def identity(self) -> str:
+        """What tells this disk from another in the same slot. A renamed disk counts as another, the safe way."""
+        return f"{self.destination}\n{self.registered}\n{self.name}"
+
+
+def parse_disk(result: str, destination: str) -> Disk | None:
+    """The disk in an X_GetMediaInfo result, read by name wherever it stands so that another model's wrapping reads
+    too. None for an empty answer, one that is not XML, and one without <mount>, none of which describes a disk."""
+    try:
+        root = ET.fromstring(result)
+    except ET.ParseError:
+        return None
+
+    def value(tag: str) -> str | None:
+        el = next((e for e in root.iter() if e.tag.split("}")[-1] == tag), None)
+        return (el.text or "").strip() if el is not None else None
+
+    def number(tag: str) -> int | None:
+        text = value(tag)
+        return int(text) if text and text.isdigit() else None
+
+    if (mount := value("mount")) is None:
+        return None
+    return Disk(destination, value("name") or "", mount == "1", number("remain"), number("total"),
+                value("registeredTime") or "")
+
+
 def _soap_body(stype: str, action: str, args: list[tuple[str, object]]) -> bytes:
     inner = "".join(f"<{k}>{html.escape(str(v))}</{k}>" for k, v in args)
     return (
@@ -551,6 +602,12 @@ class XsrsClient:
                                 [("RecordDestinationID", destination)])
         info = ET.fromstring(_find_text(root, "RecordDestinationInfo") or "<RecordDestinationInfo/>")
         return {"total_bytes": int(info.get("totalCapacity", 0)), "free_bytes": int(info.get("availableCapacity", 0))}
+
+    async def usb_disk(self) -> Disk | None:
+        """The registered disk in the USB slot, or None. X_GetMediaInfo alone says this: the two destination calls
+        answer for the internal disk whatever they are given. A disk with no registered time is no disk here."""
+        disk = parse_disk(await self._pvr("X_GetMediaInfo", [("recordDestinationID", "USBHDD")]), "USBHDD")
+        return disk if disk and disk.registered else None
 
     async def send_key(self, key: str) -> None:
         await self._call("/X_PvrControl", PVR_TYPE, "X_InputRemoteKey", [("RemoteKey", key)])
