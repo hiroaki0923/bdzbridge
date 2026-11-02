@@ -77,6 +77,20 @@ async def wake(bridge) -> bool:
     return await wol.wake(rec.host, mac(bridge))
 
 
+async def find_moved(bridge) -> bool:
+    """The recorder has stopped answering where it was: a new DHCP lease may have moved it. It is looked for by its
+    UDN and followed, unless the address is fixed in the settings. True when it was found somewhere else."""
+    udn = bridge.store.get_meta("recorder_udn")
+    if bridge.settings.recorder_host or not udn or bridge.recorder is None:
+        return False
+    for c in await discover(bridge):
+        if c.udn == udn and c.host != bridge.recorder.host:
+            log.info("recorder %s moved to %s", udn, c.host)
+            await set_recorder(bridge, c.host)
+            return True
+    return False
+
+
 async def resolve_recorder(bridge) -> None:
     """Startup: env var wins; else the saved host; if it moved, find it again by UDN."""
     if bridge.settings.recorder_host:

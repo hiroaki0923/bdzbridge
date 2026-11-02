@@ -282,3 +282,27 @@ def test_silence_and_a_busy_recorder_say_nothing_of_the_slot(client):
 def test_a_refusal_is_no_disk(client):
     client.bridge.recorder.xsrs.usb_error = XsrsError("X_GetMediaInfo", 500, "803")
     assert client.get("/api/v1/recorder", headers=H).json()["usb"] is None
+
+
+async def test_a_recorder_that_moved_while_running_is_followed(tmp_path, monkeypatch):
+    settings = Settings(recorder_host="", api_token=TOKEN, db_path=str(tmp_path / "f.sqlite3"), epg_refresh_on_start=False)
+    store = Store(settings.db_path)
+    store.set_meta("recorder_udn", "uuid:abc")
+    bridge = Bridge(settings, FakeRecorder(), store)
+    bridge.recorder.host = "192.0.2.10"
+    picked = []
+
+    async def found(http, networks=""):
+        return [discovery.Candidate("192.0.2.30", 64220, "BDR - Y", "BDZ-Y", "BDZ-2021", "uuid:other", True, "loc", "ssdp"),
+                discovery.Candidate("192.0.2.20", 64220, "BDR - X", "BDZ-X", "BDZ-2021", "uuid:abc", True, "loc", "ssdp")]
+
+    async def pick(b, host, persist=True):
+        picked.append(host)
+    monkeypatch.setattr(discovery, "discover", found)
+    monkeypatch.setattr(session, "set_recorder", pick)
+    assert await session.find_moved(bridge) is True and picked == ["192.0.2.20"]
+    bridge.recorder.host = "192.0.2.20"  # there already: it is simply not answering
+    assert await session.find_moved(bridge) is False
+    bridge.settings.recorder_host = "192.0.2.10"  # fixed in the settings
+    assert await session.find_moved(bridge) is False and picked == ["192.0.2.20"]
+    await bridge.close()

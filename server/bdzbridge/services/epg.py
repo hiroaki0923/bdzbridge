@@ -18,22 +18,25 @@ NO_ANSWER = "the recorder does not answer, even after Wake-on-LAN"
 
 async def _awake(bridge) -> bool:
     """The recorder leaves the network after a while in standby, and the refresh that finds it gone is mostly
-    the scheduled one, which nobody is watching. So it is woken first, as for playback. Without a MAC there is
-    nothing to send, and the refresh goes ahead and fails type by type as it did before."""
-    if not session.mac(bridge) or await session.reachable(bridge):
+    the scheduled one, which nobody is watching. So it is woken first, as for playback, and then looked for
+    elsewhere, as a lease may have moved it. Without a MAC there is nothing to send, and when it is not found either
+    the refresh goes ahead and fails type by type as it did before."""
+    if await session.reachable(bridge):
         return True
-    return await session.wake(bridge)
+    if session.mac(bridge) and await session.wake(bridge):
+        return True
+    return await session.find_moved(bridge) or not session.mac(bridge)
 
 
 async def refresh_epg(bridge) -> dict:
-    recorder = bridge.require_recorder()
-    if recorder.info is not None and not recorder.info.epg_capable:
+    if bridge.require_recorder().info is not None and not bridge.recorder.info.epg_capable:
         bridge.last_error = None
         return {"note": "this recorder does not provide an EPG (EPG_CAP is 00)", "epg_capable": False}
     async with bridge.refresh_lock:
         if not await _awake(bridge):
             bridge.last_error = NO_ANSWER
             raise HTTPException(503, NO_ANSWER)
+        recorder = bridge.recorder  # a recorder that moved has a new client
         result = {}
         # the types that failed stay in last_error, for the settings screen, until a refresh has none
         errors: list[str] = []
