@@ -496,26 +496,21 @@ class XsrsClient:
         await self._call("/XSRS", XSRS_TYPE, "X_DeleteRecordSchedule", [("RecordScheduleID", reservation_id)])
 
     # --- recorded titles ---
-    async def list_titles(self, count: int = 100, start: int = 0) -> list[RecordedTitle]:
-        items, _ = await self._result_items("/XSRS", XSRS_TYPE, "X_GetTitleList",
-                                            [("SearchCriteria", _DESTINATION_HDD), ("StartingIndex", start),
-                                             ("RequestedCount", count), ("SortCriteria", "-scheduledStartDateTime"),
-                                             ("Filter", "*")])
-        return [parse_title(i) for i in items]
-
-    async def list_titles_all(self, page: int = 200) -> list[RecordedTitle]:
-        """Every recorded title, newest first (one call returns at most 200)."""
+    async def list_titles_all(self, page: int = 200, destination: str | None = None) -> list[RecordedTitle]:
+        """Every recorded title on the internal disk, newest first (one call returns at most 200), or on the disk
+        named. A criterion the recorder cannot read is taken as all of them, so what comes back is filtered again."""
+        criteria = f'recordDestinationID="{destination}"' if destination else _DESTINATION_HDD
         out: list[RecordedTitle] = []
         start = 0
         while True:
             items, root = await self._result_items("/XSRS", XSRS_TYPE, "X_GetTitleList",
-                                                   [("SearchCriteria", _DESTINATION_HDD), ("StartingIndex", start),
+                                                   [("SearchCriteria", criteria), ("StartingIndex", start),
                                                     ("RequestedCount", page), ("SortCriteria", "-scheduledStartDateTime"),
                                                     ("Filter", "*")])
             out += [parse_title(i) for i in items]
             start += len(items)
             if not items or start >= int(_find_text(root, "TotalMatches") or 0):
-                return out
+                return [t for t in out if t.destination == destination] if destination else out
 
     # --- PvrControl ---
     async def _pvr(self, action: str, args: list[tuple[str, object]]) -> str:

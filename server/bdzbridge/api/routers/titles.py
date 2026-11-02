@@ -22,15 +22,16 @@ router = APIRouter(prefix="/api/v1", tags=["titles"], dependencies=[Depends(auth
 
 @router.get("/titles", response_model=list[S.RecordedTitle])
 async def titles(request: Request, limit: int = Query(100, le=500), offset: int = 0,
-                 series: str | None = Query(None, description="only titles with this grouping key (see /titles/groups)")):
+                 series: str | None = Query(None, description="only titles with this grouping key (see /titles/groups)"),
+                 destination: str | None = Query(None, description="only titles on this disk: HDD or USBHDD"),
+                 refresh: bool = Query(False, description="re-read the list from the recorder")):
+    """The recordings of both disks, newest first, from the list kept for five minutes."""
     b = bridge_of(request)
-    rec = b.require_recorder()
-    if series is not None:
-        items = [t for t in await svc.all_titles(b) if series_key(t.title) == series][offset:offset + limit]
-    else:
-        async with rec.lock:
-            items = await rec.xsrs.list_titles(count=limit, start=offset)
-    return [title_out(t, b.store) for t in items]
+    if refresh:
+        svc.forget_titles(b)
+    items = [t for t in await svc.all_titles(b) if (series is None or series_key(t.title) == series)
+             and (destination is None or t.destination == destination)]
+    return [title_out(t, b.store) for t in items[offset:offset + limit]]
 
 @router.get("/titles/groups", response_model=list[S.TitleGroup])
 async def title_groups(request: Request, genre: int | None = Query(None, description="ARIB level-1 genre code"),

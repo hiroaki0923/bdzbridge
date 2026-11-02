@@ -1433,6 +1433,7 @@
      "titles"
     ],
     "summary": "Titles",
+    "description": "The recordings of both disks, newest first, from the list kept for five minutes.",
     "operationId": "titles_api_v1_titles_get",
     "security": [
      {
@@ -1478,6 +1479,36 @@
        "title": "Series"
       },
       "description": "only titles with this grouping key (see /titles/groups)"
+     },
+     {
+      "name": "destination",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "only titles on this disk: HDD or USBHDD",
+       "title": "Destination"
+      },
+      "description": "only titles on this disk: HDD or USBHDD"
+     },
+     {
+      "name": "refresh",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "description": "re-read the list from the recorder",
+       "default": false,
+       "title": "Refresh"
+      },
+      "description": "re-read the list from the recorder"
      }
     ],
     "responses": {

@@ -119,10 +119,11 @@ class FakeXsrs:
                               False, False, "HDD", 4300, genre_code=48, resume_sec=0)]
         return [t for t in all_ if t.id not in deleted]
 
-    async def list_titles(self, count=100, start=0):
-        return self._titles()[start:start + count]
-
-    async def list_titles_all(self, page=200):
+    async def list_titles_all(self, page=200, destination=None):
+        if destination == "USBHDD":
+            if error := getattr(self, "usb_titles_error", None):
+                raise error
+            return list(getattr(self, "usb_titles", []))
         return self._titles()
 
     async def title_detail(self, title_id):

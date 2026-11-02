@@ -12,6 +12,7 @@ from tests.conftest import (
     SUMMARY,
     H,
     make_title,
+    usb_disk,
     wait_job,
 )
 
@@ -244,3 +245,32 @@ def test_job_failure_names_a_silent_exception(client, monkeypatch):
     client.bridge.titles_cache = None
     job = client.post("/api/v1/titles/delete", headers=H, json={"ids": ["0x0000010000034d78"]}).json()
     assert wait_job(client, job["id"])["error"] == "TimeoutError"
+
+
+def usb_title(tid, start=datetime(2026, 9, 12, 12, 0, tzinfo=JST), **kw):
+    return make_title(tid, "USBの番組", start, destination="USBHDD", **kw)
+
+
+def test_the_list_has_both_disks_newest_first(client):
+    x = client.bridge.recorder.xsrs
+    x.usb, x.usb_titles = usb_disk(), [usb_title("0x0002000000000001")]
+    ids = [(t["id"], t["destination"]) for t in client.get("/api/v1/titles", headers=H).json()]
+    assert ids[2] == ("0x0002000000000001", "USBHDD") and len(ids) == 5
+    only = client.get("/api/v1/titles", headers=H, params={"destination": "USBHDD"}).json()
+    assert [t["id"] for t in only] == ["0x0002000000000001"]
+
+
+def test_a_read_of_the_usb_disk_that_fails_costs_nothing_of_the_list(client):
+    x = client.bridge.recorder.xsrs
+    x.usb, x.usb_titles = usb_disk(), [usb_title("0x0002000000000001")]
+    assert len(client.get("/api/v1/titles", headers=H).json()) == 5
+    x.usb_titles_error = XsrsError("X_GetTitleList", 500, "501")
+    assert len(client.get("/api/v1/titles", headers=H, params={"refresh": True}).json()) == 5  # the same disk: its rows stay
+    x.usb = usb_disk(name="別のディスク", registered="2026-02-02T03:04:05+0900")
+    assert len(client.get("/api/v1/titles", headers=H, params={"refresh": True}).json()) == 4  # another disk: they do not
+
+
+def test_a_disk_that_takes_no_recordings_is_not_listed(client):
+    x = client.bridge.recorder.xsrs
+    x.usb, x.usb_titles = usb_disk(mounted=False), [usb_title("0x0002000000000001")]
+    assert len(client.get("/api/v1/titles", headers=H).json()) == 4

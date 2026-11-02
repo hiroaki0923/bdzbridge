@@ -17,24 +17,51 @@ from ..recorder.series import same_title_key, series_key, series_name, summary_k
 from ..recorder.xsrs import RecordedTitle as XTitle
 from ..recorder.xsrs import XsrsError, build_title_update_elements
 from ..store import Store
+from . import usb
 
 if TYPE_CHECKING:
     from ..state import Bridge
 
 log = logging.getLogger("bdzbridge.titles")
 
+USB = "USBHDD"
+
 
 async def all_titles(bridge, max_age: float = 300) -> list[XTitle]:
+    """Every recording on the internal disk and on a USB disk that takes recordings, newest first. The recorder lists
+    them apart. The internal disk's rows stand whatever becomes of the USB disk's read."""
     rec = bridge.require_recorder()
     if bridge.titles_cache and time.monotonic() - bridge.titles_cache[0] < max_age:
         return bridge.titles_cache[1]
     async with rec.lock:
         items = await rec.xsrs.list_titles_all()
+    items = sorted(items + await _usb_titles(bridge), key=lambda t: t.start, reverse=True)
     bridge.titles_cache = (time.monotonic(), items)
     return items
 
 
+async def _usb_titles(bridge) -> list[XTitle]:
+    """The USB disk's rows, and the disk they were read from noted. When they cannot be read, the rows held stay
+    while that disk is still in the slot: nothing said they had gone, and the next read asks again."""
+    rec, disk = bridge.recorder, await usb.settled(bridge)
+    held = [t for t in bridge.titles_cache[1] if t.destination == USB] if bridge.titles_cache else bridge.usb_titles_held
+    still = disk is not None and bridge.titles_disk is not None and disk.identity == bridge.titles_disk.identity
+    if disk is None or not disk.takes_recordings:
+        bridge.titles_disk = None
+        return []
+    try:
+        async with rec.lock:
+            rows = await rec.xsrs.list_titles_all(destination=USB)
+    except (XsrsError, httpx.HTTPError) as e:
+        log.warning("the USB disk's recordings could not be read: %s", e)
+        return held if still else []
+    bridge.titles_disk = disk
+    return rows
+
+
 def forget_titles(bridge) -> None:
+    if bridge.titles_cache:
+        bridge.usb_titles_held = [t for t in bridge.titles_cache[1] if t.destination == USB]
     bridge.titles_cache = None
 
 

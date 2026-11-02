@@ -1,6 +1,7 @@
 """The disk in the recorder's USB slot: what the recorder says of it now, and the disk kept between readings."""
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
 import logging
@@ -16,6 +17,9 @@ KNOWN = "usb_disk"
 # Right after a waking the recorder answers the slot as if nothing were in it, and that answer is the same one an
 # unplugged disk gets. It answered the disk five seconds later when timed; thirty leaves room for a slower disk.
 SETTLE_SECONDS = 30
+# Before anything that needs the disk now: twice the five seconds measured, read every two.
+WAIT_READS = 5
+WAIT_SECONDS = 2
 
 
 def known(bridge) -> Disk | None:
@@ -54,3 +58,15 @@ async def read(bridge) -> tuple[Disk | None, bool]:
     bridge.usb_none_since = None
     store.delete_meta(KNOWN)
     return None, True
+
+
+async def settled(bridge) -> Disk | None:
+    """The disk in the slot, once the recorder has said so, or None: waited for while a known disk has not answered,
+    as anything that needs the disk now must. What it does not answer for within ten seconds is not to be used."""
+    disk, answered = await read(bridge)
+    for _ in range(WAIT_READS):
+        if answered or disk is None:
+            break
+        await asyncio.sleep(WAIT_SECONDS)
+        disk, answered = await read(bridge)
+    return disk if answered else None

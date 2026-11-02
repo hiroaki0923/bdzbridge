@@ -4,10 +4,12 @@ from datetime import datetime
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+import httpx
 import pytest
 
 from bdzbridge.recorder.epg import JST
 from bdzbridge.recorder.xsrs import (
+    XsrsClient,
     XsrsError,
     build_create_elements,
     build_recorder_rule_elements,
@@ -228,3 +230,18 @@ async def test_only_a_registered_disk_counts():
 def test_a_disk_of_no_size_says_nothing_of_its_room():
     d = parse_disk(NO_USB_ANSWER.replace("<registeredTime></registeredTime>", "<registeredTime>x</registeredTime>"), "USBHDD")
     assert not d.takes_recordings and d.free_bytes is None and d.total_bytes is None
+
+
+async def test_the_usb_disk_is_asked_for_by_name_and_filtered_again():
+    item = ('<item id="{id}"><title>t</title><scheduledStartDateTime>2026-09-13T21:00:00+09:00</scheduledStartDateTime>'
+            "<scheduledDuration>60</scheduledDuration><recordDestinationID>{dest}</recordDestinationID></item>")
+    rows = item.format(id="0x1", dest="HDD") + item.format(id="0x2", dest="USBHDD")
+    result = f'<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/">{rows}</xsrs>'
+    sent = []
+
+    def handler(request):
+        sent.append(request.content.decode())
+        return httpx.Response(200, text=soap_answer("X_GetTitleList", f"<Result>{escape(result)}</Result><TotalMatches>2</TotalMatches>"))
+    client = XsrsClient("192.0.2.10", httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    assert [t.id for t in await client.list_titles_all(destination="USBHDD")] == ["0x2"]
+    assert "recordDestinationID=&quot;USBHDD&quot;" in sent[0]

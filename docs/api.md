@@ -293,12 +293,14 @@ Send a test message through every configured channel.
 
 ### GET /titles
 
-Titles
+The recordings of both disks, newest first, from the list kept for five minutes.
 
 パラメータ:
 - `limit` (query): integer、既定 `100`
 - `offset` (query): integer、既定 `0`
 - `series` (query): string | null — only titles with this grouping key (see /titles/groups)
+- `destination` (query): string | null — only titles on this disk: HDD or USBHDD
+- `refresh` (query): boolean、既定 `false` — re-read the list from the recorder
 
 レスポンス:
 - 200: `list[RecordedTitle]`
