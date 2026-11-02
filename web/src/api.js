@@ -96,6 +96,12 @@ export function diskChoices(status, own) {
   return ['HDD', ...(usb || own === 'USBHDD' ? ['USBHDD'] : [])].map((d) => [d, diskLabel(d, status)])
 }
 
+// A 4K wave is offered once the recorder has given a channel of it. One without 4K tuners answers for those files
+// as one with them does for a file not made yet, so only what was read tells (docs/epg-format.md).
+export function offersGuide(status, type) {
+  return !type.endsWith('4k') || (status?.epg?.[type]?.channels ?? 0) > 0
+}
+
 export function findReservation(idx, p) {
   if (!idx) return null
   return idx.byEvent.get(reservationKey(p.broadcasting, p.service_id, p.event_id))

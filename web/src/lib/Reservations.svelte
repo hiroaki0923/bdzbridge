@@ -1,6 +1,6 @@
 <script>
   import { loadPref, savePref } from '../prefs.js'
-  import { api, ApiError, conditionStillListed, CONDITION_NOT_LISTED, diskChoices, diskLabel, fmtDateTime, repeatOptions, whyNotChanging } from '../api.js'
+  import { api, ApiError, conditionStillListed, CONDITION_NOT_LISTED, diskChoices, diskLabel, fmtDateTime, offersGuide, repeatOptions, whyNotChanging } from '../api.js'
   import { actOnReservation, app, loadReservations, toast } from '../store.svelte.js'
   let confirmTarget = $state(null)
   let busy = $state(false)
@@ -156,7 +156,7 @@
       {#if recForm.genre !== ''}
         <div class="field"><span>サブジャンル</span><select bind:value={recForm.sub}><option value="">すべて</option>{#each Object.entries(app.defaults?.sub_genres?.[recForm.genre] ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></div>
       {/if}
-      <div class="field"><span>放送</span><select bind:value={recForm.broadcasting_scope}><option value="ALL">すべての放送</option><option value="TRD">地上放送</option><option value="BSD">BS放送</option><option value="CSD">CS放送</option><option value="ADVBSD">BS4K放送</option><option value="ADVCSD">CS4K放送</option></select></div>
+      <div class="field"><span>放送</span><select bind:value={recForm.broadcasting_scope}><option value="ALL">すべての放送</option><option value="TRD">地上放送</option><option value="BSD">BS放送</option><option value="CSD">CS放送</option>{#if offersGuide(app.status, 'bs4k')}<option value="ADVBSD">BS4K放送</option><option value="ADVCSD">CS4K放送</option>{/if}</select></div>
       <div class="field"><span>時間帯</span><select bind:value={recForm.time_scope}><option value="ALL">すべての時間帯</option><option value="MORNING">朝</option><option value="AFTERNOON">昼</option><option value="NIGHT">夜</option><option value="MIDNIGHT">深夜</option></select></div>
       <div class="field"><span>録画モード</span><select bind:value={recForm.quality}><option value="">既定（{app.defaults?.quality ?? 'LSR'}）</option>{#each Object.entries(app.defaults?.qualities ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></div>
       {#if ruleDisks.length > 1}<div class="field"><span>録画先</span><select bind:value={recForm.destination}>{#each ruleDisks as [k, v] (k)}<option value={k}>{v}</option>{/each}</select></div>{/if}
