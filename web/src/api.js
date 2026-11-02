@@ -48,6 +48,29 @@ export function indexReservations(list) {
   }
   return { byEvent, byTime, list }
 }
+export const RESERVATION_NOT_LISTED = 'この予約はレコーダーの予約一覧に見つかりませんでした。一覧を更新しました。'
+export const RESERVATION_CHANGED = 'レコーダー側で予約が変更されていました。一覧を更新したので、もう一度お試しください。'
+
+// The reservation held, in the list just read: `{ row }`, or `{ why }` when it is not there to write to. The rule
+// is the app's, `[Reservation].target(of:)` in RecorderKit, and docs/porting.md says why: looking by channel and
+// start alone changed or deleted the recorder's own reservation of the same programme in place of one the reader
+// had deleted on the recorder. An id still on the programme it was on is that reservation; on another programme,
+// nothing is to be sent to it. When the id has gone, only a row by the same maker of the same programme is it, and
+// none for a reservation an app made, which the recorder has not been seen to renumber.
+export function reservationAgain(list, wanted) {
+  const sameStart = (r) => new Date(r.start).getTime() === new Date(wanted.start).getTime()
+  const row = list.find((r) => r.id === wanted.id)
+  if (row) {
+    const same = row.broadcasting === wanted.broadcasting && row.service_id === wanted.service_id
+      && row.event_id === wanted.event_id && (wanted.event_id != null || sameStart(row))
+    return same ? { row } : { why: RESERVATION_CHANGED }
+  }
+  const again = !wanted.created_by_app && list.find((r) => r.broadcasting === wanted.broadcasting
+    && r.service_id === wanted.service_id && sameStart(r) && r.creator === wanted.creator
+    && r.event_id === wanted.event_id)
+  return again ? { row: again } : { why: RESERVATION_NOT_LISTED }
+}
+
 export function findReservation(idx, p) {
   if (!idx) return null
   return idx.byEvent.get(reservationKey(p.broadcasting, p.service_id, p.event_id))

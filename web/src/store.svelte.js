@@ -1,4 +1,4 @@
-import { api, indexReservations } from './api.js'
+import { api, indexReservations, reservationAgain, RESERVATION_CHANGED } from './api.js'
 
 export const app = $state({
   tab: 'guide',
@@ -26,22 +26,19 @@ export async function loadReservations() {
 // The recorder renumbers the reservations its own automatic recording made, the whole block at once, whenever
 // it works through the guide again (docs/xsrs-api.md). An id read a while ago can therefore be dead while the
 // row on screen looks the same, and sending it answers 804 -- which reads as a broken change or delete rather
-// than a stale row. So the list is read again first and the reservation found by its id, or else by its
-// channel and start time, which no two reservations can share. Throws with a sentence for the reader when it
-// has gone, or when the server still does not know it (renumbered again in between); the list is fresh then.
+// than a stale row. So the list is read again first and the reservation found in it (`reservationAgain`).
+// Throws with a sentence for the reader when it has gone or changed, or when the server still does not know it
+// (renumbered again in between); the list is fresh then.
 export async function actOnReservation(wanted, send) {
   await loadReservations()
-  const start = new Date(wanted.start).getTime()
-  const target = app.reservations.find((r) => r.id === wanted.id)
-    ?? app.reservations.find((r) => r.broadcasting === wanted.broadcasting && r.service_id === wanted.service_id
-      && new Date(r.start).getTime() === start)
-  if (!target) throw new Error('この予約はレコーダーにもうありませんでした。一覧を取り直しました。')
+  const { row, why } = reservationAgain(app.reservations, wanted)
+  if (!row) throw new Error(why)
   try {
-    await send(target)
+    await send(row)
   } catch (e) {
     if (e.status !== 404) throw e
     await loadReservations()
-    throw new Error('レコーダー側で予約が更新されていました。一覧を取り直したので、もう一度お試しください。')
+    throw new Error(RESERVATION_CHANGED)
   }
   await loadReservations()
 }

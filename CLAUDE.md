@@ -29,7 +29,7 @@ uv run python -m bdzbridge.tools.apidoc  # regenerate docs/api.md + docs/openapi
 uv run python -m bdzbridge.tools.portkit # regenerate docs/port/ (conformance vectors for a native port; same freshness test and hook)
 ```
 
-Web (inside `web/`): `npm install`, `npm run build` (writes `web/dist`; restart the server to pick it up), `npm run dev`.
+Web (inside `web/`): `npm install`, `npm run build` (writes `web/dist`; restart the server to pick it up), `npm run dev`, `npm test` (the rules in `src/api.js`, with Node's own test runner).
 
 iOS: inside `app/RecorderKit`, `swift build` and `swift test` (reads the vectors in `docs/port`; the pre-commit hook runs it when `app/` or `docs/port/` is staged). For the app, `brew install xcodegen` once, then inside `app/`:
 

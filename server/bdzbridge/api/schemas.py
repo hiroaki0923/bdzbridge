@@ -69,6 +69,7 @@ class Reservation(BaseModel):
     conflict: bool
     destination: str
     size_mb: int | None
+    creator: str | None = Field(default=None, description="reservationCreatorID。2200 はアプリ、1100 はレコーダー自身。予約を探し直すときに、同じ作成者かを見る")
     created_by_app: bool
     created_by_recorder: bool = Field(False, description="レコーダー自身が入れた予約（おまかせ録画）。消してもレコーダーが入れ直す")
     genres: list[Genre] = Field(default_factory=list, description="from the EPG cache when the reservation tracks a program that is still in it")

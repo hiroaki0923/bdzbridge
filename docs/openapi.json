@@ -3515,6 +3515,18 @@
       ],
       "title": "Size Mb"
      },
+     "creator": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Creator",
+      "description": "reservationCreatorID。2200 はアプリ、1100 はレコーダー自身。予約を探し直すときに、同じ作成者かを見る"
+     },
      "created_by_app": {
       "type": "boolean",
       "title": "Created By App"
