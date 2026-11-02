@@ -730,6 +730,19 @@ final class FunnelGateTests: XCTestCase {
         XCTAssertEqual(model.guideDownloads, 0)
     }
 
+    /// BS4K left chosen on a cache with none of it, as a recorder without 4K tuners has: nothing offers the way
+    /// back, so the guide goes back to terrestrial as it is next read. A type on offer stays chosen.
+    func testA4KTypeLeftChosenOnACacheWithNoneOfItGoesBackToTerrestrial() async throws {
+        let (_, _, model) = try await connectedHome()
+        model.broadcasting = "bs"
+        await model.reloadFromCache()
+        XCTAssertEqual(model.broadcasting, "bs")
+
+        model.broadcasting = "bs4k"
+        await model.reloadFromCache()
+        XCTAssertEqual(model.broadcasting, "td")
+    }
+
     /// What 番組表を更新 came to is handed back to the screen it was pressed on, which says it in an alert. The
     /// guide's tab shows the line of what went wrong only where it has no guide to show: over a guide, a type
     /// that failed was said where nobody reads it, and the press seemed to do nothing.

@@ -177,7 +177,7 @@ struct SettingsScreen: View {
                 }
 
                 Section("保存されている番組表") {
-                    ForEach(["td", "bs", "cs", "bs4k"], id: \.self) { broadcasting in
+                    ForEach(GuideRefresh.offeredTypes(model.counts), id: \.self) { broadcasting in
                         let counts = model.counts[broadcasting]
                         LabeledContent(Codes.broadcastingLabel[broadcasting] ?? broadcasting) {
                             Text("\(counts?.channels ?? 0) 局 · \(counts?.programs ?? 0) 番組")

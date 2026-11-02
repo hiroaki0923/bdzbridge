@@ -99,13 +99,28 @@ def answering(rec, *types):
     rec.fetch_epg = fetch_epg
 
 
-def test_a_type_never_read_is_no_failure_while_the_others_are_read(client):
+def test_a_4k_type_never_read_is_no_failure_once_another_type_has_been(client):
     client = autorec_client(client)
     answering(client.bridge.recorder, "td", "bs", "cs")
     res = client.post("/api/v1/epg/refresh", headers=H).json()
     assert res["bs4k"] == res["cs4k"] == epg.NO_CHANNELS
     assert res["td"]["programs"] > 0
     assert client.bridge.last_error is None
+
+
+def test_an_ordinary_type_never_read_is_said(client):
+    client = autorec_client(client)
+    answering(client.bridge.recorder, "td", "cs")
+    res = client.post("/api/v1/epg/refresh", headers=H).json()
+    assert res["bs"] == {"error": epg.FILE_NOT_MADE}
+    assert client.bridge.last_error == epg.FILE_NOT_MADE
+
+
+def test_a_4k_type_is_said_with_the_rest_while_nothing_has_been_read(client):
+    client.bridge.store.forget_recorder()
+    answering(client.bridge.recorder)
+    res = client.post("/api/v1/epg/refresh", headers=H).json()
+    assert res["bs4k"] == {"error": epg.FILE_NOT_MADE}
 
 
 def test_a_type_read_before_is_said_when_its_file_goes_missing(client):

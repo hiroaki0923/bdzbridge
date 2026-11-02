@@ -250,8 +250,10 @@ struct RecorderRuleSheet: View {
                         Text("地上放送").tag("TRD")
                         Text("BS放送").tag("BSD")
                         Text("CS放送").tag("CSD")
-                        Text("BS4K放送").tag("ADVBSD")
-                        Text("CS4K放送").tag("ADVCSD")
+                        if GuideRefresh.offeredTypes(model.counts).contains("bs4k") {
+                            Text("BS4K放送").tag("ADVBSD")
+                            Text("CS4K放送").tag("ADVCSD")
+                        }
                     }
                     Picker("時間帯", selection: $timeScope) {
                         Text("すべての時間帯").tag("ALL")

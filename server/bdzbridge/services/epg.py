@@ -35,14 +35,14 @@ async def _awake(bridge) -> bool:
 
 def _pass_over_what_it_never_had(bridge, result: dict) -> None:
     """A recorder without 4K tuners answers 500 for those files for good, as one with them does for a file not made
-    yet, so the answer cannot tell the two apart (docs/epg-format.md). What can is what the recorder has given: a
-    type it has never given a channel of, in a refresh that read others, is taken to be one it does not have. If it
-    does have it, the type is read at a later refresh like any other."""
-    if not any(v.get("programs") for v in result.values()):
-        return
+    yet, so the answer cannot tell the two apart (docs/epg-format.md). What can is what the recorder has given: a 4K
+    type it has never given a channel of, while it has given others, is taken to be one it does not have. If it does
+    have it, the type is read at a later refresh like any other."""
     held = bridge.store.summary()
-    for bt, outcome in result.items():
-        if outcome.get("error") == FILE_NOT_MADE and not held[bt]["channels"]:
+    if not any(type_held["channels"] for type_held in held.values()):
+        return
+    for bt in codes.FOUR_K:
+        if result.get(bt, {}).get("error") == FILE_NOT_MADE and not held[bt]["channels"]:
             result[bt] = NO_CHANNELS
 
 
