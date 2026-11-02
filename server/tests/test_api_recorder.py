@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from bdzbridge.api.app import create_app
@@ -13,6 +15,7 @@ from tests.conftest import (
     FakeRecorder,
     H,
     autorec_client,
+    make_services,
 )
 
 
@@ -191,3 +194,45 @@ def test_power_on_wakes_an_unreachable_recorder(client, monkeypatch):
     client.bridge.store.set_meta("recorder_mac", "f8:4e:17:00:00:00")
     assert client.post("/api/v1/recorder/power", headers=H).json() == {"power": "PowerOn"}
     assert woke == ["f8:4e:17:00:00:00"] and client.bridge.recorder.xsrs.powered == 1
+
+
+async def test_choosing_another_recorder_forgets_what_the_last_one_said(tmp_path, monkeypatch):
+    settings = Settings(recorder_host="", api_token=TOKEN, db_path=str(tmp_path / "a.sqlite3"), epg_refresh_on_start=False)
+    store = Store(settings.db_path)
+    store.replace_services("td", make_services())
+    store.set_meta("recorder_udn", "uuid:first")
+    store.set_meta("recorder_mac", "f8:4e:17:00:00:00")
+    store.set_meta("warned_low_space", "1")
+    store.set_title_summary("0x1", "前の録画")
+    store.add_rule("サンプル", None, None, True, "DR")
+    bridge = Bridge(settings, FakeRecorder(), store)
+    bridge.titles_cache = (0.0, ["前の録画"])
+    udn = "uuid:first"
+
+    class Client(FakeRecorder):
+        def __init__(self, host):
+            super().__init__()
+            self.host = host
+
+        async def discover(self):
+            self.info = SimpleNamespace(udn=udn, friendly_name="BDR")
+            return self.info
+
+        async def close(self):
+            pass
+
+    async def no_mac(client, host):
+        return None
+    monkeypatch.setattr(session, "RecorderClient", Client)
+    monkeypatch.setattr(session, "_discover_mac", no_mac)
+
+    await session.set_recorder(bridge, "192.0.2.10")  # the same recorder at a new address
+    assert bridge.titles_cache and store.title_summary("0x1") == "前の録画" and store.channels("td")
+
+    udn = "uuid:second"
+    await session.set_recorder(bridge, "192.0.2.20")
+    assert bridge.titles_cache is None and store.title_summary("0x1") is None and not store.channels("td")
+    assert store.get_meta("warned_low_space") is None and store.get_meta("recorder_mac") is None
+    assert store.get_meta("recorder_udn") == "uuid:second"
+    assert len(store.rules()) == 1  # the reader's own
+    await bridge.close()

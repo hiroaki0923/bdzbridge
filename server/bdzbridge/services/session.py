@@ -26,12 +26,18 @@ async def set_recorder(bridge, host: str, persist: bool = True) -> RecorderClien
     except Exception as e:
         await client.close()
         raise HTTPException(400, f"no recorder answered at {host}: {e}")
+    saved_udn = bridge.store.get_meta("recorder_udn")
+    another = bool(saved_udn and info.udn and saved_udn != info.udn)  # a recorder that moved keeps its UDN
     old, bridge.recorder = bridge.recorder, client
     if old is not None:
         await old.close()
+    if another:
+        bridge.titles_cache = bridge.last_error = bridge.last_autorec = None
+        bridge.store.forget_recorder()
+    if persist or another:
+        bridge.store.set_meta("recorder_udn", info.udn)
     if persist:
         bridge.store.set_meta("recorder_host", host)
-        bridge.store.set_meta("recorder_udn", info.udn)
         bridge.store.set_meta("recorder_name", info.friendly_name)
     if not bridge.settings.recorder_mac and (mac := await _discover_mac(client, host)):
         bridge.store.set_meta("recorder_mac", mac)  # for Wake-on-LAN later
