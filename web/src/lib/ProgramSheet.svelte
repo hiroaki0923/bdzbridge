@@ -1,10 +1,12 @@
 <script>
-  import { api, repeatOptions, fmtDateTime, fmtTime, findReservation, whyNotChanging } from '../api.js'
+  import { api, diskChoices, diskLabel, repeatOptions, fmtDateTime, fmtTime, findReservation, whyNotChanging } from '../api.js'
   import { actOnReservation, app, loadReservations, toast } from '../store.svelte.js'
   let { program, onclose } = $props()
   let existing = $derived(findReservation(app.resIdx, program))
   let quality = $state(app.defaults?.quality ?? 'LSR')
   let repeat = $state(app.defaults?.repeat ?? 'none')
+  let destination = $state('HDD')
+  const disks = $derived(diskChoices(app.status, existing?.destination))
   let busy = $state(false)
   let error = $state('')
   let conflicts = $state([])
@@ -13,12 +15,12 @@
   async function reserve(force = false) {
     busy = true; error = ''; conflicts = []
     try {
-      await api('/reservations', { method: 'POST', body: { broadcasting: program.broadcasting, service_id: program.service_id, event_id: program.event_id, quality, repeat, force } })
+      await api('/reservations', { method: 'POST', body: { broadcasting: program.broadcasting, service_id: program.service_id, event_id: program.event_id, quality, repeat, force, destination } })
       await loadReservations()
       toast('予約しました')
       onclose()
     } catch (e) {
-      if (e.status === 409) { conflicts = e.body?.detail?.conflicts ?? []; error = '同じ時間帯の予約と重なります' }
+      if (e.status === 409 && e.body?.detail?.conflicts) { conflicts = e.body.detail.conflicts; error = '同じ時間帯の予約と重なります' }
       else error = e.message
     } finally { busy = false }
   }
@@ -32,11 +34,11 @@
     } catch (e) { error = e.message } finally { busy = false }
   }
   let editing = $state(false)
-  function startEdit() { quality = existing.quality; repeat = existing.repeat; editing = true }
+  function startEdit() { quality = existing.quality; repeat = existing.repeat; destination = existing.destination; editing = true }
   async function saveEdit() {
     busy = true; error = ''
     try {
-      await actOnReservation(existing, (r) => api(`/reservations/${r.id}`, { method: 'PATCH', body: { quality, repeat } }))
+      await actOnReservation(existing, (r) => api(`/reservations/${r.id}`, { method: 'PATCH', body: { quality, repeat, destination: destination !== r.destination ? destination : undefined } }))
       toast('予約を変更しました'); editing = false
     } catch (e) { error = e.message } finally { busy = false }
   }
@@ -53,13 +55,15 @@
 
   {#if existing}
     <div class="card" style="margin-top:14px">
-      <div><span class="mark">{existing.recording ? '録画中' : '予約済み'}</span>{existing.repeat_label} · {existing.quality_label}{existing.tracks_program ? ' · 番組追従' : ' · 時刻指定'}</div>
+      <div><span class="mark">{existing.recording ? '録画中' : '予約済み'}</span>{existing.repeat_label} · {existing.quality_label}{existing.tracks_program ? ' · 番組追従' : ' · 時刻指定'}{existing.destination === 'USBHDD' ? ' · ' + diskLabel('USBHDD', app.status) : ''}</div>
     </div>
     {#if editing}
       <label class="field"><span>録画モード</span>
         <select bind:value={quality}>{#each Object.entries(app.defaults?.qualities ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></label>
       <label class="field"><span>毎回録画</span>
         <select bind:value={repeat}>{#each repeatOptions(app.defaults?.repeats, program.start) as [k, v] (k)}<option value={k}>{v}</option>{/each}</select></label>
+      {#if disks.length > 1}<label class="field"><span>録画先</span>
+        <select bind:value={destination}>{#each disks as [k, v] (k)}<option value={k}>{v}</option>{/each}</select></label>{/if}
       <button class="btn" disabled={busy} onclick={saveEdit}>{busy ? '送信中…' : '変更を保存'}</button>
       <button class="btn ghost" onclick={() => (editing = false)}>変更をやめる</button>
     {:else}
@@ -72,6 +76,8 @@
         <select bind:value={quality}>{#each Object.entries(app.defaults?.qualities ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></label>
       <label class="field"><span>毎回録画</span>
         <select bind:value={repeat}>{#each repeatOptions(app.defaults?.repeats, program.start) as [k, v] (k)}<option value={k}>{v}</option>{/each}</select></label>
+      {#if disks.length > 1}<label class="field"><span>録画先</span>
+        <select bind:value={destination}>{#each disks as [k, v] (k)}<option value={k}>{v}</option>{/each}</select></label>{/if}
     </div>
     {#if conflicts.length}
       <div class="card"><div class="muted">重なる予約</div>{#each conflicts as c}<div>{fmtDateTime(c.start)} {c.title}</div>{/each}</div>

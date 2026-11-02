@@ -1,9 +1,11 @@
 <script>
   // One recorded title in a list: date/time, marks, name, and a line of facts.
-  import { fmtDate, fmtTime } from '../../api.js'
+  import { diskLabel, fmtDate, fmtTime } from '../../api.js'
+  import { app } from '../../store.svelte.js'
   let { title: t, onopen } = $props()
   const facts = $derived(
     `${t.service_name ?? t.broadcasting}${t.genres[0] ? ' · ' + t.genres[0].label : ''} · ${Math.round(t.duration_sec / 60)}分 · ${t.quality}` +
+    `${t.destination === 'USBHDD' ? ' · ' + diskLabel('USBHDD', app.status) : ''}` +
     `${t.size_mb ? ' · ' + (t.size_mb / 1024).toFixed(1) + 'GB' : ''}` +
     `${t.watch_state === 'partway' ? ' · 途中 ' + Math.floor(t.resume_sec / 60) + '分' : t.watch_state === 'watched' ? ' · 視聴済み' : ''}`
   )

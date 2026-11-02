@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { conditionStillListed, fmtDateTime, fmtSpan, fmtTime, reservationAgain, RESERVATION_CHANGED, RESERVATION_NOT_LISTED, whyNotChanging } from '../src/api.js'
+import { conditionStillListed, diskChoices, fmtDateTime, fmtSpan, fmtTime, reservationAgain, RESERVATION_CHANGED, RESERVATION_NOT_LISTED, whyNotChanging } from '../src/api.js'
 
 const row = (over = {}) => ({
   id: '0x1', broadcasting: 'td', service_id: 1024, event_id: 100, start: '2026-11-02T21:00:00+09:00',
@@ -63,4 +63,12 @@ test('a span leaves out the date of an end on the day it began', () => {
   const nextDay = new Date(2026, 10, 3, 0, 30).toISOString()
   assert.equal(fmtSpan(start, sameDay), `${fmtDateTime(start)} 〜 ${fmtTime(sameDay)}`)
   assert.equal(fmtSpan(start, nextDay), `${fmtDateTime(start)} 〜 ${fmtDateTime(nextDay)}`)
+})
+
+test('the USB disk is offered while it takes recordings, and for a reservation on it', () => {
+  const usb = { name: 'ＵＳＢ ＨＤＤ１', mounted: true, total_bytes: 1 }
+  assert.deepEqual(diskChoices({}), [['HDD', 'HDD']])
+  assert.deepEqual(diskChoices({ usb }), [['HDD', 'HDD'], ['USBHDD', 'ＵＳＢ ＨＤＤ１']])
+  assert.deepEqual(diskChoices({ usb: { ...usb, mounted: false } }), [['HDD', 'HDD']])
+  assert.deepEqual(diskChoices({}, 'USBHDD'), [['HDD', 'HDD'], ['USBHDD', 'USB HDD']])
 })

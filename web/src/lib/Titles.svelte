@@ -1,6 +1,6 @@
 <script>
   // Recordings: a paged list with filters, programme groups, and duplicate sets; one detail sheet; the playback bar.
-  import { api, fmtBytes, fmtSpan } from '../api.js'
+  import { api, diskLabel, fmtBytes, fmtSpan } from '../api.js'
   import { app, loadStatus, toast } from '../store.svelte.js'
   import { loadPref, savePref } from '../prefs.js'
   import TitleRow from './titles/TitleRow.svelte'
@@ -18,7 +18,12 @@
   let genre = $state(loadPref('titleGenre', '')) // '' = all, else the ARIB level-1 code
   let sort = $state(loadPref('titleSort', 'newest'))
   let state = $state(loadPref('titleState', '')) // '' = all, else a watch_state
-  $effect(() => { savePref('titleMode', mode); savePref('titleGenre', genre); savePref('titleSort', sort); savePref('titleState', state) })
+  let disk = $state(loadPref('titleDisk', '')) // '' = both, else a destination; offered only with a USB disk
+  const usb = $derived(app.status?.usb)
+  // what is left follows the disk shown; with both shown it is the internal disk's
+  const diskShown = $derived(usb ? disk : '')
+  const remaining = $derived(diskShown === 'USBHDD' ? usb?.free_bytes : app.status?.storage?.free_bytes)
+  $effect(() => { savePref('titleMode', mode); savePref('titleGenre', genre); savePref('titleSort', sort); savePref('titleState', state); savePref('titleDisk', disk) })
 
   // --- the list: newest first in pages, or every title once a filter or another order is chosen
   let titles = $state([])
@@ -28,12 +33,12 @@
   let busy = $state(true) // true until the first load finishes, so the empty state never flashes
   let loaded = $state(false)
   let error = $state('')
-  const needAll = $derived(genre !== '' || state !== '' || sort !== 'newest')
-  async function loadPage(reset = true) {
+  const needAll = $derived(genre !== '' || state !== '' || sort !== 'newest' || diskShown !== '')
+  async function loadPage(reset = true, fresh = false) {
     busy = true; error = ''
     try {
       const offset = reset ? 0 : titles.length
-      const page = await api('/titles', { query: { limit: PAGE, offset } })
+      const page = await api('/titles', { query: { limit: PAGE, offset, refresh: fresh || undefined } })
       titles = reset ? page : [...titles, ...page]
       hasMore = page.length === PAGE
       loaded = true
@@ -57,7 +62,7 @@
   $effect(() => { attachRunningJobs((j) => { if (j.kind !== 'duplicates') toast(finishedText(j)); refresh() }) })
   const finishedText = (j) => j.error ? `${kindLabel(j.kind)}に失敗しました: ${j.error}`
     : j.kind === 'delete' ? outcome('削除', j.result.deleted?.length ?? 0, j) : outcome(j.result.protected ? '保護' : '保護解除', j.result.changed?.length ?? 0, j)
-  $effect(() => { genre; state; sort; shown = PAGE; if (needAll && all === null) loadAll() })
+  $effect(() => { genre; state; sort; diskShown; shown = PAGE; if (needAll && all === null) loadAll() })
   const genres = $derived(Object.entries(app.defaults?.genres ?? {}))
   const counts = $derived.by(() => {
     const m = {}
@@ -68,7 +73,7 @@
   const sorters = { newest: byNewest, oldest: (a, b) => -byNewest(a, b), size: (a, b) => (b.size_mb ?? 0) - (a.size_mb ?? 0) || byNewest(a, b) }
   const filtered = $derived.by(() => {
     if (!needAll) return titles
-    const list = (all ?? []).filter((t) => (!genre || String(t.genres[0]?.level1 ?? '') === genre) && (!state || t.watch_state === state))
+    const list = (all ?? []).filter((t) => (!genre || String(t.genres[0]?.level1 ?? '') === genre) && (!state || t.watch_state === state) && (!diskShown || t.destination === diskShown))
     return [...list].sort(sorters[sort])
   })
   const visible = $derived(needAll ? filtered.slice(0, shown) : titles)
@@ -119,17 +124,17 @@
     groupSheet?.apply(change)
     dupView?.apply(change)
   }
-  function refresh() {
+  async function refresh() {
     loadStatus().catch(() => {})
     all = null; shown = PAGE
     if (mode === 'dups') dupKey += 1
     else if (mode === 'groups') loadGroups(true)
-    else { loadPage(true); if (needAll) loadAll() }
+    else { await loadPage(true, true); if (needAll) loadAll() }
   }
 </script>
 
 <div class="row" style="justify-content: space-between">
-  <h1 style="white-space: nowrap">録画 {#if app.status?.storage}<span class="muted" style="font-size: 12px">残り {fmtBytes(app.status.storage.free_bytes)}</span>{/if}</h1>
+  <h1 style="white-space: nowrap">録画 {#if remaining != null}<span class="muted" style="font-size: 12px">残り {fmtBytes(remaining)}</span>{/if}</h1>
   <span class="row" style="gap: 6px">
     <div class="seg mini" style="width: 168px"><button class:on={mode === 'list'} onclick={() => (mode = 'list')}>一覧</button><button class:on={mode === 'groups'} onclick={() => (mode = 'groups')}>まとめ</button><button class:on={mode === 'dups'} onclick={() => (mode = 'dups')}>重複</button></div>
     <button class="chip" disabled={loading || groupsBusy} onclick={refresh}>{loading || groupsBusy ? '更新中…' : '更新'}</button>
@@ -144,6 +149,10 @@
   </div>
   <div class="chips">
     {#each SORTS as [id, label] (id)}<button class="chip" class:on={sort === id} onclick={() => (sort = id)}>{label}</button>{/each}
+    {#if usb}
+      <span class="chip-gap"></span>
+      {#each ['HDD', 'USBHDD'] as d (d)}<button class="chip" class:on={disk === d} onclick={() => (disk = disk === d ? '' : d)}>{diskLabel(d, app.status)}</button>{/each}
+    {/if}
     <span class="chip-gap"></span>
     {#each STATES as [id, label] (id)}<button class="chip" class:on={state === id} onclick={() => (state = state === id ? '' : id)}>{label}</button>{/each}
   </div>

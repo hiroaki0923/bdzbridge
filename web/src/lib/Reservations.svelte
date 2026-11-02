@@ -1,6 +1,6 @@
 <script>
   import { loadPref, savePref } from '../prefs.js'
-  import { api, ApiError, conditionStillListed, CONDITION_NOT_LISTED, fmtDateTime, repeatOptions, whyNotChanging } from '../api.js'
+  import { api, ApiError, conditionStillListed, CONDITION_NOT_LISTED, diskChoices, diskLabel, fmtDateTime, repeatOptions, whyNotChanging } from '../api.js'
   import { actOnReservation, app, loadReservations, toast } from '../store.svelte.js'
   let confirmTarget = $state(null)
   let busy = $state(false)
@@ -14,6 +14,7 @@
   }
   $effect(() => { loadAuto() })
   async function toggleRule(r) { await api(`/rules/${r.id}`, { method: 'PATCH', body: { enabled: !r.enabled } }); await loadAuto() }
+  async function moveRule(r, to) { await api(`/rules/${r.id}`, { method: 'PATCH', body: { destination: to } }); await loadAuto() }
   async function deleteRule(r) { await api(`/rules/${r.id}`, { method: 'DELETE' }); await loadAuto(); toast('自動予約を削除しました') }
   async function runRules() {
     autoBusy = true; error = ''
@@ -29,7 +30,7 @@
   let recRules = $state([])
   let recOpen = $state(false)
   let recBusy = $state(false)
-  let recForm = $state({ keywords: '', excluded: '', logic: 'OR', genre: '', sub: '', broadcasting_scope: 'ALL', time_scope: 'ALL', quality: '' })
+  let recForm = $state({ keywords: '', excluded: '', logic: 'OR', genre: '', sub: '', broadcasting_scope: 'ALL', time_scope: 'ALL', destination: 'HDD', quality: '' })
   // a genre's sub-genres are its own, so the choice cannot survive a change of genre
   $effect(() => { if (recForm.genre === '') recForm.sub = '' })
   const splitWords = (text) => text.split(/[、,\s]+/).map((w) => w.trim()).filter(Boolean)
@@ -53,6 +54,7 @@
         if (recForm.sub !== '') body.genre_level2 = Number(recForm.sub)
       }
       if (recForm.quality) body.quality = recForm.quality
+      body.destination = recForm.destination
       const made = await api('/recorder-rules', { method: 'POST', body })
       toast(`本体に登録しました: ${made.name}`)
       recForm = { ...recForm, keywords: '', excluded: '' }
@@ -92,12 +94,15 @@
   let editing = $state(false)
   let quality = $state('LSR')
   let repeat = $state('none')
-  function startEdit() { quality = confirmTarget.quality; repeat = confirmTarget.repeat; editing = true }
+  let destination = $state('HDD')
+  const disks = $derived(diskChoices(app.status, confirmTarget?.destination))
+  const ruleDisks = $derived(diskChoices(app.status))
+  function startEdit() { quality = confirmTarget.quality; repeat = confirmTarget.repeat; destination = confirmTarget.destination; editing = true }
   // both find the reservation again first: the id in a list left open may be one the recorder has renumbered
   async function save() {
     busy = true; error = ''
     try {
-      await actOnReservation(confirmTarget, (r) => api(`/reservations/${r.id}`, { method: 'PATCH', body: { quality, repeat } }))
+      await actOnReservation(confirmTarget, (r) => api(`/reservations/${r.id}`, { method: 'PATCH', body: { quality, repeat, destination: destination !== r.destination ? destination : undefined } }))
       toast('予約を変更しました'); editing = false; confirmTarget = null
     } catch (e) { error = e.message } finally { busy = false }
   }
@@ -121,7 +126,7 @@
     {#each rules as r (r.id)}
       <div class="field">
         <span><b>{r.query}</b><br /><span class="muted">{r.service_name ?? (r.broadcasting ? app.defaults?.broadcastings?.[r.broadcasting] ?? r.broadcasting : '全放送')} · {r.quality} · {r.title_only ? 'タイトル' : 'タイトル+説明'}</span></span>
-        <span class="row"><button class="chip" class:on={r.enabled} onclick={() => toggleRule(r)}>{r.enabled ? '有効' : '停止中'}</button><button class="chip" onclick={() => deleteRule(r)}>削除</button></span>
+        <span class="row">{#if ruleDisks.length > 1 || r.destination !== 'HDD'}<select value={r.destination} onchange={(e) => moveRule(r, e.target.value)}>{#each diskChoices(app.status, r.destination) as [k, v] (k)}<option value={k}>{v}</option>{/each}</select>{/if}<button class="chip" class:on={r.enabled} onclick={() => toggleRule(r)}>{r.enabled ? '有効' : '停止中'}</button><button class="chip" onclick={() => deleteRule(r)}>削除</button></span>
       </div>
     {/each}
     {#if rules.length}<button class="btn ghost" disabled={autoBusy} onclick={runRules}>{autoBusy ? '実行中…' : '今すぐ実行'}</button>{/if}
@@ -154,6 +159,7 @@
       <div class="field"><span>放送</span><select bind:value={recForm.broadcasting_scope}><option value="ALL">すべての放送</option><option value="TRD">地上放送</option><option value="BSD">BS放送</option><option value="CSD">CS放送</option><option value="ADVBSD">BS4K放送</option><option value="ADVCSD">CS4K放送</option></select></div>
       <div class="field"><span>時間帯</span><select bind:value={recForm.time_scope}><option value="ALL">すべての時間帯</option><option value="MORNING">朝</option><option value="AFTERNOON">昼</option><option value="NIGHT">夜</option><option value="MIDNIGHT">深夜</option></select></div>
       <div class="field"><span>録画モード</span><select bind:value={recForm.quality}><option value="">既定（{app.defaults?.quality ?? 'LSR'}）</option>{#each Object.entries(app.defaults?.qualities ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></div>
+      {#if ruleDisks.length > 1}<div class="field"><span>録画先</span><select bind:value={recForm.destination}>{#each ruleDisks as [k, v] (k)}<option value={k}>{v}</option>{/each}</select></div>{/if}
       <button class="btn" type="submit" disabled={recBusy}>{recBusy ? '登録中…' : '本体に登録'}</button>
     </form>
   {/if}
@@ -168,7 +174,7 @@
         <span class="time">{fmtDateTime(r.start).replace(' ', '\n')}</span>
         <span>
           {#if r.recording}<span class="mark">録画中</span>{/if}{#if r.conflict}<span class="mark" style="background:#ff9500">重複</span>{/if}<span class="title">{r.title}</span>
-          <div class="sub">{r.service_name ?? r.broadcasting}{r.genres[0] ? ' · ' + r.genres[0].label : ''} · {r.repeat_label} · {r.quality_label} · {Math.round(r.duration_sec / 60)}分{r.tracks_program ? ' · 番組追従' : ' · 時刻指定'}</div>
+          <div class="sub">{r.service_name ?? r.broadcasting}{r.genres[0] ? ' · ' + r.genres[0].label : ''} · {r.repeat_label} · {r.quality_label}{r.destination === 'USBHDD' ? ' · ' + diskLabel('USBHDD', app.status) : ''} · {Math.round(r.duration_sec / 60)}分{r.tracks_program ? ' · 番組追従' : ' · 時刻指定'}</div>
         </span>
       </button>
     {/each}
@@ -185,6 +191,8 @@
         <select bind:value={quality}>{#each Object.entries(app.defaults?.qualities ?? {}) as [k, v]}<option value={k}>{v}</option>{/each}</select></label>
       <label class="field"><span>毎回録画</span>
         <select bind:value={repeat}>{#each repeatOptions(app.defaults?.repeats, confirmTarget.start) as [k, v] (k)}<option value={k}>{v}</option>{/each}</select></label>
+      {#if disks.length > 1}<label class="field"><span>録画先</span>
+        <select bind:value={destination}>{#each disks as [k, v] (k)}<option value={k}>{v}</option>{/each}</select></label>{/if}
       <button class="btn" disabled={busy} onclick={save}>{busy ? '送信中…' : '変更を保存'}</button>
       <button class="btn ghost" onclick={() => (editing = false)}>変更をやめる</button>
     {:else}

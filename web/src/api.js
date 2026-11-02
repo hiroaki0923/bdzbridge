@@ -86,6 +86,16 @@ export function conditionStillListed(list, held) {
   return list.some((r) => JSON.stringify(r) === JSON.stringify(held))
 }
 
+// The disks a recording can go to, as [id, label]: the internal disk, a USB disk that takes recordings, and `own`, the
+// disk a reservation is on, which is offered even when it cannot be had so that the sheet can say where it is.
+export function diskLabel(destination, status) {
+  return destination === 'USBHDD' ? status?.usb?.name || 'USB HDD' : 'HDD'
+}
+export function diskChoices(status, own) {
+  const usb = status?.usb?.mounted && status.usb.total_bytes > 0
+  return ['HDD', ...(usb || own === 'USBHDD' ? ['USBHDD'] : [])].map((d) => [d, diskLabel(d, status)])
+}
+
 export function findReservation(idx, p) {
   if (!idx) return null
   return idx.byEvent.get(reservationKey(p.broadcasting, p.service_id, p.event_id))
