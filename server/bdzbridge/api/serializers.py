@@ -94,7 +94,7 @@ def rule_out(b, r: dict) -> S.Rule:
         ch = [c for c in b.store.channels(r["bt"]) if c["service_id"] == r["service_id"]]
         name = ch[0]["name"] if ch else None
     return S.Rule(id=r["id"], query=r["query"], broadcasting=r["bt"], service_id=r["service_id"], service_name=name,
-                  title_only=bool(r["title_only"]), quality=r["quality"], enabled=bool(r["enabled"]), created=r["created"])
+                  title_only=bool(r["title_only"]), quality=r["quality"], destination=r["destination"], enabled=bool(r["enabled"]), created=r["created"])
 
 def recorder_rule_out(r: XRecorderRule) -> S.RecorderRule:
     def quality(code: int | None) -> str | None:

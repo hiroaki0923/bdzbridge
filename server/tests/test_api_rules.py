@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import sqlite3
 from datetime import datetime
 
 from fastapi.testclient import TestClient
@@ -241,3 +242,44 @@ def test_deleting_a_condition_the_recorder_no_longer_holds_is_a_404(client):
     client.bridge.recorder.xsrs.delete_recorder_rule = not_held
     r = client.delete("/api/v1/recorder-rules/0x1", headers=H)
     assert r.status_code == 404 and "この条件がありません" in r.json()["detail"]
+
+
+def test_a_condition_goes_to_the_disk_chosen(client):
+    fx = client.bridge.recorder.xsrs
+    body = {"keywords": ["サンプル"], "destination": "USBHDD"}
+    assert client.post("/api/v1/recorder-rules", headers=H, json=body).status_code == 409
+    fx.usb = usb_disk()
+    r = client.post("/api/v1/recorder-rules", headers=H, json=body)
+    assert r.status_code == 201 and r.json()["destination"] == "USBHDD"
+
+
+def test_a_rule_reserves_on_its_disk(client):
+    c = autorec_client(client)
+    fx = c.bridge.recorder.xsrs
+    fx.usb = usb_disk()
+    c.post("/api/v1/rules", headers=H, json={"query": "サンプル", "destination": "USBHDD"})
+    assert c.post("/api/v1/rules/run", headers=H).json()["reserved"] == 2
+    assert all("<recordDestinationID>USBHDD</recordDestinationID>" in x for x in fx.created)
+
+
+def test_a_rule_for_a_disk_not_there_reserves_nothing_and_asks_again(client):
+    c = autorec_client(client)
+    fx = c.bridge.recorder.xsrs
+    rid = c.post("/api/v1/rules", headers=H, json={"query": "サンプル", "destination": "USBHDD"}).json()["id"]
+    first = c.post("/api/v1/rules/run", headers=H).json()
+    assert (first["reserved"], first["errors"]) == (0, 2) and fx.created == []
+    assert "USBHDD はいま使えません" in c.bridge.notifier.sent[-1][1]
+    fx.usb = usb_disk()
+    assert c.post("/api/v1/rules/run", headers=H).json()["reserved"] == 2
+    u = c.patch(f"/api/v1/rules/{rid}", headers=H, json={"destination": "HDD"})
+    assert u.json()["destination"] == "HDD"
+
+
+def test_rules_of_an_earlier_version_gain_the_disk(tmp_path):
+    path = str(tmp_path / "old.sqlite3")
+    db = sqlite3.connect(path)
+    db.executescript("CREATE TABLE rules (id INTEGER PRIMARY KEY AUTOINCREMENT, query TEXT NOT NULL, bt TEXT, service_id INTEGER,"
+                     " title_only INTEGER NOT NULL DEFAULT 1, quality TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, created TEXT NOT NULL);"
+                     " INSERT INTO rules (query, quality, created) VALUES ('残す', 'DR', '2026-01-01T00:00:00');")
+    db.close()
+    assert Store(path).rules()[0]["destination"] == "HDD"

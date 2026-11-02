@@ -75,6 +75,9 @@ class Reservation(BaseModel):
     genres: list[Genre] = Field(default_factory=list, description="from the EPG cache when the reservation tracks a program that is still in it")
 
 
+Destination = Literal["HDD", "USBHDD"]
+
+
 class ReservationCreate(BaseModel):
     broadcasting: Broadcasting
     service_id: int
@@ -85,6 +88,7 @@ class ReservationCreate(BaseModel):
     quality: Quality | None = None
     repeat: Repeat | None = None
     force: bool = Field(default=False, description="create even if the conflict check reports overlapping reservations")
+    destination: Destination = Field(default="HDD", description="the disk to record to; 409 when the USB disk cannot be had")
 
 
 class ReservationUpdate(BaseModel):
@@ -93,6 +97,7 @@ class ReservationUpdate(BaseModel):
     title: str | None = Field(default=None, description="time-based reservations only")
     start: datetime | None = Field(default=None, description="time-based reservations only")
     duration_sec: int | None = Field(default=None, ge=60, le=24 * 3600, description="time-based reservations only")
+    destination: Destination | None = Field(default=None, description="move it to this disk; left out, it stays on its own")
 
 
 class ConflictReport(BaseModel):
@@ -268,12 +273,14 @@ class RuleCreate(BaseModel):
     service_id: int | None = None
     title_only: bool = True
     quality: Quality | None = None
+    destination: Destination = "HDD"
 
 
 class RuleUpdate(BaseModel):
     enabled: bool | None = None
     quality: Quality | None = None
     title_only: bool | None = None
+    destination: Destination | None = None
 
 
 RuleLogic = Literal["OR", "AND"]
@@ -288,6 +295,7 @@ class RecorderRuleCreate(BaseModel):
     genre_level1: int | None = Field(None, ge=0, le=0xF, description="ARIB level-1 genre; alone it means the whole genre")
     genre_level2: int | None = Field(None, ge=0, le=0xF, description="the sub-genre within level1")
     time_scope: str = Field("ALL", max_length=16, description="ALL, MORNING, AFTERNOON, NIGHT, MIDNIGHT")
+    destination: Destination = Field("HDD", description="the disk the condition records to")
     broadcasting_scope: str = Field("ALL", max_length=16, description="ALL, TRD, BSD, CSD, ADVBSD, ADVCSD; an unknown value widens to ALL on the recorder")
     quality: Quality | None = Field(None, description="the server's default when omitted; with ALL it is sent for BS4K/CS4K as well, "
                                                       "which the recorder would otherwise record in DR")
@@ -334,6 +342,7 @@ class Rule(BaseModel):
     service_name: str | None = None
     title_only: bool
     quality: Quality
+    destination: str = "HDD"
     enabled: bool
     created: datetime
 

@@ -820,7 +820,7 @@
      "reservations"
     ],
     "summary": "Reservation Update",
-    "description": "Change quality or repeat (and, for time-based reservations, title, start and duration). 409 while it records or once it has ended.",
+    "description": "Change quality or repeat (and, for time-based reservations, title, start and duration), or move it to another disk. 409 while it records, once it has ended, or when the USB disk cannot be had.",
     "operationId": "reservation_update_api_v1_reservations__reservation_id__patch",
     "security": [
      {
@@ -1138,7 +1138,7 @@
      "rules"
     ],
     "summary": "Rule Update",
-    "description": "Enable or disable a rule, or change its quality or title-only matching.",
+    "description": "Enable or disable a rule, or change its quality, title-only matching or disk.",
     "operationId": "rule_update_api_v1_rules__rule_id__patch",
     "security": [
      {
@@ -3267,6 +3267,16 @@
       "description": "ALL, MORNING, AFTERNOON, NIGHT, MIDNIGHT",
       "default": "ALL"
      },
+     "destination": {
+      "type": "string",
+      "enum": [
+       "HDD",
+       "USBHDD"
+      ],
+      "title": "Destination",
+      "description": "the disk the condition records to",
+      "default": "HDD"
+     },
      "broadcasting_scope": {
       "type": "string",
       "maxLength": 16,
@@ -3744,6 +3754,16 @@
       "title": "Force",
       "description": "create even if the conflict check reports overlapping reservations",
       "default": false
+     },
+     "destination": {
+      "type": "string",
+      "enum": [
+       "HDD",
+       "USBHDD"
+      ],
+      "title": "Destination",
+      "description": "the disk to record to; 409 when the USB disk cannot be had",
+      "default": "HDD"
      }
     },
     "type": "object",
@@ -3859,6 +3879,22 @@
       ],
       "title": "Duration Sec",
       "description": "time-based reservations only"
+     },
+     "destination": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "HDD",
+         "USBHDD"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Destination",
+      "description": "move it to this disk; left out, it stays on its own"
      }
     },
     "type": "object",
@@ -3931,6 +3967,11 @@
        "EER"
       ],
       "title": "Quality"
+     },
+     "destination": {
+      "type": "string",
+      "title": "Destination",
+      "default": "HDD"
      },
      "enabled": {
       "type": "boolean",
@@ -4016,6 +4057,15 @@
        }
       ],
       "title": "Quality"
+     },
+     "destination": {
+      "type": "string",
+      "enum": [
+       "HDD",
+       "USBHDD"
+      ],
+      "title": "Destination",
+      "default": "HDD"
      }
     },
     "type": "object",
@@ -4068,6 +4118,21 @@
        }
       ],
       "title": "Title Only"
+     },
+     "destination": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "HDD",
+         "USBHDD"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Destination"
      }
     },
     "type": "object",

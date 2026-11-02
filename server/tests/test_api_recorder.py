@@ -306,3 +306,22 @@ async def test_a_recorder_that_moved_while_running_is_followed(tmp_path, monkeyp
     bridge.settings.recorder_host = "192.0.2.10"  # fixed in the settings
     assert await session.find_moved(bridge) is False and picked == ["192.0.2.20"]
     await bridge.close()
+
+
+async def test_a_known_disk_is_waited_for_before_it_is_needed(client, monkeypatch):
+    monkeypatch.setattr(usb, "WAIT_SECONDS", 0)
+    x = client.bridge.recorder.xsrs
+    x.usb = usb_disk()
+    assert (await usb.read(client.bridge))[1] is True
+    answers = [None, None, usb_disk()]
+
+    async def waking():
+        return answers.pop(0)
+    x.usb_disk = waking
+    assert (await usb.settled(client.bridge)).name == "ＵＳＢ ＨＤＤ１"
+
+    async def silent():
+        return None
+    x.usb_disk = silent
+    assert await usb.settled(client.bridge) is None  # not said within the wait, so not to be used
+    assert usb.known(client.bridge) is not None      # and not forgotten for it either

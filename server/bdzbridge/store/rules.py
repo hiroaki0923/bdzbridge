@@ -16,16 +16,18 @@ class RulesMixin:
         r = self.db.execute("SELECT * FROM rules WHERE id=?", (rule_id,)).fetchone()
         return dict(r) if r else None
 
-    def add_rule(self, query: str, bt: str | None, service_id: int | None, title_only: bool, quality: str) -> dict:
+    def add_rule(self, query: str, bt: str | None, service_id: int | None, title_only: bool, quality: str,
+                 destination: str = "HDD") -> dict:
         with self._lock, self.db:
-            cur = self.db.execute("INSERT INTO rules (query, bt, service_id, title_only, quality, enabled, created) VALUES (?,?,?,?,?,1,?)",
-                                  (query.strip(), bt, service_id, int(title_only), quality,
+            cur = self.db.execute("INSERT INTO rules (query, bt, service_id, title_only, quality, destination, enabled, created)"
+                                  " VALUES (?,?,?,?,?,?,1,?)",
+                                  (query.strip(), bt, service_id, int(title_only), quality, destination,
                                    datetime.now(JST).isoformat(timespec="seconds")))
         return self.rule(cur.lastrowid)  # type: ignore[return-value]
 
     def update_rule(self, rule_id: int, **fields) -> dict | None:
         cols = {k: (int(v) if isinstance(v, bool) else v) for k, v in fields.items()
-                if v is not None and k in ("enabled", "quality", "title_only", "query")}
+                if v is not None and k in ("enabled", "quality", "title_only", "query", "destination")}
         if cols:
             with self._lock, self.db:
                 self.db.execute(f"UPDATE rules SET {', '.join(f'{k}=?' for k in cols)} WHERE id=?", (*cols.values(), rule_id))

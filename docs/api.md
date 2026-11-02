@@ -152,7 +152,7 @@ Ask the recorder which existing reservations a new one would conflict with, with
 
 ### PATCH /reservations/{reservation_id}
 
-Change quality or repeat (and, for time-based reservations, title, start and duration). 409 while it records or once it has ended.
+Change quality or repeat (and, for time-based reservations, title, start and duration), or move it to another disk. 409 while it records, once it has ended, or when the USB disk cannot be had.
 
 パラメータ:
 - `reservation_id` (path): string
@@ -222,7 +222,7 @@ Upcoming programs the rule matches (reserved or not).
 
 ### PATCH /rules/{rule_id}
 
-Enable or disable a rule, or change its quality or title-only matching.
+Enable or disable a rule, or change its quality, title-only matching or disk.
 
 パラメータ:
 - `rule_id` (path): integer
@@ -576,6 +576,7 @@ Stop after the item being processed; what is done stays done.
 - `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER" | null （省略可）
 - `repeat`: "none" | "title" | "daily" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun" | "mon-fri" | "mon-sat" | null （省略可）
 - `force`: boolean （省略可、既定 `false`） — create even if the conflict check reports overlapping reservations
+- `destination`: "HDD" | "USBHDD" （省略可、既定 `"HDD"`） — the disk to record to; 409 when the USB disk cannot be had
 
 ### ReservationCreated
 
@@ -594,6 +595,7 @@ Stop after the item being processed; what is done stays done.
 - `title`: string | null （省略可） — time-based reservations only
 - `start`: datetime | null （省略可） — time-based reservations only
 - `duration_sec`: integer | null （省略可） — time-based reservations only
+- `destination`: "HDD" | "USBHDD" | null （省略可） — move it to this disk; left out, it stays on its own
 
 ### Rule
 
@@ -604,6 +606,7 @@ Stop after the item being processed; what is done stays done.
 - `service_name`: string | null （省略可）
 - `title_only`: boolean
 - `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER"
+- `destination`: string （省略可、既定 `"HDD"`）
 - `enabled`: boolean
 - `created`: datetime
 
@@ -614,6 +617,7 @@ Stop after the item being processed; what is done stays done.
 - `service_id`: integer | null （省略可）
 - `title_only`: boolean （省略可、既定 `true`）
 - `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER" | null （省略可）
+- `destination`: "HDD" | "USBHDD" （省略可、既定 `"HDD"`）
 
 ### AutoLogEntry
 
@@ -644,6 +648,7 @@ Stop after the item being processed; what is done stays done.
 - `enabled`: boolean | null （省略可）
 - `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER" | null （省略可）
 - `title_only`: boolean | null （省略可）
+- `destination`: "HDD" | "USBHDD" | null （省略可）
 
 ### RecorderRule
 
@@ -673,6 +678,7 @@ channel narrowing the recorder's screen offers cannot be set over the LAN.
 - `genre_level1`: integer | null （省略可） — ARIB level-1 genre; alone it means the whole genre
 - `genre_level2`: integer | null （省略可） — the sub-genre within level1
 - `time_scope`: string （省略可、既定 `"ALL"`） — ALL, MORNING, AFTERNOON, NIGHT, MIDNIGHT
+- `destination`: "HDD" | "USBHDD" （省略可、既定 `"HDD"`） — the disk the condition records to
 - `broadcasting_scope`: string （省略可、既定 `"ALL"`） — ALL, TRD, BSD, CSD, ADVBSD, ADVCSD; an unknown value widens to ALL on the recorder
 - `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER" | null （省略可） — the server's default when omitted; with ALL it is sent for BS4K/CS4K as well, which the recorder would otherwise record in DR
 

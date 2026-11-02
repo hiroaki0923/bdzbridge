@@ -8,6 +8,7 @@ import logging
 import time
 
 import httpx
+from fastapi import HTTPException
 
 from ..recorder.xsrs import Disk, XsrsError
 
@@ -70,3 +71,25 @@ async def settled(bridge) -> Disk | None:
         await asyncio.sleep(WAIT_SECONDS)
         disk, answered = await read(bridge)
     return disk if answered else None
+
+
+def why_not_usable(bridge) -> str:
+    """What is said when the USB disk cannot be had, by its name while it is known. The recorder accepts a reservation
+    for a disk that is not there, so that it is there is asked first. The name is the owner's, and a half-width one
+    is set off from the kana."""
+    last = known(bridge)
+    name = last.name if last and last.name else "USBHDD"
+    return f"{name}{' ' if name[-1].isascii() else ''}はいま使えません。別の録画先を選んでください。"
+
+
+async def usable(bridge, destination: str) -> bool:
+    """Whether a recording can be sent to `destination` now."""
+    if destination != "USBHDD":
+        return True
+    disk = await settled(bridge)
+    return disk is not None and disk.takes_recordings
+
+
+async def require(bridge, destination: str) -> None:
+    if not await usable(bridge, destination):
+        raise HTTPException(409, why_not_usable(bridge))
