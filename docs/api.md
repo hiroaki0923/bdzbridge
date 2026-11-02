@@ -152,7 +152,7 @@ Ask the recorder which existing reservations a new one would conflict with, with
 
 ### PATCH /reservations/{reservation_id}
 
-Change quality or repeat (and, for time-based reservations, title, start and duration).
+Change quality or repeat (and, for time-based reservations, title, start and duration), or move it to another disk. 409 while it records, once it has ended, or when the USB disk cannot be had.
 
 パラメータ:
 - `reservation_id` (path): string
@@ -222,7 +222,7 @@ Upcoming programs the rule matches (reserved or not).
 
 ### PATCH /rules/{rule_id}
 
-Enable or disable a rule, or change its quality or title-only matching.
+Enable or disable a rule, or change its quality, title-only matching or disk.
 
 パラメータ:
 - `rule_id` (path): integer
@@ -293,12 +293,14 @@ Send a test message through every configured channel.
 
 ### GET /titles
 
-Titles
+The recordings of both disks, newest first, from the list kept for five minutes.
 
 パラメータ:
 - `limit` (query): integer、既定 `100`
 - `offset` (query): integer、既定 `0`
 - `series` (query): string | null — only titles with this grouping key (see /titles/groups)
+- `destination` (query): string | null — only titles on this disk: HDD or USBHDD
+- `refresh` (query): boolean、既定 `false` — re-read the list from the recorder
 
 レスポンス:
 - 200: `list[RecordedTitle]`
@@ -456,6 +458,7 @@ Stop after the item being processed; what is done stays done.
 - `power`: string | null （省略可）
 - `play`: string | null （省略可）
 - `storage`: Storage | null （省略可）
+- `usb`: UsbDisk | null （省略可） — the registered disk in the USB slot, when there is one
 - `reachable`: boolean | null （省略可） — False when the recorder is not answering on the network (try POST /recorder/wake)
 - `mac`: string | null （省略可）
 - `epg`: dict
@@ -465,6 +468,14 @@ Stop after the item being processed; what is done stays done.
 - `destination`: string （省略可、既定 `"HDD"`）
 - `total_bytes`: integer
 - `free_bytes`: integer
+
+### UsbDisk
+
+- `name`: string — the recorder's name for the disk, which can be changed on its screen
+- `mounted`: boolean
+- `total_bytes`: integer | null （省略可）
+- `free_bytes`: integer | null （省略可）
+- `answered`: boolean — False: the disk last known, shown while the recorder has not said it is there
 
 ### RecorderSelect
 
@@ -549,6 +560,7 @@ Stop after the item being processed; what is done stays done.
 - `conflict`: boolean
 - `destination`: string
 - `size_mb`: integer | null
+- `creator`: string | null （省略可） — reservationCreatorID。2200 はアプリ、1100 はレコーダー自身。予約を探し直すときに、同じ作成者かを見る
 - `created_by_app`: boolean
 - `created_by_recorder`: boolean （省略可、既定 `false`） — レコーダー自身が入れた予約（おまかせ録画）。消してもレコーダーが入れ直す
 - `genres`: list[Genre] （省略可） — from the EPG cache when the reservation tracks a program that is still in it
@@ -564,6 +576,7 @@ Stop after the item being processed; what is done stays done.
 - `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER" | null （省略可）
 - `repeat`: "none" | "title" | "daily" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun" | "mon-fri" | "mon-sat" | null （省略可）
 - `force`: boolean （省略可、既定 `false`） — create even if the conflict check reports overlapping reservations
+- `destination`: "HDD" | "USBHDD" （省略可、既定 `"HDD"`） — the disk to record to; 409 when the USB disk cannot be had
 
 ### ReservationCreated
 
@@ -582,6 +595,7 @@ Stop after the item being processed; what is done stays done.
 - `title`: string | null （省略可） — time-based reservations only
 - `start`: datetime | null （省略可） — time-based reservations only
 - `duration_sec`: integer | null （省略可） — time-based reservations only
+- `destination`: "HDD" | "USBHDD" | null （省略可） — move it to this disk; left out, it stays on its own
 
 ### Rule
 
@@ -592,6 +606,7 @@ Stop after the item being processed; what is done stays done.
 - `service_name`: string | null （省略可）
 - `title_only`: boolean
 - `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER"
+- `destination`: string （省略可、既定 `"HDD"`）
 - `enabled`: boolean
 - `created`: datetime
 
@@ -602,6 +617,7 @@ Stop after the item being processed; what is done stays done.
 - `service_id`: integer | null （省略可）
 - `title_only`: boolean （省略可、既定 `true`）
 - `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER" | null （省略可）
+- `destination`: "HDD" | "USBHDD" （省略可、既定 `"HDD"`）
 
 ### AutoLogEntry
 
@@ -632,6 +648,7 @@ Stop after the item being processed; what is done stays done.
 - `enabled`: boolean | null （省略可）
 - `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER" | null （省略可）
 - `title_only`: boolean | null （省略可）
+- `destination`: "HDD" | "USBHDD" | null （省略可）
 
 ### RecorderRule
 
@@ -661,6 +678,7 @@ channel narrowing the recorder's screen offers cannot be set over the LAN.
 - `genre_level1`: integer | null （省略可） — ARIB level-1 genre; alone it means the whole genre
 - `genre_level2`: integer | null （省略可） — the sub-genre within level1
 - `time_scope`: string （省略可、既定 `"ALL"`） — ALL, MORNING, AFTERNOON, NIGHT, MIDNIGHT
+- `destination`: "HDD" | "USBHDD" （省略可、既定 `"HDD"`） — the disk the condition records to
 - `broadcasting_scope`: string （省略可、既定 `"ALL"`） — ALL, TRD, BSD, CSD, ADVBSD, ADVCSD; an unknown value widens to ALL on the recorder
 - `quality`: "DR" | "XR" | "XSR" | "SR" | "LSR" | "LR" | "ER" | "EER" | null （省略可） — the server's default when omitted; with ALL it is sent for BS4K/CS4K as well, which the recorder would otherwise record in DR
 
@@ -668,6 +686,8 @@ channel narrowing the recorder's screen offers cannot be set over the LAN.
 
 - `free_gb`: number | null （省略可）
 - `low_space`: boolean
+- `usb_free_gb`: number | null （省略可）
+- `low_space_usb`: boolean （省略可、既定 `false`）
 - `new_conflicts`: list[string]
 - `notified`: list[string]
 
@@ -710,6 +730,7 @@ channel narrowing the recorder's screen offers cannot be set over the LAN.
 - `size_mb`: integer
 - `latest`: datetime
 - `earliest`: datetime
+- `last_end`: datetime — when the last of them to end ends: the far side of the span the group covers
 - `protected_count`: integer
 - `new_count`: integer
 

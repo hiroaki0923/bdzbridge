@@ -5,6 +5,7 @@
   import JobModal from './JobModal.svelte'
   let { title, onclose, onchanged, onplayback } = $props()
   let t = $state(title)
+  const usbRecording = $derived(t.destination === 'USBHDD' && t.recording)
   $effect(() => { t = title })
   let detail = $state(null)
   let confirm = $state(false)
@@ -50,7 +51,9 @@
     {#if detail.summary}<p>{detail.summary}</p>{/if}
     {#each detail.details as d, i (i)}<p class="muted" style="white-space: pre-wrap">{d}</p>{/each}
   {/if}
-  <button class="btn" disabled={playBusy} onclick={play}>{playBusy ? '電源を入れています…' : 'テレビで再生'}</button>
+  <!-- A USB recording's id changes when it ends, so nothing is sent to one still recording -->
+  {#if usbRecording}<p class="muted">録画中のため保護も削除もできません。番組が終わってから一覧を読み直してください</p>{/if}
+  <button class="btn" disabled={playBusy || usbRecording} onclick={play}>{playBusy ? '電源を入れています…' : 'テレビで再生'}</button>
   <button class="btn ghost" disabled={flagBusy || t.recording} onclick={() => setProtected(!t.protected)}>{t.protected ? '保護を解除する' : '保護する（自動削除させない）'}</button>
   <!-- The recorder refuses a recording it is still writing to, with a bare HTTP 500 -->
   <button class="btn ghost danger-text" disabled={t.protected || t.recording} onclick={() => (confirm = true)}>{t.recording ? '録画中は削除できません' : t.protected ? '保護中は削除できません' : 'この録画を削除'}</button>

@@ -12,6 +12,15 @@ class TitlesMixin:
         r = self.db.execute("SELECT summary FROM title_summaries WHERE id=?", (title_id,)).fetchone()
         return r[0] if r else None
 
+    def clear_blank_summaries_once(self) -> None:
+        """An earlier version saved a failed read as an empty text, which then counted as read for good. They are
+        cleared once, and asked for again; an empty text that was really read comes back the same."""
+        if self.get_meta("blank_summaries_cleared"):
+            return
+        with self._lock, self.db:
+            self.db.execute("DELETE FROM title_summaries WHERE summary=''")
+        self.set_meta("blank_summaries_cleared", "1")
+
     def set_title_summary(self, title_id: str, summary: str) -> None:
         with self._lock, self.db:
             self.db.execute("INSERT OR REPLACE INTO title_summaries (id, summary, at) VALUES (?,?,?)",

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ...recorder import codes
 from ...recorder.xsrs import XsrsError, build_recorder_rule_elements
+from ...services import usb
 from ...services.autorec import run_rules
 from ...services.monitor import run_checks
 from .. import schemas as S
@@ -26,7 +27,8 @@ async def rules(request: Request):
 async def rule_create(request: Request, req: S.RuleCreate,
                       run: bool = Query(False, description="apply every rule right away (reserves on the recorder)")):
     b = bridge_of(request)
-    r = b.store.add_rule(req.query, req.broadcasting, req.service_id, req.title_only, req.quality or b.settings.default_quality)
+    r = b.store.add_rule(req.query, req.broadcasting, req.service_id, req.title_only, req.quality or b.settings.default_quality,
+                        req.destination)
     if run and b.configured:
         b.last_autorec = await run_rules(b, b.clock())
     return rule_out(b, r)
@@ -54,9 +56,10 @@ async def rule_matches(request: Request, rule_id: int):
 
 @router.patch("/rules/{rule_id}", response_model=S.Rule)
 async def rule_update(request: Request, rule_id: int, req: S.RuleUpdate):
-    """Enable or disable a rule, or change its quality or title-only matching."""
+    """Enable or disable a rule, or change its quality, title-only matching or disk."""
     b = bridge_of(request)
-    r = b.store.update_rule(rule_id, enabled=req.enabled, quality=req.quality, title_only=req.title_only)
+    r = b.store.update_rule(rule_id, enabled=req.enabled, quality=req.quality, title_only=req.title_only,
+                            destination=req.destination)
     if r is None:
         raise HTTPException(404, "rule not found")
     return rule_out(b, r)
@@ -92,7 +95,9 @@ async def recorder_rule_create(request: Request, req: S.RecorderRuleCreate):
     el = build_recorder_rule_elements(keywords=req.keywords, excluded=req.excluded, logic=req.logic,
                                       genre_level1=req.genre_level1, genre_level2=req.genre_level2, time_scope=req.time_scope,
                                       broadcasting_scope=req.broadcasting_scope,
-                                      quality_code=codes.QUALITY[req.quality or b.settings.default_quality])
+                                      quality_code=codes.QUALITY[req.quality or b.settings.default_quality],
+                                      destination=req.destination)
+    await usb.require(b, req.destination)
     try:
         async with rec.lock:
             new_id = await rec.xsrs.create_recorder_rule(el)
@@ -113,7 +118,8 @@ async def recorder_rule_delete(request: Request, rule_id: str):
         async with rec.lock:
             await rec.xsrs.delete_recorder_rule(rule_id)
     except XsrsError as e:
-        raise HTTPException(502, e.explanation)
+        # 892 is the recorder saying it has no such condition: gone, or renumbered by an edit on its own screen.
+        raise HTTPException(404 if e.code == "892" else 502, e.explanation)
 
 
 @router.post("/monitor/run", response_model=S.MonitorResult)

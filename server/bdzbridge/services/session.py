@@ -26,12 +26,19 @@ async def set_recorder(bridge, host: str, persist: bool = True) -> RecorderClien
     except Exception as e:
         await client.close()
         raise HTTPException(400, f"no recorder answered at {host}: {e}")
+    saved_udn = bridge.store.get_meta("recorder_udn")
+    another = bool(saved_udn and info.udn and saved_udn != info.udn)  # a recorder that moved keeps its UDN
     old, bridge.recorder = bridge.recorder, client
     if old is not None:
         await old.close()
+    if another:
+        bridge.titles_cache = bridge.titles_disk = bridge.last_error = bridge.last_autorec = bridge.usb_none_since = None
+        bridge.usb_titles_held = []
+        bridge.store.forget_recorder()
+    if persist or another:
+        bridge.store.set_meta("recorder_udn", info.udn)
     if persist:
         bridge.store.set_meta("recorder_host", host)
-        bridge.store.set_meta("recorder_udn", info.udn)
         bridge.store.set_meta("recorder_name", info.friendly_name)
     if not bridge.settings.recorder_mac and (mac := await _discover_mac(client, host)):
         bridge.store.set_meta("recorder_mac", mac)  # for Wake-on-LAN later
@@ -69,6 +76,20 @@ async def wake(bridge) -> bool:
     if await wol.port_open(rec.host, 64220):
         return True
     return await wol.wake(rec.host, mac(bridge))
+
+
+async def find_moved(bridge) -> bool:
+    """The recorder has stopped answering where it was: a new DHCP lease may have moved it. It is looked for by its
+    UDN and followed, unless the address is fixed in the settings. True when it was found somewhere else."""
+    udn = bridge.store.get_meta("recorder_udn")
+    if bridge.settings.recorder_host or not udn or bridge.recorder is None:
+        return False
+    for c in await discover(bridge):
+        if c.udn == udn and c.host != bridge.recorder.host:
+            log.info("recorder %s moved to %s", udn, c.host)
+            await set_recorder(bridge, c.host)
+            return True
+    return False
 
 
 async def resolve_recorder(bridge) -> None:

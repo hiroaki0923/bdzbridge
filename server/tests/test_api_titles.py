@@ -7,10 +7,12 @@ import httpx
 
 from bdzbridge.recorder.client import RecorderClient
 from bdzbridge.recorder.epg import JST, Program, Service
+from bdzbridge.recorder.xsrs import XsrsError
 from tests.conftest import (
     SUMMARY,
     H,
     make_title,
+    usb_disk,
     wait_job,
 )
 
@@ -82,6 +84,43 @@ def test_duplicate_scan_suggests_the_later_copy(client):
     assert s["keep"] == "0x0000010000034d7b" and s["suggest_delete"] == ["0x0000010000034d78"]  # the earlier broadcast stays
     assert s["reasons"]["0x0000010000034d7b"] == "先に放送" and s["reasons"]["0x0000010000034d78"] == "後の放送"
     assert client.bridge.store.title_summary("0x0000010000034d78") == SUMMARY
+
+def test_a_group_spans_from_its_first_start_to_its_last_end(client):
+    x = client.bridge.recorder.xsrs
+    x.extra_titles = [make_title("0xa1", "サンプル物語", datetime(2026, 9, 14, 21, 0, tzinfo=JST), 3600),
+                      make_title("0xa2", "サンプル物語", datetime(2026, 9, 14, 22, 0, tzinfo=JST), 1800)]
+    g = next(g for g in client.get("/api/v1/titles/groups", headers=H).json() if g["name"] == "サンプル物語")
+    assert g["earliest"].startswith("2026-09-14T21:00") and g["last_end"].startswith("2026-09-14T22:30")
+
+
+def test_a_text_that_could_not_be_read_is_left_out_and_asked_for_again(client):
+    x = client.bridge.recorder.xsrs
+    x.detail_errors = {"0x0000010000034d78": XsrsError("X_GetTitleDetail", 503, None)}
+    r = wait_job(client, client.post("/api/v1/titles/duplicates", headers=H).json()["id"])
+    assert r["result"]["sets"] == [] and r["result"]["unread"] == 1
+    assert client.bridge.store.title_summary("0x0000010000034d78") is None
+    x.detail_errors = {}
+    r = wait_job(client, client.post("/api/v1/titles/duplicates", headers=H).json()["id"])
+    assert len(r["result"]["sets"]) == 1 and r["result"]["unread"] == 0
+
+
+def test_a_recording_the_recorder_no_longer_has_leaves_the_list(client):
+    client.bridge.recorder.xsrs.detail_errors = {"0x0000010000034d78": XsrsError("X_GetTitleDetail", 500, "820")}
+    r = wait_job(client, client.post("/api/v1/titles/duplicates", headers=H).json()["id"])
+    assert r["result"]["sets"] == [] and r["result"]["unread"] == 0
+    assert client.bridge.titles_cache is None
+
+
+def test_texts_saved_blank_by_an_earlier_version_are_cleared_once(client):
+    store = client.bridge.store
+    store.set_title_summary("0x1", "")
+    store.set_title_summary("0x2", "読めた本文")
+    store.clear_blank_summaries_once()
+    assert store.title_summary("0x1") is None and store.title_summary("0x2") == "読めた本文"
+    store.set_title_summary("0x1", "")  # read and really empty
+    store.clear_blank_summaries_once()
+    assert store.title_summary("0x1") == ""
+
 
 def test_bulk_protect_job(client):
     job = client.post("/api/v1/titles/protect", headers=H, json={"ids": ["0x0000010000034d78", "0x0000010000034d79", "0x1"], "protected": True})
@@ -206,3 +245,94 @@ def test_job_failure_names_a_silent_exception(client, monkeypatch):
     client.bridge.titles_cache = None
     job = client.post("/api/v1/titles/delete", headers=H, json={"ids": ["0x0000010000034d78"]}).json()
     assert wait_job(client, job["id"])["error"] == "TimeoutError"
+
+
+def usb_title(tid, start=datetime(2026, 9, 12, 12, 0, tzinfo=JST), **kw):
+    return make_title(tid, "USBの番組", start, destination="USBHDD", **kw)
+
+
+def test_the_list_has_both_disks_newest_first(client):
+    x = client.bridge.recorder.xsrs
+    x.usb, x.usb_titles = usb_disk(), [usb_title("0x0002000000000001")]
+    ids = [(t["id"], t["destination"]) for t in client.get("/api/v1/titles", headers=H).json()]
+    assert ids[2] == ("0x0002000000000001", "USBHDD") and len(ids) == 5
+    only = client.get("/api/v1/titles", headers=H, params={"destination": "USBHDD"}).json()
+    assert [t["id"] for t in only] == ["0x0002000000000001"]
+
+
+def test_a_read_of_the_usb_disk_that_fails_costs_nothing_of_the_list(client):
+    x = client.bridge.recorder.xsrs
+    x.usb, x.usb_titles = usb_disk(), [usb_title("0x0002000000000001")]
+    assert len(client.get("/api/v1/titles", headers=H).json()) == 5
+    x.usb_titles_error = XsrsError("X_GetTitleList", 500, "501")
+    assert len(client.get("/api/v1/titles", headers=H, params={"refresh": True}).json()) == 5  # the same disk: its rows stay
+    x.usb = usb_disk(name="別のディスク", registered="2026-02-02T03:04:05+0900")
+    assert len(client.get("/api/v1/titles", headers=H, params={"refresh": True}).json()) == 4  # another disk: they do not
+
+
+def test_a_disk_that_takes_no_recordings_is_not_listed(client):
+    x = client.bridge.recorder.xsrs
+    x.usb, x.usb_titles = usb_disk(mounted=False), [usb_title("0x0002000000000001")]
+    assert len(client.get("/api/v1/titles", headers=H).json()) == 4
+
+
+USB_ROW = "0x0002000000000001"
+
+
+def on_usb(client, **kw):
+    x = client.bridge.recorder.xsrs
+    x.usb, x.usb_titles = usb_disk(), [usb_title(USB_ROW, **kw)]
+    client.get("/api/v1/titles", headers=H)
+    return x
+
+
+def test_nothing_is_written_to_a_usb_row_while_it_records(client):
+    x = on_usb(client, recording=True)
+    r = client.patch(f"/api/v1/titles/{USB_ROW}", headers=H, json={"protected": True})
+    assert r.status_code == 409 and r.json()["detail"].startswith("録画中のため保護も削除もできません")
+    assert client.delete(f"/api/v1/titles/{USB_ROW}", headers=H).status_code == 409
+    r = client.post(f"/api/v1/titles/{USB_ROW}/play", headers=H)
+    assert r.status_code == 409 and r.json()["detail"].startswith("録画中のため再生できません")
+    assert not getattr(x, "title_updates", [])
+
+
+def test_nothing_is_written_to_a_row_of_a_disk_no_longer_in_the_slot(client):
+    x = on_usb(client)
+    x.usb = usb_disk(name="別のディスク", registered="2026-02-02T03:04:05+0900")
+    r = client.patch(f"/api/v1/titles/{USB_ROW}", headers=H, json={"protected": True})
+    assert r.status_code == 409 and r.json()["detail"].startswith("録画先のディスクが変わったため")
+    assert client.bridge.titles_cache is None  # the list is to be read again
+
+
+def test_a_usb_row_on_its_disk_is_written_to(client):
+    x = on_usb(client)
+    assert client.patch(f"/api/v1/titles/{USB_ROW}", headers=H, json={"protected": True}).status_code == 200
+    assert x.title_updates[-1][0] == USB_ROW
+
+
+def test_a_bulk_job_stops_at_a_disk_that_changed(client):
+    x = on_usb(client)
+    x.usb = None
+    client.bridge.usb_none_since = 0.0  # no disk, and said long enough ago to be believed
+    ids = [USB_ROW, "0x0000010000034d7a"]
+    r = wait_job(client, client.post("/api/v1/titles/delete", headers=H, json={"ids": ids}).json()["id"])
+    assert r["result"]["deleted"] == [] and [s["id"] for s in r["result"]["skipped"]] == ids
+    assert all(s["reason"].startswith("録画先のディスクが変わったため") for s in r["result"]["skipped"])
+
+
+def test_a_bulk_job_passes_over_a_usb_row_still_recording(client):
+    on_usb(client, recording=True)
+    ids = [USB_ROW, "0x0000010000034d7a"]
+    r = wait_job(client, client.post("/api/v1/titles/delete", headers=H, json={"ids": ids}).json()["id"])
+    assert r["result"]["deleted"] == ["0x0000010000034d7a"] and [s["id"] for s in r["result"]["skipped"]] == [USB_ROW]
+
+
+def test_duplicates_leave_out_a_usb_row_still_recording_and_keep_texts_with_their_disk(client):
+    x = client.bridge.recorder.xsrs
+    x.usb, x.usb_titles = usb_disk(), [make_title("0x0002000000000001", "同じ番組", datetime(2026, 9, 1, 12, 0, tzinfo=JST), destination="USBHDD"),
+                                       make_title("0x0002000000000002", "同じ番組", datetime(2026, 9, 2, 12, 0, tzinfo=JST), destination="USBHDD"),
+                                       make_title("0x0002000000000003", "同じ番組", datetime(2026, 9, 3, 12, 0, tzinfo=JST), destination="USBHDD", recording=True)]
+    r = wait_job(client, client.post("/api/v1/titles/duplicates", headers=H).json()["id"])
+    assert {t["id"] for s in r["result"]["sets"] for t in s["items"] if t["destination"] == "USBHDD"} == {"0x0002000000000001", "0x0002000000000002"}
+    assert client.bridge.store.title_summary("2026-01-02T03:04:05+0900:0x0002000000000001") == SUMMARY
+    assert client.bridge.store.title_summary("0x0002000000000001") is None

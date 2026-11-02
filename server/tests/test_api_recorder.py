@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import httpx
 from fastapi.testclient import TestClient
 
 from bdzbridge.api.app import create_app
 from bdzbridge.config import PLACEHOLDER_TOKEN, Settings
 from bdzbridge.recorder import discovery, wol
-from bdzbridge.services import session
+from bdzbridge.recorder.xsrs import XsrsError
+from bdzbridge.services import session, usb
 from bdzbridge.state import Bridge
 from bdzbridge.store import Store
 from tests.conftest import (
@@ -13,6 +17,8 @@ from tests.conftest import (
     FakeRecorder,
     H,
     autorec_client,
+    make_services,
+    usb_disk,
 )
 
 
@@ -191,3 +197,131 @@ def test_power_on_wakes_an_unreachable_recorder(client, monkeypatch):
     client.bridge.store.set_meta("recorder_mac", "f8:4e:17:00:00:00")
     assert client.post("/api/v1/recorder/power", headers=H).json() == {"power": "PowerOn"}
     assert woke == ["f8:4e:17:00:00:00"] and client.bridge.recorder.xsrs.powered == 1
+
+
+async def test_choosing_another_recorder_forgets_what_the_last_one_said(tmp_path, monkeypatch):
+    settings = Settings(recorder_host="", api_token=TOKEN, db_path=str(tmp_path / "a.sqlite3"), epg_refresh_on_start=False)
+    store = Store(settings.db_path)
+    store.replace_services("td", make_services())
+    store.set_meta("recorder_udn", "uuid:first")
+    store.set_meta("recorder_mac", "f8:4e:17:00:00:00")
+    store.set_meta("warned_low_space", "1")
+    store.set_title_summary("0x1", "前の録画")
+    store.add_rule("サンプル", None, None, True, "DR")
+    bridge = Bridge(settings, FakeRecorder(), store)
+    bridge.titles_cache = (0.0, ["前の録画"])
+    udn = "uuid:first"
+
+    class Client(FakeRecorder):
+        def __init__(self, host):
+            super().__init__()
+            self.host = host
+
+        async def discover(self):
+            self.info = SimpleNamespace(udn=udn, friendly_name="BDR")
+            return self.info
+
+        async def close(self):
+            pass
+
+    async def no_mac(client, host):
+        return None
+    monkeypatch.setattr(session, "RecorderClient", Client)
+    monkeypatch.setattr(session, "_discover_mac", no_mac)
+
+    await session.set_recorder(bridge, "192.0.2.10")  # the same recorder at a new address
+    assert bridge.titles_cache and store.title_summary("0x1") == "前の録画" and store.channels("td")
+
+    udn = "uuid:second"
+    await session.set_recorder(bridge, "192.0.2.20")
+    assert bridge.titles_cache is None and store.title_summary("0x1") is None and not store.channels("td")
+    assert store.get_meta("warned_low_space") is None and store.get_meta("recorder_mac") is None
+    assert store.get_meta("recorder_udn") == "uuid:second"
+    assert len(store.rules()) == 1  # the reader's own
+    await bridge.close()
+
+
+def test_the_status_gives_the_usb_disk(client):
+    client.bridge.recorder.xsrs.usb = usb_disk()
+    u = client.get("/api/v1/recorder", headers=H).json()["usb"]
+    assert u == {"name": "ＵＳＢ ＨＤＤ１", "mounted": True, "total_bytes": 2_000_000_000_000, "free_bytes": 500_000_000_000, "answered": True}
+
+
+def test_the_status_has_no_usb_disk_when_there_is_none(client):
+    assert client.get("/api/v1/recorder", headers=H).json()["usb"] is None
+
+
+def test_one_answer_of_no_disk_is_not_believed_until_a_reading_later_says_the_same(client):
+    x = client.bridge.recorder.xsrs
+    x.usb = usb_disk()
+    client.get("/api/v1/recorder", headers=H)
+    x.usb = None
+    u = client.get("/api/v1/recorder", headers=H).json()["usb"]
+    assert u["name"] == "ＵＳＢ ＨＤＤ１" and u["answered"] is False
+    x.usb = usb_disk()  # it was the recorder just woken
+    assert client.get("/api/v1/recorder", headers=H).json()["usb"]["answered"] is True
+    assert client.bridge.usb_none_since is None
+    x.usb = None
+    client.get("/api/v1/recorder", headers=H)
+    client.bridge.usb_none_since -= usb.SETTLE_SECONDS
+    assert client.get("/api/v1/recorder", headers=H).json()["usb"] is None
+    assert client.bridge.store.get_meta(usb.KNOWN) is None
+
+
+def test_silence_and_a_busy_recorder_say_nothing_of_the_slot(client):
+    x = client.bridge.recorder.xsrs
+    x.usb = usb_disk()
+    client.get("/api/v1/recorder", headers=H)
+    x.usb_error = XsrsError("X_GetMediaInfo", 503, None)
+    assert client.get("/api/v1/recorder", headers=H).json()["usb"]["answered"] is False
+    x.usb_error = httpx.ConnectTimeout("no answer")
+    assert client.get("/api/v1/recorder", headers=H).json()["usb"]["answered"] is False
+    assert client.bridge.usb_none_since is None
+
+
+def test_a_refusal_is_no_disk(client):
+    client.bridge.recorder.xsrs.usb_error = XsrsError("X_GetMediaInfo", 500, "803")
+    assert client.get("/api/v1/recorder", headers=H).json()["usb"] is None
+
+
+async def test_a_recorder_that_moved_while_running_is_followed(tmp_path, monkeypatch):
+    settings = Settings(recorder_host="", api_token=TOKEN, db_path=str(tmp_path / "f.sqlite3"), epg_refresh_on_start=False)
+    store = Store(settings.db_path)
+    store.set_meta("recorder_udn", "uuid:abc")
+    bridge = Bridge(settings, FakeRecorder(), store)
+    bridge.recorder.host = "192.0.2.10"
+    picked = []
+
+    async def found(http, networks=""):
+        return [discovery.Candidate("192.0.2.30", 64220, "BDR - Y", "BDZ-Y", "BDZ-2021", "uuid:other", True, "loc", "ssdp"),
+                discovery.Candidate("192.0.2.20", 64220, "BDR - X", "BDZ-X", "BDZ-2021", "uuid:abc", True, "loc", "ssdp")]
+
+    async def pick(b, host, persist=True):
+        picked.append(host)
+    monkeypatch.setattr(discovery, "discover", found)
+    monkeypatch.setattr(session, "set_recorder", pick)
+    assert await session.find_moved(bridge) is True and picked == ["192.0.2.20"]
+    bridge.recorder.host = "192.0.2.20"  # there already: it is simply not answering
+    assert await session.find_moved(bridge) is False
+    bridge.settings.recorder_host = "192.0.2.10"  # fixed in the settings
+    assert await session.find_moved(bridge) is False and picked == ["192.0.2.20"]
+    await bridge.close()
+
+
+async def test_a_known_disk_is_waited_for_before_it_is_needed(client, monkeypatch):
+    monkeypatch.setattr(usb, "WAIT_SECONDS", 0)
+    x = client.bridge.recorder.xsrs
+    x.usb = usb_disk()
+    assert (await usb.read(client.bridge))[1] is True
+    answers = [None, None, usb_disk()]
+
+    async def waking():
+        return answers.pop(0)
+    x.usb_disk = waking
+    assert (await usb.settled(client.bridge)).name == "ＵＳＢ ＨＤＤ１"
+
+    async def silent():
+        return None
+    x.usb_disk = silent
+    assert await usb.settled(client.bridge) is None  # not said within the wait, so not to be used
+    assert usb.known(client.bridge) is not None      # and not forgotten for it either

@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS logos (
   PRIMARY KEY (bt, service_id));
 CREATE TABLE IF NOT EXISTS rules (
   id INTEGER PRIMARY KEY AUTOINCREMENT, query TEXT NOT NULL, bt TEXT, service_id INTEGER,
-  title_only INTEGER NOT NULL DEFAULT 1, quality TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, created TEXT NOT NULL);
+  title_only INTEGER NOT NULL DEFAULT 1, quality TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, created TEXT NOT NULL,
+  destination TEXT NOT NULL DEFAULT 'HDD');
 CREATE TABLE IF NOT EXISTS auto_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, rule_id INTEGER NOT NULL, bt TEXT NOT NULL, service_id INTEGER NOT NULL,
   event_id INTEGER NOT NULL, title TEXT NOT NULL, start INTEGER NOT NULL, status TEXT NOT NULL, message TEXT,
@@ -74,6 +75,9 @@ class StoreBase:
         self.db.row_factory = sqlite3.Row
         with self.db:
             self.db.executescript(_SCHEMA)
+            # the rules are the reader's own and survive a schema change, so a column is added to them in place
+            if "destination" not in {c["name"] for c in self.db.execute("PRAGMA table_info(rules)")}:
+                self.db.execute("ALTER TABLE rules ADD COLUMN destination TEXT NOT NULL DEFAULT 'HDD'")
             if self.get_meta("schema_version") != SCHEMA_VERSION:
                 # the cache is disposable: rebuild tables on a schema change
                 self.db.executescript("DROP TABLE programs; DROP TABLE channels; DROP TABLE IF EXISTS logos; DELETE FROM meta WHERE key LIKE 'epg_refreshed:%';")
@@ -88,4 +92,18 @@ class StoreBase:
     def set_meta(self, key: str, value: str) -> None:
         with self._lock, self.db:
             self.db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
+
+    def delete_meta(self, key: str) -> None:
+        with self._lock, self.db:
+            self.db.execute("DELETE FROM meta WHERE key=?", (key,))
+
+    def forget_recorder(self) -> None:
+        """Drops what one recorder said, when another takes its place. A list of recordings or a logged reservation
+        means nothing on the next one, and a recording's id can stand for another recording there. The reader's own
+        rules and channel settings stay."""
+        with self._lock, self.db:
+            for table in ("programs", "channels", "logos", "auto_log", "title_summaries"):
+                self.db.execute(f"DELETE FROM {table}")
+            self.db.execute("DELETE FROM meta WHERE key LIKE 'epg_refreshed:%' "
+                            "OR key IN ('warned_low_space', 'warned_low_usb', 'notified_conflicts', 'recorder_mac', 'usb_disk')")
 

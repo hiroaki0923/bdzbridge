@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from bdzbridge.recorder.epg import JST
 from bdzbridge.recorder.xsrs import Reservation
 from tests.conftest import (
     H,
+    usb_disk,
 )
 
 
@@ -46,6 +47,36 @@ def test_reservation_update(client):
     assert f'<item id="{r["id"]}">' in xml and "<desiredQualityMode>250</desiredQualityMode>" in xml and ",,0x400,0x39c8" in xml
     assert client.patch("/api/v1/reservations/0xnope", headers=H, json={"quality": "LR"}).status_code == 404
 
+def test_reservations_say_who_made_them(client):
+    r = client.post("/api/v1/reservations", headers=H, json={"broadcasting": "td", "service_id": 1024, "event_id": 14792}).json()["reservation"]
+    assert r["creator"] == "2200" and r["created_by_app"]
+
+
+def test_a_change_keeps_the_reservation_on_its_disk(client):
+    r = client.post("/api/v1/reservations", headers=H, json={"broadcasting": "td", "service_id": 1024, "event_id": 14792}).json()["reservation"]
+    fx = client.bridge.recorder.xsrs
+    fx.reservations[0].destination = "USBHDD"
+    fx.usb = usb_disk()
+    u = client.patch(f"/api/v1/reservations/{r['id']}", headers=H, json={"quality": "LR"})
+    assert u.status_code == 200, u.text
+    assert u.json()["destination"] == "USBHDD"
+    assert "<recordDestinationID>USBHDD</recordDestinationID>" in fx.created[-1]
+
+
+def test_a_reservation_is_not_changed_while_it_records_or_once_it_has_ended(client):
+    r = client.post("/api/v1/reservations", headers=H, json={"broadcasting": "td", "service_id": 1024, "event_id": 14792}).json()["reservation"]
+    fx = client.bridge.recorder.xsrs
+    sent = len(fx.created)
+    fx.reservations[0].recording = True
+    u = client.patch(f"/api/v1/reservations/{r['id']}", headers=H, json={"quality": "LR"})
+    assert u.status_code == 409 and u.json()["detail"] == "録画中の予約は変更できません。"
+    fx.reservations[0].recording = False
+    client.bridge.clock = lambda: fx.reservations[0].start + timedelta(seconds=fx.reservations[0].duration_sec)
+    u = client.patch(f"/api/v1/reservations/{r['id']}", headers=H, json={"quality": "LR"})
+    assert u.status_code == 409 and u.json()["detail"] == "放送が終わった予約は変更できません。"
+    assert len(fx.created) == sent
+
+
 def test_reservations_carry_program_genres(client):
     client.post("/api/v1/epg/refresh", headers=H)
     r = client.post("/api/v1/reservations", headers=H,
@@ -75,3 +106,41 @@ def test_weekly_repeat_must_match_the_programmes_weekday(client):
     rid = r.json()["reservation"]["id"]
     assert client.patch(f"/api/v1/reservations/{rid}", headers=H, json={"repeat": "sun"}).status_code == 422
     assert client.patch(f"/api/v1/reservations/{rid}", headers=H, json={"repeat": "daily"}).status_code == 200
+
+
+def reserve(client, **body):
+    return client.post("/api/v1/reservations", headers=H, json={"broadcasting": "td", "service_id": 1024, "event_id": 14792, **body})
+
+
+def test_a_reservation_goes_to_the_disk_chosen(client):
+    fx = client.bridge.recorder.xsrs
+    fx.usb = usb_disk()
+    r = reserve(client, destination="USBHDD")
+    assert r.status_code == 201 and r.json()["reservation"]["destination"] == "USBHDD"
+    assert "<recordDestinationID>USBHDD</recordDestinationID>" in fx.created[-1]
+
+
+def test_nothing_is_sent_to_a_usb_disk_that_cannot_be_had(client):
+    fx = client.bridge.recorder.xsrs
+    r = reserve(client, destination="USBHDD")
+    assert r.status_code == 409 and r.json()["detail"] == "USBHDD はいま使えません。別の録画先を選んでください。"
+    fx.usb = usb_disk(mounted=False)
+    client.get("/api/v1/recorder", headers=H)
+    r = reserve(client, destination="USBHDD")
+    assert r.status_code == 409 and r.json()["detail"] == "ＵＳＢ ＨＤＤ１はいま使えません。別の録画先を選んでください。"
+    assert fx.created == []
+
+
+def test_a_reservation_is_moved_only_when_asked_and_only_to_a_disk_there(client):
+    fx = client.bridge.recorder.xsrs
+    fx.usb = usb_disk()
+    r = reserve(client).json()["reservation"]
+    assert r["destination"] == "HDD"
+    u = client.patch(f"/api/v1/reservations/{r['id']}", headers=H, json={"destination": "USBHDD"})
+    assert u.status_code == 200 and u.json()["destination"] == "USBHDD"
+    fx.usb = usb_disk(mounted=False)
+    client.get("/api/v1/recorder", headers=H)
+    u = client.patch(f"/api/v1/reservations/{r['id']}", headers=H, json={"quality": "LR"})
+    assert u.status_code == 409  # a reservation on a disk not there cannot be changed in place
+    u = client.patch(f"/api/v1/reservations/{r['id']}", headers=H, json={"quality": "LR", "destination": "HDD"})
+    assert u.status_code == 200 and u.json()["destination"] == "HDD"

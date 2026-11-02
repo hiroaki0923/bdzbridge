@@ -12,6 +12,7 @@ from .config import Settings
 from .jobs import Jobs
 from .recorder.client import RecorderClient
 from .recorder.epg import JST
+from .recorder.xsrs import Disk
 from .recorder.xsrs import RecordedTitle as XTitle
 from .services.notify import Notifier
 from .store import Store
@@ -27,6 +28,9 @@ class Bridge:
         self.clock = lambda: datetime.now(JST)  # tests override this
         self.last_autorec: dict | None = None
         self.titles_cache: tuple[float, list[XTitle]] | None = None  # (monotonic time, every recorded title)
+        self.titles_disk: Disk | None = None  # the USB disk the cached list's USB rows were read from
+        self.usb_titles_held: list[XTitle] = []  # those rows, kept across a forgotten list for a read that fails
+        self.usb_none_since: float | None = None  # when the slot first answered no disk while one was known
         self.jobs = Jobs()
 
     @property

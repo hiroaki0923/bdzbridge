@@ -22,15 +22,16 @@ router = APIRouter(prefix="/api/v1", tags=["titles"], dependencies=[Depends(auth
 
 @router.get("/titles", response_model=list[S.RecordedTitle])
 async def titles(request: Request, limit: int = Query(100, le=500), offset: int = 0,
-                 series: str | None = Query(None, description="only titles with this grouping key (see /titles/groups)")):
+                 series: str | None = Query(None, description="only titles with this grouping key (see /titles/groups)"),
+                 destination: str | None = Query(None, description="only titles on this disk: HDD or USBHDD"),
+                 refresh: bool = Query(False, description="re-read the list from the recorder")):
+    """The recordings of both disks, newest first, from the list kept for five minutes."""
     b = bridge_of(request)
-    rec = b.require_recorder()
-    if series is not None:
-        items = [t for t in await svc.all_titles(b) if series_key(t.title) == series][offset:offset + limit]
-    else:
-        async with rec.lock:
-            items = await rec.xsrs.list_titles(count=limit, start=offset)
-    return [title_out(t, b.store) for t in items]
+    if refresh:
+        svc.forget_titles(b)
+    items = [t for t in await svc.all_titles(b) if (series is None or series_key(t.title) == series)
+             and (destination is None or t.destination == destination)]
+    return [title_out(t, b.store) for t in items[offset:offset + limit]]
 
 @router.get("/titles/groups", response_model=list[S.TitleGroup])
 async def title_groups(request: Request, genre: int | None = Query(None, description="ARIB level-1 genre code"),
@@ -120,6 +121,7 @@ async def title_play(request: Request, title_id: str, position_sec: int = Query(
     rec = b.require_recorder()
     if session.mac(b) and not await session.reachable(b) and not await session.wake(b):
         raise HTTPException(503, "the recorder does not answer, even after Wake-on-LAN")
+    await svc.row_or_refuse(b, title_id, playing=True)
     try:
         async with rec.lock:
             await _ensure_on(rec)
@@ -132,9 +134,11 @@ async def title_play(request: Request, title_id: str, position_sec: int = Query(
 @router.patch("/titles/{title_id}", response_model=S.TitleFlags)
 async def title_update(request: Request, title_id: str, req: S.TitleUpdate):
     """Protect / unprotect a recording, clear its NEW mark, or rename it."""
-    rec = bridge_of(request).require_recorder()
+    b = bridge_of(request)
+    rec = b.require_recorder()
     if req.protected is None and req.is_new is None and req.title is None:
         raise HTTPException(422, "nothing to change")
+    await svc.row_or_refuse(b, title_id)
     el = build_title_update_elements(title_id, title=req.title, protected=req.protected, is_new=req.is_new)
     try:
         async with rec.lock:
@@ -151,8 +155,8 @@ async def title_delete(request: Request, title_id: str):
     rec = b.require_recorder()
     # A recording in progress is refused with a bare HTTP 500 and no error code, which tells a client
     # nothing. The list is already in hand, so say it here instead.
-    known = {t.id: t for t in await svc.all_titles(b)}
-    if title_id in known and known[title_id].recording:
+    t = await svc.row_or_refuse(b, title_id)
+    if t is not None and t.recording:
         raise HTTPException(409, "録画中のため削除できません")
     try:
         async with rec.lock:
@@ -160,7 +164,7 @@ async def title_delete(request: Request, title_id: str):
             await rec.xsrs.title_detail(title_id)
             await rec.xsrs.delete_title(title_id)
     except XsrsError as e:
-        raise HTTPException(404 if e.code in ("701", "803", "820") else 502, e.explanation)
+        raise HTTPException(404 if e.code in ("701", "803", "820") else 409 if e.code == "877" else 502, e.explanation)
     svc.forget_titles(bridge_of(request))
 
 @router.get("/titles/{title_id}", response_model=S.TitleDetail)

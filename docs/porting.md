@@ -759,7 +759,7 @@ UI で唯一手間がかかるのは番組表の表形式です。時間軸と�
   組にも入れない。`port/titles.json` のベクタは要約の無いものを空として扱う（サーバーと同じ）ので、この絞り込みは
   その手前で行う（RecorderKit では `Duplicates.readSets`。削除を持ちかける画面は `Duplicates.sets` を直接呼ばず、
   これを使う）。一括削除で 820 が返った録画は「すでに削除されています」として飛ばし、一覧からも外す
-  （`ItemCame.gone`。理由の文言の比較で見分けない）。サーバーの `services/titles.py` は今も失敗を空として保存します。iOS アプリは、以前の版が
+  （`ItemCame.gone`。理由の文言の比較で見分けない）。サーバーの `services/titles.py` も、読めたものだけを保存します。iOS アプリとサーバーは、以前の版が
   失敗を空として保存した行を一度だけ消します（`meta` の `blank_summaries_cleared`）。
 - **iOS の権限**: LAN への平文 HTTP は `NSAppTransportSecurity` の `NSAllowsLocalNetworking` で許可する。LAN
   アクセスの説明文 `NSLocalNetworkUsageDescription` も必須。SSDP のマルチキャスト送信には

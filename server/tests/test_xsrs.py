@@ -2,15 +2,19 @@ import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
+from xml.sax.saxutils import escape
 
+import httpx
 import pytest
 
 from bdzbridge.recorder.epg import JST
 from bdzbridge.recorder.xsrs import (
+    XsrsClient,
     XsrsError,
     build_create_elements,
     build_recorder_rule_elements,
     build_update_elements,
+    parse_disk,
     parse_recorder_rule,
     parse_reservation,
 )
@@ -174,3 +178,70 @@ async def test_an_answer_that_is_not_xml_is_an_xsrs_error():
         await x.conflicts("<xsrs/>")
     assert (garbled.value.status, garbled.value.code, garbled.value.action) == (200, None, "X_GetConflictList")
     await x.http.aclose()
+
+
+async def test_a_busy_recorder_is_asked_again_twice():
+    answers = [(503, "busy"), (503, "busy"), (200, soap_answer("X_GetRecordScheduleList", "<Result></Result>"))]
+    sent = []
+
+    def answer(action):
+        sent.append(action)
+        return answers.pop(0)
+    assert await recorder_answering(answer).list_reservations() == []
+    assert len(sent) == 3
+
+
+async def test_a_recorder_still_busy_after_that_says_so():
+    sent = []
+
+    def answer(action):
+        sent.append(action)
+        return 503, "busy"
+    with pytest.raises(XsrsError) as e:
+        await recorder_answering(answer).list_reservations()
+    assert e.value.busy and len(sent) == 3
+
+
+USB_ANSWER = ('<?xml version="1.0"?><xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/"><name>ＵＳＢ ＨＤＤ１</name>'
+              "<mount>1</mount><remain>500000</remain><total>2000000</total>"
+              "<registeredTime>2026-01-02T03:04:05+0900</registeredTime><recordableRemain>500000</recordableRemain></xsrs>")
+NO_USB_ANSWER = ('<?xml version="1.0"?><xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/"><name></name><mount>0</mount>'
+                 "<remain>0</remain><total>0</total><registeredTime></registeredTime></xsrs>")
+
+
+def test_a_disk_is_read_from_the_media_info():
+    d = parse_disk(USB_ANSWER, "USBHDD")
+    assert (d.name, d.mounted, d.free_bytes, d.total_bytes) == ("ＵＳＢ ＨＤＤ１", True, 500_000_000_000, 2_000_000_000_000)
+    assert d.takes_recordings and d.registered == "2026-01-02T03:04:05+0900"
+
+
+def test_an_answer_that_describes_no_disk_is_none():
+    assert parse_disk("", "USBHDD") is None and parse_disk("not xml", "USBHDD") is None
+    assert parse_disk("<xsrs><name>x</name></xsrs>", "USBHDD") is None
+
+
+async def test_only_a_registered_disk_counts():
+    def answering(result):
+        return recorder_answering(lambda action: (200, soap_answer(action, f"<Result>{escape(result)}</Result>")))
+    assert (await answering(USB_ANSWER).usb_disk()).name == "ＵＳＢ ＨＤＤ１"
+    assert await answering(NO_USB_ANSWER).usb_disk() is None
+
+
+def test_a_disk_of_no_size_says_nothing_of_its_room():
+    d = parse_disk(NO_USB_ANSWER.replace("<registeredTime></registeredTime>", "<registeredTime>x</registeredTime>"), "USBHDD")
+    assert not d.takes_recordings and d.free_bytes is None and d.total_bytes is None
+
+
+async def test_the_usb_disk_is_asked_for_by_name_and_filtered_again():
+    item = ('<item id="{id}"><title>t</title><scheduledStartDateTime>2026-09-13T21:00:00+09:00</scheduledStartDateTime>'
+            "<scheduledDuration>60</scheduledDuration><recordDestinationID>{dest}</recordDestinationID></item>")
+    rows = item.format(id="0x1", dest="HDD") + item.format(id="0x2", dest="USBHDD")
+    result = f'<xsrs xmlns="urn:schemas-xsrs-org:metadata-1-0/x_srs/">{rows}</xsrs>'
+    sent = []
+
+    def handler(request):
+        sent.append(request.content.decode())
+        return httpx.Response(200, text=soap_answer("X_GetTitleList", f"<Result>{escape(result)}</Result><TotalMatches>2</TotalMatches>"))
+    client = XsrsClient("192.0.2.10", httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    assert [t.id for t in await client.list_titles_all(destination="USBHDD")] == ["0x2"]
+    assert "recordDestinationID=&quot;USBHDD&quot;" in sent[0]

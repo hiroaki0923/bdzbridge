@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import sqlite3
 from datetime import datetime
 
 from fastapi.testclient import TestClient
@@ -10,7 +11,7 @@ from bdzbridge.api.app import create_app
 from bdzbridge.config import Settings
 from bdzbridge.recorder import wol
 from bdzbridge.recorder.epg import JST
-from bdzbridge.recorder.xsrs import Reservation
+from bdzbridge.recorder.xsrs import Reservation, XsrsError
 from bdzbridge.state import Bridge
 from bdzbridge.store import Store
 from tests.conftest import (
@@ -22,6 +23,7 @@ from tests.conftest import (
     free_space,
     recorder_answering,
     soap_answer,
+    usb_disk,
 )
 
 
@@ -61,10 +63,11 @@ def test_rules_report_conflicts_without_reserving(client):
 
 def test_an_unreadable_answer_costs_one_programme_and_a_busy_one_is_asked_again(client):
     c = autorec_client(client)
-    # the conflict checks, in order: the first programme's answered 503, the second's with a page that is not
-    # XML, which used to end the pass with a ParseError; the next pass asks about the first again
-    checks = [(503, "Service Unavailable"), (500, "Internal Server Error"),
-              (200, soap_answer("X_GetConflictList", "<Result></Result>"))]
+    # the conflict checks, in order: the first programme's answered 503 each of the three times it is sent, the
+    # second's with a page that is not XML, which used to end the pass with a ParseError; the next pass asks about
+    # the first again
+    checks = [(503, "Service Unavailable")] * 3 + [(500, "Internal Server Error"),
+                                                   (200, soap_answer("X_GetConflictList", "<Result></Result>"))]
 
     def answer(action):
         if action == "X_GetConflictList":
@@ -135,6 +138,35 @@ def test_monitor_warns_again_only_after_space_recovers(client):
     assert c.post("/api/v1/monitor/run", headers=H).json()["low_space"] is True
     assert len(c.bridge.notifier.sent) == 2
 
+def test_the_usb_disk_is_warned_about_once_and_another_disk_too(client):
+    c = autorec_client(client)
+    x = c.bridge.recorder.xsrs
+    x.usb = usb_disk(free_mb=10_000)
+
+    def run():
+        return c.post("/api/v1/monitor/run", headers=H).json()
+    first = run()
+    assert first["low_space_usb"] is True and first["usb_free_gb"] == 10.0
+    assert "ＵＳＢ ＨＤＤ１ の残りが 10.0 GB です" in c.bridge.notifier.sent[-1][1]
+    assert "USB HDD 残量警告" in c.bridge.notifier.sent[-1][0]
+    assert run()["low_space_usb"] is False
+    x.usb = usb_disk(name="別のディスク", free_mb=10_000, registered="2026-02-02T03:04:05+0900")
+    assert run()["low_space_usb"] is True
+    x.usb = usb_disk(name="別のディスク", free_mb=500_000, registered="2026-02-02T03:04:05+0900")
+    assert run()["low_space_usb"] is False
+    x.usb = usb_disk(name="別のディスク", free_mb=10_000, registered="2026-02-02T03:04:05+0900")
+    assert run()["low_space_usb"] is True
+
+
+def test_a_disk_not_answered_for_is_not_warned_about(client):
+    c = autorec_client(client)
+    x = c.bridge.recorder.xsrs
+    x.usb = usb_disk(free_mb=100_000)
+    c.post("/api/v1/monitor/run", headers=H)
+    x.usb = None
+    assert c.post("/api/v1/monitor/run", headers=H).json()["usb_free_gb"] is None
+
+
 def test_monitor_free_space_check_can_be_disabled(tmp_path, monkeypatch):
 
     async def _reachable(host, port, timeout=2.0):
@@ -202,3 +234,52 @@ def test_recorder_rule_defaults_and_limits(client):
     assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": ["a"] * 6}).status_code == 422
     assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": ["a"], "excluded": ["x", "y", "z"]}).status_code == 422
     assert client.post("/api/v1/recorder-rules", headers=H, json={"keywords": ["a"], "logic": "XOR"}).status_code == 422
+
+
+def test_deleting_a_condition_the_recorder_no_longer_holds_is_a_404(client):
+    async def not_held(rule_id):
+        raise XsrsError("X_DeletePrefRecSetting", 500, "892")
+    client.bridge.recorder.xsrs.delete_recorder_rule = not_held
+    r = client.delete("/api/v1/recorder-rules/0x1", headers=H)
+    assert r.status_code == 404 and "この条件がありません" in r.json()["detail"]
+
+
+def test_a_condition_goes_to_the_disk_chosen(client):
+    fx = client.bridge.recorder.xsrs
+    body = {"keywords": ["サンプル"], "destination": "USBHDD"}
+    assert client.post("/api/v1/recorder-rules", headers=H, json=body).status_code == 409
+    fx.usb = usb_disk()
+    r = client.post("/api/v1/recorder-rules", headers=H, json=body)
+    assert r.status_code == 201 and r.json()["destination"] == "USBHDD"
+
+
+def test_a_rule_reserves_on_its_disk(client):
+    c = autorec_client(client)
+    fx = c.bridge.recorder.xsrs
+    fx.usb = usb_disk()
+    c.post("/api/v1/rules", headers=H, json={"query": "サンプル", "destination": "USBHDD"})
+    assert c.post("/api/v1/rules/run", headers=H).json()["reserved"] == 2
+    assert all("<recordDestinationID>USBHDD</recordDestinationID>" in x for x in fx.created)
+
+
+def test_a_rule_for_a_disk_not_there_reserves_nothing_and_asks_again(client):
+    c = autorec_client(client)
+    fx = c.bridge.recorder.xsrs
+    rid = c.post("/api/v1/rules", headers=H, json={"query": "サンプル", "destination": "USBHDD"}).json()["id"]
+    first = c.post("/api/v1/rules/run", headers=H).json()
+    assert (first["reserved"], first["errors"]) == (0, 2) and fx.created == []
+    assert "USBHDD はいま使えません" in c.bridge.notifier.sent[-1][1]
+    fx.usb = usb_disk()
+    assert c.post("/api/v1/rules/run", headers=H).json()["reserved"] == 2
+    u = c.patch(f"/api/v1/rules/{rid}", headers=H, json={"destination": "HDD"})
+    assert u.json()["destination"] == "HDD"
+
+
+def test_rules_of_an_earlier_version_gain_the_disk(tmp_path):
+    path = str(tmp_path / "old.sqlite3")
+    db = sqlite3.connect(path)
+    db.executescript("CREATE TABLE rules (id INTEGER PRIMARY KEY AUTOINCREMENT, query TEXT NOT NULL, bt TEXT, service_id INTEGER,"
+                     " title_only INTEGER NOT NULL DEFAULT 1, quality TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, created TEXT NOT NULL);"
+                     " INSERT INTO rules (query, quality, created) VALUES ('残す', 'DR', '2026-01-01T00:00:00');")
+    db.close()
+    assert Store(path).rules()[0]["destination"] == "HDD"

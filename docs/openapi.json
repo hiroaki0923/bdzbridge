@@ -820,7 +820,7 @@
      "reservations"
     ],
     "summary": "Reservation Update",
-    "description": "Change quality or repeat (and, for time-based reservations, title, start and duration).",
+    "description": "Change quality or repeat (and, for time-based reservations, title, start and duration), or move it to another disk. 409 while it records, once it has ended, or when the USB disk cannot be had.",
     "operationId": "reservation_update_api_v1_reservations__reservation_id__patch",
     "security": [
      {
@@ -1138,7 +1138,7 @@
      "rules"
     ],
     "summary": "Rule Update",
-    "description": "Enable or disable a rule, or change its quality or title-only matching.",
+    "description": "Enable or disable a rule, or change its quality, title-only matching or disk.",
     "operationId": "rule_update_api_v1_rules__rule_id__patch",
     "security": [
      {
@@ -1433,6 +1433,7 @@
      "titles"
     ],
     "summary": "Titles",
+    "description": "The recordings of both disks, newest first, from the list kept for five minutes.",
     "operationId": "titles_api_v1_titles_get",
     "security": [
      {
@@ -1478,6 +1479,36 @@
        "title": "Series"
       },
       "description": "only titles with this grouping key (see /titles/groups)"
+     },
+     {
+      "name": "destination",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "only titles on this disk: HDD or USBHDD",
+       "title": "Destination"
+      },
+      "description": "only titles on this disk: HDD or USBHDD"
+     },
+     {
+      "name": "refresh",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "description": "re-read the list from the recorder",
+       "default": false,
+       "title": "Refresh"
+      },
+      "description": "re-read the list from the recorder"
      }
     ],
     "responses": {
@@ -2569,6 +2600,22 @@
       "type": "boolean",
       "title": "Low Space"
      },
+     "usb_free_gb": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Usb Free Gb"
+     },
+     "low_space_usb": {
+      "type": "boolean",
+      "title": "Low Space Usb",
+      "default": false
+     },
      "new_conflicts": {
       "items": {
        "type": "string"
@@ -3220,6 +3267,16 @@
       "description": "ALL, MORNING, AFTERNOON, NIGHT, MIDNIGHT",
       "default": "ALL"
      },
+     "destination": {
+      "type": "string",
+      "enum": [
+       "HDD",
+       "USBHDD"
+      ],
+      "title": "Destination",
+      "description": "the disk the condition records to",
+      "default": "HDD"
+     },
      "broadcasting_scope": {
       "type": "string",
       "maxLength": 16,
@@ -3382,6 +3439,17 @@
        }
       ]
      },
+     "usb": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/UsbDisk"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "the registered disk in the USB slot, when there is one"
+     },
      "reachable": {
       "anyOf": [
        {
@@ -3514,6 +3582,18 @@
        }
       ],
       "title": "Size Mb"
+     },
+     "creator": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Creator",
+      "description": "reservationCreatorID。2200 はアプリ、1100 はレコーダー自身。予約を探し直すときに、同じ作成者かを見る"
      },
      "created_by_app": {
       "type": "boolean",
@@ -3674,6 +3754,16 @@
       "title": "Force",
       "description": "create even if the conflict check reports overlapping reservations",
       "default": false
+     },
+     "destination": {
+      "type": "string",
+      "enum": [
+       "HDD",
+       "USBHDD"
+      ],
+      "title": "Destination",
+      "description": "the disk to record to; 409 when the USB disk cannot be had",
+      "default": "HDD"
      }
     },
     "type": "object",
@@ -3789,6 +3879,22 @@
       ],
       "title": "Duration Sec",
       "description": "time-based reservations only"
+     },
+     "destination": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "HDD",
+         "USBHDD"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Destination",
+      "description": "move it to this disk; left out, it stays on its own"
      }
     },
     "type": "object",
@@ -3861,6 +3967,11 @@
        "EER"
       ],
       "title": "Quality"
+     },
+     "destination": {
+      "type": "string",
+      "title": "Destination",
+      "default": "HDD"
      },
      "enabled": {
       "type": "boolean",
@@ -3946,6 +4057,15 @@
        }
       ],
       "title": "Quality"
+     },
+     "destination": {
+      "type": "string",
+      "enum": [
+       "HDD",
+       "USBHDD"
+      ],
+      "title": "Destination",
+      "default": "HDD"
      }
     },
     "type": "object",
@@ -3998,6 +4118,21 @@
        }
       ],
       "title": "Title Only"
+     },
+     "destination": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "HDD",
+         "USBHDD"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Destination"
      }
     },
     "type": "object",
@@ -4126,6 +4261,12 @@
       "format": "date-time",
       "title": "Earliest"
      },
+     "last_end": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Last End",
+      "description": "when the last of them to end ends: the far side of the span the group covers"
+     },
      "protected_count": {
       "type": "integer",
       "title": "Protected Count"
@@ -4143,6 +4284,7 @@
      "size_mb",
      "latest",
      "earliest",
+     "last_end",
      "protected_count",
      "new_count"
     ],
@@ -4230,6 +4372,53 @@
      "protected"
     ],
     "title": "TitlesProtect"
+   },
+   "UsbDisk": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name",
+      "description": "the recorder's name for the disk, which can be changed on its screen"
+     },
+     "mounted": {
+      "type": "boolean",
+      "title": "Mounted"
+     },
+     "total_bytes": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Total Bytes"
+     },
+     "free_bytes": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Free Bytes"
+     },
+     "answered": {
+      "type": "boolean",
+      "title": "Answered",
+      "description": "False: the disk last known, shown while the recorder has not said it is there"
+     }
+    },
+    "type": "object",
+    "required": [
+     "name",
+     "mounted",
+     "answered"
+    ],
+    "title": "UsbDisk"
    },
    "ValidationError": {
     "properties": {

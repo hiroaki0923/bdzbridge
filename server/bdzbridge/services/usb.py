@@ -1,0 +1,95 @@
+"""The disk in the recorder's USB slot: what the recorder says of it now, and the disk kept between readings."""
+from __future__ import annotations
+
+import asyncio
+import dataclasses
+import json
+import logging
+import time
+
+import httpx
+from fastapi import HTTPException
+
+from ..recorder.xsrs import Disk, XsrsError
+
+log = logging.getLogger("bdzbridge.usb")
+
+KNOWN = "usb_disk"
+# Right after a waking the recorder answers the slot as if nothing were in it, and that answer is the same one an
+# unplugged disk gets. It answered the disk five seconds later when timed; thirty leaves room for a slower disk.
+SETTLE_SECONDS = 30
+# Before anything that needs the disk now: twice the five seconds measured, read every two.
+WAIT_READS = 5
+WAIT_SECONDS = 2
+
+
+def known(bridge) -> Disk | None:
+    text = bridge.store.get_meta(KNOWN)
+    return Disk(**json.loads(text)) if text else None
+
+
+async def read(bridge) -> tuple[Disk | None, bool]:
+    """The disk in the slot, and whether the recorder has just said so; False hands back the disk last known. Silence
+    and a recorder busy with someone else say nothing of the slot. One answer of no disk is not believed while a disk
+    is known: it is forgotten when a reading SETTLE_SECONDS later says the same. A refusal is no disk."""
+    rec, store = bridge.recorder, bridge.store
+    try:
+        async with rec.lock:
+            disk = await rec.xsrs.usb_disk()
+    except XsrsError as e:
+        if e.busy:
+            return known(bridge), False
+        log.debug("the USB slot refused: %s", e)
+        disk = None
+    except httpx.HTTPError as e:
+        log.debug("the USB slot did not answer: %s", e)
+        return known(bridge), False
+    if disk is not None:
+        bridge.usb_none_since = None
+        store.set_meta(KNOWN, json.dumps(dataclasses.asdict(disk), ensure_ascii=False))
+        return disk, True
+    last = known(bridge)
+    if last is None:
+        return None, True
+    now = time.monotonic()
+    if bridge.usb_none_since is None:
+        bridge.usb_none_since = now
+    if now - bridge.usb_none_since < SETTLE_SECONDS:
+        return last, False
+    bridge.usb_none_since = None
+    store.delete_meta(KNOWN)
+    return None, True
+
+
+async def settled(bridge) -> Disk | None:
+    """The disk in the slot, once the recorder has said so, or None: waited for while a known disk has not answered,
+    as anything that needs the disk now must. What it does not answer for within ten seconds is not to be used."""
+    disk, answered = await read(bridge)
+    for _ in range(WAIT_READS):
+        if answered or disk is None:
+            break
+        await asyncio.sleep(WAIT_SECONDS)
+        disk, answered = await read(bridge)
+    return disk if answered else None
+
+
+def why_not_usable(bridge) -> str:
+    """What is said when the USB disk cannot be had, by its name while it is known. The recorder accepts a reservation
+    for a disk that is not there, so that it is there is asked first. The name is the owner's, and a half-width one
+    is set off from the kana."""
+    last = known(bridge)
+    name = last.name if last and last.name else "USBHDD"
+    return f"{name}{' ' if name[-1].isascii() else ''}はいま使えません。別の録画先を選んでください。"
+
+
+async def usable(bridge, destination: str) -> bool:
+    """Whether a recording can be sent to `destination` now."""
+    if destination != "USBHDD":
+        return True
+    disk = await settled(bridge)
+    return disk is not None and disk.takes_recordings
+
+
+async def require(bridge, destination: str) -> None:
+    if not await usable(bridge, destination):
+        raise HTTPException(409, why_not_usable(bridge))

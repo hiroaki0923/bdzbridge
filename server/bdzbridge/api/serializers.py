@@ -8,6 +8,7 @@ from ..recorder import codes
 from ..recorder.client import RecorderClient
 from ..recorder.epg import JST
 from ..recorder.series import series_key
+from ..recorder.xsrs import Disk
 from ..recorder.xsrs import RecordedTitle as XTitle
 from ..recorder.xsrs import RecorderRule as XRecorderRule
 from ..recorder.xsrs import Reservation as XReservation
@@ -52,8 +53,15 @@ def reservation_out(r: XReservation, store: Store | None = None) -> S.Reservatio
                          repeat_label=codes.REPEAT_LABEL.get(repeat, repeat), quality=quality,
                          quality_label=codes.QUALITY_LABEL.get(quality, quality), recording=r.recording,
                          conflict=r.conflict, destination=r.destination, size_mb=r.size_mb,
-                         created_by_app=r.creator == "2200", created_by_recorder=r.creator == "1100",
+                         creator=r.creator, created_by_app=r.creator == "2200", created_by_recorder=r.creator == "1100",
                          genres=genres)
+
+
+def usb_out(disk: Disk | None, answered: bool) -> S.UsbDisk | None:
+    if disk is None:
+        return None
+    return S.UsbDisk(name=disk.name, mounted=disk.mounted, total_bytes=disk.total_bytes, free_bytes=disk.free_bytes,
+                     answered=answered)
 
 
 def title_out(t: XTitle, store: Store | None = None) -> S.RecordedTitle:
@@ -86,7 +94,7 @@ def rule_out(b, r: dict) -> S.Rule:
         ch = [c for c in b.store.channels(r["bt"]) if c["service_id"] == r["service_id"]]
         name = ch[0]["name"] if ch else None
     return S.Rule(id=r["id"], query=r["query"], broadcasting=r["bt"], service_id=r["service_id"], service_name=name,
-                  title_only=bool(r["title_only"]), quality=r["quality"], enabled=bool(r["enabled"]), created=r["created"])
+                  title_only=bool(r["title_only"]), quality=r["quality"], destination=r["destination"], enabled=bool(r["enabled"]), created=r["created"])
 
 def recorder_rule_out(r: XRecorderRule) -> S.RecorderRule:
     def quality(code: int | None) -> str | None:

@@ -11,10 +11,11 @@ from fastapi.testclient import TestClient
 
 from bdzbridge.api.app import create_app
 from bdzbridge.config import Settings
-from bdzbridge.recorder import wol
+from bdzbridge.recorder import wol, xsrs
 from bdzbridge.recorder.epg import JST, Program, Service
 from bdzbridge.recorder.logo import Logo, with_palette
 from bdzbridge.recorder.xsrs import (
+    Disk,
     RecordedTitle,
     RecorderRule,
     Reservation,
@@ -118,13 +119,16 @@ class FakeXsrs:
                               False, False, "HDD", 4300, genre_code=48, resume_sec=0)]
         return [t for t in all_ if t.id not in deleted]
 
-    async def list_titles(self, count=100, start=0):
-        return self._titles()[start:start + count]
-
-    async def list_titles_all(self, page=200):
+    async def list_titles_all(self, page=200, destination=None):
+        if destination == "USBHDD":
+            if error := getattr(self, "usb_titles_error", None):
+                raise error
+            return list(getattr(self, "usb_titles", []))
         return self._titles()
 
     async def title_detail(self, title_id):
+        if error := getattr(self, "detail_errors", {}).get(title_id):
+            raise error
         summaries = getattr(self, "summaries", {})
         return {"summary": summaries.get(title_id, SUMMARY), "details": ["番組内容 本文"]}
 
@@ -164,6 +168,11 @@ class FakeXsrs:
     async def record_destination_info(self, destination="HDD"):
         return {"total_bytes": 4_294_967_296_000, "free_bytes": 8_556_380_160}
 
+    async def usb_disk(self):
+        if error := getattr(self, "usb_error", None):
+            raise error
+        return getattr(self, "usb", None)
+
 
 class FakeRecorder:
     def __init__(self):
@@ -188,6 +197,11 @@ class FakeRecorder:
         pass
 
 
+@pytest.fixture(autouse=True)
+def no_wait_after_a_busy_recorder(monkeypatch):
+    monkeypatch.setattr(xsrs, "BUSY_DELAY", (0, 0))
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
 
@@ -200,6 +214,7 @@ def client(tmp_path, monkeypatch):
     store = Store(settings.db_path)
     store.replace_services("td", make_services())
     bridge = Bridge(settings, FakeRecorder(), store)
+    bridge.clock = lambda: datetime(2026, 9, 14, 4, 30, tzinfo=JST)  # the morning of the guide in make_services
     app = create_app(settings, bridge)
     with TestClient(app) as c:
         c.bridge = bridge
@@ -219,9 +234,12 @@ class FakeNotifier:
         return ["email"]
 
 
+def usb_disk(name="ＵＳＢ ＨＤＤ１", free_mb=500_000, total_mb=2_000_000, registered="2026-01-02T03:04:05+0900", mounted=True):
+    return Disk("USBHDD", name, mounted, free_mb, total_mb, registered)
+
+
 def autorec_client(client):
     client.bridge.notifier = FakeNotifier()
-    client.bridge.clock = lambda: datetime(2026, 9, 14, 4, 30, tzinfo=JST)
     return client
 
 

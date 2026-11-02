@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import httpx
+from fastapi import HTTPException
 
 from ..api import schemas as S
 from ..api.serializers import title_out
@@ -17,25 +18,77 @@ from ..recorder.series import same_title_key, series_key, series_name, summary_k
 from ..recorder.xsrs import RecordedTitle as XTitle
 from ..recorder.xsrs import XsrsError, build_title_update_elements
 from ..store import Store
+from . import usb
 
 if TYPE_CHECKING:
     from ..state import Bridge
 
 log = logging.getLogger("bdzbridge.titles")
 
+USB = "USBHDD"
+DISK_CHANGED = "録画先のディスクが変わったため、この操作は行っていません。一覧を読み直してから、もう一度お試しください"
+RECORDING_ON_USB = "録画中のため保護も削除もできません。番組が終わってから一覧を読み直してください"
+NOT_PLAYED_WHILE_RECORDING = "録画中のため再生できません。番組が終わってから一覧を読み直してください"
+
 
 async def all_titles(bridge, max_age: float = 300) -> list[XTitle]:
+    """Every recording on the internal disk and on a USB disk that takes recordings, newest first. The recorder lists
+    them apart. The internal disk's rows stand whatever becomes of the USB disk's read."""
     rec = bridge.require_recorder()
     if bridge.titles_cache and time.monotonic() - bridge.titles_cache[0] < max_age:
         return bridge.titles_cache[1]
     async with rec.lock:
         items = await rec.xsrs.list_titles_all()
+    items = sorted(items + await _usb_titles(bridge), key=lambda t: t.start, reverse=True)
     bridge.titles_cache = (time.monotonic(), items)
     return items
 
 
+async def _usb_titles(bridge) -> list[XTitle]:
+    """The USB disk's rows, and the disk they were read from noted. When they cannot be read, the rows held stay
+    while that disk is still in the slot: nothing said they had gone, and the next read asks again."""
+    rec, disk = bridge.recorder, await usb.settled(bridge)
+    held = [t for t in bridge.titles_cache[1] if t.destination == USB] if bridge.titles_cache else bridge.usb_titles_held
+    still = disk is not None and bridge.titles_disk is not None and disk.identity == bridge.titles_disk.identity
+    if disk is None or not disk.takes_recordings:
+        bridge.titles_disk = None
+        return []
+    try:
+        async with rec.lock:
+            rows = await rec.xsrs.list_titles_all(destination=USB)
+    except (XsrsError, httpx.HTTPError) as e:
+        log.warning("the USB disk's recordings could not be read: %s", e)
+        return held if still else []
+    bridge.titles_disk = disk
+    return rows
+
+
 def forget_titles(bridge) -> None:
+    if bridge.titles_cache:
+        bridge.usb_titles_held = [t for t in bridge.titles_cache[1] if t.destination == USB]
     bridge.titles_cache = None
+
+
+async def why_not_altering(bridge, t: XTitle) -> str | None:
+    """Why nothing is to be written to a recording now, or None. Only of the USB disk's rows. An id means something
+    only on the disk it was read from, and nothing says a disk was swapped or pulled, so the slot is read before each
+    write. A row still recording is left alone too, as its id changes when it ends."""
+    if t.destination != USB:
+        return None
+    disk = await usb.settled(bridge)
+    if disk is None or not disk.takes_recordings or bridge.titles_disk is None or disk.identity != bridge.titles_disk.identity:
+        forget_titles(bridge)
+        return DISK_CHANGED
+    return RECORDING_ON_USB if t.recording else None
+
+
+async def row_or_refuse(bridge, title_id: str, playing: bool = False) -> XTitle | None:
+    """The row of a recording about to be written to, or a 409 that says why it is not to be. None for an id not in
+    the list, which goes on to the recorder as it always has."""
+    t = next((x for x in await all_titles(bridge) if x.id == title_id), None)
+    if t is not None and (why := await why_not_altering(bridge, t)):
+        raise HTTPException(409, NOT_PLAYED_WHILE_RECORDING if playing and why == RECORDING_ON_USB else why)
+    return t
 
 
 def duplicate_candidates(titles: list[XTitle]) -> list[list[XTitle]]:
@@ -123,29 +176,48 @@ def duplicate_sets(candidates: list[list[XTitle]], summaries: dict[str, str], st
     return sorted(sets, key=lambda s: s["size_mb"], reverse=True)
 
 
+def _summary_key(bridge, t: XTitle) -> str:
+    """What a programme text is kept under. Whether two USB disks use the same ids has not been seen, so a USB row's
+    goes with the disk it was read from."""
+    return f"{bridge.titles_disk.registered}:{t.id}" if t.destination == USB and bridge.titles_disk else t.id
+
+
 async def scan_duplicates(bridge, job: Job) -> None:
     """Group recordings that look like copies of one broadcast (same title and length, then the same programme
     text, which the recorder is asked for one title at a time and cached; the guide tells a text that is the same
-    every time). Result: {"sets": [...]}."""
+    every time). Only a text that was read is kept, an empty one among them: a recording whose read failed is
+    left out of the comparison and counted, and asked for again next time, and one the recorder no longer has
+    (820) leaves the list. Result: {"sets": [...], "unread": n}."""
     rec = bridge.recorder
-    candidates = duplicate_candidates(await all_titles(bridge))
+    bridge.store.clear_blank_summaries_once()
+    titles = [t for t in await all_titles(bridge) if not (t.destination == USB and t.recording)]
+    candidates = duplicate_candidates(titles)
     job.total = sum(len(c) for c in candidates)
     summaries: dict[str, str] = {}
+    gone: set[str] = set()
     for members in candidates:
         for t in members:
-            summ = bridge.store.title_summary(t.id)
+            key = _summary_key(bridge, t)
+            summ = bridge.store.title_summary(key)
             if summ is None:
                 try:
                     async with rec.lock:
                         summ = (await rec.xsrs.title_detail(t.id)).get("summary") or ""
-                except Exception as e:
+                    bridge.store.set_title_summary(key, summ)
+                except (XsrsError, httpx.HTTPError) as e:
                     log.debug("no detail for %s: %s", t.id, e)
-                    summ = ""
-                bridge.store.set_title_summary(t.id, summ)
-            summaries[t.id] = summ
+                    if isinstance(e, XsrsError) and e.code == "820":
+                        gone.add(t.id)
+            if summ is not None:
+                summaries[t.id] = summ
             job.step()
-    fixed = fixed_blurbs(bridge.store.guide_blurbs(), {same_title_key(members[0].title) for members in candidates})
-    job.result["sets"] = duplicate_sets(candidates, summaries, bridge.store, fixed)
+    if gone:
+        forget_titles(bridge)
+    read = [[t for t in members if t.id in summaries] for members in candidates]
+    job.result["unread"] = sum(len(c) for c in candidates) - sum(len(m) for m in read) - len(gone)
+    read = [members for members in read if len(members) > 1]
+    fixed = fixed_blurbs(bridge.store.guide_blurbs(), {same_title_key(members[0].title) for members in read})
+    job.result["sets"] = duplicate_sets(read, summaries, bridge.store, fixed)
 
 
 async def protect_titles(bridge, job: Job, ids: list[str], protected: bool) -> None:
@@ -154,10 +226,15 @@ async def protect_titles(bridge, job: Job, ids: list[str], protected: bool) -> N
     rec = bridge.recorder
     try:
         known = {t.id: t for t in await all_titles(bridge)}
-        for tid in ids:
+        for n, tid in enumerate(ids):
             t = known.get(tid)
+            why = await why_not_altering(bridge, t) if t else None
             if t is None:
                 job.result["skipped"].append({"id": tid, "reason": "not found"})
+            elif why:
+                job.result["skipped"] += [{"id": i, "reason": why} for i in (ids[n:] if why == DISK_CHANGED else [tid])]
+                if why == DISK_CHANGED:
+                    break
             elif t.protected == protected:
                 job.result["skipped"].append({"id": tid, "reason": "unchanged"})
             else:
@@ -174,14 +251,20 @@ async def protect_titles(bridge, job: Job, ids: list[str], protected: bool) -> N
 
 async def delete_titles(bridge, job: Job, ids: list[str]) -> None:
     """Delete recordings one by one (each takes the recorder a few seconds).
-    Result: {"deleted": [ids], "skipped": [{"id", "reason"}]}; protected, in-progress and unknown ids are skipped."""
+    Result: {"deleted": [ids], "skipped": [{"id", "reason"}]}; protected, in-progress and unknown ids are skipped, and
+    the job stops at a USB row whose disk has changed."""
     rec = bridge.recorder
     try:
         known = {t.id: t for t in await all_titles(bridge)}
-        for tid in ids:
+        for n, tid in enumerate(ids):
             t = known.get(tid)
+            why = await why_not_altering(bridge, t) if t else None
             if t is None:
                 job.result["skipped"].append({"id": tid, "reason": "not found"})
+            elif why:
+                job.result["skipped"] += [{"id": i, "reason": why} for i in (ids[n:] if why == DISK_CHANGED else [tid])]
+                if why == DISK_CHANGED:
+                    break
             elif t.protected:
                 job.result["skipped"].append({"id": tid, "reason": "protected"})
             elif t.recording:
@@ -251,17 +334,21 @@ def group_titles(titles: list[XTitle], genre: int | None = None) -> list[S.Title
         if genre is not None and (t.genre_code is None or t.genre_code >> 4 != genre):
             continue
         key = series_key(t.title)
+        end = t.start + timedelta(seconds=t.duration_sec)
         g = groups.get(key)
         if g is None:
-            g = groups[key] = {"names": {}, "count": 0, "size_mb": 0, "latest": t.start, "earliest": t.start, "protected": 0, "new": 0}
+            g = groups[key] = {"names": {}, "count": 0, "size_mb": 0, "latest": t.start, "earliest": t.start,
+                               "last_end": end, "protected": 0, "new": 0}
         name = series_name(t.title)
         g["names"][name] = g["names"].get(name, 0) + 1
         g["count"] += 1
         g["size_mb"] += t.size_mb or 0
         g["latest"], g["earliest"] = max(g["latest"], t.start), min(g["earliest"], t.start)
+        g["last_end"] = max(g["last_end"], end)
         g["protected"] += int(t.protected)
         g["new"] += int(t.is_new)
     out = [S.TitleGroup(key=k, name=max(g["names"], key=g["names"].get), count=g["count"], size_mb=g["size_mb"],
-                        latest=g["latest"], earliest=g["earliest"], protected_count=g["protected"], new_count=g["new"])
+                        latest=g["latest"], earliest=g["earliest"], last_end=g["last_end"],
+                        protected_count=g["protected"], new_count=g["new"])
            for k, g in groups.items()]
     return sorted(out, key=lambda g: g.latest, reverse=True)

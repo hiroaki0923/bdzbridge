@@ -69,9 +69,13 @@ class Reservation(BaseModel):
     conflict: bool
     destination: str
     size_mb: int | None
+    creator: str | None = Field(default=None, description="reservationCreatorID。2200 はアプリ、1100 はレコーダー自身。予約を探し直すときに、同じ作成者かを見る")
     created_by_app: bool
     created_by_recorder: bool = Field(False, description="レコーダー自身が入れた予約（おまかせ録画）。消してもレコーダーが入れ直す")
     genres: list[Genre] = Field(default_factory=list, description="from the EPG cache when the reservation tracks a program that is still in it")
+
+
+Destination = Literal["HDD", "USBHDD"]
 
 
 class ReservationCreate(BaseModel):
@@ -84,6 +88,7 @@ class ReservationCreate(BaseModel):
     quality: Quality | None = None
     repeat: Repeat | None = None
     force: bool = Field(default=False, description="create even if the conflict check reports overlapping reservations")
+    destination: Destination = Field(default="HDD", description="the disk to record to; 409 when the USB disk cannot be had")
 
 
 class ReservationUpdate(BaseModel):
@@ -92,6 +97,7 @@ class ReservationUpdate(BaseModel):
     title: str | None = Field(default=None, description="time-based reservations only")
     start: datetime | None = Field(default=None, description="time-based reservations only")
     duration_sec: int | None = Field(default=None, ge=60, le=24 * 3600, description="time-based reservations only")
+    destination: Destination | None = Field(default=None, description="move it to this disk; left out, it stays on its own")
 
 
 class ConflictReport(BaseModel):
@@ -133,6 +139,7 @@ class TitleGroup(BaseModel):
     size_mb: int
     latest: datetime
     earliest: datetime
+    last_end: datetime = Field(description="when the last of them to end ends: the far side of the span the group covers")
     protected_count: int
     new_count: int
 
@@ -217,6 +224,14 @@ class Storage(BaseModel):
     free_bytes: int
 
 
+class UsbDisk(BaseModel):
+    name: str = Field(description="the recorder's name for the disk, which can be changed on its screen")
+    mounted: bool
+    total_bytes: int | None = None
+    free_bytes: int | None = None
+    answered: bool = Field(description="False: the disk last known, shown while the recorder has not said it is there")
+
+
 class RecorderStatus(BaseModel):
     configured: bool
     host: str | None = None
@@ -229,6 +244,7 @@ class RecorderStatus(BaseModel):
     power: str | None = None
     play: str | None = None
     storage: Storage | None = None
+    usb: UsbDisk | None = Field(default=None, description="the registered disk in the USB slot, when there is one")
     reachable: bool | None = Field(default=None, description="False when the recorder is not answering on the network (try POST /recorder/wake)")
     mac: str | None = None
     epg: dict
@@ -257,12 +273,14 @@ class RuleCreate(BaseModel):
     service_id: int | None = None
     title_only: bool = True
     quality: Quality | None = None
+    destination: Destination = "HDD"
 
 
 class RuleUpdate(BaseModel):
     enabled: bool | None = None
     quality: Quality | None = None
     title_only: bool | None = None
+    destination: Destination | None = None
 
 
 RuleLogic = Literal["OR", "AND"]
@@ -277,6 +295,7 @@ class RecorderRuleCreate(BaseModel):
     genre_level1: int | None = Field(None, ge=0, le=0xF, description="ARIB level-1 genre; alone it means the whole genre")
     genre_level2: int | None = Field(None, ge=0, le=0xF, description="the sub-genre within level1")
     time_scope: str = Field("ALL", max_length=16, description="ALL, MORNING, AFTERNOON, NIGHT, MIDNIGHT")
+    destination: Destination = Field("HDD", description="the disk the condition records to")
     broadcasting_scope: str = Field("ALL", max_length=16, description="ALL, TRD, BSD, CSD, ADVBSD, ADVCSD; an unknown value widens to ALL on the recorder")
     quality: Quality | None = Field(None, description="the server's default when omitted; with ALL it is sent for BS4K/CS4K as well, "
                                                       "which the recorder would otherwise record in DR")
@@ -323,6 +342,7 @@ class Rule(BaseModel):
     service_name: str | None = None
     title_only: bool
     quality: Quality
+    destination: str = "HDD"
     enabled: bool
     created: datetime
 
@@ -354,6 +374,8 @@ class AutoRunResult(BaseModel):
 class MonitorResult(BaseModel):
     free_gb: float | None = None
     low_space: bool
+    usb_free_gb: float | None = None
+    low_space_usb: bool = False
     new_conflicts: list[str]
     notified: list[str]
 

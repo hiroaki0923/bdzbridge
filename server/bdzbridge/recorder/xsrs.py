@@ -5,8 +5,11 @@ No authentication is required on the LAN.
 """
 from __future__ import annotations
 
+import asyncio
 import html
+import random
 import xml.etree.ElementTree as ET
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -37,8 +40,27 @@ _ERROR_TEXT = {
     "820": "レコーダーにこの録画がありません",
     "831": "このチャンネルは受信できないため、番組を選んだ予約ができません。"
            "契約やアンテナの設定を確かめてください",
+    "877": "保護されているため削除できません。先に保護を解除してください",
     "880": "レコーダーが待機状態です。先に電源を入れてください",
+    "892": "レコーダーにこの条件がありません",
 }
+
+
+# A 503 is the recorder busy with another client, the app or a phone among them, and says nothing about this
+# request, so it is sent again: twice, 0.5 to 1 second apart, as the app does (docs/porting.md).
+BUSY_RETRIES = 2
+BUSY_DELAY = (0.5, 1.0)
+
+
+async def past_busy(send: Callable[[], Awaitable[httpx.Response]]) -> httpx.Response:
+    """The answer to a request, sent again while the recorder says it is busy. The caller holds the recorder's lock."""
+    r = await send()
+    for _ in range(BUSY_RETRIES):
+        if r.status_code != 503:
+            break
+        await asyncio.sleep(random.uniform(*BUSY_DELAY))
+        r = await send()
+    return r
 
 
 class XsrsError(Exception):
@@ -140,7 +162,8 @@ def _parse_matching_id(text: str | None) -> int | None:
 
 
 def build_create_elements(*, title: str, start: datetime, duration_sec: int, repeat_code: str, broadcasting_type: int,
-                          service_id: int, quality_code: int, event_id: int | None = None) -> str:
+                          service_id: int, quality_code: int, event_id: int | None = None,
+                          destination: str = "HDD") -> str:
     """The exact <Elements> payload the official app sends to X_CreateRecordSchedule."""
     matching = (f'<desiredMatchingID type="SI_PROGRAMID">{_matching_id(service_id, event_id)}</desiredMatchingID>'
                 if event_id is not None else "")
@@ -154,7 +177,7 @@ def build_create_elements(*, title: str, start: datetime, duration_sec: int, rep
         f"{matching}"
         f"<desiredQualityMode>{quality_code}</desiredQualityMode>"
         "<priorityFlag>0</priorityFlag>"
-        "<recordDestinationID>HDD</recordDestinationID>"
+        f"<recordDestinationID>{destination}</recordDestinationID>"
         '<portableRecordFile target="preselect" transferPath="none"></portableRecordFile>'
         "</item></xsrs>"
     )
@@ -176,6 +199,57 @@ def build_title_update_elements(title_id: str, *, title: str | None = None, prot
 def build_update_elements(reservation_id: str, **kwargs) -> str:
     """Same item as for creation, with the id set. Verified on BDZ-FBT4100: changes quality/repeat in place."""
     return build_create_elements(**kwargs).replace('<item id="">', f'<item id="{reservation_id}">', 1)
+
+
+@dataclass
+class Disk:
+    """One of the disks the recorder records to, as X_GetMediaInfo describes it. The USB slot is one id; the disk
+    behind it can change: unplugged, swapped, or renamed on the recorder's own screen (docs/xsrs-api.md)."""
+    destination: str
+    name: str             # the recorder's name for it, which its owner can change there
+    mounted: bool
+    free_mb: int | None   # in the recorder's MB, 10^6 bytes
+    total_mb: int | None
+    registered: str       # never read as a time, only compared: it tells one registered disk from another
+
+    @property
+    def takes_recordings(self) -> bool:
+        return self.mounted and (self.total_mb or 0) > 0
+
+    @property
+    def free_bytes(self) -> int | None:
+        return self.free_mb * 1_000_000 if self.free_mb is not None and (self.total_mb or 0) > 0 else None
+
+    @property
+    def total_bytes(self) -> int | None:
+        return self.total_mb * 1_000_000 if self.total_mb else None
+
+    @property
+    def identity(self) -> str:
+        """What tells this disk from another in the same slot. A renamed disk counts as another, the safe way."""
+        return f"{self.destination}\n{self.registered}\n{self.name}"
+
+
+def parse_disk(result: str, destination: str) -> Disk | None:
+    """The disk in an X_GetMediaInfo result, read by name wherever it stands so that another model's wrapping reads
+    too. None for an empty answer, one that is not XML, and one without <mount>, none of which describes a disk."""
+    try:
+        root = ET.fromstring(result)
+    except ET.ParseError:
+        return None
+
+    def value(tag: str) -> str | None:
+        el = next((e for e in root.iter() if e.tag.split("}")[-1] == tag), None)
+        return (el.text or "").strip() if el is not None else None
+
+    def number(tag: str) -> int | None:
+        text = value(tag)
+        return int(text) if text and text.isdigit() else None
+
+    if (mount := value("mount")) is None:
+        return None
+    return Disk(destination, value("name") or "", mount == "1", number("remain"), number("total"),
+                value("registeredTime") or "")
 
 
 def _soap_body(stype: str, action: str, args: list[tuple[str, object]]) -> bytes:
@@ -378,7 +452,8 @@ class XsrsClient:
 
     async def _call(self, ctrl: str, stype: str, action: str, args: list[tuple[str, object]]) -> ET.Element:
         headers = dict(_CLIENT_HEADERS, SOAPACTION=f'"{stype}#{action}"')
-        r = await self.http.post(self.base + ctrl, content=_soap_body(stype, action, args), headers=headers, timeout=30)
+        body = _soap_body(stype, action, args)
+        r = await past_busy(lambda: self.http.post(self.base + ctrl, content=body, headers=headers, timeout=30))
         try:
             root = ET.fromstring(r.text)
         except ET.ParseError:
@@ -421,26 +496,21 @@ class XsrsClient:
         await self._call("/XSRS", XSRS_TYPE, "X_DeleteRecordSchedule", [("RecordScheduleID", reservation_id)])
 
     # --- recorded titles ---
-    async def list_titles(self, count: int = 100, start: int = 0) -> list[RecordedTitle]:
-        items, _ = await self._result_items("/XSRS", XSRS_TYPE, "X_GetTitleList",
-                                            [("SearchCriteria", _DESTINATION_HDD), ("StartingIndex", start),
-                                             ("RequestedCount", count), ("SortCriteria", "-scheduledStartDateTime"),
-                                             ("Filter", "*")])
-        return [parse_title(i) for i in items]
-
-    async def list_titles_all(self, page: int = 200) -> list[RecordedTitle]:
-        """Every recorded title, newest first (one call returns at most 200)."""
+    async def list_titles_all(self, page: int = 200, destination: str | None = None) -> list[RecordedTitle]:
+        """Every recorded title on the internal disk, newest first (one call returns at most 200), or on the disk
+        named. A criterion the recorder cannot read is taken as all of them, so what comes back is filtered again."""
+        criteria = f'recordDestinationID="{destination}"' if destination else _DESTINATION_HDD
         out: list[RecordedTitle] = []
         start = 0
         while True:
             items, root = await self._result_items("/XSRS", XSRS_TYPE, "X_GetTitleList",
-                                                   [("SearchCriteria", _DESTINATION_HDD), ("StartingIndex", start),
+                                                   [("SearchCriteria", criteria), ("StartingIndex", start),
                                                     ("RequestedCount", page), ("SortCriteria", "-scheduledStartDateTime"),
                                                     ("Filter", "*")])
             out += [parse_title(i) for i in items]
             start += len(items)
             if not items or start >= int(_find_text(root, "TotalMatches") or 0):
-                return out
+                return [t for t in out if t.destination == destination] if destination else out
 
     # --- PvrControl ---
     async def _pvr(self, action: str, args: list[tuple[str, object]]) -> str:
@@ -527,6 +597,12 @@ class XsrsClient:
                                 [("RecordDestinationID", destination)])
         info = ET.fromstring(_find_text(root, "RecordDestinationInfo") or "<RecordDestinationInfo/>")
         return {"total_bytes": int(info.get("totalCapacity", 0)), "free_bytes": int(info.get("availableCapacity", 0))}
+
+    async def usb_disk(self) -> Disk | None:
+        """The registered disk in the USB slot, or None. X_GetMediaInfo alone says this: the two destination calls
+        answer for the internal disk whatever they are given. A disk with no registered time is no disk here."""
+        disk = parse_disk(await self._pvr("X_GetMediaInfo", [("recordDestinationID", "USBHDD")]), "USBHDD")
+        return disk if disk and disk.registered else None
 
     async def send_key(self, key: str) -> None:
         await self._call("/X_PvrControl", PVR_TYPE, "X_InputRemoteKey", [("RemoteKey", key)])

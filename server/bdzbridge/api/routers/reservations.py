@@ -1,17 +1,19 @@
 """Reservations on the recorder."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ...recorder import codes
 from ...recorder.epg import JST
 from ...recorder.xsrs import (
+    Reservation,
     XsrsError,
     build_create_elements,
     build_update_elements,
 )
+from ...services import usb
 from ...state import Bridge
 from .. import schemas as S
 from ..deps import auth, bridge_of
@@ -36,6 +38,13 @@ def _check_weekday(repeat: str, start: datetime) -> None:
                                  f"({codes.WEEKDAY_REPEAT[start.astimezone(JST).weekday()]})")
 
 
+def _why_not_changing(r: Reservation, now: datetime) -> str | None:
+    """Why a reservation cannot be changed now, as the app says it (`RecorderDriver.whyNot(changing:)`)."""
+    if r.recording:
+        return "録画中の予約は変更できません。"
+    return "放送が終わった予約は変更できません。" if r.start + timedelta(seconds=r.duration_sec) <= now else None
+
+
 def _elements(b: Bridge, req: S.ReservationCreate) -> tuple[str, str]:
     start, duration, title = req.start, req.duration_sec, req.title
     if req.event_id is not None:
@@ -55,7 +64,8 @@ def _elements(b: Bridge, req: S.ReservationCreate) -> tuple[str, str]:
     _check_weekday(repeat, start)
     el = build_create_elements(title=title or "録画", start=start, duration_sec=duration,
                                repeat_code=codes.REPEAT[repeat], broadcasting_type=codes.BROADCASTING[req.broadcasting],
-                               service_id=req.service_id, quality_code=codes.QUALITY[quality], event_id=req.event_id)
+                               service_id=req.service_id, quality_code=codes.QUALITY[quality], event_id=req.event_id,
+                               destination=req.destination)
     return el, title or "録画"
 
 @router.post("/reservations/check", response_model=S.ConflictReport)
@@ -64,6 +74,7 @@ async def reservation_check(request: Request, req: S.ReservationCreate):
     b = bridge_of(request)
     rec = b.require_recorder()
     el, _ = _elements(b, req)
+    await usb.require(b, req.destination)
     try:
         async with rec.lock:
             conflicts = await rec.xsrs.conflicts(el)
@@ -77,6 +88,7 @@ async def reservation_create(request: Request, req: S.ReservationCreate):
     b = bridge_of(request)
     rec = b.require_recorder()
     el, _ = _elements(b, req)
+    await usb.require(b, req.destination)
     try:
         async with rec.lock:
             conflicts = await rec.xsrs.conflicts(el)
@@ -95,25 +107,30 @@ async def reservation_create(request: Request, req: S.ReservationCreate):
 
 @router.patch("/reservations/{reservation_id}", response_model=S.Reservation)
 async def reservation_update(request: Request, reservation_id: str, req: S.ReservationUpdate):
-    """Change quality or repeat (and, for time-based reservations, title, start and duration)."""
+    """Change quality or repeat (and, for time-based reservations, title, start and duration), or move it to another disk. 409 while it records, once it has ended, or when the USB disk cannot be had."""
     b = bridge_of(request)
     rec = b.require_recorder()
     try:
         async with rec.lock:
             current = next((r for r in await rec.xsrs.list_reservations() if r.id == reservation_id), None)
-            if current is None:
-                raise HTTPException(404, "reservation not found")
-            quality = req.quality or codes.QUALITY_BY_CODE.get(current.quality_code, b.settings.default_quality)
-            repeat = req.repeat or codes.REPEAT_BY_CODE.get(current.repeat_code, "none")
-            start = req.start or current.start
-            if start.tzinfo is None:
-                start = start.replace(tzinfo=JST)
-            _check_weekday(repeat, start)
-            el = build_update_elements(reservation_id, title=req.title or current.title, start=start,
-                                       duration_sec=req.duration_sec or current.duration_sec,
-                                       repeat_code=codes.REPEAT[repeat], broadcasting_type=current.broadcasting_type,
-                                       service_id=current.service_id, quality_code=codes.QUALITY_CODE[quality],
-                                       event_id=current.event_id)
+        if current is None:
+            raise HTTPException(404, "reservation not found")
+        if why := _why_not_changing(current, b.clock()):
+            raise HTTPException(409, why)
+        destination = req.destination or current.destination
+        await usb.require(b, destination)
+        quality = req.quality or codes.QUALITY_BY_CODE.get(current.quality_code, b.settings.default_quality)
+        repeat = req.repeat or codes.REPEAT_BY_CODE.get(current.repeat_code, "none")
+        start = req.start or current.start
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=JST)
+        _check_weekday(repeat, start)
+        el = build_update_elements(reservation_id, title=req.title or current.title, start=start,
+                                   duration_sec=req.duration_sec or current.duration_sec,
+                                   repeat_code=codes.REPEAT[repeat], broadcasting_type=current.broadcasting_type,
+                                   service_id=current.service_id, quality_code=codes.QUALITY_CODE[quality],
+                                   event_id=current.event_id, destination=destination)
+        async with rec.lock:
             await rec.xsrs.update_reservation(el)
             updated = next((r for r in await rec.xsrs.list_reservations() if r.id == reservation_id), None)
     except XsrsError as e:

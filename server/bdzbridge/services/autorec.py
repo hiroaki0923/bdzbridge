@@ -14,6 +14,7 @@ from ..recorder import codes
 from ..recorder.epg import JST
 from ..recorder.xsrs import XsrsError, build_create_elements
 from ..store import ProgramRow
+from . import usb
 
 log = logging.getLogger("bdzbridge.autorec")
 
@@ -35,16 +36,24 @@ async def run_rules(bridge, now: datetime | None = None) -> dict:
     reserved = {(codes.BROADCASTING_BY_CODE.get(r.broadcasting_type), r.service_id, r.event_id)
                 for r in existing if r.event_id is not None}
     lines: dict[str, list[str]] = {"reserved": [], "conflict": [], "error": []}
+    usb_usable: bool | None = None  # asked once a pass, of the first rule that needs the USB disk
     for rule in rules:
         for p in store.rule_matches(rule, since=now + timedelta(minutes=1)):
             key = (p.bt, p.service_id, p.event_id)
             result["checked"] += 1
             if key in reserved or store.auto_logged(rule["id"], *key):
                 continue
+            if rule["destination"] == "USBHDD":
+                if usb_usable is None:
+                    usb_usable = await usb.usable(bridge, "USBHDD")
+                if not usb_usable:  # not logged, so that the next pass asks again
+                    result["errors"] += 1
+                    lines["error"].append(_line(p, usb.why_not_usable(bridge)))
+                    continue
             el = build_create_elements(title=p.title, start=p.start, duration_sec=int((p.end - p.start).total_seconds()),
                                        repeat_code=codes.REPEAT["none"], broadcasting_type=codes.BROADCASTING[p.bt],
                                        service_id=p.service_id, quality_code=codes.QUALITY[rule["quality"]],
-                                       event_id=p.event_id)
+                                       event_id=p.event_id, destination=rule["destination"])
             try:
                 async with rec.lock:
                     conflicts = await rec.xsrs.conflicts(el)

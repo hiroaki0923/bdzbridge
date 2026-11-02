@@ -16,7 +16,7 @@ import httpx
 from . import codes
 from .epg import Service, decode_epg_file
 from .logo import Logo, decode_logo_file
-from .xsrs import XsrsClient
+from .xsrs import XsrsClient, past_busy
 
 log = logging.getLogger("bdzbridge.recorder")
 DEFAULT_STREAM_PORT = 60151
@@ -57,7 +57,7 @@ class RecorderClient:
 
     async def discover(self) -> RecorderInfo:
         async with self.lock:
-            r = await self.http.get(f"http://{self.host}:{self.upnp_port}/description.xml")
+            r = await past_busy(lambda: self.http.get(f"http://{self.host}:{self.upnp_port}/description.xml"))
             r.raise_for_status()
         root = ET.fromstring(r.text)
 
@@ -100,7 +100,7 @@ class RecorderClient:
             return None
         url = f"http://{self.host}:{self.stream_port}//{codes.EPG_FILES[broadcasting]}"
         async with self.lock:
-            r = await self.http.get(url)
+            r = await past_busy(lambda: self.http.get(url))
         if r.status_code == 416:
             return None
         r.raise_for_status()
@@ -112,7 +112,7 @@ class RecorderClient:
             return None
         url = f"http://{self.host}:{self.stream_port}//{codes.LOGO_FILES[broadcasting]}"
         async with self.lock:
-            r = await self.http.get(url)
+            r = await past_busy(lambda: self.http.get(url))
         if r.status_code in (404, 416):
             return None
         r.raise_for_status()
@@ -128,5 +128,5 @@ class RecorderClient:
     async def fetch_logo_file(self, broadcasting: str) -> bytes | None:
         url = f"http://{self.host}:{self.stream_port}//{codes.LOGO_FILES[broadcasting]}"
         async with self.lock:
-            r = await self.http.get(url)
+            r = await past_busy(lambda: self.http.get(url))
         return r.content if r.status_code == 200 else None

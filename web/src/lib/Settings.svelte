@@ -11,6 +11,7 @@
   let notify = $state(null)
   $effect(() => { api('/notify').then((n) => (notify = n)).catch(() => (notify = null)) })
   const epg = $derived(app.status?.epg ?? {})
+  const usb = $derived(app.status?.usb)
   const names = { td: '地デジ', bs: 'BS', cs: 'CS', bs4k: 'BS4K', cs4k: 'CS4K' }
 </script>
 
@@ -19,10 +20,11 @@
   <div class="title">{app.status?.friendly_name ?? '—'}</div>
   <div class="muted">{app.status?.product} · {app.status?.host} · ファーム {app.status?.firmware ?? '?'} · 電源 {app.status?.power ?? '?'}</div>
   {#if app.status?.storage}<div class="muted">HDD 残り {fmtBytes(app.status.storage.free_bytes)} / {fmtBytes(app.status.storage.total_bytes)}（{(100 * app.status.storage.free_bytes / app.status.storage.total_bytes).toFixed(1)}%）</div>{/if}
+  {#if usb}<div class="muted">{usb.name || 'USB HDD'}{#if usb.free_bytes != null} 残り {fmtBytes(usb.free_bytes)} / {fmtBytes(usb.total_bytes)}（{(100 * usb.free_bytes / usb.total_bytes).toFixed(1)}%）{/if}{#if !usb.mounted} つながっていません{:else if !usb.answered} 確認中{/if}</div>{/if}
   <div class="muted" style="margin-top:6px">
     {#if app.status?.epg_capable === false}<span class="error">この機種は番組表を提供していません（EPG_CAP 00）。</span><br />{/if}
     {#each Object.entries(epg) as [k, v]}{#if typeof v === 'object' && v}{names[k] ?? k}: {v.channels}局/{v.programs}番組{v.refreshed ? '（' + v.refreshed.slice(5, 16).replace('T', ' ') + '）' : ''}<br />{/if}{/each}
-    {#if epg.last_error}<span class="error">取得エラー: {epg.last_error}</span>{/if}
+    {#if epg.last_error}<span class="muted">{epg.last_error}</span>{/if}
   </div>
   <button class="btn ghost" disabled={busy} onclick={() => run('番組表を更新しました', () => api('/epg/refresh', { method: 'POST' }))}>番組表を今すぐ更新</button>
   {#if app.status?.reachable === false}
