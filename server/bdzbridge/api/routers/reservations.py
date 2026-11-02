@@ -113,7 +113,7 @@ async def reservation_update(request: Request, reservation_id: str, req: S.Reser
                                        duration_sec=req.duration_sec or current.duration_sec,
                                        repeat_code=codes.REPEAT[repeat], broadcasting_type=current.broadcasting_type,
                                        service_id=current.service_id, quality_code=codes.QUALITY_CODE[quality],
-                                       event_id=current.event_id)
+                                       event_id=current.event_id, destination=current.destination)
             await rec.xsrs.update_reservation(el)
             updated = next((r for r in await rec.xsrs.list_reservations() if r.id == reservation_id), None)
     except XsrsError as e:

@@ -140,7 +140,8 @@ def _parse_matching_id(text: str | None) -> int | None:
 
 
 def build_create_elements(*, title: str, start: datetime, duration_sec: int, repeat_code: str, broadcasting_type: int,
-                          service_id: int, quality_code: int, event_id: int | None = None) -> str:
+                          service_id: int, quality_code: int, event_id: int | None = None,
+                          destination: str = "HDD") -> str:
     """The exact <Elements> payload the official app sends to X_CreateRecordSchedule."""
     matching = (f'<desiredMatchingID type="SI_PROGRAMID">{_matching_id(service_id, event_id)}</desiredMatchingID>'
                 if event_id is not None else "")
@@ -154,7 +155,7 @@ def build_create_elements(*, title: str, start: datetime, duration_sec: int, rep
         f"{matching}"
         f"<desiredQualityMode>{quality_code}</desiredQualityMode>"
         "<priorityFlag>0</priorityFlag>"
-        "<recordDestinationID>HDD</recordDestinationID>"
+        f"<recordDestinationID>{destination}</recordDestinationID>"
         '<portableRecordFile target="preselect" transferPath="none"></portableRecordFile>'
         "</item></xsrs>"
     )

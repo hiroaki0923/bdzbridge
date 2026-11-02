@@ -46,6 +46,16 @@ def test_reservation_update(client):
     assert f'<item id="{r["id"]}">' in xml and "<desiredQualityMode>250</desiredQualityMode>" in xml and ",,0x400,0x39c8" in xml
     assert client.patch("/api/v1/reservations/0xnope", headers=H, json={"quality": "LR"}).status_code == 404
 
+def test_a_change_keeps_the_reservation_on_its_disk(client):
+    r = client.post("/api/v1/reservations", headers=H, json={"broadcasting": "td", "service_id": 1024, "event_id": 14792}).json()["reservation"]
+    fx = client.bridge.recorder.xsrs
+    fx.reservations[0].destination = "USBHDD"
+    u = client.patch(f"/api/v1/reservations/{r['id']}", headers=H, json={"quality": "LR"})
+    assert u.status_code == 200, u.text
+    assert u.json()["destination"] == "USBHDD"
+    assert "<recordDestinationID>USBHDD</recordDestinationID>" in fx.created[-1]
+
+
 def test_reservations_carry_program_genres(client):
     client.post("/api/v1/epg/refresh", headers=H)
     r = client.post("/api/v1/reservations", headers=H,
