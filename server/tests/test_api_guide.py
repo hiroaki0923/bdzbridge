@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import base64
 
+import httpx
+
+from bdzbridge.recorder import codes
+from bdzbridge.services import epg
 from tests.conftest import (
     H,
 )
@@ -63,3 +67,27 @@ def test_channel_prefs_partial_order_keeps_the_rest_behind(client):
     assert [c["service_id"] for c in r] == [1025, 1024]
     # a broadcasting type without channels accepts preferences without complaint
     assert client.put("/api/v1/channels/cs/prefs", headers=H, json={"hidden": [1]}).json() == []
+
+
+def test_a_guide_file_not_made_yet_is_said_once(client):
+    asked = []
+
+    async def not_made(bt):
+        asked.append(bt)
+        request = httpx.Request("GET", "http://192.0.2.10/EPG.dat")
+        raise httpx.HTTPStatusError("500", request=request, response=httpx.Response(500, request=request))
+    client.bridge.recorder.fetch_epg = not_made
+    client.post("/api/v1/epg/refresh", headers=H)
+    assert len(asked) == len(codes.EPG_FILES)
+    assert client.bridge.last_error == epg.FILE_NOT_MADE
+
+
+def test_a_recorder_gone_partway_ends_the_refresh(client):
+    asked = []
+
+    async def gone(bt):
+        asked.append(bt)
+        raise httpx.ConnectTimeout("no answer")
+    client.bridge.recorder.fetch_epg = gone
+    client.post("/api/v1/epg/refresh", headers=H)
+    assert len(asked) == 1

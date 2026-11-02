@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+import httpx
 from fastapi import HTTPException
 
 from ..recorder import codes
@@ -14,6 +15,9 @@ from .monitor import run_checks
 log = logging.getLogger("bdzbridge.epg")
 
 NO_ANSWER = "the recorder does not answer, even after Wake-on-LAN"
+# A guide file answered with an HTTP error is not a fault: the recorder has not made it yet, after a restart or a
+# night off the network, and it comes back within hours (docs/epg-format.md). The same for every type, so said once.
+FILE_NOT_MADE = "レコーダーの番組表ファイルがまだできていません。ふつうは数時間から一晩で作り直され、取得できるようになります。"
 
 
 async def _awake(bridge) -> bool:
@@ -43,7 +47,17 @@ async def refresh_epg(bridge) -> dict:
         for bt in codes.EPG_FILES:
             try:
                 services = await recorder.fetch_epg(bt)
-            except Exception as e:  # keep serving the cache
+            except httpx.HTTPStatusError as e:  # keep serving the cache
+                log.warning("EPG %s fetch failed: %s", bt, e)
+                errors.append(FILE_NOT_MADE)
+                result[bt] = {"error": FILE_NOT_MADE}
+                continue
+            except httpx.TransportError as e:  # the recorder has gone: the next type would only wait for it too
+                log.warning("EPG %s fetch got no answer: %s", bt, e)
+                errors.append(f"{bt}: {e}")
+                result[bt] = {"error": str(e)}
+                break
+            except Exception as e:
                 log.warning("EPG %s fetch failed: %s", bt, e)
                 errors.append(f"{bt}: {e}")
                 result[bt] = {"error": str(e)}
@@ -61,7 +75,7 @@ async def refresh_epg(bridge) -> dict:
             if logos is not None:
                 await asyncio.to_thread(bridge.store.replace_logos, bt, logos)
                 result[bt]["logos"] = len(logos)
-        bridge.last_error = "; ".join(errors) or None
+        bridge.last_error = "; ".join(dict.fromkeys(errors)) or None
     if any("programs" in v and v["programs"] for v in result.values()):
         try:
             bridge.last_autorec = await run_rules(bridge, bridge.clock())
