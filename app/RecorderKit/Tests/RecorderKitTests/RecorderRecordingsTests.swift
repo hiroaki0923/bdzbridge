@@ -2148,8 +2148,9 @@ final class RecorderRecordingsTests: XCTestCase {
             expectTrue(await beside.check.value)
             refreshed = await beside.refresh.value
             XCTAssertTrue(refreshed.wentThrough, "\(order): \(refreshed.said ?? "nothing said")")
+            // BS4K, never given while 地上デジタル has been, is taken for a type the recorder does not have.
             XCTAssertEqual(refreshed.answered, ["td"])
-            XCTAssertEqual(refreshed.failed.map(\.broadcasting), ["bs", "cs", "bs4k"])
+            XCTAssertEqual(refreshed.failed.map(\.broadcasting), ["bs", "cs"])
             expectEqual(await beside.recorder.files,
                         first + ["EPG_BSEPG_FILE.dat", "EPG_CSEPG_FILE.dat", "EPG_ADVBSDEPG_FILE.dat"],
                         "the refresh was meant to go on through every file once the recorder said which it is: \(order)")

@@ -84,6 +84,72 @@ final class GuideRefreshTests: XCTestCase {
         XCTAssertNil(counts["bs4k"]?.refreshed)
     }
 
+    /// A recorder without 4K tuners answers 500 for BS4K for good, and what it has given is all that tells that
+    /// from a file not built yet. The type is said of nowhere, not offered, and not asked for again before the
+    /// rebuild. It is not among what answered: a 500 is no answer, and with every file refused nothing has.
+    func testA4KFileThatNeverCameIsNoFailureOnceAnotherTypeHasComeIn() async throws {
+        let (client, _) = try recorder(serving: ["td", "bs", "cs"]) { _ in HTTPResponse(statusCode: 500) }
+        let store = try GuideStore(path: ":memory:")
+
+        let outcome = await GuideRefresh.run(client: client, store: store)
+
+        XCTAssertEqual(outcome.failed, [])
+        XCTAssertEqual(outcome.answered, ["td", "bs", "cs"])
+        let counts = try await store.counts()
+        XCTAssertEqual(GuideRefresh.staleTypes(counts), [])
+        XCTAssertEqual(GuideRefresh.offeredTypes(counts), ["td", "bs", "cs"])
+    }
+
+    /// Given once, the type is the recorder's, and its file gone missing is said as any other's is.
+    func testA4KFileMissingIsSaidOnceTheTypeHasBeenRead() async throws {
+        let store = try GuideStore(path: ":memory:")
+        let (every, _) = try recorder(serving: Set(GuideRefresh.broadcastingTypes)) { _ in
+            HTTPResponse(statusCode: 500)
+        }
+        _ = await GuideRefresh.run(client: every, store: store)
+        let (rest, _) = try recorder(serving: ["td", "bs", "cs"]) { _ in HTTPResponse(statusCode: 500) }
+
+        let outcome = await GuideRefresh.run(client: rest, store: store)
+
+        XCTAssertEqual(outcome.failed.map(\.broadcasting), ["bs4k"])
+        let counts = try await store.counts()
+        XCTAssertEqual(GuideRefresh.offeredTypes(counts), GuideRefresh.broadcastingTypes)
+    }
+
+    /// With nothing read yet nothing says what kind of recorder this is, and every file not built is said.
+    func testEveryFileMissingOnAnEmptyCacheIsSaid() async throws {
+        let (client, _) = try recorder(serving: []) { _ in HTTPResponse(statusCode: 500) }
+        let store = try GuideStore(path: ":memory:")
+
+        let outcome = await GuideRefresh.run(client: client, store: store)
+
+        XCTAssertEqual(outcome.failed.map(\.broadcasting), GuideRefresh.broadcastingTypes)
+        XCTAssertEqual(outcome.answered, [])
+    }
+
+    /// Only a file not built is taken so. A 4K file that came and could not be read is said.
+    func testA4KFileThatCannotBeReadIsSaid() async throws {
+        let (client, _) = try recorder(serving: ["td"]) { url in
+            url.hasSuffix(Codes.epgFiles["bs4k"]!) ? HTTPResponse(statusCode: 200, body: Data([1, 2, 3]))
+                                                   : HTTPResponse(statusCode: 416)
+        }
+        let store = try GuideStore(path: ":memory:")
+
+        let outcome = await GuideRefresh.run(client: client, store: store)
+
+        XCTAssertEqual(outcome.failed.map(\.broadcasting), ["bs4k"])
+    }
+
+    /// The types on offer: the three every recorder has, and BS4K once a channel of it is in the cache.
+    func testA4KTypeIsOfferedOnceAChannelOfItIsHeld() {
+        func held(_ channels: [String: Int]) -> [String: GuideCounts] {
+            channels.mapValues { GuideCounts(channels: $0, programs: 0, refreshed: nil, checked: nil) }
+        }
+        XCTAssertEqual(GuideRefresh.offeredTypes([:]), ["td", "bs", "cs"])
+        XCTAssertEqual(GuideRefresh.offeredTypes(held(["td": 0, "bs4k": 0])), ["td", "bs", "cs"])
+        XCTAssertEqual(GuideRefresh.offeredTypes(held(["bs4k": 12])), GuideRefresh.broadcastingTypes)
+    }
+
     /// Only the types asked for are fetched.
     func testOnlyTheTypesAskedForAreFetched() async throws {
         let (client, transport) = try recorder(serving: ["td", "bs"]) { _ in HTTPResponse(statusCode: 416) }

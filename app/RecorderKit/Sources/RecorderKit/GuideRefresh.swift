@@ -5,6 +5,14 @@ import Foundation
 public enum GuideRefresh {
     /// The types the app keeps. `Codes` knows CS4K as well, which the app does not fetch.
     public static let broadcastingTypes = ["td", "bs", "cs", "bs4k"]
+    /// The types a recorder without 4K tuners has no guide for.
+    static let fourKTypes: Set<String> = ["bs4k", "cs4k"]
+
+    /// The types to offer the reader: a 4K type once a channel of it is in the cache, and the rest always, as
+    /// every recorder has them.
+    public static func offeredTypes(_ counts: [String: GuideCounts]) -> [String] {
+        broadcastingTypes.filter { !fourKTypes.contains($0) || (counts[$0]?.channels ?? 0) > 0 }
+    }
 
     public struct Outcome: Sendable, Equatable {
         /// How many programmes were stored, over every type.
@@ -181,7 +189,7 @@ public enum GuideRefresh {
                 break
             }
             do {
-                guard let services = try await client.guide(broadcasting) else {
+                guard let services = try await guide(broadcasting, of: client, knownTo: store) else {
                     try await store.noteNoGuide(broadcasting: broadcasting, from: recorder)
                     outcome.answered.append(broadcasting)
                     continue
@@ -214,6 +222,9 @@ public enum GuideRefresh {
                     // The logos are only looks, and the programmes are in: the type keeps the logos it had.
                 }
                 await onStored?(broadcasting)
+            } catch is TypeNotOnThisRecorder {
+                // Noted, as it would be asked for at every connect otherwise, and neither answered for nor failed.
+                try? await store.noteNoGuide(broadcasting: broadcasting, from: recorder)
             } catch let error as any DeviceError where error.failure == .silent {
                 outcome.stopped = .silent
                 break
@@ -229,6 +240,25 @@ public enum GuideRefresh {
             }
         }
         return outcome
+    }
+
+    /// A 4K type taken to be one the recorder does not have (`guide(_:of:knownTo:)`).
+    private struct TypeNotOnThisRecorder: Error {}
+
+    /// A type's guide, or nil where the recorder has none to give. A recorder without 4K tuners answers for those
+    /// files for good as one with them does for a file it has not built yet (`docs/epg-format.md`), and no status
+    /// tells the two apart. What does is what it has given: a 4K type it has never given a channel of, while it
+    /// has given others, is taken to be one it does not have, and is read at a later refresh if it does.
+    private static func guide(_ broadcasting: String, of client: some GuideSource,
+                              knownTo store: GuideStore) async throws -> [GuideService]? {
+        do {
+            return try await client.guide(broadcasting)
+        } catch RecorderError.guideFileMissing(let name, let status) {
+            guard fourKTypes.contains(broadcasting), let counts = try? await store.counts(),
+                  counts[broadcasting]?.channels == 0, counts.values.contains(where: { $0.channels > 0 })
+            else { throw RecorderError.guideFileMissing(name: name, status: status) }
+            throw TypeNotOnThisRecorder()
+        }
     }
 
     /// When the recorder last built its guide files again, which it does in the small hours: the most recent

@@ -87,7 +87,7 @@ struct ChannelsScreen: View {
 
     private var typePicker: some View {
         Picker("放送", selection: $broadcasting) {
-            ForEach(GuideRefresh.broadcastingTypes, id: \.self) { type in
+            ForEach(GuideRefresh.offeredTypes(model.counts), id: \.self) { type in
                 Text(GuideScreen.shortLabel[type] ?? type).tag(type)
             }
         }

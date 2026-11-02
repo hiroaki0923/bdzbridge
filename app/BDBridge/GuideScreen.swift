@@ -54,7 +54,7 @@ struct GuideScreen: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
                         Picker("放送", selection: broadcastingChoice) {
-                            ForEach(["td", "bs", "cs", "bs4k"], id: \.self) { broadcasting in
+                            ForEach(GuideRefresh.offeredTypes(model.counts), id: \.self) { broadcasting in
                                 Text(Codes.broadcastingLabel[broadcasting] ?? broadcasting).tag(broadcasting)
                             }
                         }

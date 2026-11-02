@@ -114,6 +114,8 @@ extension AppModel {
         defer { guideReads -= 1 }
         do {
             counts = try await store.counts()
+            // A 4K type left chosen, on a cache that has none of it: nothing would offer the way back.
+            if !GuideRefresh.offeredTypes(counts).contains(broadcasting) { broadcasting = "td" }
             channels = try await store.channels(broadcasting: broadcasting)
             // The channel the list is narrowed to has to be one the guide shows. Hidden, it stayed chosen, and
             // the list stayed empty with nothing to say why: the menu that would undo it no longer named it.

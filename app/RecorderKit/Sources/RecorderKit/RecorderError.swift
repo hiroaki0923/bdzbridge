@@ -12,7 +12,8 @@ public enum RecorderError: Error, Equatable, Sendable {
     case unexpectedAnswer(action: String)
     /// The recorder answered, but not with the guide file asked for. A BDZ-FBT4100 answers 500 here while
     /// it has no file to give: after the box is restarted or its channels are re-scanned, the files are
-    /// gone until it builds them again, which it does in the small hours.
+    /// gone until it builds them again, which it does in the small hours. A BDZ-ZW1500, which has no 4K tuners,
+    /// answers the same for the 4K files for good (`GuideRefresh`).
     case guideFileMissing(name: String, status: Int)
     case notHTTP
     /// The recorder was reached but is not the one we expect.
