@@ -19,6 +19,8 @@ EPG_FILES = {
     "bs4k": "EPG_ADVBSDEPG_FILE.dat",
     "cs4k": "EPG_ADVCSDEPG_FILE.dat",
 }
+#: the types a recorder without 4K tuners has no guide for
+FOUR_K = ("bs4k", "cs4k")
 LOGO_FILES = {
     "td": "EPG_TRDLOGO_FILE.dat",
     "bs": "EPG_BSLOGO_FILE.dat",
