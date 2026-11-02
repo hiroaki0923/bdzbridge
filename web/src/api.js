@@ -71,6 +71,13 @@ export function reservationAgain(list, wanted) {
   return again ? { row: again } : { why: RESERVATION_NOT_LISTED }
 }
 
+// Why a reservation cannot be changed now, or '' when it can: the server refuses the same, and the sheets offer
+// no change it would refuse (`RecorderDriver.whyNot(changing:)`).
+export function whyNotChanging(r, now = Date.now()) {
+  if (r.recording) return '録画中の予約は変更できません。'
+  return new Date(r.end).getTime() <= now ? '放送が終わった予約は変更できません。' : ''
+}
+
 export function findReservation(idx, p) {
   if (!idx) return null
   return idx.byEvent.get(reservationKey(p.broadcasting, p.service_id, p.event_id))

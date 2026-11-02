@@ -1,6 +1,6 @@
 <script>
   import { loadPref, savePref } from '../prefs.js'
-  import { api, fmtDateTime, repeatOptions } from '../api.js'
+  import { api, fmtDateTime, repeatOptions, whyNotChanging } from '../api.js'
   import { actOnReservation, app, loadReservations, toast } from '../store.svelte.js'
   let confirmTarget = $state(null)
   let busy = $state(false)
@@ -183,7 +183,7 @@
       <button class="btn" disabled={busy} onclick={save}>{busy ? '送信中…' : '変更を保存'}</button>
       <button class="btn ghost" onclick={() => (editing = false)}>変更をやめる</button>
     {:else}
-      <button class="btn ghost" disabled={busy} onclick={startEdit}>録画モード・毎回録画を変更</button>
+      {#if !whyNotChanging(confirmTarget)}<button class="btn ghost" disabled={busy} onclick={startEdit}>録画モード・毎回録画を変更</button>{/if}
       <button class="btn danger" disabled={busy} onclick={remove}>この予約を削除</button>
       <button class="btn ghost" onclick={() => (confirmTarget = null)}>閉じる</button>
     {/if}

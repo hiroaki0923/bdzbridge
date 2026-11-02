@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { reservationAgain, RESERVATION_CHANGED, RESERVATION_NOT_LISTED } from '../src/api.js'
+import { reservationAgain, RESERVATION_CHANGED, RESERVATION_NOT_LISTED, whyNotChanging } from '../src/api.js'
 
 const row = (over = {}) => ({
   id: '0x1', broadcasting: 'td', service_id: 1024, event_id: 100, start: '2026-11-02T21:00:00+09:00',
@@ -40,4 +40,11 @@ test('a row at the same time of another programme does not stand in', () => {
 test('a reservation an app made is not looked for once its id has gone', () => {
   const held = row({ creator: '2200', created_by_app: true })
   assert.deepEqual(reservationAgain([row({ id: '0x2', creator: '2200', created_by_app: true })], held), { why: RESERVATION_NOT_LISTED })
+})
+
+test('a reservation is not changed while it records or once it has ended', () => {
+  const now = new Date('2026-11-02T21:00:00+09:00').getTime()
+  assert.equal(whyNotChanging({ recording: false, end: '2026-11-02T21:30:00+09:00' }, now), '')
+  assert.equal(whyNotChanging({ recording: true, end: '2026-11-02T21:30:00+09:00' }, now), '録画中の予約は変更できません。')
+  assert.equal(whyNotChanging({ recording: false, end: '2026-11-02T21:00:00+09:00' }, now), '放送が終わった予約は変更できません。')
 })

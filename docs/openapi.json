@@ -820,7 +820,7 @@
      "reservations"
     ],
     "summary": "Reservation Update",
-    "description": "Change quality or repeat (and, for time-based reservations, title, start and duration).",
+    "description": "Change quality or repeat (and, for time-based reservations, title, start and duration). 409 while it records or once it has ended.",
     "operationId": "reservation_update_api_v1_reservations__reservation_id__patch",
     "security": [
      {

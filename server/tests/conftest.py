@@ -200,6 +200,7 @@ def client(tmp_path, monkeypatch):
     store = Store(settings.db_path)
     store.replace_services("td", make_services())
     bridge = Bridge(settings, FakeRecorder(), store)
+    bridge.clock = lambda: datetime(2026, 9, 14, 4, 30, tzinfo=JST)  # the morning of the guide in make_services
     app = create_app(settings, bridge)
     with TestClient(app) as c:
         c.bridge = bridge
@@ -221,7 +222,6 @@ class FakeNotifier:
 
 def autorec_client(client):
     client.bridge.notifier = FakeNotifier()
-    client.bridge.clock = lambda: datetime(2026, 9, 14, 4, 30, tzinfo=JST)
     return client
 
 

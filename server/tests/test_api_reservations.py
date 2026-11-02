@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from bdzbridge.recorder.epg import JST
 from bdzbridge.recorder.xsrs import Reservation
@@ -59,6 +59,20 @@ def test_a_change_keeps_the_reservation_on_its_disk(client):
     assert u.status_code == 200, u.text
     assert u.json()["destination"] == "USBHDD"
     assert "<recordDestinationID>USBHDD</recordDestinationID>" in fx.created[-1]
+
+
+def test_a_reservation_is_not_changed_while_it_records_or_once_it_has_ended(client):
+    r = client.post("/api/v1/reservations", headers=H, json={"broadcasting": "td", "service_id": 1024, "event_id": 14792}).json()["reservation"]
+    fx = client.bridge.recorder.xsrs
+    sent = len(fx.created)
+    fx.reservations[0].recording = True
+    u = client.patch(f"/api/v1/reservations/{r['id']}", headers=H, json={"quality": "LR"})
+    assert u.status_code == 409 and u.json()["detail"] == "録画中の予約は変更できません。"
+    fx.reservations[0].recording = False
+    client.bridge.clock = lambda: fx.reservations[0].start + timedelta(seconds=fx.reservations[0].duration_sec)
+    u = client.patch(f"/api/v1/reservations/{r['id']}", headers=H, json={"quality": "LR"})
+    assert u.status_code == 409 and u.json()["detail"] == "放送が終わった予約は変更できません。"
+    assert len(fx.created) == sent
 
 
 def test_reservations_carry_program_genres(client):

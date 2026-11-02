@@ -152,7 +152,7 @@ Ask the recorder which existing reservations a new one would conflict with, with
 
 ### PATCH /reservations/{reservation_id}
 
-Change quality or repeat (and, for time-based reservations, title, start and duration).
+Change quality or repeat (and, for time-based reservations, title, start and duration). 409 while it records or once it has ended.
 
 パラメータ:
 - `reservation_id` (path): string

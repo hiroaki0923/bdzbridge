@@ -1,5 +1,5 @@
 <script>
-  import { api, repeatOptions, fmtDateTime, fmtTime, findReservation } from '../api.js'
+  import { api, repeatOptions, fmtDateTime, fmtTime, findReservation, whyNotChanging } from '../api.js'
   import { actOnReservation, app, loadReservations, toast } from '../store.svelte.js'
   let { program, onclose } = $props()
   let existing = $derived(findReservation(app.resIdx, program))
@@ -63,7 +63,7 @@
       <button class="btn" disabled={busy} onclick={saveEdit}>{busy ? '送信中…' : '変更を保存'}</button>
       <button class="btn ghost" onclick={() => (editing = false)}>変更をやめる</button>
     {:else}
-      <button class="btn ghost" disabled={busy} onclick={startEdit}>録画モード・毎回録画を変更</button>
+      {#if !whyNotChanging(existing)}<button class="btn ghost" disabled={busy} onclick={startEdit}>録画モード・毎回録画を変更</button>{/if}
       <button class="btn danger" disabled={busy} onclick={remove}>予約を削除</button>
     {/if}
   {:else}
