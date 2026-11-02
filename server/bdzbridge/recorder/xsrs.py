@@ -5,8 +5,11 @@ No authentication is required on the LAN.
 """
 from __future__ import annotations
 
+import asyncio
 import html
+import random
 import xml.etree.ElementTree as ET
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -39,6 +42,23 @@ _ERROR_TEXT = {
            "契約やアンテナの設定を確かめてください",
     "880": "レコーダーが待機状態です。先に電源を入れてください",
 }
+
+
+# A 503 is the recorder busy with another client, the app or a phone among them, and says nothing about this
+# request, so it is sent again: twice, 0.5 to 1 second apart, as the app does (docs/porting.md).
+BUSY_RETRIES = 2
+BUSY_DELAY = (0.5, 1.0)
+
+
+async def past_busy(send: Callable[[], Awaitable[httpx.Response]]) -> httpx.Response:
+    """The answer to a request, sent again while the recorder says it is busy. The caller holds the recorder's lock."""
+    r = await send()
+    for _ in range(BUSY_RETRIES):
+        if r.status_code != 503:
+            break
+        await asyncio.sleep(random.uniform(*BUSY_DELAY))
+        r = await send()
+    return r
 
 
 class XsrsError(Exception):
@@ -379,7 +399,8 @@ class XsrsClient:
 
     async def _call(self, ctrl: str, stype: str, action: str, args: list[tuple[str, object]]) -> ET.Element:
         headers = dict(_CLIENT_HEADERS, SOAPACTION=f'"{stype}#{action}"')
-        r = await self.http.post(self.base + ctrl, content=_soap_body(stype, action, args), headers=headers, timeout=30)
+        body = _soap_body(stype, action, args)
+        r = await past_busy(lambda: self.http.post(self.base + ctrl, content=body, headers=headers, timeout=30))
         try:
             root = ET.fromstring(r.text)
         except ET.ParseError:

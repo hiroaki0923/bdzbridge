@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from bdzbridge.api.app import create_app
 from bdzbridge.config import Settings
-from bdzbridge.recorder import wol
+from bdzbridge.recorder import wol, xsrs
 from bdzbridge.recorder.epg import JST, Program, Service
 from bdzbridge.recorder.logo import Logo, with_palette
 from bdzbridge.recorder.xsrs import (
@@ -186,6 +186,11 @@ class FakeRecorder:
 
     async def close(self):
         pass
+
+
+@pytest.fixture(autouse=True)
+def no_wait_after_a_busy_recorder(monkeypatch):
+    monkeypatch.setattr(xsrs, "BUSY_DELAY", (0, 0))
 
 
 @pytest.fixture

@@ -61,10 +61,11 @@ def test_rules_report_conflicts_without_reserving(client):
 
 def test_an_unreadable_answer_costs_one_programme_and_a_busy_one_is_asked_again(client):
     c = autorec_client(client)
-    # the conflict checks, in order: the first programme's answered 503, the second's with a page that is not
-    # XML, which used to end the pass with a ParseError; the next pass asks about the first again
-    checks = [(503, "Service Unavailable"), (500, "Internal Server Error"),
-              (200, soap_answer("X_GetConflictList", "<Result></Result>"))]
+    # the conflict checks, in order: the first programme's answered 503 each of the three times it is sent, the
+    # second's with a page that is not XML, which used to end the pass with a ParseError; the next pass asks about
+    # the first again
+    checks = [(503, "Service Unavailable")] * 3 + [(500, "Internal Server Error"),
+                                                   (200, soap_answer("X_GetConflictList", "<Result></Result>"))]
 
     def answer(action):
         if action == "X_GetConflictList":

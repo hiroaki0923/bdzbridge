@@ -174,3 +174,25 @@ async def test_an_answer_that_is_not_xml_is_an_xsrs_error():
         await x.conflicts("<xsrs/>")
     assert (garbled.value.status, garbled.value.code, garbled.value.action) == (200, None, "X_GetConflictList")
     await x.http.aclose()
+
+
+async def test_a_busy_recorder_is_asked_again_twice():
+    answers = [(503, "busy"), (503, "busy"), (200, soap_answer("X_GetRecordScheduleList", "<Result></Result>"))]
+    sent = []
+
+    def answer(action):
+        sent.append(action)
+        return answers.pop(0)
+    assert await recorder_answering(answer).list_reservations() == []
+    assert len(sent) == 3
+
+
+async def test_a_recorder_still_busy_after_that_says_so():
+    sent = []
+
+    def answer(action):
+        sent.append(action)
+        return 503, "busy"
+    with pytest.raises(XsrsError) as e:
+        await recorder_answering(answer).list_reservations()
+    assert e.value.busy and len(sent) == 3
