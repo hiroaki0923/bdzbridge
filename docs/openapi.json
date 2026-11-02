@@ -4138,6 +4138,12 @@
       "format": "date-time",
       "title": "Earliest"
      },
+     "last_end": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Last End",
+      "description": "when the last of them to end ends: the far side of the span the group covers"
+     },
      "protected_count": {
       "type": "integer",
       "title": "Protected Count"
@@ -4155,6 +4161,7 @@
      "size_mb",
      "latest",
      "earliest",
+     "last_end",
      "protected_count",
      "new_count"
     ],

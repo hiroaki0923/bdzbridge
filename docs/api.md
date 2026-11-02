@@ -711,6 +711,7 @@ channel narrowing the recorder's screen offers cannot be set over the LAN.
 - `size_mb`: integer
 - `latest`: datetime
 - `earliest`: datetime
+- `last_end`: datetime — when the last of them to end ends: the far side of the span the group covers
 - `protected_count`: integer
 - `new_count`: integer
 

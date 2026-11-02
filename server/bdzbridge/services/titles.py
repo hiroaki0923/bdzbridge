@@ -262,17 +262,21 @@ def group_titles(titles: list[XTitle], genre: int | None = None) -> list[S.Title
         if genre is not None and (t.genre_code is None or t.genre_code >> 4 != genre):
             continue
         key = series_key(t.title)
+        end = t.start + timedelta(seconds=t.duration_sec)
         g = groups.get(key)
         if g is None:
-            g = groups[key] = {"names": {}, "count": 0, "size_mb": 0, "latest": t.start, "earliest": t.start, "protected": 0, "new": 0}
+            g = groups[key] = {"names": {}, "count": 0, "size_mb": 0, "latest": t.start, "earliest": t.start,
+                               "last_end": end, "protected": 0, "new": 0}
         name = series_name(t.title)
         g["names"][name] = g["names"].get(name, 0) + 1
         g["count"] += 1
         g["size_mb"] += t.size_mb or 0
         g["latest"], g["earliest"] = max(g["latest"], t.start), min(g["earliest"], t.start)
+        g["last_end"] = max(g["last_end"], end)
         g["protected"] += int(t.protected)
         g["new"] += int(t.is_new)
     out = [S.TitleGroup(key=k, name=max(g["names"], key=g["names"].get), count=g["count"], size_mb=g["size_mb"],
-                        latest=g["latest"], earliest=g["earliest"], protected_count=g["protected"], new_count=g["new"])
+                        latest=g["latest"], earliest=g["earliest"], last_end=g["last_end"],
+                        protected_count=g["protected"], new_count=g["new"])
            for k, g in groups.items()]
     return sorted(out, key=lambda g: g.latest, reverse=True)

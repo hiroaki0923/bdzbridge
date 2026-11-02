@@ -1,6 +1,6 @@
 <script>
   // Recordings: a paged list with filters, programme groups, and duplicate sets; one detail sheet; the playback bar.
-  import { api, fmtBytes, fmtDate } from '../api.js'
+  import { api, fmtBytes, fmtSpan } from '../api.js'
   import { app, loadStatus, toast } from '../store.svelte.js'
   import { loadPref, savePref } from '../prefs.js'
   import TitleRow from './titles/TitleRow.svelte'
@@ -163,7 +163,7 @@
         <span class="time">{g.count}<span class="muted"> 件</span></span>
         <span>
           {#if g.protected_count}<span class="lock" title="保護あり">🔒</span>{/if}{#if g.new_count}<span class="mark now">NEW {g.new_count}</span>{/if}<span class="title">{g.name}</span>
-          <div class="sub">{fmtDate(g.earliest)}{g.count > 1 ? ' 〜 ' + fmtDate(g.latest) : ''} · 合計 {(g.size_mb / 1024).toFixed(1)}GB{g.protected_count ? ' · 保護 ' + g.protected_count + ' 件' : ''}</div>
+          <div class="sub">{fmtSpan(g.earliest, g.last_end)} · 合計 {(g.size_mb / 1024).toFixed(1)}GB{g.protected_count ? ' · 保護 ' + g.protected_count + ' 件' : ''}</div>
         </span>
       </button>
     {/each}

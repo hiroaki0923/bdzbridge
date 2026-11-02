@@ -100,6 +100,8 @@ export const fmtDate = (iso) => {
   return d.toLocaleDateString('ja-JP', opts)
 }
 export const fmtDateTime = (iso) => `${fmtDate(iso)} ${fmtTime(iso)}`
+// From the first start to the last end, the end's date left out when it is the same day.
+export const fmtSpan = (from, to) => `${fmtDateTime(from)} 〜 ${(fmtDate(from) === fmtDate(to) ? fmtTime : fmtDateTime)(to)}`
 
 // Repeat options for a programme starting at `startIso`: the weekly ones are narrowed to its own weekday.
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] // index = Date#getDay()

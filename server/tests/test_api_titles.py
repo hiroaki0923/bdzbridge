@@ -84,6 +84,14 @@ def test_duplicate_scan_suggests_the_later_copy(client):
     assert s["reasons"]["0x0000010000034d7b"] == "先に放送" and s["reasons"]["0x0000010000034d78"] == "後の放送"
     assert client.bridge.store.title_summary("0x0000010000034d78") == SUMMARY
 
+def test_a_group_spans_from_its_first_start_to_its_last_end(client):
+    x = client.bridge.recorder.xsrs
+    x.extra_titles = [make_title("0xa1", "サンプル物語", datetime(2026, 9, 14, 21, 0, tzinfo=JST), 3600),
+                      make_title("0xa2", "サンプル物語", datetime(2026, 9, 14, 22, 0, tzinfo=JST), 1800)]
+    g = next(g for g in client.get("/api/v1/titles/groups", headers=H).json() if g["name"] == "サンプル物語")
+    assert g["earliest"].startswith("2026-09-14T21:00") and g["last_end"].startswith("2026-09-14T22:30")
+
+
 def test_a_text_that_could_not_be_read_is_left_out_and_asked_for_again(client):
     x = client.bridge.recorder.xsrs
     x.detail_errors = {"0x0000010000034d78": XsrsError("X_GetTitleDetail", 503, None)}

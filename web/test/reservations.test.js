@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { conditionStillListed, reservationAgain, RESERVATION_CHANGED, RESERVATION_NOT_LISTED, whyNotChanging } from '../src/api.js'
+import { conditionStillListed, fmtDateTime, fmtSpan, fmtTime, reservationAgain, RESERVATION_CHANGED, RESERVATION_NOT_LISTED, whyNotChanging } from '../src/api.js'
 
 const row = (over = {}) => ({
   id: '0x1', broadcasting: 'td', service_id: 1024, event_id: 100, start: '2026-11-02T21:00:00+09:00',
@@ -55,4 +55,12 @@ test('a condition is deleted only as the screen showed it', () => {
   assert.equal(conditionStillListed([{ ...held, keywords: ['別の語'] }], held), false)
   assert.equal(conditionStillListed([{ ...held, id: '0x2' }], held), false)
   assert.equal(conditionStillListed([], held), false)
+})
+
+test('a span leaves out the date of an end on the day it began', () => {
+  const start = new Date(2026, 10, 2, 21, 0).toISOString()
+  const sameDay = new Date(2026, 10, 2, 23, 30).toISOString()
+  const nextDay = new Date(2026, 10, 3, 0, 30).toISOString()
+  assert.equal(fmtSpan(start, sameDay), `${fmtDateTime(start)} 〜 ${fmtTime(sameDay)}`)
+  assert.equal(fmtSpan(start, nextDay), `${fmtDateTime(start)} 〜 ${fmtDateTime(nextDay)}`)
 })
