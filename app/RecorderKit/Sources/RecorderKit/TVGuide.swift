@@ -54,8 +54,10 @@ public enum TVGuideDecoder {
     }
 
     /// One type's guide, by `/v1/guide/{bt}`, with the channels of that type: the rows have only a service id
-    /// each, and a service's name comes from the channel list. A channel with no programme is kept, with none,
-    /// as the recorder's file keeps one. Services come out in the ascending order of service id.
+    /// each, and a service's name comes from the channel list. A channel with no programme is left out: the
+    /// television lists every service it tunes -- data broadcasts, the standby services of a station, the
+    /// guide's own channel -- and none of them has a programme, where the recorder's file lists the stations it
+    /// records from, each with its programmes. Services come out in the ascending order of service id.
     ///
     /// A sub-channel's row is a full copy of its parent's on the television, marked by `flag2` and a sibling
     /// list of one, the parent; the recorder's file has a reference there instead, with no text of its own, which
@@ -72,12 +74,10 @@ public enum TVGuideDecoder {
             programs[program.serviceID, default: []].append(program)
         }
         let named = channels.filter { $0.broadcasting == broadcasting }
-        var ids = Set(named.map(\.serviceID))
-        ids.formUnion(programs.keys)
         let names = Dictionary(named.map { ($0.serviceID, $0.name) }, uniquingKeysWith: { first, _ in first })
-        return ids.sorted().map { serviceID in
+        return programs.keys.sorted().map { serviceID in
             GuideService(serviceID: serviceID, name: names[serviceID] ?? "",
-                         programs: (programs[serviceID] ?? []).sorted { $0.start < $1.start })
+                         programs: programs[serviceID]!.sorted { $0.start < $1.start })
         }
     }
 

@@ -38,9 +38,8 @@ final class TVGuideDecoderTests: XCTestCase {
             "rating": "com.android.tv/ISDB/ISDB_15", "flag1": 0, "flag2": 0, "siblings": [1024], "siblingEids": [4660],
         ]]])
         let services = try TVGuideDecoder.decodeGuide(json, channels: channels)
-        XCTAssertEqual(services.map(\.serviceID), [1024, 1032])
+        XCTAssertEqual(services.map(\.serviceID), [1024], "a channel with no programme is left out")
         XCTAssertEqual(services[0].name, "第一テレビ")
-        XCTAssertEqual(services[1].programs, [])
         let program = try XCTUnwrap(services[0].programs.first)
         XCTAssertEqual(program.eventID, 4660)
         XCTAssertEqual(program.start, Date(timeIntervalSince1970: 1_800_000_000))
