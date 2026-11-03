@@ -14,6 +14,15 @@ public enum Arib {
         // Not marks but a word and a sign inside running text (a cast list ending in ほか, a © credit):
         // written as text.
         scalar(0xE19C): "ほか", scalar(0xE3A8): "\u{00A9}",
+        // The same marks as a BRAVIA's guide store writes them: Unicode's enclosed ideographs and letters, one for
+        // one with the private-use points above (every pair found by aligning the two guides' texts), so that a
+        // title reads the same whichever device it came from.
+        scalar(0x1F210): "[手]", scalar(0x1F211): "[字]", scalar(0x1F213): "[デ]", scalar(0x1F214): "[二]",
+        scalar(0x1F215): "[多]", scalar(0x1F216): "[解]", scalar(0x1F14D): "[SS]", scalar(0x1F219): "[映]",
+        scalar(0x1F21E): "[再]", scalar(0x1F21F): "[新]", scalar(0x1F221): "[終]", scalar(0x1F222): "[生]",
+        scalar(0x1F14A): "[HV]", scalar(0x1F212): "[双]", scalar(0x1F142): "[S]", scalar(0x1F13D): "[N]",
+        scalar(0x1F21A): "[無]", scalar(0x1F21C): "[前]", scalar(0x1F220): "[初]", scalar(0x1F224): "[声]",
+        scalar(0x1F225): "[吹]", scalar(0x1F200): "ほか",
         // Broadcast symbols that Unicode encodes at U+1F19B..U+1F1AC.
         scalar(0x1F19B): "[3D]", scalar(0x1F19C): "[2nd]", scalar(0x1F19D): "[2K]", scalar(0x1F19E): "[4K]",
         scalar(0x1F19F): "[8K]", scalar(0x1F1A0): "[5.1]", scalar(0x1F1A1): "[7.1]", scalar(0x1F1A2): "[22.2]",
