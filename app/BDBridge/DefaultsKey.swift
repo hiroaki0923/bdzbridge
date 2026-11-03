@@ -36,6 +36,10 @@ enum DefaultsKey {
     /// What the runs with no screen have told of it (`ToldOnce`), as JSON; forgotten when a television is
     /// registered or taken away. The recorder's is kept apart from it (`recorderTold`).
     static let tvTold = "tvTold"
+    /// Which device the guide is fetched from where both could give it (`GuideSourceChoice`): the reader's
+    /// choice in the settings, unset meaning the recorder. The helper's token is in the Keychain
+    /// (`KeychainTVHelperToken`).
+    static let guideSource = "guideSource"
 
     // MARK: - what the screens keep between launches
 

@@ -54,6 +54,8 @@ struct Surroundings {
     var tvTransport: (_ host: String) -> any HTTPTransport = { _ in NoTelevision() }
     /// Where the television's registration is kept: the Keychain in the app, memory in a test.
     var tvCredentials: any TVCredentialStore = MemoryTVCredentials()
+    /// Where the token of the helper on the television is kept, as `tvCredentials` is the television's own.
+    var tvHelperTokens: any TVHelperTokenStore = MemoryTVHelperToken()
     /// How long a television's list of recordings that may still be coming is waited for: the driver's three
     /// minutes, shortened only by a test.
     var tvTitlesWait: TVTitlesWait = .afterAStart
@@ -97,6 +99,7 @@ struct Surroundings {
                      asksAboutNotifications: true,
                      tvTransport: { _ in URLSessionTransport.withoutCookies() },
                      tvCredentials: KeychainTVCredentials(),
+                     tvHelperTokens: KeychainTVHelperToken(),
                      localNetworkAccess: { await LocalNetwork.access(probing: $0) },
                      waitForLocalNetwork: { await LocalNetwork.waitForAccess(probing: $0) {} },
                      linkIsBlocked: { await LocalNetwork.access(probing: $0) == .blocked },
