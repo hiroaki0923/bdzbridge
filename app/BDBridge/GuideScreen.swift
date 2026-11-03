@@ -116,14 +116,12 @@ struct GuideScreen: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        Task { failure = await model.refreshGuideByHand().said }
+                        Task { failure = await model.refreshGuideByHandFromSource() }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
                     .accessibilityLabel("番組表を更新")
-                    // Not for a model that has no guide to give, which the empty guide says in so many words.
-                    // Held while the recorder works, and by nothing the television does.
-                    .disabled(!model.connected || model.isBusy(for: .recorder) || model.info?.epgCapable == false)
+                    .disabled(!model.canRefreshGuideByHand)
                 }
             }
             .sheet(item: $tapped) { ProgramSheet(program: $0) }
@@ -192,7 +190,7 @@ struct GuideScreen: View {
     /// Nothing for the day on screen, and no recorder to fetch it from: `NoRecorderView` says what is wrong and
     /// offers 再接続 and レコーダーを探す.
     private var nothingAndNoRecorder: Bool {
-        !model.connected && nothing && !nothingByChoice
+        model.guideSource == .recorder && !model.connected && nothing && !nothingByChoice
     }
 
     /// Nothing for the day on screen. The grid shows every channel whatever the list is narrowed to, so it is

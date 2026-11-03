@@ -37,6 +37,18 @@ final class AppModel {
     /// television said goes when its link does.
     var tv: DeviceLink?
     var tvHost: TVHost?
+    /// The helper on the television, made with its link outside the demo (`makeTVHelper`), through which the
+    /// television's guide is fetched (`AppModelTVGuide.swift`).
+    var tvHelper: TVHelperClient?
+    /// Bumped each time the registration with the helper is made or forgotten, for the screens (`helperRegistered`).
+    var helperTimesChanged = 0
+    /// What went wrong with the last fetch of the television's guide, said in the settings; nil for nothing.
+    var helperProblem: String?
+    /// The fetch of the television's guide that is out, so that one is asked for at a time.
+    @ObservationIgnored var tvGuideFetch: Task<Void, Never>?
+    /// When the helper was last asked whether its copies had changed, for not asking it at every return to the
+    /// front (`refreshGuideFromTVIfBehind`).
+    var lastTVGuideCheck: Date?
     /// Bumped each time the television's link is let go of (`dropTVLink`), for the screens to let go of what
     /// they hold of that television, as `timesForgotten` has them do for a recorder.
     var tvTimesForgotten = 0
@@ -382,6 +394,7 @@ final class AppModel {
         guard !launched, store != nil else { return }
         launched = true
         Task { await self.connectFirstTime() }
+        Task { await self.refreshGuideFromTVIfBehind() }
     }
 
     /// Shows the cached guide before touching the network, so something is on screen at once. Safe to

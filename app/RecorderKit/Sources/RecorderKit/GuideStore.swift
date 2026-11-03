@@ -537,6 +537,29 @@ public actor GuideStore {
         try db.query("SELECT value FROM meta WHERE key=?", [.text(key)]) { $0.string("value") }.first
     }
 
+    // MARK: - the television's guide
+
+    /// When the helper on the television last saw one broadcasting type's rows change, as of the copy the cache
+    /// was last filled from (`noteHelperChanged`); nil where the type has not been fetched from it. What says
+    /// whether the helper has anything newer than the cache.
+    public func helperChanged(broadcasting: String) throws -> Date? {
+        try meta("helper_changed:\(broadcasting)").flatMap(RecorderTime.parse)
+    }
+
+    public func noteHelperChanged(broadcasting: String, at moment: Date) throws {
+        try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                   [.text("helper_changed:\(broadcasting)"), .text(RecorderTime.format(moment))])
+    }
+
+    /// Forgets when one type was fetched and answered for, and what the helper had of it, so that whichever
+    /// device the guide is fetched from next fetches the type again. The programmes, channels and logos stay:
+    /// away from home the guide is what the cache holds.
+    public func forgetGuideMarks(broadcasting: String) throws {
+        for key in ["epg_refreshed", "epg_checked", "helper_changed"] {
+            try db.run("DELETE FROM meta WHERE key=?", [.text("\(key):\(broadcasting)")])
+        }
+    }
+
     // MARK: - whose cache this is
 
     /// The UDN of the recorder this cache was filled from. Nil in a cache from before this was written down,

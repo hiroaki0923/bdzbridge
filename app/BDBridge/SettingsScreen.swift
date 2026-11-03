@@ -176,26 +176,7 @@ struct SettingsScreen: View {
                          + "レコーダーの録画には影響しません。")
                 }
 
-                Section("保存されている番組表") {
-                    ForEach(GuideRefresh.offeredTypes(model.counts), id: \.self) { broadcasting in
-                        let counts = model.counts[broadcasting]
-                        LabeledContent(Codes.broadcastingLabel[broadcasting] ?? broadcasting) {
-                            Text("\(counts?.channels ?? 0) 局 · \(counts?.programs ?? 0) 番組")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    if let refreshed = model.counts["td"]?.refreshed {
-                        LabeledContent("最終更新", value: Self.readable(refreshed))
-                    }
-                    if let overnight = UserDefaults.standard.string(forKey: DefaultsKey.lastBackgroundRefresh) {
-                        LabeledContent("最終自動更新", value: Self.readable(overnight))
-                    }
-                    Button("番組表を更新") {
-                        Task { guideFailure = await model.refreshGuideByHand().said }
-                    }
-                    // Held while the recorder works, and by nothing the television does.
-                    .disabled(!model.connected || model.isBusy(for: .recorder) || model.info?.epgCapable == false)
-                }
+                guideSection
 
                 notificationsSection
                 arrivingHomeSection
@@ -278,6 +259,48 @@ struct SettingsScreen: View {
     /// Whether the overnight run can say anything, and the way to change it. The provisional permission the
     /// app takes after the first connect happens without a word, and somebody who only uses the app at home
     /// never queues a reservation and never sees the dialog, so this is the one place it shows.
+    /// The guide held on the phone: where it is fetched from, what it holds, and 番組表を更新.
+    private var guideSection: some View {
+        Section {
+            if model.guideSourceIsChoosable {
+                Picker("番組表の取得元", selection: Binding(
+                    get: { model.guideSourcePreference },
+                    set: { choice in Task { await model.setGuideSourcePreference(choice) } })) {
+                    Text("レコーダー").tag(GuideSourceChoice.recorder)
+                    Text("テレビ").tag(GuideSourceChoice.tv)
+                }
+            } else if model.guideSource == .tv {
+                LabeledContent("番組表の取得元", value: "テレビ")
+            }
+            ForEach(GuideRefresh.offeredTypes(model.counts), id: \.self) { broadcasting in
+                let counts = model.counts[broadcasting]
+                LabeledContent(Codes.broadcastingLabel[broadcasting] ?? broadcasting) {
+                    Text("\(counts?.channels ?? 0) 局 · \(counts?.programs ?? 0) 番組")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if let refreshed = model.counts["td"]?.refreshed {
+                LabeledContent("最終更新", value: Self.readable(refreshed))
+            }
+            if let overnight = UserDefaults.standard.string(forKey: DefaultsKey.lastBackgroundRefresh) {
+                LabeledContent("最終自動更新", value: Self.readable(overnight))
+            }
+            Button("番組表を更新") {
+                Task { guideFailure = await model.refreshGuideByHandFromSource() }
+            }
+            .disabled(!model.canRefreshGuideByHand)
+        } header: {
+            Text("保存されている番組表")
+        } footer: {
+            if model.guideSourceIsChoosable {
+                Text("テレビの番組表は、番組名などが半角で表示されます。予約、局の設定、ロゴはどちらを選んでも変わりません。"
+                     + (model.helperProblem.map { "\n" + $0 } ?? ""))
+            } else if let problem = model.helperProblem {
+                Text(problem.asABody).foregroundStyle(.red).font(.callout)
+            }
+        }
+    }
+
     @ViewBuilder
     private var notificationsSection: some View {
         let status = model.notifications

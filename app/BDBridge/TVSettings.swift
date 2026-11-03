@@ -25,6 +25,8 @@ struct TVSection: View {
     /// and again as a registration turned the section from one form to the other under it.
     @Binding var sheet: TVSheetRequest?
     @State private var removing = false
+    /// Whether the sheet that registers with the helper on the television is up, hung on its own button.
+    @State private var registeringHelper = false
     /// How many reservations wait for the television, read as the question goes up, for it to say and for
     /// 外す to be held to. Nil when they could not be counted.
     @State private var waiting: Int?
@@ -49,6 +51,15 @@ struct TVSection: View {
                     } else if !tv.session.connected {
                         Button("再接続") { Task { await tv.connect() } }
                             .disabled(tv.session.connecting)
+                    }
+                    if model.tvHelper != nil {
+                        LabeledContent("番組表（ヘルパー）", value: model.helperRegistered ? "登録済み" : "未登録")
+                        if model.helperRegistered {
+                            Button("ヘルパーの登録を解除", role: .destructive) { model.forgetHelper() }
+                        } else {
+                            Button("ヘルパーに登録") { registeringHelper = true }
+                                .sheet(isPresented: $registeringHelper) { HelperRegisterSheet() }
+                        }
                     }
                     // Not while the television works: a sending that is out may be making a reservation
                     // that the question would say is deleted unsent.
@@ -108,6 +119,60 @@ struct TVSection: View {
         return tv.session.gaveUp ? "応答がありません" : "接続していません"
     }
 
+}
+
+/// Registering with the helper on the television, by the six-digit code its screen shows for five minutes
+/// (`AppModel.registerHelper`). The television has been added already; the helper is at its address.
+struct HelperRegisterSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var code = ""
+    @State private var working = false
+    @State private var message: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("6 桁の番号", text: $code)
+                        .keyboardType(.numberPad)
+                } footer: {
+                    Text("テレビで「RecBridge ヘルパー」を開き、「登録の番号を出す」で表示された 6 桁の番号を入力してください。"
+                         + "番号は 5 分で消えます。ヘルパーを入れる手順は、アプリの説明書にあります。")
+                }
+                if let message {
+                    Section { Text(message.asABody).foregroundStyle(.red).font(.callout) }
+                }
+                Section {
+                    Button("登録する") { start() }
+                        .disabled(working || code.count != 6 || !code.allSatisfy(\.isNumber))
+                    if working { ProgressView() }
+                }
+            }
+            .navigationTitle("テレビの番組表に登録")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func start() {
+        guard !working else { return }
+        working = true
+        message = nil
+        Task {
+            let said = await model.registerHelper(code: code)
+            working = false
+            if let said {
+                message = said
+            } else {
+                dismiss()
+            }
+        }
+    }
 }
 
 /// Adding a television, or registering with it again: its address, and then the PIN it shows on its screen.

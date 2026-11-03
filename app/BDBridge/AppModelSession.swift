@@ -90,8 +90,10 @@ extension AppModel {
         // its own work only.
         let recorderBusy = isBusy, televisionBusy = tvHost?.isBusy ?? false
         let television = Task { await self.tv?.returned(wasAway: wasAway, busy: televisionBusy) }
+        let helper = Task { await self.refreshGuideFromTVIfBehind() }
         await recorder.returned(wasAway: wasAway, busy: recorderBusy)
         await television.value
+        await helper.value
     }
 
     /// The watcher's report of the network, looked at again for a while (`DeviceLink.networkReported`), by each

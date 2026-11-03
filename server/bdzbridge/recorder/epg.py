@@ -71,6 +71,14 @@ ARIB_SYMBOLS = {
     "\ue194": "[初]", "\ue198": "[声]", "\ue199": "[吹]",
     # Not marks but a word and a sign inside running text (a cast list ending in ほか, a © credit): written as text.
     "\ue19c": "ほか", "\ue3a8": "\u00a9",
+    # The same marks as a BRAVIA's guide store writes them: Unicode's enclosed ideographs and letters, one for one
+    # with the private-use points above (every pair found by aligning the two guides' texts), so that a title reads
+    # the same whichever device it came from.
+    "\U0001f210": "[手]", "\U0001f211": "[字]", "\U0001f213": "[デ]", "\U0001f214": "[二]", "\U0001f215": "[多]",
+    "\U0001f216": "[解]", "\U0001f14d": "[SS]", "\U0001f219": "[映]", "\U0001f21e": "[再]", "\U0001f21f": "[新]",
+    "\U0001f221": "[終]", "\U0001f222": "[生]", "\U0001f14a": "[HV]", "\U0001f212": "[双]", "\U0001f142": "[S]",
+    "\U0001f13d": "[N]", "\U0001f21a": "[無]", "\U0001f21c": "[前]", "\U0001f220": "[初]", "\U0001f224": "[声]",
+    "\U0001f225": "[吹]", "\U0001f200": "ほか",
     # Broadcast symbols that Unicode encodes at U+1F19B..U+1F1AC; most phone fonts have no glyphs for them.
     "\U0001f19b": "[3D]", "\U0001f19c": "[2nd]", "\U0001f19d": "[2K]", "\U0001f19e": "[4K]", "\U0001f19f": "[8K]",
     "\U0001f1a0": "[5.1]", "\U0001f1a1": "[7.1]", "\U0001f1a2": "[22.2]", "\U0001f1a3": "[60P]", "\U0001f1a4": "[120P]",

@@ -101,6 +101,7 @@ extension AppModel {
         owner.link = link
         tvHost = owner
         tv = link
+        makeTVHelper(for: host)
     }
 
     /// Lets go of the television's link, and of a wait for the permission it had set going. The link lets go of
@@ -119,6 +120,7 @@ extension AppModel {
         tvHost?.takeDownLines()
         tv = nil
         tvHost = nil
+        tvHelper = nil
     }
 
     /// The LAN as the television's link sees it: requests by the television's transport (`televisionTransport`),
@@ -371,6 +373,7 @@ extension AppModel {
     /// runs with no screen told of it goes too, but for what the package keeps for the registration that adds
     /// it again (`forgetWhatWasTold`). In the demo, the demo's, in memory, and nothing of the real one's.
     func removeTV() {
+        if !demo { forgetHelper() }
         dropTVLink()
         televisionCredentials().remove()
         if demo {
