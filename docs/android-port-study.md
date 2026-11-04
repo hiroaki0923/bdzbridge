@@ -92,6 +92,39 @@ RecorderKit には外部の依存がありません（`Package.swift` は自分�
 
 今の Android の利用者には、サーバーを自分で動かして PWA を使う道があります（`porting.md` の冒頭）。
 
+## 1 つのリポジトリでの持ち方
+
+B でも C でも、1 つのリポジトリで持てます。要になるのは iOS にしかないところの差し替え方で、その継ぎ目の多くはもうあります。
+
+置き場所:
+
+- `app/RecorderKit`: 両方のアプリが使う。場所は変えない
+- `app/BDBridge`: iOS のアプリ
+- `android/`（新しく）: Android のアプリ。`helper/` と同じ Gradle の形で、RecorderKit を Android 向けにビルドした共有ライブラリを取り込む
+
+差し替えは 3 種類です。
+
+1. **部品だけが違うもの**（zlib、SQLite、ソケットの見出し、ログ、ロック）: RecorderKit の中で `#if canImport(...)` で分ける。
+   SQLite のソースと zlib のモジュールの定義は、`Package.swift` で Android のときだけ使うターゲットにする
+   （`condition: .when(platforms: [.android])`）。分かれ目は数ファイルに集め、ほかのファイルに `#if` を広げない。
+2. **振る舞いが違うもの**（HTTP の送り方、ローカルネットワークの許可、Wake-on-LAN の送り方、近くのアドレス）: すでに
+   RecorderKit の外から渡す形になっている。`LinkEnvironment` がこれらを関数として受け取り、iOS では `Surroundings` が
+   iOS の実装を入れている。Android のアプリは Android の実装を入れる。RecorderKit の規則は変わらない。iOS の許可の
+   読み方（`LocalNetworkAccess.swift`）は iOS のときだけビルドする。
+3. **アプリの側のもの**（キーチェーン、深夜の処理、通知、ショートカットのアクション）: `app/BDBridge` にあり、iOS だけの
+   もの。Android のアプリが自分の実装を持つ。モデル（約 5,700 行）をどこまで共有するかは、B と C の選び方で決まる。
+
+1 つのリポジトリにするために足すもの:
+
+- **Android のビルドが壊れたことに気づく仕組み。** 今 RecorderKit を見ているのは、pre-commit フックの macOS の
+  `swift test` と、Xcode Cloud の iOS のビルドだけ。RecorderKit を変えたら Android 向けのビルドも通すよう、フックに
+  足す（Mac に SDK があるとき）か、GitHub Actions を足す（今のリポジトリには無い）。
+- **ツールチェーンの版。** Android 用の SDK は、同じ版のオープンソースのツールチェーンとしか組めない。Xcode の Swift が
+  先に上がったとき、新しい版の機能を RecorderKit で使うと、Android 側は SDK が出るまで待つことになる。
+- **iOS アプリの文言の決まり**（アプリとストアの文に Android などの語を入れない）。Android 用のコードと文は
+  `#if os(Android)` の中か `android/` に置けば、iOS のバイナリに入らない。共有のコードの文には Android の語を書かない。
+- **版とタグ。** iOS（`v*`）、ヘルパー（`helper-v*`）、Android（例えば `android-v*`）を分ける。
+
 ## おすすめ
 
 **Swift のまま持っていく（B か C）。Kotlin での書き直し（A）は採らない。** 開発の総量が少なく、以後の変更も
