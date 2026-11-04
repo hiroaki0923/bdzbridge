@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Android)
+import Android
+#endif
 import Foundation
 
 /// Which addresses to look through for a recorder.
@@ -48,14 +52,24 @@ public enum LocalNetwork {
         var found: [Interface] = []
         for cursor in sequence(first: first, next: { $0.pointee.ifa_next }) {
             let flags = Int32(cursor.pointee.ifa_flags)
-            guard flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0,
-                  let addr = cursor.pointee.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET),
+            guard flags & Flag.up != 0, flags & Flag.loopback == 0, let name = cursor.pointee.ifa_name,
+                  let addr = cursor.pointee.ifa_addr, addr.pointee.sa_family == sa_family_t(AF_INET),
                   let mask = cursor.pointee.ifa_netmask,
                   let address = text(of: addr), let netmask = text(of: mask) else { continue }
-            found.append(Interface(name: String(cString: cursor.pointee.ifa_name), address: address,
-                                   netmask: netmask, broadcasts: flags & IFF_BROADCAST != 0))
+            found.append(Interface(name: String(cString: name), address: address,
+                                   netmask: netmask, broadcasts: flags & Flag.broadcast != 0))
         }
         return found
+    }
+
+    /// An interface's flags as `ifa_flags` holds them: macros on Apple's platforms, an enum's cases on Android.
+    private enum Flag {
+        #if canImport(Darwin)
+        static let up = IFF_UP, loopback = IFF_LOOPBACK, broadcast = IFF_BROADCAST
+        #else
+        static let up = Int32(IFF_UP.rawValue), loopback = Int32(IFF_LOOPBACK.rawValue),
+                   broadcast = Int32(IFF_BROADCAST.rawValue)
+        #endif
     }
 
     /// A short description of the network this device is on at this moment: every interface that is up,

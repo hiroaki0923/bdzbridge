@@ -1,7 +1,12 @@
 import Foundation
+#if canImport(SQLite3)
 import SQLite3
+#else
+import CSQLite
+#endif
 
 /// A small wrapper over the SQLite that ships with the system, which keeps this package free of dependencies.
+/// Android offers an app none: there it is the one the build puts on the search paths (Package.swift).
 /// It is deliberately thin: the guide cache is written as SQL, the same SQL the server uses.
 final class Sqlite {
     private let handle: OpaquePointer

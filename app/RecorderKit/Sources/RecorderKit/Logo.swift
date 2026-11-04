@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(zlib)
 import zlib
+#else
+import CZlib
+#endif
 
 /// One entry of the logo colour table.
 public struct LogoColor: Sendable, Equatable {

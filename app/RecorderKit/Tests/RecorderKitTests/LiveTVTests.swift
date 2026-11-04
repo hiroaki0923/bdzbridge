@@ -1096,7 +1096,8 @@ extension LiveTVTests {
     /// A line put out as it is said, not when the test ends.
     fileprivate static let sayAtOnce: @Sendable (String) -> Void = { line in
         print(line)
-        fflush(stdout)
+        // Every stream, standard output among them: Android's `stdout` is a variable Swift 6 will not read here.
+        fflush(nil)
     }
 }
 

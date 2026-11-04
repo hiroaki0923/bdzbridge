@@ -447,7 +447,8 @@ actor TVSitting {
         let path = saidFile(beside: ledger).path
         return { line in
             print(line)
-            fflush(stdout)
+            // Every stream, standard output among them: Android's `stdout` is a variable Swift 6 will not read here.
+            fflush(nil)
             guard let file = fopen(path, "a") else { return }
             fputs(line + "\n", file)
             fclose(file)

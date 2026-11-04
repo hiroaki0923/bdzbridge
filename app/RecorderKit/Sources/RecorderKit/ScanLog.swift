@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// What a search for a recorder leaves in the system's log (subsystem `RecorderKit`, category `scan`), so that
 /// a press on a phone can be read afterwards: how long each look through the subnet took and how its requests

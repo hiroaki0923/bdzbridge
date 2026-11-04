@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(zlib)
 import zlib
+#else
+import CZlib
+#endif
 
 /// The guide files are a run of zlib streams stuck together, so inflating one has to report how much of the
 /// input it used. That is the whole reason for going to zlib directly: it tells us what is left over, which is

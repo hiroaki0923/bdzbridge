@@ -1,6 +1,12 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Android)
+import Android
+#endif
 import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// Waking a recorder that has left the network.
 ///
@@ -89,7 +95,9 @@ public enum WakeOnLan {
         }
 
         var destination = sockaddr_in()
+        #if canImport(Darwin)
         destination.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        #endif
         destination.sin_family = sa_family_t(AF_INET)
         destination.sin_port = port.bigEndian
         guard inet_pton(AF_INET, address, &destination.sin_addr) == 1 else {
@@ -100,8 +108,10 @@ public enum WakeOnLan {
         let count = withUnsafePointer(to: &destination) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddress in
                 packet.withUnsafeBytes { bytes in
-                    sendto(handle, bytes.baseAddress, bytes.count, 0, sockaddress,
-                           socklen_t(MemoryLayout<sockaddr_in>.size))
+                    // A packet always has bytes; Android's `sendto` will not take the pointer to none.
+                    bytes.baseAddress.map {
+                        sendto(handle, $0, bytes.count, 0, sockaddress, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    } ?? -1
                 }
             }
         }

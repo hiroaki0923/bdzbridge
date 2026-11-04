@@ -1,3 +1,6 @@
+#if canImport(Android)
+import Android
+#endif
 import Foundation
 import XCTest
 import RecorderKit
@@ -767,7 +770,10 @@ final class ClientQueueTests: XCTestCase {
 
         world.devices[Stub.host] = now
         let connecting = Task { await link.connect() }
-        for _ in 0..<100_000 { await Task.yield() }
+        // Turns enough for the connect to have sent, were it free to, and no longer than a second: the ask waits
+        // for the wire only as long as its own timeout, which a slower machine's hundred thousand turns outlast.
+        let enough = Date().addingTimeInterval(1)
+        for _ in 0..<100_000 where Date() < enough { await Task.yield() }
         expectFalse(await now.actions.contains("description.xml"),
                     "who answers was asked while the last client had a write out at the address")
 

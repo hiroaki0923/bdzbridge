@@ -5,6 +5,10 @@ import XCTest
 /// to the real recorder (`bdzbridge/tools/portkit.py`). See docs/porting.md.
 enum Vectors {
     static let directory: URL = {
+        // Tests run away from the tree they were built in, on an Android device, find a copy where this says.
+        if let copy = ProcessInfo.processInfo.environment["RECORDERKIT_VECTORS"] {
+            return URL(fileURLWithPath: copy)
+        }
         var url = URL(fileURLWithPath: #filePath)
         // .../app/RecorderKit/Tests/RecorderKitTests/Vectors.swift -> repository root
         for _ in 0..<5 { url.deleteLastPathComponent() }
