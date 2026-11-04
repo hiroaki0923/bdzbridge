@@ -88,11 +88,11 @@ keyPassword=…
 
 ## リリース（作者向け）
 
-1. 鍵は一度だけ作り、控えを 2 か所に置きます。失くすと上書き更新ができなくなり、利用者は入れ直しになって許可と登録を失います:
+1. 鍵は一度だけ作り、控えを 2 か所に置きます。失くすと上書き更新ができなくなり、利用者は入れ直しになって許可と登録を失います。証明書の名前は APK に入って誰でも読めるので、アプリの名前だけにします。keytool は JDK 17 以降のものを使います（PKCS12 になり、鍵のパスワードは鍵束のものと同じになります）:
 
    ```
    mkdir -p ~/.config/recbridge-helper && cd ~/.config/recbridge-helper
-   keytool -genkeypair -v -keystore recbridge-helper.jks -alias helper -keyalg RSA -keysize 4096 -validity 36500
+   keytool -genkeypair -v -keystore recbridge-helper.jks -alias helper -keyalg RSA -keysize 4096 -validity 36500 -dname "CN=RecBridge Helper"
    ```
 
 2. `app/build.gradle.kts` の `versionCode` を 1 上げ、`versionName` を変えます
