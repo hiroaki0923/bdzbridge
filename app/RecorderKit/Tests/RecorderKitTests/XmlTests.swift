@@ -24,6 +24,15 @@ final class XmlTests: XCTestCase {
         XCTAssertEqual(item.attributes["id"], "x")
     }
 
+    /// A document cut short is refused, wherever it was cut: an answer that ends half way is not read as the whole
+    /// of what the device said. Android's parser says it parsed each of these.
+    func testADocumentCutShortIsRefused() {
+        for cut in ["", "<a>", "<a><b>text</b>", "<a><b></a>", "<nope"] {
+            XCTAssertThrowsError(try XmlNode.parse(cut), String(reflecting: cut))
+        }
+        XCTAssertNoThrow(try XmlNode.parse("<a><b>text</b></a>"))
+    }
+
     func testResultItemsOfAnEmptyResponse() throws {
         XCTAssertEqual(try XsrsParse.items(inResult: "").count, 0)
         XCTAssertEqual(try XsrsParse.items(inResult: "   ").count, 0)

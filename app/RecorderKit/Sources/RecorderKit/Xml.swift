@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
 
 /// A minimal XML tree, enough for the recorder's SOAP responses, its `description.xml` and DIDL-Lite fragments.
 ///
@@ -65,7 +68,10 @@ public final class XmlNode {
         let builder = Builder()
         parser.shouldProcessNamespaces = false
         parser.delegate = builder
-        guard parser.parse(), let root = builder.root else {
+        // Whole, with every element it opened closed: Android's parser answers that it parsed a document cut
+        // short. What it says of a prefix nobody declared is not counted against a document, as Apple's says
+        // nothing of one with namespaces left alone.
+        guard parser.parse(), builder.isWhole, let root = builder.root else {
             throw XmlError.malformed(parser.parserError?.localizedDescription ?? "could not be parsed")
         }
         return root
@@ -91,6 +97,9 @@ private func localName(_ qualified: String) -> String {
 private final class Builder: NSObject, XMLParserDelegate {
     var root: XmlNode?
     private var stack: [XmlNode] = []
+
+    /// An element began, and every one that did has ended.
+    var isWhole: Bool { root != nil && stack.isEmpty }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
                 qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]) {
