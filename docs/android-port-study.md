@@ -13,8 +13,10 @@ RecBridge の iOS アプリを Android に持っていけるか、とくにレ�
 - Kotlin で書き直すと、RecorderKit とアプリのモデルを合わせて約 25,000 行と、そのテストを二重に持つことになります。
   以後、レコーダーやテレビの振る舞いを直すたびに、Swift と Kotlin（とサーバーの Python）を直すことになります。
 - 画面はどの道でも Android 用に作ります（または Skip で SwiftUI を Jetpack Compose に写します）。ここがいちばん大きい仕事です。
-- **まだ確かめていないのは、Android 用の Swift SDK で RecorderKit が実際にビルドでき、動くかどうか**です。
-  試すにはツールチェーン、SDK、NDK のダウンロードが要ります（下の「最初の一歩」）。
+- **RecorderKit は Android 向けにビルドでき、テスト 953 件が Android のエミュレーターですべて通りました**（2026-11-05、
+  下の「Android でビルドして分かったこと」）。Android の Foundation の違いが 2 つ見つかり、RecorderKit の側で合わせました。
+  テレビ用の送り方がリダイレクトについて行くことと、途中で切れた XML を読めたと答えることです。
+- まだ確かめていないのは、Android の端末から本物のレコーダーとテレビに話すことです（下の「確かめていないこと」）。
 
 ## 規模
 
@@ -28,21 +30,75 @@ RecBridge の iOS アプリを Android に持っていけるか、とくにレ�
 
 RecorderKit には外部の依存がありません（`Package.swift` は自分のターゲットとテストだけ）。
 
-## RecorderKit の中で Android に合わせるところ
+## RecorderKit の中で Android に合わせたところ
+
+Apple にしかないものは `#if canImport(...)` で分け、Apple の上では元のままにしてあります。
 
 | ファイル | 頼っているもの | Android では |
 |---|---|---|
-| `Inflate.swift`、`Logo.swift` | `import zlib`（Apple の SDK にあるモジュール） | zlib は NDK の安定 API にある。モジュールの定義（SwiftPM の `systemLibrary`）を 1 つ足す |
-| `Sqlite.swift` | `import SQLite3`（OS の SQLite） | Android の SQLite は NDK に公開されていない。SQLite のソース（amalgamation、パブリックドメイン）をパッケージに入れて一緒にビルドする |
-| `LocalNetwork.swift` | `Darwin` の `getifaddrs` | Android の C ライブラリにもある（API 24 から）。`sa_family` を `UInt8` と比べている 1 行は直す（Linux 系では 16 ビット） |
-| `WakeOnLan.swift` | `Darwin` のソケット、`os.Logger` | ソケット（`SO_BROADCAST`、`sendto`）はそのまま。ログは差し替える |
-| `ScanLog.swift` | `os.Logger` | ログを差し替える |
-| `Series.swift` | `OSAllocatedUnfairLock` | パッケージのほかの所と同じ `NSLock` にする |
-| `LocalNetworkAccess.swift` | Network framework の `NWConnection`（iOS のローカルネットワークの許可を、接続の状態から読む） | iOS だけの回り道。Android の許可は状態を直接読める（下の「ローカルネットワークの許可」）ので、ファイルごと Android の答え方に替える |
-| `Http.swift`、`ScanTally.swift` | `URLSession` と、iOS の `URLSession` の癖への対策（401 の要求を 2 回送る、リダイレクト）。`ScanTally` は失敗を `NSURLErrorDomain Code=` の文字列から読む | Android の `URLSession` は libcurl の上の別の実装で、癖もエラーの書き方も違う。テレビの登録（PIN を一度だけ送る）とスキャンの失敗の読み方を、Android の送り方で測り直す。`HTTPTransport` の後ろにあるので、ほかのファイルには響かない |
+| `Inflate.swift`、`Logo.swift` | `import zlib`（Apple の SDK にあるモジュール） | NDK の zlib を、モジュールマップ `CZlib`（`Sources/CZlib`）から使う |
+| `Sqlite.swift` | `import SQLite3`（OS の SQLite） | モジュールマップ `CSQLite`（`Sources/CSQLite`）。Android は自前の SQLite をアプリに公開していないので、中身はビルドする側が検索パスに置く（下の「Android 向けのビルドとテストのやり方」） |
+| `LocalNetwork.swift`、`WakeOnLan.swift`、`RecorderAddress.swift` | `Darwin` のソケットと `getifaddrs` | `Android` モジュールの同じ関数。`ifa_flags` の定数（Android では enum）、`sa_family` の幅、`sin_len`（Android にない）、`sendto` の引数の型を合わせた |
+| `ScanLog.swift`、`WakeOnLan.swift`、`Series.swift` | `os.Logger`、`OSAllocatedUnfairLock` | `AppleShims.swift` に同じ形の型を置いた。ログは Android のシステムのログ（`adb logcat`、タグは `RecorderKit.scan` など）へ書き、公開の印のない値は書かない。鍵は `NSLock` |
+| `LocalNetworkAccess.swift` | Network framework の `NWConnection`（iOS のローカルネットワークの許可を、接続の状態から読む） | 作らない。Android の許可は、アプリが Android のやり方で求め、状態を直接読む（下の「ローカルネットワークの許可」） |
+| `ScalarClient.swift` | CoreFoundation（JSON の真偽値と数の見分け） | `NSNumber.objCType` で見分ける。Android の `JSONSerialization` は真偽値を `c`、小数を `d` で返す（エミュレーターで確かめた） |
+| `Http.swift` | `URLSession` と、Apple の `URLSession` の癖への対策（401 の要求を 2 回送る、リダイレクト） | `FoundationNetworking` を import する。リダイレクトを断るのは、Android ではセッション自身のデリゲート（下で測ったこと） |
+| `Xml.swift` | `XMLParser` | `FoundationXML` を import する。途中で切れた文書を拒む確かめを足した（下で測ったこと） |
 
-あわせて、`XMLParser` は `FoundationXML`、`URLSession` は `FoundationNetworking` を import する必要があります
-（Apple 以外の Foundation では別のモジュール）。
+## Android でビルドして分かったこと
+
+2026-11-05 に、Swift 6.4.2、Android 用 Swift SDK 6.4.2、NDK r30（30.0.16248370）で RecorderKit を arm64 の Android
+向けにビルドし、Android 16（API 36）のエミュレーターでテストを走らせました。
+
+- **テスト 953 件がすべて通った**（本物の機器を相手にする 49 件は、Mac と同じく飛ばす）。Mac の 980 件より少ないのは、
+  iOS のローカルネットワークの許可を見る 25 件（Network framework）と、サンプルのファイルの SHA-256 を見る 2 件
+  （CryptoKit。ファイルが正しいかは OS によらないので Mac で見る）を、Android では作らないためです。
+- iOS の動きは変えていません。Mac の `swift test` の 980 件と、iOS アプリのビルドで確かめました。
+- **401 の要求は、Android でも一度しか送られない**。テレビの PIN の登録が頼っている振る舞いです。Android の
+  `URLSession` は何もしなくても送り直しません。
+- **リダイレクト**: 要求ごとに渡すデリゲートは、Android ではリダイレクトについて聞かれません（async の形でも、
+  完了ハンドラーの形でも）。そのため、テレビ用のセッション（リダイレクトについて行かない）が、Android では LAN の外の
+  宛先にもついて行く作りでした。Android ではセッション自身のデリゲートで断るようにし、テストで確かめました。
+- 送れなかったときの文には Android でも `NSURLErrorDomain Code=-1004` が入り、スキャンの数え方（`ScanTally`）は
+  そのまま読めました。時間切れと取り消しも同じ番号（-1001、-999）です。
+- **Android の `XMLParser`（libxml2）は、途中で切れた文書でも読めたと答えます**（`<a>`、`<a><b></a>`、空の文字列
+  など）。宣言されていない接頭辞（`dc:` など）にはエラーを報告しますが、読み取りは続けます。Mac の `XMLParser` は、
+  切れた文書には読めなかったと答え、接頭辞には何も言いません。`XmlNode.parse` は、開いた要素がすべて閉じていることも
+  確かめるようにしました。Mac での結果は変わりません。
+- `Observation`、`Synchronization`、`TimeZone(identifier: "Asia/Tokyo")`（+9 時間）は、そのまま使えました。
+- テストの側で変えたこと:
+  - 送り方のテストの相手役のサーバーを、Network framework から BSD のソケットに書き直しました。同じテストを
+    両方で走らせるためです。
+  - 誰も答えない宛先は、Mac では 127.0.0.2、Android では接続を取り出さないソケットです。Linux 系では
+    127.0.0.0/8 のすべてが自分自身で、聞いていないポートはすぐに断るためです。
+  - 送る順番を待つテストの 2 件は、10 万回の譲りを 1 秒で打ち切ります。エミュレーターでは 10 万回に 13 秒かかり、
+    問い合わせが自分の時間切れ（5 秒）で先に出ていました。
+
+## Android 向けのビルドとテストのやり方
+
+道具は、swiftly と Swift 6.4.2（Xcode のツールチェーンでは Android 向けにビルドできない）、Android 用 Swift SDK
+6.4.2、NDK r30、エミュレーターとそのイメージです。SDK に NDK をつなぐのは一度だけです。
+
+```
+export ANDROID_NDK_HOME=<Android SDK>/ndk/30.0.16248370
+~/Library/org.swift.swiftpm/swift-sdks/swift-6.4.2-RELEASE_android.artifactbundle/swift-android/scripts/setup-android-sdk.sh
+
+cd app/RecorderKit
+swiftly run swift build +6.4.2 --build-tests --swift-sdk swift-6.4.2-RELEASE_android \
+    --triple aarch64-unknown-linux-android28 -Xcc -I<sqlite3.h のあるフォルダー> -Xlinker -L<libsqlite3.so のあるフォルダー>
+```
+
+- テストは、できた `RecorderKitTests-test-runner` と `RecorderKitTests.so` を、SDK の
+  `swift-resources/usr/lib/swift-aarch64/android/*.so`、NDK の `libc++_shared.so`、`docs/port` と一緒に端末へ送り、
+  `LD_LIBRARY_PATH`、`TMPDIR`（書ける場所）、`RECORDERKIT_VECTORS`（送った `docs/port`）を付けて
+  `./RecorderKitTests-test-runner --testing-library xctest` で走らせます。XCTest は共有ライブラリしかないので、
+  テストは Swift の標準ライブラリを静的にリンクしません。
+- 標準ライブラリを静的にリンクする実行ファイル（`--static-swift-stdlib`）は、`FoundationNetworking` の libcurl のために
+  `-Xlinker -lssl -Xlinker -lcrypto -Xlinker -lz` が要りました。
+- SQLite: 試しでは、エミュレーターの `/system/lib64/libsqlite.so` を `libsqlite3.so` の名前でリンクに使い、ヘッダーは
+  手元の `sqlite3.h` を使いました。adb の shell から動かすときだけ使える手で、アプリからは使えません。アプリにするときは
+  SQLite のソース（amalgamation）をパッケージに入れます。そのダウンロードと、約 9 MB のソースをリポジトリに入れるかの
+  判断は作者のものです。
 
 ## 3 つの道
 
@@ -200,27 +256,26 @@ RecorderKit の文のうち 26 行が「iPhone」と書いています（端末�
 **Swift のまま持っていく（B か C）。Kotlin での書き直し（A）は採らない。** 開発の総量が少なく、以後の変更も
 RecorderKit の 1 か所で済むからです。
 
-B と C のどちらにするかは、最初の一歩の結果で決めます。C で番組表の表形式が写せるなら C、写せないなら、
+B と C のどちらにするかは、次の一歩の結果で決めます。C で番組表の表形式が写せるなら C、写せないなら、
 その画面だけ Compose で書くか B にするかを、その時点で比べます。
 
-## 最初の一歩
+## 次の一歩
 
-1. 道具を入れる（ダウンロードなので作者の手で）: swiftly と Swift 6.4.2 のオープンソースのツールチェーン
-   （Xcode のツールチェーンでは Android 向けにビルドできない）、Android 用 Swift SDK 6.4.2、NDK r30。
-2. RecorderKit を Android 向けにビルドし、上の表のファイルを `#if canImport(...)` で分ける。iOS の動きは変えない
-   （macOS の `swift test` がそのまま通ること）。
-3. RecorderKit のテストを Android で走らせる。ネットワークを使わないテストなので、エミュレーターで足りる
-   （エミュレーターのイメージもダウンロード）。
-4. Android の端末から、レコーダーとテレビを Android の送り方で測る（`LiveRecorderTests` の読み取りと、
+道具を入れ、RecorderKit を Android 向けにビルドし、テストをエミュレーターで走らせるところまでは済みました
+（上の「Android でビルドして分かったこと」）。
+
+1. SQLite をパッケージに入れるかを決める（作者）。
+2. Android の端末から、レコーダーとテレビを Android の送り方で測る（`LiveRecorderTests` の読み取りと、
    `LiveTVTests` の登録）。Android の電話がなければ、BRAVIA（Android 12）で adb から走らせる手もある。
-5. C を試すなら、番組表の表形式の 1 画面だけを Skip で Android に出してみる。
+3. C を試すなら、番組表の表形式の 1 画面だけを Skip で Android に出してみる。
 
 ## 確かめていないこと
 
-- Android 用の Swift SDK 6.4.2 に `FoundationNetworking`（libcurl）と `FoundationXML`（libxml2）が入っていて、
-  実機で動くか。正式版の SDK の作業で両方がビルドできたという報告はあるが、リリースの文書には書かれていない。
-- Android の Foundation が `TimeZone(identifier: "Asia/Tokyo")` を端末の時刻帯データから作れるか。
-- `Observation` が Android 用の SDK でそのまま使えるか。
+- Android の端末から、本物のレコーダーとテレビに話すこと。エミュレーターで確かめたのは、機器を真似たテストと
+  自分自身のループバックまで。Wake-on-LAN のブロードキャストが Android のアプリから出るかも、まだ見ていない。
+- アプリの中での `URLSession` が、平文の HTTP を断る Android の設定（network security config）に従うか。
+  試しは adb の shell から動かしたので、この設定の外だった。
+- 32 ビットの ARM（armv7）向けのビルド。SDK は対応しているが、試したのは arm64 だけ。
 - Skip が番組表の表形式を写せるか。
 
 ## 出典
