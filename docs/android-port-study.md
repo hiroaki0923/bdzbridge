@@ -37,7 +37,7 @@ Apple にしかないものは `#if canImport(...)` で分け、Apple の上で�
 | ファイル | 頼っているもの | Android では |
 |---|---|---|
 | `Inflate.swift`、`Logo.swift` | `import zlib`（Apple の SDK にあるモジュール） | NDK の zlib を、モジュールマップ `CZlib`（`Sources/CZlib`）から使う |
-| `Sqlite.swift` | `import SQLite3`（OS の SQLite） | モジュールマップ `CSQLite`（`Sources/CSQLite`）。Android は自前の SQLite をアプリに公開していないので、中身はビルドする側が検索パスに置く（下の「Android 向けのビルドとテストのやり方」） |
+| `Sqlite.swift` | `import SQLite3`（OS の SQLite） | SQLite のソースを持つターゲット `CSQLite`（`Sources/CSQLite`）。Android は SQLite をアプリに公開していないため（下の「SQLite」） |
 | `LocalNetwork.swift`、`WakeOnLan.swift`、`RecorderAddress.swift` | `Darwin` のソケットと `getifaddrs` | `Android` モジュールの同じ関数。`ifa_flags` の定数（Android では enum）、`sa_family` の幅、`sin_len`（Android にない）、`sendto` の引数の型を合わせた |
 | `ScanLog.swift`、`WakeOnLan.swift`、`Series.swift` | `os.Logger`、`OSAllocatedUnfairLock` | `AppleShims.swift` に同じ形の型を置いた。ログは Android のシステムのログ（`adb logcat`、タグは `RecorderKit.scan` など）へ書き、公開の印のない値は書かない。鍵は `NSLock` |
 | `LocalNetworkAccess.swift` | Network framework の `NWConnection`（iOS のローカルネットワークの許可を、接続の状態から読む） | 作らない。Android の許可は、アプリが Android のやり方で求め、状態を直接読む（下の「ローカルネットワークの許可」） |
@@ -82,23 +82,49 @@ Apple にしかないものは `#if canImport(...)` で分け、Apple の上で�
 ```
 export ANDROID_NDK_HOME=<Android SDK>/ndk/30.0.16248370
 ~/Library/org.swift.swiftpm/swift-sdks/swift-6.4.2-RELEASE_android.artifactbundle/swift-android/scripts/setup-android-sdk.sh
-
-cd app/RecorderKit
-swiftly run swift build +6.4.2 --build-tests --swift-sdk swift-6.4.2-RELEASE_android \
-    --triple aarch64-unknown-linux-android28 -Xcc -I<sqlite3.h のあるフォルダー> -Xlinker -L<libsqlite3.so のあるフォルダー>
 ```
 
-- テストは、できた `RecorderKitTests-test-runner` と `RecorderKitTests.so` を、SDK の
-  `swift-resources/usr/lib/swift-aarch64/android/*.so`、NDK の `libc++_shared.so`、`docs/port` と一緒に端末へ送り、
-  `LD_LIBRARY_PATH`、`TMPDIR`（書ける場所）、`RECORDERKIT_VECTORS`（送った `docs/port`）を付けて
-  `./RecorderKitTests-test-runner --testing-library xctest` で走らせます。XCTest は共有ライブラリしかないので、
-  テストは Swift の標準ライブラリを静的にリンクしません。
+ビルドと、エミュレーター（または adb につないだ端末）でのテストは、`app/RecorderKit/scripts/android-tests.sh` で
+行います。CI（下の「CI」）も同じものを走らせます。
+
+```
+export SWIFT="swiftly run swift +6.4.2"
+app/RecorderKit/scripts/android-tests.sh build aarch64   # x86_64 のエミュレーターなら x86_64
+app/RecorderKit/scripts/android-tests.sh run aarch64
+```
+
+- XCTest は共有ライブラリしかないので、テストは Swift の標準ライブラリを静的にリンクしません。スクリプトは、できた
+  `RecorderKitTests-test-runner` と `RecorderKitTests.so` を、SDK の Swift の実行時のライブラリ、NDK の
+  `libc++_shared.so`、`docs/port` と一緒に端末へ送ります。そして `LD_LIBRARY_PATH`、`TMPDIR`（書ける場所）、
+  `RECORDERKIT_VECTORS`（送った `docs/port`）を付けて走らせます。
 - 標準ライブラリを静的にリンクする実行ファイル（`--static-swift-stdlib`）は、`FoundationNetworking` の libcurl のために
   `-Xlinker -lssl -Xlinker -lcrypto -Xlinker -lz` が要りました。
-- SQLite: 試しでは、エミュレーターの `/system/lib64/libsqlite.so` を `libsqlite3.so` の名前でリンクに使い、ヘッダーは
-  手元の `sqlite3.h` を使いました。adb の shell から動かすときだけ使える手で、アプリからは使えません。アプリにするときは
-  SQLite のソース（amalgamation）をパッケージに入れます。そのダウンロードと、約 9 MB のソースをリポジトリに入れるかの
-  判断は作者のものです。
+
+### SQLite
+
+Android は SQLite をアプリに公開していません。ふつうの Android アプリは、Java の API（`android.database.sqlite`）を
+通してシステムの SQLite を使います。ネイティブのコードは、Android 7.0 から NDK の外のシステムのライブラリに
+リンクできません。そのため、ネイティブのコードから SQLite を使うもの（SQLCipher、Google の `androidx.sqlite` の
+`sqlite-bundled` など）は、SQLite を自分で同梱しています。
+
+RecorderKit も、SQLite のソース（amalgamation の `sqlite3.c` と `sqlite3.h`、3.54.1）を `Sources/CSQLite` に持ちます。
+Android のときだけ使うターゲットなので、iOS のビルドと Mac の `swift test` ではコンパイルされません。Android 向けの
+コンパイルは、Apple シリコンの Mac でデバッグが 1.5 秒、最適化ありが 5.3 秒でした。
+
+- 一時ファイルはメモリーに置きます（`SQLITE_TEMP_STORE=2`）。SQLite が一時ファイルの置き場として探す `/var/tmp`、
+  `/usr/tmp`、`/tmp` は、Android のアプリには書けないことがあるからです。
+- アプリでは、同じデータベースのファイルを Java の API からは開かないこと。同梱した SQLite とシステムの SQLite が
+  同じファイルを開くと、ロックが噛み合わず、ファイルが壊れることがあります。
+- 版を上げるときは、sqlite.org のダウンロードのページから amalgamation の zip を取り、ページに載っている SHA3-256 と
+  一致することを確かめます。そのうえで `sqlite3.c` と `sqlite3.h` を置き換え、`Package.swift` に書いた版を直します。
+
+### CI
+
+`.github/workflows/android.yml` が、PR ごとと main への push ごとに、RecorderKit を x86_64 の Android 向けに
+ビルドし、Android 16（API 36）のエミュレーターでテストを走らせます。PR をマージする条件にできるよう、すべての PR で
+走ります。RecorderKit、`docs/port`、このワークフローのどれも変えていない PR では、何もせずに通ります。
+
+GitHub の標準のランナーは x86_64 なので、CI のテストは x86_64 のエミュレーターで走ります。arm64 では手元で走らせます。
 
 ## 3 つの道
 
@@ -172,9 +198,9 @@ B でも C でも、1 つのリポジトリで持てます。要になるのは 
 
 1 つのリポジトリにするために足すもの:
 
-- **Android のビルドが壊れたことに気づく仕組み。** 今 RecorderKit を見ているのは、pre-commit フックの macOS の
-  `swift test` と、Xcode Cloud の iOS のビルドだけ。RecorderKit を変えたら Android 向けのビルドも通すよう、フックに
-  足す（Mac に SDK があるとき）か、GitHub Actions を足す（今のリポジトリには無い）。
+- **Android のビルドが壊れたことに気づく仕組み。** pre-commit フックの macOS の `swift test` と、Xcode Cloud の
+  iOS のビルドのほかに、GitHub Actions のワークフローが PR ごとに Android 向けのビルドとテストを走らせる
+  （上の「CI」）。
 - **ツールチェーンの版。** Android 用の SDK は、同じ版のオープンソースのツールチェーンとしか組めない。Xcode の Swift が
   先に上がったとき、新しい版の機能を RecorderKit で使うと、Android 側は SDK が出るまで待つことになる。
 - **iOS アプリの文言の決まり**（アプリとストアの文に Android などの語を入れない）。Android 用のコードと文は
@@ -264,10 +290,9 @@ B と C のどちらにするかは、次の一歩の結果で決めます。C �
 道具を入れ、RecorderKit を Android 向けにビルドし、テストをエミュレーターで走らせるところまでは済みました
 （上の「Android でビルドして分かったこと」）。
 
-1. SQLite をパッケージに入れるかを決める（作者）。
-2. Android の端末から、レコーダーとテレビを Android の送り方で測る（`LiveRecorderTests` の読み取りと、
+1. Android の端末から、レコーダーとテレビを Android の送り方で測る（`LiveRecorderTests` の読み取りと、
    `LiveTVTests` の登録）。Android の電話がなければ、BRAVIA（Android 12）で adb から走らせる手もある。
-3. C を試すなら、番組表の表形式の 1 画面だけを Skip で Android に出してみる。
+2. C を試すなら、番組表の表形式の 1 画面だけを Skip で Android に出してみる。
 
 ## 確かめていないこと
 
@@ -282,6 +307,9 @@ B と C のどちらにするかは、次の一歩の結果で決めます。C �
 
 - [Swift 6.3 Released](https://www.swift.org/blog/swift-6.3-released/)（Android 用 Swift SDK の最初の正式版）
 - [Getting Started with the Swift SDK for Android](https://www.swift.org/documentation/articles/swift-sdk-for-android-getting-started.html)（6.4.2、NDK r30、swift-java）
+- [SQLite Download Page](https://www.sqlite.org/download.html)（amalgamation と、その SHA3-256）
+- [BundledSQLiteDriver](https://developer.android.com/reference/kotlin/androidx/sqlite/driver/bundled/BundledSQLiteDriver)（Google が SQLite を同梱した版）
+- [SQLCipher for Android の Android N への対応](https://discuss.zetetic.net/t/sqlcipher-for-android-upcoming-changes-for-android-n-and-coordinated-beta-test-request/1315)（ネイティブのコードからシステムの `libsqlite.so` を使えなくなったこと）
 - [Put together an Android SDK bundle（swiftlang/swift #80788）](https://github.com/swiftlang/swift/issues/80788)（FoundationNetworking と FoundationXML のビルド）
 - [GSoC 2025 Showcase: Extending Swift-Java Interoperability](https://swift.org/blog/gsoc-2025-showcase-swift-java/)（JNI モード）
 - [Skip 2026](https://skip.dev/blog/skip-2026/)（Skip Fuse、オープンソース化）
