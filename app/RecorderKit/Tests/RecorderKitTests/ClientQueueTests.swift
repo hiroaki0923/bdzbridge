@@ -297,7 +297,7 @@ final class ClientQueueTests: XCTestCase {
         let reading = Task { try await last.titles() }
         try await recorder.whenHeld()
         let checking = Task { await link.check(evenIfRecent: true) }
-        for _ in 0..<100_000 where world.count("packet") == 0 { await Task.yield() }
+        await eventually { world.count("packet") > 0 }
         XCTAssertEqual(world.count("packet"), 1, "the check's packet never went")
         await yield()
         let before = world.events.count
@@ -329,19 +329,11 @@ final class ClientQueueTests: XCTestCase {
         let (world, link, recorder) = try await connected(mac: DeviceLinkTests.mac, driver: driver)
         await recorder.sayNothingOfWhoItIs()
         let checking = Task { await link.check(evenIfRecent: true) }
-        var turns = 0
-        while !link.session.waking, turns < 100_000 {
-            turns += 1
-            await Task.yield()
-        }
+        await eventually { link.session.waking }
         XCTAssertTrue(link.session.waking, "the check never came to wake the recorder")
         // The check's own probe, and one of the waking's.
         func asked() async -> Int { await recorder.actions.filter { $0 == "description.xml" }.count }
-        turns = 0
-        while await asked() < 2, turns < 100_000 {
-            turns += 1
-            await Task.yield()
-        }
+        await eventually { await asked() >= 2 }
         expectTrue(await asked() >= 2, "the waking never asked who answers")
         let packets = world.count("packet")
 
@@ -641,7 +633,7 @@ final class ClientQueueTests: XCTestCase {
         XCTAssertEqual(recorder.heard.count("X_GetTitleList"), reads + 1, "the read behind the ask never came")
         try await recorder.whenHeld()
         // The attach has heard who answered once it keeps the address; a moment more for what that let go.
-        for _ in 0..<100_000 where !world.events.contains("address \(Stub.host)") { await Task.yield() }
+        await eventually { world.events.contains("address \(Stub.host)") }
         XCTAssertTrue(world.events.contains("address \(Stub.host)"), "the attach never heard who answered")
         for _ in 0..<100_000 { await Task.yield() }
         expectEqual(await recorder.actions.filter { $0 == "X_UpdateTitle" }.count, 0,
@@ -680,7 +672,7 @@ final class ClientQueueTests: XCTestCase {
 
         let another = try XCTUnwrap(link.driver.makeClient(for: link) as? RecorderClient)
         let reading = Task { try await another.titles() }
-        for _ in 0..<100_000 where !recorder.heard.contains("X_GetTitleList") { await Task.yield() }
+        await eventually { recorder.heard.contains("X_GetTitleList") }
         XCTAssertTrue(recorder.heard.contains("X_GetTitleList"), "the read waited for the wire a silent request left")
         _ = try await within(10, "the read never came back") { await reading.result }
     }
@@ -702,7 +694,7 @@ final class ClientQueueTests: XCTestCase {
         world.devices[Stub.host] = recorder
         let fresh = try XCTUnwrap(link.driver.makeClient(for: link) as? RecorderClient)
         let reading = Task { try await fresh.titles() }
-        for _ in 0..<100_000 where !recorder.heard.contains("X_GetTitleList") { await Task.yield() }
+        await eventually { recorder.heard.contains("X_GetTitleList") }
         XCTAssertTrue(recorder.heard.contains("X_GetTitleList"),
                       "the read waited for the wire a description that did not read kept")
         _ = try await within(10, "the read never came back") { await reading.result }
@@ -1066,9 +1058,9 @@ final class ClientQueueTests: XCTestCase {
 
     /// Returns once a connect begun on `link` has made a client in place of `last` and its attach is under way
     /// (接続中), and its ask of who answers has had the turns to get as far as its wait for the wire: waited
-    /// for a bounded number of turns, and a failure when it has not come by then.
+    /// for as `eventually` waits, and a failure when it has not come by then.
     private func attaching(_ link: DeviceLink, in world: LinkWorld, after last: RecorderClient) async {
-        for _ in 0..<100_000 where link.client === last || world.line != "接続中" { await Task.yield() }
+        await eventually { link.client !== last && world.line == "接続中" }
         XCTAssertFalse(link.client === last, "the connect made no client of its own")
         XCTAssertEqual(world.line, "接続中", "the connect's attach never began")
         await yield()

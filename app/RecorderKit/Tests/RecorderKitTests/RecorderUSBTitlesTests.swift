@@ -327,8 +327,7 @@ final class RecorderUSBTitlesTests: XCTestCase {
     }
 
     private func untilHeld(_ recorder: TwoDisks) async throws {
-        for _ in 0..<100_000 { if await recorder.isHolding { break } else { await Task.yield() } }
-        expectTrue(await recorder.isHolding, "the request that was to be held never came")
+        expectTrue(await eventually { await recorder.isHolding }, "the request that was to be held never came")
     }
 
     /// A read asked for afresh is not folded into the read out, whose answer whoever asked has already seen and

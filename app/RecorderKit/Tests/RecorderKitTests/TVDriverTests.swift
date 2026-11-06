@@ -1468,7 +1468,7 @@ final class TVDriverTests: XCTestCase {
         let unsure = try await attachedThenQueued()
         await unsure.television.goSilent()
         await unsure.gate.before(Self.asksWhich) { @MainActor in
-            for _ in 0..<100_000 where !unsure.world.begun.contains(TVDriver.sendingLine) { await Task.yield() }
+            await eventually { unsure.world.begun.contains(TVDriver.sendingLine) }
         }
         asked = await unsure.gate.asked
         let checking = Task { await unsure.link.ensureUp(evenIfRecent: true) }
@@ -1868,7 +1868,7 @@ final class TVDriverTests: XCTestCase {
         let behind = Reserving()
         await bench.gate.before(Self.create) { @MainActor in
             behind.reservation = Task { await bench.driver.reserve(film, repeating: "none") }
-            for _ in 0..<100_000 where !bench.world.begun.contains(TVDriver.reservingLine) { await Task.yield() }
+            await eventually { bench.world.begun.contains(TVDriver.reservingLine) }
         }
         let before = await bench.gate.asked.count
 
@@ -1907,7 +1907,7 @@ final class TVDriverTests: XCTestCase {
         // been kept and its line is up, so that the first read to fail is the round's.
         let other = try Sqlite(path: path)
         await bench.gate.before(Self.asksWhich) { @MainActor in
-            for _ in 0..<100_000 where !bench.world.begun.contains(TVDriver.reservingLine) { await Task.yield() }
+            await eventually { bench.world.begun.contains(TVDriver.reservingLine) }
             try? other.execute("ALTER TABLE pending_reservations RENAME TO out_of_reach")
         }
         await bench.gate.before(Self.read) { @MainActor in
@@ -2035,7 +2035,7 @@ final class TVDriverTests: XCTestCase {
         let unsure = try await attachedQueueBench()
         await unsure.television.goSilent()
         await unsure.gate.before(Self.asksWhich) { @MainActor in
-            for _ in 0..<100_000 where !unsure.world.begun.contains(TVDriver.reservingLine) { await Task.yield() }
+            await eventually { unsure.world.begun.contains(TVDriver.reservingLine) }
         }
         let asked = await unsure.gate.asked
         let checking = Task { await unsure.link.ensureUp(evenIfRecent: true) }
@@ -2538,7 +2538,7 @@ final class TVDriverTests: XCTestCase {
         // The first's question is kept from being answered until the second has its line up as well.
         let twice = try await resendBench([clash.stale], holding: holding)
         await twice.gate.before(Self.question) { @MainActor in
-            for _ in 0..<100_000 where twice.world.begun.filter({ $0 == sending }).count < 2 { await Task.yield() }
+            await eventually { twice.world.begun.filter({ $0 == sending }).count >= 2 }
         }
         var before = await twice.gate.asked.count
         let first = Task { await twice.driver.resend(clash.stale) }
@@ -2725,7 +2725,7 @@ final class TVDriverTests: XCTestCase {
         unreadable.world.cache = store
         let other = try Sqlite(path: path)
         await unreadable.gate.before(Self.asksWhich) { @MainActor in
-            for _ in 0..<100_000 where !unreadable.world.begun.contains(TVDriver.sendingLine) { await Task.yield() }
+            await eventually { unreadable.world.begun.contains(TVDriver.sendingLine) }
             try? other.execute("ALTER TABLE pending_reservations RENAME TO out_of_reach")
         }
         await unreadable.gate.before(Self.read) { @MainActor in

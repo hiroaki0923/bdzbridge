@@ -660,11 +660,10 @@ private final class Begun {
         await withCheckedContinuation { waiting = (count, $0) }
     }
 
-    /// Whether as many as `count` have begun, given a bounded number of turns to: for a test that is to fail
-    /// rather than wait where one never does.
+    /// Whether as many as `count` have begun, waited for as `eventually` waits: for a test that is to fail rather
+    /// than wait where one never does.
     func came(_ count: Int) async -> Bool {
-        for _ in 0..<100_000 where self.count < count { await Task.yield() }
-        return self.count >= count
+        await eventually { self.count >= count }
     }
 }
 

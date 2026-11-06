@@ -66,16 +66,10 @@ actor PlayingRecorder: HTTPTransport {
     /// Whether a request is being held now.
     var isHolding: Bool { held != nil }
 
-    /// Returns once a request is being held: waited for ten seconds at most, and a failure, thrown on, when none
-    /// has come by then. By the clock, not by turns: the request may be sent from the main actor, which a task
-    /// yielding its turn does not wait for, and on Android's emulator in CI a hundred thousand turns were over
-    /// before it came.
+    /// Returns once a request is being held, waited for as `eventually` waits, and a failure, thrown on, when none
+    /// has come by then.
     nonisolated func whenHeld() async throws {
-        let enough = Date().addingTimeInterval(10)
-        while await !isHolding, Date() < enough {
-            await Task.yield()
-        }
-        guard await isHolding else {
+        guard await eventually({ await isHolding }) else {
             XCTFail("the request that was to be held never came")
             throw NothingHeld()
         }
