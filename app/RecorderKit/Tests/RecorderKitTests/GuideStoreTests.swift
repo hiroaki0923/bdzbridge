@@ -477,6 +477,18 @@ final class GuideStoreTests: XCTestCase {
                             epgCapable: true, location: "http://\(host):64220/description.xml", via: "manual")
     }
 
+    /// Runs `body` once `delay` has passed, on a thread of its own rather than one of the pool the tasks run on,
+    /// and returns when it has run.
+    private static func onAThreadOfItsOwn(after delay: TimeInterval, _ body: @escaping @Sendable () throws -> Void)
+        async throws {
+        try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, any Error>) in
+            Thread {
+                Thread.sleep(forTimeInterval: delay)
+                done.resume(with: Result { try body() })
+            }.start()
+        }
+    }
+
     /// A cache with something of everything a recorder leaves in it, and of what the reader does: a guide
     /// with its marks and a logo, a type the recorder had no file for, a recording's text, a channel hidden
     /// and a reservation waiting.
@@ -794,7 +806,7 @@ final class GuideStoreTests: XCTestCase {
         let services = try sampleServices()
         let first = recorder(1)
 
-        let other = try Sqlite(path: path)
+        nonisolated(unsafe) let other = try Sqlite(path: path)
         try other.execute("BEGIN IMMEDIATE")
         async let replaced = Result { try await replacing.replace(services, broadcasting: "td", from: first) }
         async let noted = Result { try await noting.noteNoGuide(broadcasting: "bs", from: first) }
@@ -803,11 +815,15 @@ final class GuideStoreTests: XCTestCase {
                                              from: first)
         }
         // Long enough for each to be waiting for its write; should one not have got that far, it finds the
-        // other recorder on any look and the outcome is the same.
-        try await Task.sleep(for: .milliseconds(300))
-        try other.execute("INSERT OR REPLACE INTO meta (key, value) VALUES "
-            + "('recorder_udn', 'uuid:00000000-0000-0000-0000-f84e17000002')")
-        try other.execute("COMMIT")
+        // other recorder on any look and the outcome is the same. The other connection lets go from a thread
+        // of its own: each write waits for its turn on a thread of the pool the tasks run on, which has only as
+        // many as the machine has cores, and with two (Android's emulator in CI) a holder waiting among them had
+        // none to let go on until two of the writes had given up.
+        try await Self.onAThreadOfItsOwn(after: 0.3) {
+            try other.execute("INSERT OR REPLACE INTO meta (key, value) VALUES "
+                + "('recorder_udn', 'uuid:00000000-0000-0000-0000-f84e17000002')")
+            try other.execute("COMMIT")
+        }
 
         for (write, came) in [("the programmes", await replaced.map { _ in }), ("the mark", await noted),
                               ("the logos", await logos)] {

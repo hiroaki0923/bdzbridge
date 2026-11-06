@@ -4,7 +4,7 @@
 # (docs/android-port-study.md).
 #
 #   scripts/android-tests.sh build <arch>    arch: aarch64 or x86_64, the device's
-#   scripts/android-tests.sh run <arch>
+#   scripts/android-tests.sh run <arch> [RecorderKitTests.<Class>[/<test>][,...]]    all of them unless named
 #
 # SWIFT is the swift to build with, "swift" unless set. Xcode's cannot build for Android, so on a Mac it is
 # swiftly's: SWIFT="swiftly run swift +6.4.2". ANDROID_NDK_HOME is the NDK the Swift SDK for Android was set up
@@ -13,6 +13,7 @@ set -eu
 
 command=${1:?build or run}
 arch=${2:?aarch64 or x86_64}
+shift 2
 swift=${SWIFT:-swift}
 sdk=${SWIFT_ANDROID_SDK:-swift-6.4.2-RELEASE_android}
 triple=$arch-unknown-linux-android28
@@ -39,7 +40,7 @@ run)
     # The vectors the tests check the package against, found by RECORDERKIT_VECTORS (Vectors.swift).
     adb push "$package/../../docs/port" "$device/docs/"
     adb shell "cd $device && TMPDIR=$device/tmp HOME=$device RECORDERKIT_VECTORS=$device/docs/port \
-LD_LIBRARY_PATH=$device:$device/lib ./RecorderKitTests-test-runner --testing-library xctest"
+LD_LIBRARY_PATH=$device:$device/lib ./RecorderKitTests-test-runner --testing-library xctest $*"
     ;;
 *)
     echo "usage: $0 build|run aarch64|x86_64" >&2
