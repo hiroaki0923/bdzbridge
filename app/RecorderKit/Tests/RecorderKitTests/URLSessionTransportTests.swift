@@ -1,5 +1,12 @@
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Android)
+import Android
+#endif
 import Foundation
-import Network
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import XCTest
 @testable import RecorderKit
 
@@ -15,7 +22,7 @@ final class URLSessionTransportTests: XCTestCase {
                           ("the television's", URLSessionTransport.withoutCookies())]
         for (whose, transport) in transports {
             for authorization in [nil, "Basic OjAwMDA="] {
-                let server = try await LoopbackServer(answering: LoopbackServer.challenge)
+                let server = try LoopbackServer(answering: LoopbackServer.challenge)
                 defer { server.stop() }
                 var headers = ["Content-Type": "application/json"]
                 if let authorization { headers["Authorization"] = authorization }
@@ -35,7 +42,7 @@ final class URLSessionTransportTests: XCTestCase {
 
     /// Any other answer comes back whole: the status, the headers as the server spelled them, and the body.
     func testAnAnswerComesBackWhole() async throws {
-        let server = try await LoopbackServer(answering: LoopbackServer.answer(
+        let server = try LoopbackServer(answering: LoopbackServer.answer(
             status: "200 OK", headers: ["Set-Cookie: auth=sample; Max-Age=1209600"], body: #"{"result":[]}"#))
         defer { server.stop() }
 
@@ -53,11 +60,11 @@ final class URLSessionTransportTests: XCTestCase {
     /// send it there is handed back as the answer, and the place it names hears nothing. The same answer through
     /// the recorder's session, which is left as it was, is followed, which is what shows the test can tell.
     func testATelevisionsSessionHandsARedirectBackAsTheAnswer() async throws {
-        let elsewhere = try await LoopbackServer(answering: LoopbackServer.answer(
+        let elsewhere = try LoopbackServer(answering: LoopbackServer.answer(
             status: "200 OK", headers: [], body: "{}"))
         defer { elsewhere.stop() }
         let sendsOn = elsewhere.url("/elsewhere").absoluteString
-        let redirecting = try await LoopbackServer(answering: LoopbackServer.answer(
+        let redirecting = try LoopbackServer(answering: LoopbackServer.answer(
             status: "302 Found", headers: ["Location: \(sendsOn)"], body: ""))
         defer { redirecting.stop() }
 
@@ -80,7 +87,7 @@ final class URLSessionTransportTests: XCTestCase {
     /// reads the system's code back out of that text (`ScanTally`). The wording is the system's, so it is
     /// looked at with the real session: a connection refused on the loopback, where nothing listens on port 9.
     func testAFailureInTransitKeepsTheSystemsCodeForASearchsTally() async throws {
-        let server = try await LoopbackServer(answering: LoopbackServer.answer(
+        let server = try LoopbackServer(answering: LoopbackServer.answer(
             status: "200 OK", headers: [], body: "{}"))
         defer { server.stop() }
         let tally = ScanTally(URLSessionTransport())
@@ -104,10 +111,18 @@ final class URLSessionTransportTests: XCTestCase {
     /// What a search's tally makes of an address where nobody answers, through the real session: a request
     /// there times out when its own time is up, and is cancelled when the search ends it first, as a search's
     /// deadline does to one that has outlived its time (`Discovery.probe`). Either is a request that was out,
-    /// so a look made of such addresses was not turned away (`ScanTally.Counts.mostTurnedAway`). 127.0.0.2 is
-    /// the loopback network's and nobody's: what is sent there never leaves this machine and is never answered.
+    /// so a look made of such addresses was not turned away (`ScanTally.Counts.mostTurnedAway`). On a Mac
+    /// 127.0.0.2 is the loopback network's and nobody's: what is sent there never leaves this machine and is never
+    /// answered. Elsewhere every address of 127/8 is the machine's own, and one where nothing listens refuses at
+    /// once, so the silence is a socket that listens and takes no connection up.
     func testASilentAddressCountsAsARequestThatWasOut() async throws {
+        #if canImport(Darwin)
         let silent = try XCTUnwrap(URL(string: "http://127.0.0.2:9/description.xml"))
+        #else
+        let mute = try Listening()
+        defer { mute.stop() }
+        let silent = mute.url("/description.xml")
+        #endif
 
         let timingOut = ScanTally(URLSessionTransport())
         _ = try? await timingOut.send(HTTPRequest(url: silent, timeout: 0.5))
@@ -128,12 +143,17 @@ final class URLSessionTransportTests: XCTestCase {
 
 /// A server on the loopback that answers every request with the same bytes, closes, and keeps the request
 /// lines it was sent: a request sent again arrives on a connection of its own and is one more line.
+///
+/// Written on the sockets every platform has, so that the same tests read what `URLSession` does on Android
+/// as on a Mac.
 private final class LoopbackServer: @unchecked Sendable {
-    private let listener: NWListener
+    private let listening: Int32
+    private let port: UInt16
     private let queue = DispatchQueue(label: "loopback server")
     private let lock = NSLock()
     private let answer: Data
     private var lines: [String] = []
+    private var stopped = false
 
     /// What a television answers a client it does not know that asks to register.
     static let challenge = answer(status: "401 Unauthorized", headers: [#"WWW-Authenticate: Basic realm="Private Page""#],
@@ -146,76 +166,125 @@ private final class LoopbackServer: @unchecked Sendable {
     }
 
     /// Listening by the time this returns, on a port the system chose, at the loopback address only.
-    init(answering answer: Data) async throws {
+    init(answering answer: Data) throws {
         self.answer = answer
-        let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
-        listener = try NWListener(using: parameters)
-        listener.newConnectionHandler = { [weak self] connection in self?.serve(connection) }
-        let started = Once()
-        try await withCheckedThrowingContinuation { (waiting: CheckedContinuation<Void, any Error>) in
-            listener.stateUpdateHandler = { state in
-                // Anything but ready ends the wait: a test left waiting for a listener would never end.
-                switch state {
-                case .ready: started.first { waiting.resume() }
-                case .failed(let error), .waiting(let error): started.first { waiting.resume(throwing: error) }
-                case .cancelled: started.first { waiting.resume(throwing: CancellationError()) }
-                default: break
-                }
-            }
-            listener.start(queue: queue)
-        }
+        let socket = try Listening()
+        listening = socket.handle
+        port = socket.port
+        queue.async { [self] in serve() }
     }
 
     /// The first line of each request received, in the order they came.
     var requests: [String] { lock.withLock { lines } }
 
     func url(_ path: String) -> URL {
-        URL(string: "http://127.0.0.1:\(listener.port?.rawValue ?? 0)\(path)")!
+        URL(string: "http://127.0.0.1:\(port)\(path)")!
     }
 
-    func stop() { listener.cancel() }
+    /// Stops taking connections within a twentieth of a second, and closes the socket it listened on.
+    func stop() { lock.withLock { stopped = true } }
 
-    private func serve(_ connection: NWConnection) {
-        connection.start(queue: queue)
-        read(connection, so: Data())
+    /// Takes one connection at a time until stopped, looking for one every twentieth of a second: a socket
+    /// closed under a thread waiting on it does not wake the thread on every platform, a wait that times out does.
+    private func serve() {
+        while !lock.withLock({ stopped }) {
+            var waiting = pollfd(fd: listening, events: Int16(POLLIN), revents: 0)
+            guard poll(&waiting, 1, 50) > 0 else { continue }
+            let connection = accept(listening, nil, nil)
+            if connection >= 0 { answer(connection) }
+        }
+        close(listening)
     }
 
-    /// Reads until the request is whole -- its head, and as much body as the head says -- then answers.
-    private func read(_ connection: NWConnection, so far: Data) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, ended, error in
-            guard let self else { return }
-            let received = far + (data ?? Data())
-            if let head = received.range(of: Data("\r\n\r\n".utf8)) {
-                let text = String(decoding: received[..<head.lowerBound], as: UTF8.self)
-                let length = text.components(separatedBy: "\r\n")
-                    .first { $0.lowercased().hasPrefix("content-length:") }
-                    .flatMap { Int($0.dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces)) } ?? 0
-                if received.count - head.upperBound >= length {
-                    self.lock.withLock { self.lines.append(text.components(separatedBy: "\r\n")[0]) }
-                    connection.send(content: self.answer, completion: .contentProcessed { _ in connection.cancel() })
-                    return
-                }
-            }
-            if ended || error != nil {
-                connection.cancel()
-            } else {
-                self.read(connection, so: received)
+    /// Reads until the request is whole -- its head, and as much body as the head says -- then answers and closes.
+    private func answer(_ connection: Int32) {
+        defer { close(connection) }
+        var received = Data()
+        var buffer = [UInt8](repeating: 0, count: 65_536)
+        while true {
+            let count = recv(connection, &buffer, buffer.count, 0)
+            guard count > 0 else { return }
+            received.append(contentsOf: buffer[..<count])
+            guard let line = Self.requestLine(ofWhole: received) else { continue }
+            lock.withLock { lines.append(line) }
+            sendAll(answer, on: connection)
+            return
+        }
+    }
+
+    private static func requestLine(ofWhole received: Data) -> String? {
+        guard let head = received.range(of: Data("\r\n\r\n".utf8)) else { return nil }
+        let text = String(decoding: received[..<head.lowerBound], as: UTF8.self)
+        let length = text.components(separatedBy: "\r\n")
+            .first { $0.lowercased().hasPrefix("content-length:") }
+            .flatMap { Int($0.dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces)) } ?? 0
+        guard received.count - head.upperBound >= length else { return nil }
+        return text.components(separatedBy: "\r\n")[0]
+    }
+
+    /// All of it, unless the client has gone, which ends the sending and not the test run: a write to a socket
+    /// its other end has closed raises SIGPIPE unless the socket or the call says not to.
+    private func sendAll(_ data: Data, on connection: Int32) {
+        #if canImport(Darwin)
+        var on: Int32 = 1
+        setsockopt(connection, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        let flags: Int32 = 0
+        #else
+        let flags = Int32(MSG_NOSIGNAL)
+        #endif
+        data.withUnsafeBytes { bytes in
+            guard let base = bytes.baseAddress else { return }
+            var offset = 0
+            while offset < bytes.count {
+                let sent = send(connection, base + offset, bytes.count - offset, flags)
+                guard sent > 0 else { return }
+                offset += sent
             }
         }
     }
 }
 
-/// Runs the first thing it is handed and nothing after: a listener reports its state more than once.
-private final class Once: @unchecked Sendable {
-    private let lock = NSLock()
-    private var done = false
+/// A socket listening at the loopback address, on a port the system chose, which takes up nothing by itself:
+/// the system completes a connection to it and holds it, and whoever sends there hears nothing back.
+private struct Listening {
+    let handle: Int32
+    let port: UInt16
 
-    func first(_ body: () -> Void) {
-        let isFirst = lock.withLock { () -> Bool in
-            defer { done = true }
-            return !done
+    init() throws {
+        let handle = socket(AF_INET, SOCK_STREAM, 0)
+        guard handle >= 0 else { throw ServerError.call("socket", errno) }
+        var address = sockaddr_in()
+        #if canImport(Darwin)
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        #endif
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = 0
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let bound = withUnsafeMutablePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { address in
+                bind(handle, address, length) == 0 && listen(handle, 16) == 0
+                    && getsockname(handle, address, &length) == 0
+            }
         }
-        if isFirst { body() }
+        guard bound else {
+            let code = errno
+            close(handle)
+            throw ServerError.call("bind, listen or getsockname", code)
+        }
+        self.handle = handle
+        port = UInt16(bigEndian: address.sin_port)
     }
+
+    func url(_ path: String) -> URL {
+        URL(string: "http://127.0.0.1:\(port)\(path)")!
+    }
+
+    func stop() {
+        close(handle)
+    }
+}
+
+private enum ServerError: Error {
+    case call(String, Int32)
 }

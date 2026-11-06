@@ -1,3 +1,6 @@
+// iOS's local network privacy, read off a connection of Apple's Network framework. Android's permission for the
+// local network is one an app there asks for and is told of in Android's own way, so none of this is built there.
+#if canImport(Network)
 import Foundation
 import Network
 
@@ -408,3 +411,4 @@ final class WaitConnection: WatchedConnection {
         connection.cancel()
     }
 }
+#endif

@@ -1,6 +1,10 @@
 import Foundation
 import RecorderKit
+#if canImport(SQLite3)
 import SQLite3
+#else
+import CSQLite
+#endif
 import XCTest
 
 /// What the recorder's runs with no screen tell once, through the two runs themselves

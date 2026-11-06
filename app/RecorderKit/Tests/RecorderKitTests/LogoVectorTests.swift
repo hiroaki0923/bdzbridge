@@ -1,6 +1,12 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 import XCTest
+#if canImport(zlib)
 import zlib
+#else
+import CZlib
+#endif
 @testable import RecorderKit
 
 final class LogoVectorTests: XCTestCase {
@@ -10,11 +16,15 @@ final class LogoVectorTests: XCTestCase {
         return (data, expected)
     }
 
+    // Which file the sample is does not change with the platform the tests run on, and Android has no
+    // CryptoKit to tell it by: the Mac's run checks it.
+    #if canImport(CryptoKit)
     func testTheSampleFileIsTheOneTheVectorDescribes() throws {
         let (data, expected) = try sample()
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         XCTAssertEqual(digest, expected.string("sha256"))
     }
+    #endif
 
     func testDecodingMatchesTheVector() throws {
         let (data, expected) = try sample()

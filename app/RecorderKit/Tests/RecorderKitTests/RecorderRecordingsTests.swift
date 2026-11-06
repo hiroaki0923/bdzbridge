@@ -601,7 +601,7 @@ final class RecorderRecordingsTests: XCTestCase {
         try await recorder.whenHeld()
         await recorder.beBusyWhenAskedWhoItIs()
         let check = Task { await link.ensureUp(evenIfRecent: true) }
-        for _ in 0..<100_000 where link.wakeCheck == nil { await Task.yield() }
+        await eventually { link.wakeCheck != nil }
         XCTAssertNotNil(link.wakeCheck, "the check was meant to be out behind the question")
         await recorder.letGo()
 
@@ -647,7 +647,7 @@ final class RecorderRecordingsTests: XCTestCase {
                     noted.begun = true
                     return await driver.mayGoOn(run)
                 }
-                for _ in 0..<100_000 where !noted.begun { await Task.yield() }
+                await eventually { noted.begun }
                 XCTAssertTrue(noted.begun, "the run was meant to be waiting for the check: \(what)")
                 // Busy to the check, through both tries after the first; and then free, or busy still.
                 if freeAgain {
@@ -899,13 +899,13 @@ final class RecorderRecordingsTests: XCTestCase {
         let asking = Task { await driver.detail(of: title) }
         try await recorder.whenHeld()
         let check = Task { await link.ensureUp(evenIfRecent: true) }
-        for _ in 0..<100_000 where link.wakeCheck == nil { await Task.yield() }
+        await eventually { link.wakeCheck != nil }
         XCTAssertNotNil(link.wakeCheck, "the check was meant to be out behind the question")
         let ending = Task {
             await driver.end(run, deleted: 1, stopped: nil)
             noted.back = true
         }
-        for _ in 0..<100_000 where !noted.back { await Task.yield() }
+        await eventually { noted.back }
         await recorder.letGo()
         _ = await asking.value
         await ending.value
@@ -941,7 +941,7 @@ final class RecorderRecordingsTests: XCTestCase {
         try await recorder.whenHeld()
         await recorder.beBusyWhenAskedWhoItIs()
         var behind = Task { await link.ensureUp(evenIfRecent: true) }
-        for _ in 0..<100_000 where link.wakeCheck == nil { await Task.yield() }
+        await eventually { link.wakeCheck != nil }
         XCTAssertNotNil(link.wakeCheck, "the check was meant to be out behind the delete")
         await recorder.letGo()
         let deleted = await deleting.value
@@ -965,7 +965,7 @@ final class RecorderRecordingsTests: XCTestCase {
         try await recorder.whenHeld()
         await recorder.beBusyWhenAskedWhoItIs()
         behind = Task { await link.ensureUp(evenIfRecent: true) }
-        for _ in 0..<100_000 where link.wakeCheck == nil { await Task.yield() }
+        await eventually { link.wakeCheck != nil }
         XCTAssertNotNil(link.wakeCheck, "the check was meant to be out behind the list")
         await recorder.letGo()
         expectEqual(await reading.value, true, "a check that came in behind the list failed its read")
@@ -1540,7 +1540,7 @@ final class RecorderRecordingsTests: XCTestCase {
             noted.back = true
             return came
         }
-        for _ in 0..<100_000 where !noted.back { await Task.yield() }
+        await eventually { noted.back }
         XCTAssertTrue(noted.back, "the press waits for the connect that is under way")
         XCTAssertEqual(waiting.events.filter { $0.hasPrefix("ask") }, [], "something was asked beside a connect")
         await scripted.letGo()
@@ -1611,7 +1611,7 @@ final class RecorderRecordingsTests: XCTestCase {
             let check = Task { await link.ensureUp(evenIfRecent: true) }
             try await Self.whenHeld(recorder)
             let refreshing = Task { await driver.refreshGuide(.all) { world.put("stored \($0)") } }
-            for _ in 0..<100_000 where world.line != "番組表を取得中" { await Task.yield() }
+            await eventually { world.line == "番組表を取得中" }
             XCTAssertEqual(world.line, "番組表を取得中", "the refresh was meant to be waiting for the check")
             meanwhile(world)
             await recorder.answer(.silence)
@@ -1744,12 +1744,7 @@ final class RecorderRecordingsTests: XCTestCase {
         func refreshing(_ driver: RecorderDriver, _ world: LinkWorld, _ which: GuideAsked = .all,
                         heldAt recorder: HoldingAFile) async -> Task<GuideRefreshed, Never> {
             let refresh = Task { await driver.refreshGuide(which) { world.put("stored \($0)") } }
-            var turns = 0
-            while await !recorder.isHolding, turns < 100_000 {
-                turns += 1
-                await Task.yield()
-            }
-            expectTrue(await recorder.isHolding, "the refresh was meant to have its first file out")
+            expectTrue(await eventually { await recorder.isHolding }, "the refresh was meant to have its first file out")
             return refresh
         }
 
@@ -1827,7 +1822,7 @@ final class RecorderRecordingsTests: XCTestCase {
             let check = Task { await toTheChecked.ensureUp(evenIfRecent: true) }
             try await Self.whenHeld(scripted)
             let besideTheCheck = Task { await ofTheChecked.refreshGuide(.all) { checked.put("stored \($0)") } }
-            for _ in 0..<100_000 where checked.line != "番組表を取得中" { await Task.yield() }
+            await eventually { checked.line == "番組表を取得中" }
             XCTAssertEqual(checked.line, "番組表を取得中", "the refresh was meant to be waiting for the check")
             toTheChecked.forgetTheDevice()
             checked.problem = left
@@ -1910,7 +1905,7 @@ final class RecorderRecordingsTests: XCTestCase {
             try await Self.whenWaitingUnderItsLine(world)
             await recorder.sayNothingOfWhoItIs()
             let check = Task { await link.ensureUp(evenIfRecent: true) }
-            for _ in 0..<100_000 where !link.session.waking { await Task.yield() }
+            await eventually { link.session.waking }
             return (world, link, recorder, turn, noted, refresh, check)
         }
 
@@ -2052,12 +2047,7 @@ final class RecorderRecordingsTests: XCTestCase {
             -> (world: LinkWorld, link: DeviceLink, recorder: HoldingAFile, refresh: Task<GuideRefreshed, Never>) {
             let (world, driver, link, recorder) = try await holdingAFile(wakeable: wakeable)
             let refresh = Task { await driver.refreshGuide(.all) { world.put("stored \($0)") } }
-            var turns = 0
-            while await !recorder.isHolding, turns < 100_000 {
-                turns += 1
-                await Task.yield()
-            }
-            guard await recorder.isHolding else {
+            guard await eventually({ await recorder.isHolding }) else {
                 XCTFail("the refresh was meant to have its first file out")
                 throw NothingHeld()
             }
@@ -2074,26 +2064,19 @@ final class RecorderRecordingsTests: XCTestCase {
             await recorder.beBusyWhenAskedWhoItIs(times: times)
             if waitedFor { await recorder.holdTheNextAskOfWhoItIs() }
             let check = Task { await link.ensureUp(evenIfRecent: true) }
-            for _ in 0..<100_000 where link.wakeCheck == nil { await Task.yield() }
+            await eventually { link.wakeCheck != nil }
             XCTAssertNotNil(link.wakeCheck, "the check was meant to be out beside the file")
             return (world, link, recorder, refresh, check, asked)
         }
         /// The file having been let go, with the check's ask held behind it: waits until that ask is held and,
         /// where the file gave a guide, until its programmes are in the cache; gives the refresh its turns to
-        /// come to its asking, where it finds the check out and waits for it; and lets the ask go. Each wait a
-        /// counted loop of turns that ends in a failure, thrown on.
+        /// come to its asking, where it finds the check out and waits for it; and lets the ask go. The first two
+        /// waits are `eventually`'s, and either ending with nothing come is a failure, thrown on.
         func comeToItsAsking(_ world: LinkWorld, _ recorder: HoldingAFile, stored: Bool) async throws {
-            var turns = 0
-            while await !recorder.isHoldingAnAsk, turns < 100_000 {
-                turns += 1
-                await Task.yield()
-            }
-            turns = 0
-            while stored, try await world.cache?.counts()["td"]?.programs != 4, turns < 100_000 {
-                turns += 1
-                await Task.yield()
-            }
-            guard await recorder.isHoldingAnAsk, turns < 100_000 else {
+            let held = await eventually { await recorder.isHoldingAnAsk }
+            var kept = true
+            if stored { kept = try await eventually { try await world.cache?.counts()["td"]?.programs == 4 } }
+            guard held, kept else {
                 XCTFail("the check's ask was never held, or the type never stored")
                 throw NothingHeld()
             }
@@ -2235,12 +2218,8 @@ final class RecorderRecordingsTests: XCTestCase {
         let (world, link, recorder, refresh) = try await refreshing()
         await recorder.holdTheNextAskOfWhoItIs()
         let connecting = Task { await link.connect() }
-        var turns = 0
-        while await !recorder.isHoldingAnAsk, turns < 100_000 {
-            turns += 1
-            await Task.yield()
-        }
-        expectTrue(await recorder.isHoldingAnAsk, "the connect's ask of who answers was meant to be held")
+        expectTrue(await eventually { await recorder.isHoldingAnAsk },
+                   "the connect's ask of who answers was meant to be held")
         XCTAssertFalse(link.clientIsAttached, "the connect's own client was meant to be in hand, unheard")
         world.events = []
         await recorder.letGo(with: .success(guide))
@@ -2416,12 +2395,7 @@ final class RecorderRecordingsTests: XCTestCase {
         let store = try temporaryStore()
         addTeardownBlock { await recorder.letGo(with: .success(HTTPResponse(statusCode: 500))) }
         let refresh = Task { await GuideRefresh.run(client: client, store: store) }
-        var turns = 0
-        while await !recorder.isHolding, turns < 100_000 {
-            turns += 1
-            await Task.yield()
-        }
-        guard await recorder.isHolding else {
+        guard await eventually({ await recorder.isHolding }) else {
             XCTFail("the refresh that was to have the turn never asked for its first file")
             throw NothingHeld()
         }
@@ -2432,7 +2406,7 @@ final class RecorderRecordingsTests: XCTestCase {
     /// does before it waits its turn: a counted loop of turns, and a failure, thrown on, when it has not by
     /// then.
     private static func whenWaitingUnderItsLine(_ world: LinkWorld) async throws {
-        for _ in 0..<100_000 where world.line != RecorderDriver.guideLine { await Task.yield() }
+        await eventually { world.line == RecorderDriver.guideLine }
         guard world.line == RecorderDriver.guideLine else {
             XCTFail("the refresh that was to wait its turn never put its line up")
             throw NothingHeld()
@@ -2454,7 +2428,7 @@ final class RecorderRecordingsTests: XCTestCase {
             await recorder.whenHeld()
             noted.back = true
         }
-        for _ in 0..<100_000 where !noted.back { await Task.yield() }
+        await eventually { noted.back }
         guard noted.back else {
             XCTFail("the ask that was to be held never came")
             throw NothingHeld()

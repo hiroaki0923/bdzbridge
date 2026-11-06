@@ -1,0 +1,92 @@
+# RecorderKit built for Android and its tests run on an Android emulator, so that a change that breaks the
+# package there is seen before it is merged. The steps are app/RecorderKit/scripts/android-tests.sh's, which
+# runs the same by hand (docs/android-port-study.md).
+name: Android
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  recorderkit:
+    name: RecorderKit on Android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      # The SDK goes only with the open-source toolchain of its own version.
+      SWIFT_VERSION: 6.4.2
+      SWIFT_ANDROID_SDK: swift-6.4.2-RELEASE_android
+      SWIFT_ANDROID_SDK_URL: https://download.swift.org/swift-6.4.2-release/android-sdk/swift-6.4.2-RELEASE/swift-6.4.2-RELEASE_android.artifactbundle.tar.gz
+      # As swift.org gives it for this release.
+      SWIFT_ANDROID_SDK_CHECKSUM: 4d6ad63ea74becd58e123ff58b1b48c3be5ec0db0dff0ea5abe37ac007dd3233
+      ANDROID_NDK_VERSION: 30.0.16248370
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request is checked out as its merge, whose first parent is the base.
+          fetch-depth: 2
+
+      # A check that has to pass before a merge has to answer every pull request, so the job runs for all of
+      # them and goes no further, passing, when nothing the package is built or checked from has changed.
+      - name: See whether the package changed
+        id: changed
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] &&
+              git diff --quiet HEAD^1 HEAD -- app/RecorderKit docs/port .github/workflows/android.yml; then
+            echo "package=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "package=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Swift and the Swift SDK for Android
+        if: steps.changed.outputs.package == 'true'
+        run: |
+          curl -fsSLO "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz"
+          tar zxf "swiftly-$(uname -m).tar.gz"
+          ./swiftly init --assume-yes --quiet-shell-followup --skip-install
+          . "${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/env.sh"
+          swiftly install --use --assume-yes --post-install-file=post-install.sh "$SWIFT_VERSION"
+          if [ -s post-install.sh ]; then sudo bash post-install.sh; fi
+          echo "${SWIFTLY_BIN_DIR:-$HOME/.local/share/swiftly/bin}" >> "$GITHUB_PATH"
+          swift sdk install "$SWIFT_ANDROID_SDK_URL" --checksum "$SWIFT_ANDROID_SDK_CHECKSUM"
+
+      - name: Install the NDK and set the SDK up with it
+        if: steps.changed.outputs.package == 'true'
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ANDROID_NDK_VERSION"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> "$GITHUB_ENV"
+          root=$(swift sdk configure --show-configuration "$SWIFT_ANDROID_SDK" x86_64-unknown-linux-android28 |
+              sed -n 's/^sdkRootPath: //p')
+          "$(dirname "$root")/scripts/setup-android-sdk.sh"
+
+      - name: Build the tests
+        if: steps.changed.outputs.package == 'true'
+        run: app/RecorderKit/scripts/android-tests.sh build x86_64
+
+      # The emulator needs the runner's KVM, which is not open to the runner's user by default.
+      - name: Open KVM to the emulator
+        if: steps.changed.outputs.package == 'true'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+              sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run the tests on an emulator
+        if: steps.changed.outputs.package == 'true'
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          script: app/RecorderKit/scripts/android-tests.sh run x86_64

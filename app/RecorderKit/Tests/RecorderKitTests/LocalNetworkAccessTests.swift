@@ -1,3 +1,5 @@
+// Built where `LocalNetworkAccess.swift` is: with Apple's Network framework.
+#if canImport(Network)
 import Network
 import XCTest
 @testable import RecorderKit
@@ -664,3 +666,4 @@ private final class Played: @unchecked Sendable {
     var lines: [String] { lock.withLock { written } }
     var over: Bool { lock.withLock { isOver } }
 }
+#endif

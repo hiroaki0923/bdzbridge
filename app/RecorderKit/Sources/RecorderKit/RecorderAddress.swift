@@ -1,3 +1,6 @@
+#if canImport(Android)
+import Android
+#endif
 import Foundation
 
 /// The recorder's address as somebody types it, and the URLs the client builds on it.

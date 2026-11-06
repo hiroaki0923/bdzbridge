@@ -373,14 +373,9 @@ final class GuideRefreshTests: XCTestCase {
         return (client(), client(), transport, held)
     }
 
-    /// Waits, a bounded while, for the request the two clients' transport holds to have come.
+    /// Waits, as `eventually` waits, for the request the two clients' transport holds to have come.
     private func whenHeld(_ held: Held) async throws {
-        var turns = 0
-        while await !held.isHolding, turns < 100_000 {
-            turns += 1
-            await Task.yield()
-        }
-        guard await held.isHolding else {
+        guard await eventually({ await held.isHolding }) else {
             XCTFail("the first refresh was meant to have its first file out")
             throw NothingHeld()
         }
@@ -409,7 +404,7 @@ final class GuideRefreshTests: XCTestCase {
             return await GuideRefresh.run(asked: .notAnsweredSince(yesterday),
                                           onTurn: { .fetch(client: second, store: store, from: nil) })
         }
-        for _ in 0..<100_000 where begun.types.isEmpty { await Task.yield() }
+        await eventually { !begun.types.isEmpty }
         XCTAssertEqual(begun.types, ["begun"], "the second refresh was meant to have been asked for")
         await held.letGo()
         let (one, other) = (await out.value, await behind.value)
@@ -443,7 +438,7 @@ final class GuideRefreshTests: XCTestCase {
             begun.add("begun")
             return await GuideRefresh.run(client: second, store: store)
         }
-        for _ in 0..<100_000 where begun.types.isEmpty { await Task.yield() }
+        await eventually { !begun.types.isEmpty }
         waiting.cancel()
         await held.letGo()
         let (one, cancelled) = (await out.value, await waiting.value)
@@ -493,12 +488,7 @@ final class GuideRefreshTests: XCTestCase {
             func askedForTheFreeSpace() async -> Bool {
                 await recorder.bodies.contains { $0.contains("X_HDLnkGetRecordDestinationInfo") }
             }
-            var turns = 0
-            while await !askedForTheFreeSpace(), turns < 100_000 {
-                turns += 1
-                await Task.yield()
-            }
-            guard await askedForTheFreeSpace() else {
+            guard await eventually({ await askedForTheFreeSpace() }) else {
                 XCTFail("\(row): the night never asked for the free space")
                 throw NothingHeld()
             }

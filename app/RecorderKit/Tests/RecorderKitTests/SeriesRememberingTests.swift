@@ -1,5 +1,7 @@
 import XCTest
+#if canImport(os)
 import os
+#endif
 @testable import RecorderKit
 
 /// A title's programme name and key are kept once worked out, since the recordings screen asks for them each

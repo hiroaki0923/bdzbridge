@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// A request, kept free of `URLRequest` so that everything here stays `Sendable` and the tests can stub the
 /// transport without touching `URLSession`.
@@ -82,7 +85,12 @@ public struct URLSessionTransport: HTTPTransport {
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
         configuration.httpCookieStorage = nil
-        return URLSessionTransport(session: URLSession(configuration: configuration), followsRedirects: false)
+        #if canImport(FoundationNetworking)
+        let session = URLSession(configuration: configuration, delegate: RedirectsRefused(), delegateQueue: nil)
+        #else
+        let session = URLSession(configuration: configuration)
+        #endif
+        return URLSessionTransport(session: session, followsRedirects: false)
     }
 
     /// A request answered with a demand for a password is not sent a second time, as `URLSession` would send
@@ -142,6 +150,10 @@ public struct URLSessionTransport: HTTPTransport {
 /// The one delegate a request has, so it also answers a redirect: followed, or, for a session that follows
 /// none (`URLSessionTransport.withoutCookies`), refused, which per Apple's page for the method hands back "the
 /// body of the redirect response" with its status, as the request's answer.
+///
+/// On Android a redirect is not asked of this, in either form, but of a session's own delegate
+/// (`RedirectsRefused`); and a demand for a password comes back there with the request sent once. Both are
+/// what `URLSessionTransportTests` saw run on Android.
 private final class ChallengeRefused: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     private let lock = NSLock()
     private var kept: HTTPURLResponse?
@@ -153,6 +165,14 @@ private final class ChallengeRefused: NSObject, URLSessionTaskDelegate, @uncheck
 
     var answer: HTTPURLResponse? { lock.withLock { kept } }
 
+    /// The challenges that are TLS's: a server proving who it is, and one asking for a certificate. Android's
+    /// Foundation has neither.
+    #if canImport(Darwin)
+    private static let systemsOwn = [NSURLAuthenticationMethodServerTrust, NSURLAuthenticationMethodClientCertificate]
+    #else
+    private static let systemsOwn: [String] = []
+    #endif
+
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest) async -> URLRequest? {
         followsRedirects ? request : nil
@@ -161,9 +181,7 @@ private final class ChallengeRefused: NSObject, URLSessionTaskDelegate, @uncheck
     func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge)
         async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         let space = challenge.protectionSpace
-        guard space.authenticationMethod != NSURLAuthenticationMethodServerTrust,
-              space.authenticationMethod != NSURLAuthenticationMethodClientCertificate,
-              !space.isProxy() else {
+        guard !Self.systemsOwn.contains(space.authenticationMethod), !space.isProxy() else {
             return (.performDefaultHandling, nil)
         }
         // Cancelled whether or not the answer came with it: without one the request fails, and is still not
@@ -172,3 +190,15 @@ private final class ChallengeRefused: NSObject, URLSessionTaskDelegate, @uncheck
         return (.cancelAuthenticationChallenge, nil)
     }
 }
+
+#if canImport(FoundationNetworking)
+/// A session's own delegate, which refuses every redirect, for a session that follows none on Android. There
+/// the delegate a request is sent with is not asked whether to follow one (`ChallengeRefused`), in either form,
+/// and the session's own is: measured by `URLSessionTransportTests`.
+private final class RedirectsRefused: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+#endif

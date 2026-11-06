@@ -66,15 +66,10 @@ actor PlayingRecorder: HTTPTransport {
     /// Whether a request is being held now.
     var isHolding: Bool { held != nil }
 
-    /// Returns once a request is being held: waited for a bounded while, and a failure, thrown on, when none
+    /// Returns once a request is being held, waited for as `eventually` waits, and a failure, thrown on, when none
     /// has come by then.
     nonisolated func whenHeld() async throws {
-        var turns = 0
-        while await !isHolding, turns < 100_000 {
-            turns += 1
-            await Task.yield()
-        }
-        guard await isHolding else {
+        guard await eventually({ await isHolding }) else {
             XCTFail("the request that was to be held never came")
             throw NothingHeld()
         }

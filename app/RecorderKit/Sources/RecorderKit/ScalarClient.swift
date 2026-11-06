@@ -168,9 +168,9 @@ enum ScalarValue: Sendable, Hashable {
         case let text as String:
             self = .string(text)
         case let number as NSNumber:
-            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+            if Self.isBoolean(number) {
                 self = .bool(number.boolValue)
-            } else if CFNumberIsFloatType(number) {
+            } else if Self.hasFraction(number) {
                 self = .double(number.doubleValue)
             } else {
                 self = .int(number.intValue)
@@ -195,6 +195,18 @@ enum ScalarValue: Sendable, Hashable {
             return nil
         }
     }
+
+    // Android's Foundation has no CoreFoundation to ask. Its `JSONSerialization` gives true and false as numbers
+    // of type "c", which it gives no number written in digits, and a number written with a fraction as "d".
+    #if canImport(Darwin)
+    private static func isBoolean(_ number: NSNumber) -> Bool { CFGetTypeID(number) == CFBooleanGetTypeID() }
+    private static func hasFraction(_ number: NSNumber) -> Bool { CFNumberIsFloatType(number) }
+    #else
+    private static func isBoolean(_ number: NSNumber) -> Bool { String(cString: number.objCType) == "c" }
+    private static func hasFraction(_ number: NSNumber) -> Bool {
+        ["d", "f"].contains(String(cString: number.objCType))
+    }
+    #endif
 
     /// The value as `JSONSerialization` writes it.
     var json: Any {
