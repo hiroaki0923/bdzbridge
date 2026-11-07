@@ -134,8 +134,13 @@ struct HelperRegisterSheet: View {
                     TextField("6 桁の番号", text: $code)
                         .keyboardType(.numberPad)
                 } footer: {
-                    Text("テレビで「RecBridge ヘルパー」を開き、「登録の番号を出す」で表示された 6 桁の番号を入力してください。"
-                         + "番号は 5 分で消えます。ヘルパーを入れる手順は、アプリの説明書にあります。")
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("テレビで「RecBridge ヘルパー」を開き、「登録の番号を出す」で表示された 6 桁の番号を入力してください。"
+                             + "番号は 5 分で消えます。")
+                        Text("ヘルパーをテレビに入れる手順は、GitHub の説明書にあります。")
+                        Link("github.com/hiroaki0923/bdzbridge/helper",
+                             destination: URL(string: "https://github.com/hiroaki0923/bdzbridge/blob/main/helper/README.md")!)
+                    }
                 }
                 if let message {
                     Section { Text(message.asABody).foregroundStyle(.red).font(.callout) }
