@@ -37,7 +37,8 @@ object Bridge {
 
     suspend fun programmes(host: String, folder: String, broadcasting: String, serviceID: Long, dayOffset: Long): List<Programme> =
         call { AndroidBridge.programmes(host, folder, broadcasting, serviceID, dayOffset, arena) }.map {
-            Programme(it.eventID, it.title, it.span, it.details, it.summary, it.isOnAir, it.isEnded)
+            Programme(it.eventID, it.title, it.span, it.details, it.station, it.starts, it.length, it.genre,
+                      it.summary, it.extended, it.isOnAir, it.isEnded)
         }
 
     fun dayHeading(dayOffset: Long): String = AndroidBridge.dayHeading(dayOffset)
@@ -63,8 +64,9 @@ data class Recorder(val host: String, val name: String, val model: String)
 data class Station(val serviceID: Long, val name: String)
 
 data class Programme(
-    val eventID: Long, val title: String, val span: String, val details: String, val summary: String,
-    val onAir: Boolean, val ended: Boolean,
+    val eventID: Long, val title: String, val span: String, val details: String,
+    val station: String, val starts: String, val length: String, val genre: String,
+    val summary: String, val extended: String, val onAir: Boolean, val ended: Boolean,
 )
 
 data class Found(val host: String, val isRecorder: Boolean, val name: String)

@@ -10,11 +10,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Refresh
@@ -27,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -43,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -154,6 +159,8 @@ fun RecorderScreen(state: AppState) {
 /** One station's programmes on one broadcast day, the station and the type chosen above them. */
 @Composable
 private fun GuideView(state: AppState) {
+    var opened by remember { mutableStateOf<Programme?>(null) }
+    opened?.let { ProgrammeSheet(it) { opened = null } }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -185,20 +192,56 @@ private fun GuideView(state: AppState) {
                 }
                 // A day opens at what is on now (or next), as on iOS; another day's first programme has not ended.
                 LoadedList(state.programmes, empty = "この日の番組はありません",
-                           start = { list -> list.indexOfFirst { !it.ended } }) { ProgrammeRowView(it) }
+                           start = { list -> list.indexOfFirst { !it.ended } }) { programme ->
+                    ProgrammeRowView(programme) { opened = programme }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ProgrammeRowView(item: Programme) {
+private fun ProgrammeRowView(item: Programme, open: () -> Unit) {
     ListItem(
         overlineContent = { Text(if (item.onAir) "${item.span} · 放送中" else item.span) },
         headlineContent = { Text(item.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         supportingContent = { Text(item.details) },
-        modifier = Modifier.alpha(if (item.ended) 0.5f else 1f),
+        modifier = Modifier.clickable(onClick = open).alpha(if (item.ended) 0.5f else 1f),
     )
+}
+
+/** What the iOS app's programme sheet says of a programme, before its reservation part: read only here. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProgrammeSheet(item: Programme, close: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = close) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp)
+            .padding(bottom = 24.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(item.title, style = MaterialTheme.typography.titleMedium)
+            Labeled("放送", item.station)
+            Labeled("開始", item.starts)
+            Labeled("長さ", item.length)
+            if (item.genre.isNotEmpty()) Labeled("ジャンル", item.genre)
+            if (item.summary.isNotEmpty()) Section("番組内容", item.summary)
+            if (item.extended.isNotEmpty()) Section("詳細", item.extended)
+        }
+    }
+}
+
+@Composable
+private fun Labeled(label: String, value: String) {
+    Row(Modifier.fillMaxWidth()) {
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+        Text(value)
+    }
+}
+
+@Composable
+private fun Section(heading: String, body: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(heading, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Text(body, style = MaterialTheme.typography.bodyMedium)
+    }
 }
 
 @Composable

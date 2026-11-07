@@ -11,7 +11,7 @@ public struct ChannelRow {
     public var name: String
 }
 
-/// One programme of a day, worded.
+/// One programme of a day, worded for its row and for its sheet, which shows what the iOS app's does.
 public struct ProgrammeRow {
     public var eventID: Int
     public var title: String
@@ -19,9 +19,31 @@ public struct ProgrammeRow {
     public var span: String
     /// The length and the genre: `54分 · ドラマ`.
     public var details: String
+    public var station: String
+    /// `11/8(日) 21:00`.
+    public var starts: String
+    /// `54分`.
+    public var length: String
+    /// Empty when the guide gives none.
+    public var genre: String
     public var summary: String
+    public var extended: String
     public var onAir: Bool
     public var ended: Bool
+}
+
+// In an extension, so that the memberwise initialiser stays.
+extension ProgrammeRow {
+    init(_ program: GuideProgramRow, now: Date) {
+        let length = "\(max(0, program.durationSec) / 60)分"
+        let genre = program.genre?.label ?? ""
+        self.init(eventID: program.eventID, title: program.title,
+                  span: "\(Wording.time.string(from: program.start))〜\(Wording.time.string(from: program.end))",
+                  details: [length, genre].filter { !$0.isEmpty }.joined(separator: " · "),
+                  station: program.serviceName, starts: Wording.day.string(from: program.start), length: length,
+                  genre: genre, summary: program.summary, extended: program.extended,
+                  onAir: program.start <= now && now < program.end, ended: program.end <= now)
+    }
 }
 
 /// The guide's caches, one opened per file and kept open.
@@ -75,14 +97,7 @@ public func programmes(host: String, folder: String, broadcasting: String, servi
         let store = try await GuideFiles.shared.store(in: folder, for: host)
         let day = broadcastDay(dayOffset)
         let now = Date()
-        return try await store.day(day, broadcasting: broadcasting, serviceID: serviceID).map { program in
-            let minutes = Int(program.end.timeIntervalSince(program.start) / 60)
-            let details = ["\(minutes)分", program.genre?.label].compactMap { $0 }.joined(separator: " · ")
-            return ProgrammeRow(eventID: program.eventID, title: program.title,
-                                span: "\(Wording.time.string(from: program.start))〜\(Wording.time.string(from: program.end))",
-                                details: details, summary: program.summary,
-                                onAir: program.start <= now && now < program.end, ended: program.end <= now)
-        }
+        return try await store.day(day, broadcasting: broadcasting, serviceID: serviceID).map { ProgrammeRow($0, now: now) }
     } catch {
         throw BridgeError.from(error)
     }

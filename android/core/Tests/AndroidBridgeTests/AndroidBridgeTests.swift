@@ -39,6 +39,10 @@ final class AndroidBridgeTests: XCTestCase {
                                          serviceID: stations[0].serviceID, dayOffset: 0)
         XCTAssertFalse(today.isEmpty, "the demo's guide covers today")
         XCTAssertTrue(today.allSatisfy { $0.span.contains("〜") && $0.details.contains("分") })
+        XCTAssertTrue(today.allSatisfy { $0.station == stations[0].name && $0.starts.hasSuffix($0.span.prefix(5)) },
+                      "the sheet's station and start are the row's")
+        XCTAssertTrue(today.contains { !$0.summary.isEmpty }, "the demo's programmes say what they are")
+        XCTAssertEqual(today.filter(\.onAir).count, 1, "one programme is on air on today's list")
         XCTAssertTrue(dayHeading(dayOffset: 0).contains("("))
     }
 
