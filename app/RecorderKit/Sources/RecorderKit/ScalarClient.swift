@@ -687,14 +687,11 @@ public actor ScalarClient {
         return (result as? [[String: Any]])?.first?["annotation"] as? Int
     }
 
-    /// The quality a reservation by its times is sent with (`addSchedule(byTime:quality:)`): none, until a
-    /// television is seen to want one.
-    static let qualityByTimes: String? = nil
-
     /// Reserves `body` by its times alone: `recording.addSchedule` 1.0, which an older television has in place of
     /// 1.1. No programme id is sent, so the television does not follow the programme: what is made is a
     /// reservation of those times on that station. `quality` is sent where it is given: the version's signature
-    /// lists one, and whether a television wants it has not been seen yet.
+    /// lists one, but a television took a reservation without it and listed it in DR, as it does one made in 1.1,
+    /// so the app sends none. The title sent is kept, where 1.1's is replaced by the television's own.
     @discardableResult
     func addSchedule(byTime body: TVReservationBody, quality: String? = nil) async throws -> Int? {
         var fields = body.asking.merging(["type": "recording"]) { $1 }
@@ -1290,7 +1287,7 @@ extension ScalarClient: QueueTarget {
         do {
             // An older television, which lists its reservations in 1.0, is sent one by its times, in 1.0.
             if speaks["getScheduleList"] == "1.0" {
-                try await addSchedule(byTime: body, quality: Self.qualityByTimes)
+                try await addSchedule(byTime: body)
             } else {
                 try await addSchedule(body)
             }
