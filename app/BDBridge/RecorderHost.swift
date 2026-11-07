@@ -68,14 +68,12 @@ final class RecorderSaid {
         reservationsRead = Date()
     }
 
-    /// Puts a list of the recordings here, with the USB disk it holds the rows of, `usb` being the disk known now.
-    /// A list that holds no USB disk's rows takes away only those of a disk that has left the slot: the rows of one
-    /// still there were not read this time, which says nothing of them, and they stay, so that a pull-down that
-    /// met a busy recorder does not empty a list narrowed to that disk, nor undo a set of copies. `titlesReadFrom`
-    /// stays nil, which keeps the list out of date until they have been read (`RecorderHost.usbListOutdated`).
+    /// Puts a list of the recordings here, with the USB disk it holds the rows of, `usb` being the disk known now,
+    /// by the package's rule for the rows of a disk the read did not read (`keeping(_:readFrom:usb:)`). With none
+    /// read `titlesReadFrom` stays nil, which keeps the list out of date until they have been
+    /// (`RecorderHost.usbListOutdated`).
     func keep(titles read: [RecordedTitle], readFrom disk: RecorderDisk?, usb: RecorderDisk?) {
-        let held = disk == nil ? titles.filter { $0.readFrom?.isStill(usb) == true } : []
-        titles = held.isEmpty ? read : read.filter { $0.destination != RecorderDisk.usbID } + held
+        titles = titles.keeping(read, readFrom: disk, usb: usb)
         titlesReadFrom = disk
         titlesLoaded = true
         // The sets on screen were built from the list as it was. A copy one says it keeps may have gone since,
@@ -516,7 +514,7 @@ final class RecorderHost: RecorderLinkHost {
     /// What a sending of what waits for the recorder came to, on the strip, when a round ran
     /// (`RecorderDriver.sendWhatWaits`). Said on screen, since a notification does not show while the app is in
     /// front (nothing here answers `willPresent`). Added to what the strip holds unread, by the strip's rule
-    /// (`AppModel.adding(_:toUnread:)`), as a television's sending adds to its own: two sendings before the reader
+    /// (`StripReport.adding(_:toUnread:)`), as a television's sending adds to its own: two sendings before the reader
     /// closes the strip are both said, and a sentence it holds already is not said twice. A round with nothing
     /// to say leaves the strip as it was. What became of the queue says which device it went to once a
     /// television is saved beside the recorder, and not before (`PendingQueue.Outcome.said`).
@@ -528,19 +526,12 @@ final class RecorderHost: RecorderLinkHost {
     /// send to, runs none either. The count said before is replaced by it (`heldBackSaid`), the rest kept. With
     /// nothing held and nothing to add, the strip stays as it was.
     func tellTheStrip(_ round: PendingQueue.Outcome?) {
-        let held = RecorderDriver.heldBack(in: model?.pending ?? [])
-        // What the strip holds unread, without the count it began with, which this sending's replaces.
-        var unread = self.said.report
-        if let said = heldBackSaid, let report = self.said.report, report.hasPrefix(said) {
-            let rest = report.dropFirst(said.count).drop { $0 == "。" }
-            unread = rest.isEmpty ? nil : String(rest)
-        }
-        let added = round?.said(withATelevisionSaved: model?.tv != nil)
-            .flatMap { AppModel.adding($0, toUnread: unread) }
-        let lines = [held, added ?? unread].compactMap { $0 }
-        guard !lines.isEmpty else { return }
-        self.said.report = lines.joined(separator: "。")
-        heldBackSaid = held
+        guard let next = StripReport.afterASending(report: said.report, heldBefore: heldBackSaid,
+                                                   held: RecorderDriver.heldBack(in: model?.pending ?? []),
+                                                   said: round?.said(withATelevisionSaved: model?.tv != nil))
+        else { return }
+        said.report = next.report
+        heldBackSaid = next.held
     }
 
     // MARK: - the recordings
@@ -569,10 +560,8 @@ final class RecorderHost: RecorderLinkHost {
     }
 
     /// Whether the list held is not what a read would give with the USB disk known now, for the screen to read it
-    /// again: its rows of a disk that has left the slot are not to be written to
-    /// (`RecorderDriver.whyNot(altering:usb:)`) and go with a read, and a disk that has turned up, or that the last
-    /// read could not read, comes in with one. Nothing changes in a home with no USB disk, where both sides are
-    /// none.
+    /// again (`isOutdated(readFrom:usb:)`): its rows of a disk that has left the slot are not to be written to
+    /// (`RecorderDriver.whyNot(altering:usb:)`).
     ///
     /// Not while the disk known has yet to be answered by the slot, which has not said anything of it yet, right
     /// after a waking above all: that read would be waited out, and the list goes out of date only once the slot has
@@ -582,11 +571,7 @@ final class RecorderHost: RecorderLinkHost {
         guard said.titlesLoaded, !jobIsOnTheRecorder, client != nil, !unreachable, !session.usbDiskUnanswered else {
             return false
         }
-        guard let read = said.titlesReadFrom else {
-            // None read: a disk there is to be, and rows held of one that has gone since are to go.
-            return session.usbDisk?.takesRecordings == true || said.titles.contains { $0.readFrom != nil }
-        }
-        return !read.isStill(session.usbDisk)
+        return said.titles.isOutdated(readFrom: said.titlesReadFrom, usb: session.usbDisk)
     }
 
     /// What pulling the recordings down asks for: the list read again, or a connect when nothing can be written
