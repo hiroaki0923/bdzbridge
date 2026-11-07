@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -42,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -181,7 +183,9 @@ private fun GuideView(state: AppState) {
                     Text(state.dayHeading, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                     TextButton(onClick = { state.moveDay(1) }, enabled = state.dayOffset < 7) { Text("次の日") }
                 }
-                LoadedList(state.programmes, empty = "この日の番組はありません") { ProgrammeRowView(it) }
+                // A day opens at what is on now (or next), as on iOS; another day's first programme has not ended.
+                LoadedList(state.programmes, empty = "この日の番組はありません",
+                           start = { list -> list.indexOfFirst { !it.ended } }) { ProgrammeRowView(it) }
             }
         }
     }
@@ -198,14 +202,17 @@ private fun ProgrammeRowView(item: Programme) {
 }
 
 @Composable
-private fun <T> LoadedList(loaded: Loaded<T>, empty: String, row: @Composable (T) -> Unit) {
+private fun <T> LoadedList(loaded: Loaded<T>, empty: String, start: (List<T>) -> Int = { 0 },
+                           row: @Composable (T) -> Unit) {
     when (loaded) {
         Loaded.Reading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         is Loaded.Failed -> Text(loaded.said, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
         is Loaded.Read -> if (loaded.items.isEmpty()) {
             Text(empty, modifier = Modifier.padding(16.dp))
         } else {
-            LazyColumn(Modifier.fillMaxSize()) {
+            // Made with the list it shows, so a new list opens at its own start and no scroll waits on its rows.
+            val position = remember(loaded) { LazyListState(firstVisibleItemIndex = start(loaded.items).coerceAtLeast(0)) }
+            LazyColumn(Modifier.fillMaxSize(), state = position) {
                 items(loaded.items) { item ->
                     row(item)
                     HorizontalDivider()
