@@ -56,7 +56,7 @@ enum DefaultsKey {
     // MARK: - set only from the command line, for the screenshots and for checking a screen in a simulator
 
     static let startTab = "startTab"
-    /// The time of day the guide opens at instead of now, as `HH:mm`. See `GuideClock`.
+    /// The time of day the guide opens at instead of now, as `HH:mm`. See `GuideStore.minuteOfTheBroadcastDay`.
     static let guideOpenAt = "guideOpenAt"
     static let searchFor = "searchFor"
     static let searchScope = "searchScope"

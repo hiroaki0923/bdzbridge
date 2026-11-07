@@ -122,20 +122,7 @@ struct RecorderRuleRow: View {
         .padding(.vertical, 2)
     }
 
-    private var details: String {
-        var parts = [rule.keywords.joined(separator: "、")]
-        if !rule.excluded.isEmpty { parts.append("除外: " + rule.excluded.joined(separator: "、")) }
-        parts.append(rule.logic == "AND" ? "すべて含む" : "いずれか含む")
-        parts.append(rule.broadcastingScopeLabel)
-        parts.append(rule.timeScopeLabel)
-        if let genre = rule.genreLabel { parts.append(genre) }
-        if let quality = rule.qualityName { parts.append(Codes.qualityLabel[quality] ?? quality) }
-        // The 4K waves have a mode of their own. A condition on every wave made without it records BS4K and
-        // CS4K in DR whatever the mode beside it says, and this is where one is seen, to be made again.
-        if let quality = rule.qualityName4K { parts.append("4K: " + (Codes.qualityLabel[quality] ?? quality)) }
-        if let disk { parts.append(disk) }
-        return parts.joined(separator: " · ")
-    }
+    private var details: String { rule.details(disk: disk) }
 }
 
 /// The form for a new condition, over what the recorder takes (`RecorderRuleDraft`). Keywords are rows rather
@@ -229,7 +216,7 @@ struct RecorderRuleSheet: View {
                         ForEach(RecorderRuleDraft.timeScopes, id: \.self) { Text($0.label).tag($0.code) }
                     }
                     Picker("録画モード", selection: $draft.quality) {
-                        ForEach(Codes.qualityOrder, id: \.self) { code in
+                        ForEach(RecorderDriver.recordsIn, id: \.self) { code in
                             Text(Codes.qualityLabel[code] ?? code).tag(code)
                         }
                     }

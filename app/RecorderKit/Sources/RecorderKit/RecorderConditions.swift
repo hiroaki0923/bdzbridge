@@ -304,7 +304,7 @@ public struct RecorderRuleDraft: Sendable, Equatable {
     public var subGenre: Int?
     public var broadcastingScope = "ALL"
     public var timeScope = "ALL"
-    /// The recording mode by its name (`Codes.qualityOrder`).
+    /// The recording mode by its name (`RecorderDriver.recordsIn`).
     public var quality: String
 
     public init(quality: String) {
@@ -338,5 +338,25 @@ public struct RecorderRuleDraft: Sendable, Equatable {
 
     private static func cleaned(_ rows: [Word]) -> [String] {
         rows.map { $0.text.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+}
+
+public extension RecorderRule {
+    /// What a condition's row says under its name: the keywords, what is left out, how the keywords are combined,
+    /// the broadcasts, the times of day, the genre, the modes, and last the disk it records to where the app names
+    /// one (`disk`, nil for the internal disk, so that nothing changes in a home with no USB disk).
+    func details(disk: String? = nil) -> String {
+        var parts = [keywords.joined(separator: "、")]
+        if !excluded.isEmpty { parts.append("除外: " + excluded.joined(separator: "、")) }
+        parts.append(logic == "AND" ? "すべて含む" : "いずれか含む")
+        parts.append(broadcastingScopeLabel)
+        parts.append(timeScopeLabel)
+        if let genreLabel { parts.append(genreLabel) }
+        if let qualityName { parts.append(Codes.qualityLabel[qualityName] ?? qualityName) }
+        // The 4K waves have a mode of their own. A condition on every wave made without it records BS4K and CS4K in
+        // DR whatever the mode beside it says, and this is where one is seen, to be made again.
+        if let qualityName4K { parts.append("4K: " + (Codes.qualityLabel[qualityName4K] ?? qualityName4K)) }
+        if let disk { parts.append(disk) }
+        return parts.joined(separator: " · ")
     }
 }

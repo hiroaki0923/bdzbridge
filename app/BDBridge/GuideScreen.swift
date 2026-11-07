@@ -5,7 +5,7 @@ struct GuideScreen: View {
     @Environment(AppModel.self) private var model
     @AppStorage(DefaultsKey.guideMode) private var mode = "list"
     /// The time of day the guide should open at instead of now, as `HH:mm`. Nothing in the app writes it;
-    /// the store screenshots pass it on the command line. See `GuideClock`.
+    /// the store screenshots pass it on the command line. See `GuideStore.minuteOfTheBroadcastDay`.
     @AppStorage(DefaultsKey.guideOpenAt) private var openAt = ""
     @State private var tapped: GuideProgramRow?
     @State private var welcoming = false
@@ -143,11 +143,8 @@ struct GuideScreen: View {
            let channel = model.channels.first(where: { $0.serviceID == serviceID }) {
             return channel.name
         }
-        return Self.shortLabel[model.broadcasting] ?? Codes.broadcastingLabel[model.broadcasting] ?? "番組表"
+        return Codes.broadcastingShortLabel[model.broadcasting] ?? Codes.broadcastingLabel[model.broadcasting] ?? "番組表"
     }
-
-    /// The navigation bar has room for a word, not for 地上デジタル. Nor has a segmented control.
-    static let shortLabel = ["td": "地デジ", "bs": "BS", "cs": "CS", "bs4k": "BS4K"]
 
     /// An arrow beside the day. Its area runs up and down as far towards the 44 points a finger needs as the
     /// bar lets an item be tall. Not across: on a narrow iPhone the arrows all but touch the buttons on the
@@ -284,7 +281,7 @@ struct GuideScreen: View {
     /// What to put at the top: what is on now, or, on another day, the first programme of it. A pinned time
     /// wins, which is how the store screenshots land on the evening.
     private var opening: GuideProgramRow? {
-        guard let minute = GuideClock.minuteOfBroadcastDay(openAt) else { return onAirOrNext }
+        guard let minute = GuideStore.minuteOfTheBroadcastDay(openAt) else { return onAirOrNext }
         let moment = GuideStore.dayRange(containing: model.day).start.addingTimeInterval(minute * 60)
         return shown.first { $0.end > moment } ?? onAirOrNext
     }

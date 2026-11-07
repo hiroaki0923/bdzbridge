@@ -1986,7 +1986,7 @@ public final class RecorderDriver: LinkDriver {
     // MARK: - what the sheets offer and say
 
     /// The modes the recorder records in, by their names in `Codes.quality`, in the order a sheet lists them.
-    public static let recordsIn = Codes.qualityOrder
+    public nonisolated static let recordsIn = ["DR", "XR", "XSR", "SR", "LSR", "LR", "ER", "EER"]
 
     /// The repeats a reservation starting at `start` can be given on the recorder, by their names in
     /// `Codes.repeatCodes` and in the order a sheet lists them: the six, the weekly one the weekday of `start` in

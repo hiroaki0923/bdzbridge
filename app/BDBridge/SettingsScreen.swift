@@ -105,7 +105,7 @@ struct SettingsScreen: View {
 
                 Section {
                     Picker("既定の録画モード", selection: $defaultQuality) {
-                        ForEach(Codes.qualityOrder, id: \.self) { code in
+                        ForEach(RecorderDriver.recordsIn, id: \.self) { code in
                             Text(Codes.qualityLabel[code] ?? code).tag(code)
                         }
                     }
@@ -407,6 +407,6 @@ enum DefaultQuality {
 
     static var current: String {
         let saved = UserDefaults.standard.string(forKey: DefaultsKey.defaultQuality) ?? fallback
-        return Codes.qualityOrder.contains(saved) ? saved : fallback
+        return RecorderDriver.recordsIn.contains(saved) ? saved : fallback
     }
 }

@@ -165,7 +165,7 @@ struct GuideGridView: View {
 
     /// Where the grid opens: the current time, or the top of the day when another day is showing.
     private var openingMinute: Double {
-        GuideClock.minuteOfBroadcastDay(openAt) ?? (showsNow ? nowMinutes : 0)
+        GuideStore.minuteOfTheBroadcastDay(openAt) ?? (showsNow ? nowMinutes : 0)
     }
 
     /// Puts a minute of the day at the top of the screen, aiming high enough that the quarter hour before
@@ -231,7 +231,7 @@ struct GuideGridView: View {
     private func hourRuler(height: Double) -> some View {
         ZStack(alignment: .topLeading) {
             ForEach(0..<24, id: \.self) { index in
-                Text("\((index + 4) % 24)")
+                Text("\((index + GuideStore.dayStartHour) % 24)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .frame(width: Self.gutter, alignment: .center)
@@ -473,16 +473,3 @@ private struct ProgramBlock: View {
     }
 }
 
-
-/// Where the guide opens.
-enum GuideClock {
-    /// `"19:00"` as minutes from the start of a broadcast day, which begins at 04:00; anything before four
-    /// in the morning belongs to the end of that day. nil for anything that is not a time, which is the
-    /// ordinary case -- only the store screenshots set this.
-    static func minuteOfBroadcastDay(_ text: String) -> Double? {
-        let parts = text.split(separator: ":").compactMap { Int($0) }
-        guard parts.count == 2, (0..<24).contains(parts[0]), (0..<60).contains(parts[1]) else { return nil }
-        let fromDayStart = Double(parts[0] * 60 + parts[1] - 4 * 60)
-        return fromDayStart >= 0 ? fromDayStart : fromDayStart + 24 * 60
-    }
-}

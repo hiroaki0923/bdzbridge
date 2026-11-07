@@ -8,6 +8,8 @@ public enum Codes {
     public static let broadcastingLabel: [String: String] = [
         "td": "地上デジタル", "bs": "BS", "cs": "CS", "bs4k": "BS4K", "cs4k": "CS4K",
     ]
+    /// The same in a word, for a navigation bar or a segmented control, which have no room for 地上デジタル.
+    public static let broadcastingShortLabel: [String: String] = ["td": "地デジ", "bs": "BS", "cs": "CS", "bs4k": "BS4K"]
 
     /// A broadcasting type's name at the start of a sentence: 地上デジタル as it is, a Latin one set off from the
     /// Japanese after it by a space, as the app writes GB and Wi-Fi.
@@ -97,7 +99,10 @@ public enum Codes {
         return subGenreLabel[level1]?[level2]
     }
 
-    /// おまかせ・まる録 vocabularies seen on a real recorder; anything else is shown as it is.
+    /// おまかせ・まる録 vocabularies seen on a real recorder; anything else is shown as it is. How the keywords are
+    /// combined is said three ways: here, as the server and the web app say it, on the form for a new condition
+    /// (`RecorderRuleDraft.logics`) and in a condition's row (`RecorderRule.details`); a later review of the
+    /// wording makes them one.
     public static let ruleLogicLabel: [String: String] = ["OR": "いずれかのキーワードを含む", "AND": "すべてのキーワードを含む"]
     public static let timeScopeLabel: [String: String] = [
         "ALL": "すべての時間帯", "MORNING": "朝", "AFTERNOON": "昼", "NIGHT": "夜", "MIDNIGHT": "深夜",
@@ -114,7 +119,6 @@ public enum Codes {
 
     /// The order to offer these in. The vectors pin the codes; this is only how they are listed.
     public static let broadcastingOrder = ["td", "bs", "cs", "bs4k", "cs4k"]
-    public static let qualityOrder = ["DR", "XR", "XSR", "SR", "LSR", "LR", "ER", "EER"]
 
     /// The weekly repeat that matches a date. The recorder takes a weekday code, and the server refuses one
     /// that is not the programme's own weekday, so this is the only weekly option worth offering.
