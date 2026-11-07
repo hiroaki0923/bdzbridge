@@ -1,0 +1,12 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+# The Swift side's own build and SwiftPM's state.
+core/.build/
+core/.swiftpm/
+*.jks
+*.keystore
+key.properties
