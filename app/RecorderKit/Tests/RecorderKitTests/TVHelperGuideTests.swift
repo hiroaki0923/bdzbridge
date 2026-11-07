@@ -195,6 +195,31 @@ final class TVHelperGuideTests: XCTestCase {
         XCTAssertNil(mark)
     }
 
+    /// With the television answering beside it, the helper's silence says that the helper is not running there
+    /// and how to start it; with the television not answering either, it is said as it always was.
+    func testTheHelpersSilenceBesideATelevisionThatAnswersSaysToOpenIt() async throws {
+        let world = LinkWorld()
+        let television = DemoTV()
+        await television.knows("BDBridge:test", cookie: "kept")
+        world.devices[Stub.host] = television
+        let credentials = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "kept",
+                                                            cookieReceived: Date(), cookieMaxAge: 1_209_600))
+        let link = DeviceLink(host: Stub.host, session: SessionState(),
+                              driver: TVDriver(credentials: credentials, nickname: "RecBridge", inFront: { false }),
+                              environment: world.environment)
+        link.owner = world
+        await link.connect()
+        XCTAssertTrue(link.session.connected, world.problem ?? "the television was not connected")
+
+        helper.answer("/v1/info", with: nil)
+        let unopened = await guide.fetch(into: store, on: link, stored: { _ in })
+        XCTAssertEqual(unopened, TVHelperGuide.notRunning)
+
+        helper.answer("/v1/info", with: nil)
+        let away = await guide.fetch(into: store, on: nil, stored: { _ in })
+        XCTAssertEqual(away, TVHelperError.transport("").explanation)
+    }
+
     func testAFetchAskedForWhileOneIsOutWaitsForItAndSaysWhatItSaid() async throws {
         helper.holdInfo()
         helper.answer("/v1/guide/bs", with: HTTPResponse(statusCode: 500))

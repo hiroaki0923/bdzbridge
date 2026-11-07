@@ -18,6 +18,13 @@ public final class TVHelperGuide {
     /// The line on screen while the guide is fetched, and as each type of it is.
     public nonisolated static let line = "番組表を取得中（テレビ）"
 
+    /// The helper's silence while the television answers beside it: the helper is not running there. A television
+    /// that restarted itself was seen to leave it so, and opening it once on the television starts it again. Said
+    /// only then: with the television not answering either, the reader may be away from home, and the helper's
+    /// silence is said as it always was.
+    public nonisolated static let notRunning =
+        "テレビは応答していますが、ヘルパーが応答しません。テレビで「RecBridge ヘルパー」を一度開いてください"
+
     public nonisolated static func line(for broadcasting: String) -> String {
         "番組表を取得中（テレビ: \(Codes.broadcastingLabel[broadcasting] ?? broadcasting)）"
     }
@@ -85,12 +92,14 @@ public final class TVHelperGuide {
         if let fetching { return await fetching.value }
         let fetch = Task { @MainActor in
             guard let link else {
-                return await self.fetchTypes(every: every, into: store, host: nil, line: nil, stored: stored)
+                return await self.fetchTypes(every: every, into: store, host: nil, line: nil,
+                                             televisionAnswers: { false }, stored: stored)
             }
             // The host read once, as the line's own is.
             let host = link.owner
             return await link.underALine(Self.line) { line in
-                await self.fetchTypes(every: every, into: store, host: host, line: line, stored: stored)
+                await self.fetchTypes(every: every, into: store, host: host, line: line,
+                                      televisionAnswers: { link.session.connected }, stored: stored)
             }
         }
         fetching = fetch
@@ -102,10 +111,13 @@ public final class TVHelperGuide {
     }
 
     private func fetchTypes(every: Bool, into store: GuideStore, host: (any LinkHost)?, line: Activities.Token?,
+                            televisionAnswers: @MainActor () -> Bool,
                             stored: @escaping @MainActor @Sendable (String) async -> Void) async -> String? {
         let info: TVHelperInfo
         do {
             info = try await client.info()
+        } catch TVHelperError.transport {
+            return Self.silence(televisionAnswers: televisionAnswers())
         } catch {
             return Self.said(error)
         }
@@ -133,8 +145,13 @@ public final class TVHelperGuide {
                                                at: info.types[broadcasting]?.changedAt ?? Date())
         }
         var lines = RecorderDriver.guideFailed(outcome.failed)
-        if outcome.stopped == .silent { lines.append(TVHelperError.transport("").explanation) }
+        if outcome.stopped == .silent { lines.append(Self.silence(televisionAnswers: televisionAnswers())) }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    /// The helper's silence in words: `notRunning` where the television answers, its own sentence otherwise.
+    static func silence(televisionAnswers: Bool) -> String {
+        televisionAnswers ? notRunning : TVHelperError.transport("").explanation
     }
 
     private static func said(_ error: any Error) -> String {
