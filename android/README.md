@@ -6,8 +6,10 @@ and is built for Android with the Swift SDK for Android, and the screens call it
 in `docs/android-port-study.md`.
 
 So far it connects to a recorder by its address, by the search for both kinds (レコーダーとテレビを探す), or to the
-demo's invented recorder, and reads its reservations and its recordings. It reads only: nothing here wakes a recorder
-or writes to one.
+demo's invented recorder, and reads its reservations, its recordings and its guide. The guide is kept as the iOS app
+keeps it, in RecorderKit's cache, and shown a station's broadcast day at a time, opening at what is on now; a
+programme's sheet says what the iOS sheet says of it, without the reservation part. It reads only: nothing here wakes
+a recorder or writes to one.
 
 ## Layout
 
@@ -37,11 +39,20 @@ or writes to one.
 
   `-PswiftJavaJdk` names the JDK it builds with; without it swift-java asks for JDK 25.
 
-## Building
+## Building and testing
 
 ```
 ./gradlew :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+`app/src/androidTest` drives the demo through the screens on a device or an emulator: the guide opening at what is
+on now, a programme's sheet, another day, the reservations and the recordings, and leaving. It forgets a saved address
+first and uses only the demo, so it reaches nothing on the LAN. With more than one device attached, name the one to
+use:
+
+```
+ANDROID_SERIAL=emulator-5554 ./gradlew :app:connectedDebugAndroidTest
 ```
 
 The first build compiles RecorderKit for Android, which takes a minute or two. A debug APK for arm64 alone is about
