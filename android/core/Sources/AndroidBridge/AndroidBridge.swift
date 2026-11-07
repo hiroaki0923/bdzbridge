@@ -108,6 +108,7 @@ public func searchDevices() async -> [FoundDevice] {
 enum Wording {
     static let day: DateFormatter = formatter("M/d(E) HH:mm")
     static let time: DateFormatter = formatter("HH:mm")
+    static let dayOnly: DateFormatter = formatter("M/d(E)")
 
     static func formatter(_ pattern: String) -> DateFormatter {
         let formatter = DateFormatter()

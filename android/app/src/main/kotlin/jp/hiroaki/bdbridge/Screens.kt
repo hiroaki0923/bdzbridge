@@ -1,22 +1,26 @@
 package jp.hiroaki.bdbridge
 
+import android.os.Build
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,10 +46,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import android.os.Build
 
 @Composable
 fun RecBridgeTheme(content: @Composable () -> Unit) {
@@ -132,15 +136,65 @@ fun RecorderScreen(state: AppState) {
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             TabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("予約") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("録画") })
+                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("番組表") })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("予約") })
+                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("録画") })
             }
             when (tab) {
-                0 -> LoadedList(state.reservations, empty = "予約はありません") { ReservationRowView(it) }
+                0 -> GuideView(state)
+                1 -> LoadedList(state.reservations, empty = "予約はありません") { ReservationRowView(it) }
                 else -> LoadedList(state.recordings, empty = "録画はありません") { RecordingRowView(it) }
             }
         }
     }
+}
+
+/** One station's programmes on one broadcast day, the station and the type chosen above them. */
+@Composable
+private fun GuideView(state: AppState) {
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for ((code, label) in listOf("td" to "地デジ", "bs" to "BS", "cs" to "CS")) {
+                FilterChip(selected = state.broadcasting == code, onClick = { state.choose(code) }, label = { Text(label) })
+            }
+            Box(Modifier.weight(1f))
+            TextButton(onClick = { state.refreshGuide() }, enabled = !state.refreshing) {
+                Text(if (state.refreshing) "更新中" else "更新")
+            }
+        }
+        state.guideSaid?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp)) }
+        when (val stations = state.stations) {
+            Loaded.Reading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            is Loaded.Failed -> Text(stations.said, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
+            is Loaded.Read -> if (stations.items.isEmpty()) {
+                Text("番組表がまだありません。「更新」でレコーダーから取ってきます", modifier = Modifier.padding(16.dp))
+            } else {
+                LazyRow(contentPadding = PaddingValues(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(stations.items, key = { it.serviceID }) { station ->
+                        FilterChip(selected = state.station?.serviceID == station.serviceID,
+                                   onClick = { state.choose(station) }, label = { Text(station.name, maxLines = 1) })
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp)) {
+                    TextButton(onClick = { state.moveDay(-1) }, enabled = state.dayOffset > 0) { Text("前の日") }
+                    Text(state.dayHeading, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { state.moveDay(1) }, enabled = state.dayOffset < 7) { Text("次の日") }
+                }
+                LoadedList(state.programmes, empty = "この日の番組はありません") { ProgrammeRowView(it) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProgrammeRowView(item: Programme) {
+    ListItem(
+        overlineContent = { Text(if (item.onAir) "${item.span} · 放送中" else item.span) },
+        headlineContent = { Text(item.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        supportingContent = { Text(item.details) },
+        modifier = Modifier.alpha(if (item.ended) 0.5f else 1f),
+    )
 }
 
 @Composable

@@ -30,6 +30,18 @@ object Bridge {
             RecordingItem(it.id, it.title, it.date, it.details, it.isNew, it.isProtected, it.isRecording)
         }
 
+    suspend fun refreshGuide(host: String, folder: String): String = call { AndroidBridge.refreshGuide(host, folder) }
+
+    suspend fun channels(host: String, folder: String, broadcasting: String): List<Station> =
+        call { AndroidBridge.channels(host, folder, broadcasting, arena) }.map { Station(it.serviceID, it.name) }
+
+    suspend fun programmes(host: String, folder: String, broadcasting: String, serviceID: Long, dayOffset: Long): List<Programme> =
+        call { AndroidBridge.programmes(host, folder, broadcasting, serviceID, dayOffset, arena) }.map {
+            Programme(it.eventID, it.title, it.span, it.details, it.summary, it.isOnAir, it.isEnded)
+        }
+
+    fun dayHeading(dayOffset: Long): String = AndroidBridge.dayHeading(dayOffset)
+
     suspend fun search(): List<Found> =
         call { AndroidBridge.searchDevices(arena) }.map { Found(it.host, it.kind == "recorder", it.name) }
 
@@ -47,6 +59,13 @@ object Bridge {
 class BridgeFailure(said: String) : Exception(said)
 
 data class Recorder(val host: String, val name: String, val model: String)
+
+data class Station(val serviceID: Long, val name: String)
+
+data class Programme(
+    val eventID: Long, val title: String, val span: String, val details: String, val summary: String,
+    val onAir: Boolean, val ended: Boolean,
+)
 
 data class Found(val host: String, val isRecorder: Boolean, val name: String)
 
