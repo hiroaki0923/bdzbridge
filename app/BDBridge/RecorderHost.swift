@@ -50,7 +50,7 @@ final class RecorderSaid {
     var unreadDuplicates = 0
     /// Whether the duplicates have been looked for: a scan of this recorder has come to its end, or 中止 has
     /// stopped one, either of which has worked the sets out from what it read and counted what it left unread.
-    /// Set as such a scan ends (`RecorderHost.runScan`) and never taken back but with everything here, when the
+    /// Set as such a scan ends (`BulkRuns.startScan`) and never taken back but with everything here, when the
     /// recorder is let go of: a later job, the bar's ✕, a scan run again, stopped or not, leave it.
     var lookedForDuplicates = false
     /// What the recorder said each recording is about, by `RecordedTitle.listKey`, cached on disk as well. Only
@@ -159,17 +159,15 @@ final class RecorderHost: RecorderLinkHost {
     /// Waits for the local network permission after the link ran into it, and tells the link when it comes
     /// (`DeviceLink.permissionArrived`).
     private var accessWatch: Task<Void, Never>?
-    /// The bulk delete, protect or scan under way or last run (`RecorderHostRuns`).
-    var job: BulkJob?
-    var jobTask: Task<Void, Never>?
-    /// A bulk job waiting between two steps for the app to come back. See `readyForNextStep`.
-    var backInFront: CheckedContinuation<Void, Never>?
+    /// The bulk delete, protect and scan, the job under way or last run with them (`RecorderHostRuns`). Made with
+    /// this host, for its life.
+    @ObservationIgnored private(set) var runs: BulkRuns!
     /// The recorder a connect's refresh of the guide is for (`DeviceLink.generation`), while that refresh is
     /// out; nil otherwise. See `refreshTheGuideAfterTheConnect`.
     private(set) var guideAfterAConnect: Int?
     /// Counts the refreshes connects have started, so that one that ends takes down only itself.
     @ObservationIgnored private var guideRefreshesStarted = 0
-    /// The background task the step of a bulk job under way runs under. See `keepingAlive`.
+    /// The background task the step of a bulk job under way runs under (`holdAStep`).
     var stepTask = UIBackgroundTaskIdentifier.invalid
     /// The recorder's link, for the model's life.
     let link: DeviceLink
@@ -178,6 +176,10 @@ final class RecorderHost: RecorderLinkHost {
 
     init(link: DeviceLink) {
         self.link = link
+        runs = BulkRuns(away: { [weak self] in self?.model?.inBackground == true },
+                        hold: { [weak self] in self?.holdAStep() ?? {} },
+                        inPlay: { [weak self] in self?.said },
+                        ended: { [weak self] walkedTheTelevision in await self?.jobEnded(walkedTheTelevision) })
     }
 
     var session: SessionState { link.session }
@@ -459,7 +461,7 @@ final class RecorderHost: RecorderLinkHost {
         cancelBulk()
         anotherTookOver = true
         let model = self.model
-        let running = jobTask
+        let running = runs.task
         let reached = timesReached
         Task {
             await running?.value

@@ -255,9 +255,11 @@ B でも C でも、1 つのリポジトリで持てます。要になるのは 
    ください」、出すジャンル、ジャンルを変えるとサブジャンルを外すこと、放送と時間帯の選択肢（画面が `Codes` の表を
    書き写していた）、既定の 240 を、`RecorderConditions.swift` の下書きの型 `RecorderRuleDraft` に移した。テストは
    `RecorderRuleDraftTests` に 8 件。画面の説明の文は画面に残した。PWA にも同じ検査があり、そちらはそのまま。
-3. **一括の処理と重複の走査のループ**（`RecorderHostRuns.swift`、446 行）: `RecorderRuns.swift` の上のループ。iOS に
-   結びつくのは、アプリを離れても続けるための `UIApplication` の 2 行だけで、これは外から渡す。テストは 70 件ほどあり、
-   UIKit の値を見ている 4 件は渡したものを見るように書き換える。
+3. **一括の処理と重複の走査のループ**（済み）: ループとジョブ、中止、アプリが裏にいるあいだの待ち、1 件ごとの結果の
+   持ち方、重複の走査を、`BulkRuns.swift` に移した。アプリが渡すのは、裏にいるかどうか、1 歩を続けるための
+   バックグラウンドタスク（`UIApplication`）、終わったあとの再接続とテレビの一覧の読み直し。いつ始めてよいかは
+   アプリの規則として `RecorderHostRuns.swift` に残した。ループのテストは `BulkRunsTests` に 6 件。アプリのテスト
+   （`RunGateTests` など）はモデルを通して確かめるので、アプリに残した。
 4. **2 つの機器の予約の入口**（`DeviceHost.swift`、161 行）: アプリのモデルに触れるのは、キャッシュを開く 6 か所だけ。
    `ReservationDriver.swift` の横に置く。
 5. **テレビの登録の手順**（`TVSettings.swift` と `AppModelTV.swift` の登録）: 探す、PIN なしで登録する、PIN を聞いて

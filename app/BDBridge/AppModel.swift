@@ -282,9 +282,9 @@ final class AppModel {
     /// local network does has not been seen; the log's phase lines will say. Nothing goes by it: it is for the
     /// log of a scan for a recorder.
     var appIsActive = true
-    /// A bulk job waiting between two steps for the app to come back, and the background task its step runs
-    /// under (`RecorderHost.backInFront`, `RecorderHost.stepTask`).
-    var backInFront: CheckedContinuation<Void, Never>? { recorderHost.backInFront }
+    /// Whether a bulk job is waiting between two steps for the app to come back (`BulkRuns.waitsForTheApp`), and
+    /// the background task its step runs under (`RecorderHost.stepTask`).
+    var jobWaitsForTheApp: Bool { recorderHost.runs.waitsForTheApp }
     var stepTask: UIBackgroundTaskIdentifier { recorderHost.stepTask }
     /// Where the settings and the database are kept, how requests reach the recorder, and what the model
     /// does on the network by itself. The app's own everywhere but in the unit tests; see `Surroundings`.
@@ -477,7 +477,6 @@ final class AppModel {
     var conditionReads: Int { recorderHost.conditionReads }
 
     /// The recorder's bulk job under way or last run, as its host holds it (`RecorderHost.job`).
-    typealias BulkJob = RecorderHost.BulkJob
     var job: BulkJob? { recorderHost.job }
     var duplicates: [DuplicateSet] { recorderHost.said.duplicates }
     /// The duplicates view ticks and unticks copies here.

@@ -20,8 +20,8 @@ public struct Run: Sendable {
 
 /// What a run over many recordings asks of the device that holds them, the same five steps on either: whether it
 /// may begin, whether it may go on to a recording, one deleted, one protected or its protection taken off, and what
-/// is read as it ends. The loop around them belongs to the app, which walks one list of both devices' rows and asks
-/// each row's driver (`RecorderHost.runBulk`). The scan for duplicates is the recorder's alone.
+/// is read as it ends. The loop around them walks one list of both devices' rows and asks each row's driver
+/// (`BulkRuns`). The scan for duplicates is the recorder's alone.
 @MainActor
 public protocol RunDriver: AnyObject, Sendable {
     func beginRun(_ kind: RunKind) -> Result<Run, RunStop>

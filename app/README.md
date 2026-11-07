@@ -56,7 +56,8 @@
   So is the recorder's side of a run over many recordings -- the bulk delete, the bulk protect and the scan for
   duplicates: when a run may begin and go on, what is asked for one recording, why it stopped and the free space
   as it ends (`beginRun`, `mayGoOn`, `delete(_:in:)`, `protect(_:_:in:)`, `text(of:in:)`, `end`, in
-  `RecorderRuns.swift`), while the recorder's host keeps the loop and the job (`RecorderHostRuns.swift`). So is
+  `RecorderRuns.swift`), and so is the loop with its job (`BulkRuns.swift`), which the recorder's host starts when a
+  run may start and gives the app's hold on a step (`RecorderHostRuns.swift`). So is
   the guide fetched by hand and after a connect (`refreshGuideByHand`, `refreshGuide`, in `RecorderGuide.swift`),
   which `AppModelGuide` asks for and puts on screen. And so are the recorder's two runs with no screen, the
   overnight run and the Shortcuts action's sending (`refreshWithNoScreen`, `sendWithNoScreen`, and what each
@@ -70,9 +71,9 @@
   on the television's USB disk (`TVRecordings.swift`: the list with its disk, whether the two add up, the wait for
   a list that may still be coming, protect, delete, each write going only after the list just read shows the same
   uri, start and title): the host keeps the rows, `AppModelRecordings` puts them with the recorder's in one list
-  (`allTitles`) and hands a write to the device that holds the row, and a bulk run is one loop in
-  `RecorderHostRuns.swift` that asks each row's driver (`RunDriver`), holds only the devices it has rows of, and
-  reads the television's list as it ends. The screens read
+  (`allTitles`) and hands a write to the device that holds the row, and a bulk run is one loop
+  (`BulkRuns.swift`) that asks each row's driver (`RunDriver`), holds only the devices it has rows of, and has the
+  television's list read as it ends. The screens read
   either host through the model's own names: `problem(for:)`, `isBusy(for:)`, `staleSince(for:)`, and the
   recorder's lists, job and strip under the names they had when the model held them. The app's tests read the
   recorder's host through the same names, and the television's host also directly (`model.tvHost`).

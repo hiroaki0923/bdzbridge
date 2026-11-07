@@ -153,7 +153,7 @@ final class TVHost: LinkHost {
         return came.altered
     }
 
-    /// What a run over recordings asks of the television (`RecorderHost.runBulk`), and the list it walks.
+    /// What a run over recordings asks of the television (`BulkRuns`), and the list it walks.
     var runDriver: (any RunDriver)? { driver }
 
     // MARK: - what the link tells the app
