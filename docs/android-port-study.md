@@ -392,6 +392,25 @@ RecorderKit の中身（レコーダーの説明、テレビの在否、サブ�
 76 MB のうち 38 MB は、Foundation が日付と文字の扱いに使う ICU のデータです（RecorderKit は日本語の日付を
 `DateFormatter` で書くため要る）。
 
+**Android では、そのままでは Swift の main actor が動きません。** Swift のメインのキューを回すものがないため、
+`@MainActor` の処理は始まらず、待つものは永遠に待ちます（エミュレーターで 8 秒待っても返らなかった）。
+RecorderKit の多くとアプリのモデルは `@MainActor` なので、B ではここが要になります。
+
+Foundation の RunLoop は、メインのスレッドで回ると、メインのキューも回します（iPhone で UIKit の下で回るのと
+同じ）。Android のメインのスレッドは Android の Looper のものなので、RunLoop に回させ続けることはできません。
+そこで、画面が出ている間、アプリのメインのスレッドから 1 フレームに 1 回ほど RunLoop を一度だけ回し、それまでに
+来た処理を済ませてすぐ戻るようにしました（`android/core/Sources/AndroidBridge/MainQueue.swift` と
+`MainActivity`）。エミュレーターで確かめたことは次の 2 つです。
+
+- これを止めると、デモの番組表が 30 秒たっても出ず、画面のテストが落ちる。
+- 画面を出したまま何もしないときの CPU は、止めたときの 0〜0.6% に対して 0.8〜1.4%。画面が裏に回ると止まる。
+
+呼ぶのは公開の関数だけです。処理が来たときにちょうど起こす方法は、どちらも Swift 6.4.2 では公開されていません。
+
+- メインのキューのファイル記述子を Looper に登録する方法は、libdispatch の非公開の関数を使う。
+- main actor の実行役をアプリが差し替える仕組み（`MainExecutor`、`ExecutorFactory`）は、
+  `@_spi(ExperimentalCustomExecutors)` の中にある。
+
 ## 決めたこと: B（2026-11-08）
 
 **RecorderKit は Swift のまま Android 向けにビルドし、画面は Kotlin（Jetpack Compose）で書きます。** Kotlin での

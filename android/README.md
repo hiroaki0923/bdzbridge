@@ -58,5 +58,13 @@ device it is signed with the debug key:
 That came to 76 MB. Of it, ICU's data for Foundation's dates and text is 38 MB: RecorderKit words dates in Japanese
 through `DateFormatter`, which needs it.
 
+Swift's main actor needs the app's help on Android: nothing runs Swift's main queue there, so a job on the main
+actor, where much of RecorderKit runs, would wait for ever. Foundation's run loop serves the main queue when it runs
+on the main thread, so while the app is on screen `MainActivity` calls `runWhatWaitsOnTheMainQueue()`
+(`core/Sources/AndroidBridge/MainQueue.swift`) from the main thread about once a frame: it runs the run loop once,
+doing what has come since the last call, and returns at once. Only public calls are made; the ways that wake the
+looper exactly when work comes, by the main queue's own file descriptor or by an executor of the app's own for the
+main actor, are not public in Swift 6.4.2.
+
 What Swift hands back reaches Kotlin on Swift's own threads; `Bridge.kt` awaits it in a coroutine started on the main
 thread, so the screens' state is only ever changed there. A failure comes as the iOS app's own sentence for it.

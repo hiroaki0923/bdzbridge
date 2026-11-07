@@ -143,3 +143,11 @@ enum Wording {
                             protected: title.protected, recording: title.recording)
     }
 }
+
+// MARK: - the main actor
+
+/// Comes back once a job has run on the main actor: much of RecorderKit, and the app's model, is isolated to it, and
+/// on Android nothing runs the main queue unless the app runs it (`runWhatWaitsOnTheMainQueue`).
+public func mainActorCheck() async -> String {
+    await MainActor.run { Thread.isMainThread ? "main actor ran on the main thread" : "main actor ran off the main thread" }
+}

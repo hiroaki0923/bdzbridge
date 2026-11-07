@@ -22,6 +22,11 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertTrue(rows.allSatisfy { !$0.title.isEmpty && $0.details.contains("分") })
     }
 
+    func testAJobOnTheMainActorRunsOnTheMainThread() async {
+        let said = await mainActorCheck()
+        XCTAssertEqual(said, "main actor ran on the main thread")
+    }
+
     func testAFailureIsSaidInTheAppsWords() async {
         do {
             _ = try await reservations(host: "not an address")
