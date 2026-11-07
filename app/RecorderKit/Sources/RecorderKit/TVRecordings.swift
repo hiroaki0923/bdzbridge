@@ -197,10 +197,13 @@ extension TVDriver {
             let storage = try await client.storage()
             guard !link.letGo(since: began) else { return nil }
             self.facts.storage = storage
-            guard storage.mounted else { return TVTitles(rows: [], account: self.settled(.addsUp)) }
+            // A television that does not say its disk is read as one whose disk is there, and its list taken
+            // for all it holds.
+            guard storage?.mounted ?? true else { return TVTitles(rows: [], account: self.settled(.addsUp)) }
             do {
                 let rows = try await client.recordings()
-                return TVTitles(rows: rows, account: self.settled(Self.account(of: rows, on: storage)))
+                return TVTitles(rows: rows,
+                                account: self.settled(storage.map { Self.account(of: rows, on: $0) } ?? .addsUp))
             } catch ScalarError.rpc(_, _, 41020, _) {
                 self.facts.storage = TVStorage(mounted: false, freeMB: nil, totalMB: nil)
                 return TVTitles(rows: [], account: self.settled(.addsUp))
@@ -390,7 +393,7 @@ extension TVDriver {
     /// The disk read again, for the free space: only shown, so a television that does not say leaves it as it was
     /// and nothing that came before it is said to have failed.
     private func learnTheDisk(on client: ScalarClient) async {
-        if let storage = try? await client.storage() { facts.storage = storage }
+        if case let storage?? = try? await client.storage() { facts.storage = storage }
     }
 
     // MARK: - a run over many

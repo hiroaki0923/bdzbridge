@@ -418,7 +418,7 @@ final class LiveTVTests: XCTestCase {
         let client = try liveClient(jar)
         await byItsKind("reading what needs the registration") {
             let storage = try await client.storage()
-            print("disk to record to: mounted \(storage.mounted)")
+            print("disk to record to: \(storage.map { "mounted \($0.mounted)" } ?? "not said")")
             let rows = try await client.schedules()
             print("schedules: \(rows.count), of which recordings \(rows.filter { $0.type == "recording" }.count)")
         }
@@ -772,7 +772,7 @@ extension LiveTVTests {
         let client = try recordingsClient()
         let say = Self.sayAtOnce
         await Self.sayingPower(of: client, say, "at first")
-        await ask("getStorageList", of: client, say) { "mounted \(try await client.storage().mounted)" }
+        await ask("getStorageList", of: client, say) { "mounted \((try await client.storage()).map { "\($0.mounted)" } ?? "not said")" }
         var counts: [String: Int] = [:]
         for asking in ContentAsking.counts {
             await ask(asking.said, of: client, say) {
@@ -810,7 +810,7 @@ extension LiveTVTests {
         let say = Self.sayAtOnce
         await Self.sayingPower(of: client, say, "at first")
         await ask("getStorageList", of: client, say, afterwards: false) {
-            let disk = try await client.storage()
+            guard let disk = try await client.storage() else { return "not said" }
             return "mounted \(disk.mounted), free \(disk.freeMB ?? -1) MB of \(disk.totalMB ?? -1) MB"
         }
         let source = ScalarClient.recordingsSource
@@ -921,7 +921,7 @@ extension LiveTVTests {
         say("power at first: \(power)")
         guard power == "standby" else { throw XCTSkip("the television says \(power), not standby") }
         let gap = Duration.seconds(15), disk: TimeInterval = 30
-        await ask("getStorageList", of: client, say) { "mounted \(try await client.storage().mounted)" }
+        await ask("getStorageList", of: client, say) { "mounted \((try await client.storage()).map { "\($0.mounted)" } ?? "not said")" }
         try await Task.sleep(for: gap)
         if let count = ContentAsking.counts.first(where: { $0.label == "1.1" }) {
             await ask(count.said, of: client, say) {
