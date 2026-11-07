@@ -794,7 +794,16 @@ public actor GuideStore {
     // MARK: - time
 
     /// A broadcast day runs 04:00 to 04:00 in Japan, which is how the printed guides are laid out.
-    private static let dayStartHour = 4
+    public static let dayStartHour = 4
+
+    /// `"19:00"` as minutes from the start of a broadcast day (`dayStartHour`); anything before four in the
+    /// morning belongs to the end of that day. Nil for anything that is not a time.
+    public static func minuteOfTheBroadcastDay(_ text: String) -> Double? {
+        let parts = text.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2, (0..<24).contains(parts[0]), (0..<60).contains(parts[1]) else { return nil }
+        let fromDayStart = Double(parts[0] * 60 + parts[1] - dayStartHour * 60)
+        return fromDayStart >= 0 ? fromDayStart : fromDayStart + 24 * 60
+    }
 
     /// The broadcast day named by the calendar date of `date`, rather than the one on air then: a moment just
     /// after midnight gives the day that starts at four that morning, not the one still going out. Pass a day

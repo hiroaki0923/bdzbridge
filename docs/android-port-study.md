@@ -277,11 +277,11 @@ B でも C でも、1 つのリポジトリで持てます。要になるのは 
    合っているかの判断（`isOutdated(readFrom:usb:)`）、画面下の帯に出す報告の文のつなぎ方（`StripReport`）を、
    RecorderKit の `StripReport.swift` に移した。テストは `StripReportTests` に 5 件。いつ判断するか（一覧を読めたか、
    一括の処理の最中か、USB HDD がまだ答えていないか）はアプリ。
-8. **小さな定数と表**:
-   - 放送日の 4 時の区切りを、番組表の表形式が書き写している（`GuideStore` では外から見えない）
-   - 放送波の短い名前（番組表の画面にある）を `Codes` に
-   - 画質の並びに 2 つの名前がある（`RecorderDriver.recordsIn` と `Codes.qualityOrder`。中身は同じ）
-   - おまかせ・まる録の検索方法の言い方が 3 通りある
+8. **小さな定数と表**（済み）: 放送日の 4 時の区切りを `GuideStore.dayStartHour` と `minuteOfTheBroadcastDay` に
+   して番組表の表形式から使い、放送波の短い名前を `Codes.broadcastingShortLabel` に移し、画質の並びの名前を
+   `RecorderDriver.recordsIn` の 1 つにした（`Codes.qualityOrder` はなくした）。おまかせ・まる録の条件の行の組み立ては
+   `RecorderRule.details` に移した。検索方法の言い方が 3 通りあるのは、最後の文言の確認でまとめる（`Codes` の表は
+   サーバーと同じ語で、`docs/port` で突き合わせている）。テストは `SmallTablesTests` に 4 件。
 9. **サンプルの機器の残り**（`DemoData.swift`）: サンプルの機器の組、テレビのアドレス、番組表の範囲、番組表の種まき。
    `DemoRecorder`、`DemoTV`、`DemoLineUp` の横に置く。ロゴのタイルを描くところ（UIKit）は外から渡す。
 10. **1 度だけ言ったことの保存**（`DefaultsKey.swift`）: 保存先を外から渡す形にする。
