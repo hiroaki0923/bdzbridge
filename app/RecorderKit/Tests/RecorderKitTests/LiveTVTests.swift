@@ -798,6 +798,53 @@ extension LiveTVTests {
         }
     }
 
+    /// The recordings as the app reads them in each version it may be answered in -- 1.5, and 1.2 and 1.0, which an
+    /// older television is read in -- by the client's own reader (`ScalarClient.recordings(version:)`), and what
+    /// 1.2 and 1.0 say of each recording held against what 1.5 says of it. Makes nothing.
+    ///
+    ///     TV_HOST=192.0.2.20 TV_JAR=<the jar> swift test --filter LiveTVTests/testTheRecordingsInEachVersion
+    ///
+    /// Answered on or in standby, with nothing lit. It says the power at first and at the end, how many rows each
+    /// version gave or the error's kind, and for 1.2 and 1.0 how many recordings are in one list and not the other
+    /// and, field by field, how many disagree with 1.5 -- the size only where both say one -- and how many have no
+    /// size where 1.5 has one. Counts and the names of fields only, nothing of what was recorded.
+    func testTheRecordingsInEachVersion() async throws {
+        let client = try recordingsClient()
+        let say = Self.sayAtOnce
+        await Self.sayingPower(of: client, say, "at first")
+        var read: [String: [RecordedTitle]] = [:]
+        for version in ["1.5", "1.2", "1.0"] {
+            await ask("getContentList \(version)", of: client, say, afterwards: false) {
+                let titles = try await client.recordings(version: version)
+                read[version] = titles
+                return "\(titles.count) rows"
+            }
+        }
+        guard let newest = read["1.5"] else { return XCTFail("1.5 gave no list to hold the others against") }
+        let byURI = Dictionary(newest.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for version in ["1.2", "1.0"] {
+            guard let older = read[version] else { continue }
+            let olderURIs = Set(older.map(\.id))
+            say("\(version): \(older.filter { byURI[$0.id] == nil }.count) not in 1.5, "
+                + "\(byURI.keys.filter { !olderURIs.contains($0) }.count) of 1.5 not in it")
+            let pairs = older.compactMap { row in byURI[row.id].map { (row, $0) } }
+            let fields: [(String, (RecordedTitle, RecordedTitle) -> Bool)] = [
+                ("start", { $0.start != $1.start }),
+                ("durationSec", { $0.durationSec != $1.durationSec }),
+                ("protected", { $0.protected != $1.protected }),
+                ("isNew", { $0.isNew != $1.isNew }),
+                ("channelName", { $0.channelName != $1.channelName }),
+                ("recording", { $0.recording != $1.recording }),
+                ("sizeMB", { $0.sizeMB != nil && $1.sizeMB != nil && $0.sizeMB != $1.sizeMB }),
+            ]
+            for (name, differs) in fields {
+                say("  \(name): \(pairs.filter { differs($0.0, $0.1) }.count) of \(pairs.count) differ")
+            }
+            say("  sizeMB: \(pairs.filter { $0.0.sizeMB == nil && $0.1.sizeMB != nil }.count) none where 1.5 says one")
+        }
+        await Self.sayingPower(of: client, say, "at the end")
+    }
+
     /// The recordings asked for in every other way the television's signatures offer: `getContentCount` 1.1 by
     /// `type` and `target`, and `getContentList` 1.5 by `view`, `target`, `type` and `filter`. Makes nothing; run
     /// when the television's own list shows more recordings than `testReadingTheRecordings` read. It says the

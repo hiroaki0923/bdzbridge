@@ -25,6 +25,13 @@ public extension Array where Element == RecordedTitle {
 }
 
 extension RecordedTitle {
+    /// A size in bytes as megabytes the way 1.5 writes `sizeMB`, a megabyte being 1,048,576 bytes and the figure
+    /// rounded (654,213,120 bytes were 624): nil for none, and for -1.
+    static func megabytes(_ bytes: Int?) -> Int? {
+        guard let bytes, bytes >= 0 else { return nil }
+        return Int((Double(bytes) / 1_048_576).rounded())
+    }
+
     /// A row of a television's list (`ScalarClient.recordings`), by what was measured of version 1.5: the uri, its
     /// name for the recording, as the id; the start with its offset written `+0900`; the length in `duration` and
     /// the size in `sizeMB`, since `fileSizeByte` is -1 on a large one; and `isProtected`, `isAlreadyPlayed` and
@@ -39,10 +46,18 @@ extension RecordedTitle {
     ///
     /// Nil without a uri, or a start that reads as a time, so that such a row is left out, as a recorder's is,
     /// rather than the whole list refused for it.
+    ///
+    /// A row of 1.2 or 1.0, which an older television lists, has the length at the top, the two flags as booleans,
+    /// and its size in bytes alone, which is -1 for a recording past what a 32-bit number holds: no size then.
+    /// It says nothing of a recording under way, nor its text or its genre.
     init?(televisionRow row: [String: ScalarValue]) {
         guard let uri = row["uri"]?.text, !uri.isEmpty,
               let start = row["startDateTime"]?.text.flatMap(RecorderTime.parse) else { return nil }
-        func flag(_ value: ScalarValue?) -> Bool { value?.text == "true" }
+        // 1.5 writes the flags as text, 1.2 and 1.0 as booleans.
+        func flag(_ value: ScalarValue?) -> Bool {
+            if case .bool(let flag)? = value { return flag }
+            return value?.text == "true"
+        }
         func said(_ value: ScalarValue?) -> String? { value?.text.flatMap { $0.isEmpty ? nil : $0 } }
         let recording = flag(row["recordingInfo"]?["isRecording"])
         var genre: Int?
@@ -51,10 +66,12 @@ extension RecordedTitle {
             genre = code
         }
         self.init(id: uri, title: row["title"]?.text ?? "", start: start,
-                  durationSec: row["duration"]?["durationSec"]?.whole ?? 0, broadcastingType: 0, serviceID: 0,
+                  durationSec: row["duration"]?["durationSec"]?.whole ?? row["durationSec"]?.whole ?? 0,
+                  broadcastingType: 0, serviceID: 0,
                   qualityCode: 0, protected: flag(row["isProtected"]), isNew: !flag(row["isAlreadyPlayed"]),
                   recording: recording, destination: TVDriver.recordsTo,
-                  sizeMB: recording ? nil : row["sizeMB"]?.whole, genreCode: genre, device: .tv,
+                  sizeMB: recording ? nil : row["sizeMB"]?.whole ?? Self.megabytes(row["fileSizeByte"]?.whole),
+                  genreCode: genre, device: .tv,
                   channelName: said(row["channelName"]), summary: said(row["description"]?["summary"]),
                   details: said(row["description"]?["detail"]))
     }
