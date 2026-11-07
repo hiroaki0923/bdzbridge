@@ -345,10 +345,10 @@ struct ProgramSheet: View {
                          + (device == .tv ? TVDriver.confirming : RecorderDriver.confirming(away: model.offline)))
                 case .cancel(let reservation):
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
-                         + "\(reservation.device.label)から削除されます。")
+                         + reservation.whatDeletingDoes(fromTheList: false))
                 case .cancelPending(let waiting):
                     Text("\(Format.dateTime.string(from: waiting.request.start)) \(waiting.request.title)\n"
-                         + "この端末から削除し、\(waiting.target.label)には送りません。")
+                         + waiting.whatDeletingDoes)
                 case .failed(let said), .said(let said, _):
                     Text(said.asABody)
                 case .kept(let why, _):
@@ -534,7 +534,7 @@ struct ProgramSheet: View {
                 }
                 .disabled(model.isBusy(for: device) || others > 0)
             } else {
-                Text("\(device.label)にまだ届いていない予約です。次に\(device.label)につながったときに送ります。")
+                Text(PendingQueue.notYetAt(device))
                     .foregroundStyle(.secondary)
                     .font(.callout)
             }

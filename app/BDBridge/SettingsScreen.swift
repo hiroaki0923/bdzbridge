@@ -250,11 +250,7 @@ struct SettingsScreen: View {
     }
 
     /// How the link to the recorder stands, in the words the television's section uses for its own.
-    private var recorderState: String {
-        if model.connecting { return "接続しています…" }
-        if model.connected { return "接続済み" }
-        return model.gaveUp ? "応答がありません" : "接続していません"
-    }
+    private var recorderState: String { model.session.standing() }
 
     /// Whether the overnight run can say anything, and the way to change it. The provisional permission the
     /// app takes after the first connect happens without a word, and somebody who only uses the app at home

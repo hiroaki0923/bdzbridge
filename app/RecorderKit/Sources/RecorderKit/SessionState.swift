@@ -329,3 +329,14 @@ public final class SessionState {
         }
     }
 }
+
+public extension SessionState {
+    /// How the link stands, in the words the settings use for either device: a television that wants to be
+    /// registered again says that first (`needsPairing`).
+    func standing(needsPairing: Bool = false) -> String {
+        if needsPairing { return "登録が必要です" }
+        if connecting { return "接続しています…" }
+        if connected { return "接続済み" }
+        return gaveUp ? "応答がありません" : "接続していません"
+    }
+}

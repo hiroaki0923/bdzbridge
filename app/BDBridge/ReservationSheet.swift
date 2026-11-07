@@ -179,8 +179,7 @@ struct ReservationSheet: View {
                     Text(said.asABody)
                 } else {
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
-                         + "\(reservation.device.label)から削除されます。"
-                         + (reservation.createdByRecorder ? "\n" + RecorderDriver.mayComeBack : ""))
+                         + reservation.whatDeletingDoes(fromTheList: false))
                 }
             }
             .onChange(of: done) { if $1 { dismiss() } }
@@ -266,11 +265,10 @@ struct ReservationSheet: View {
             }
         }
         diskRow
-        if reservation.eventID != nil {
-            LabeledContent("番組追従", value: "時間が変わっても追いかけます")
+        if let follows = reservation.followsItsProgramme {
+            LabeledContent("番組追従", value: follows)
         }
-        LabeledContent("登録元", value: reservation.createdByRecorder ? "レコーダー（おまかせ録画）"
-                       : reservation.createdByApp ? "アプリから" : "不明")
+        LabeledContent("登録元", value: reservation.madeBy)
         if let size = reservation.sizeMB {
             LabeledContent("録画サイズ", value: String(format: "%.1f GB", Double(size) / 1024))
         }

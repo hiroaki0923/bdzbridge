@@ -2008,9 +2008,9 @@ public final class RecorderDriver: LinkDriver {
     public static let madeByItself = "おまかせ・まる録によって自動登録された予約です。削除してもレコーダーが再登録することがあります。"
         + "自動登録を止めるには、レコーダー本体でおまかせ・まる録の設定を変更してください。"
 
-    /// What the question before such a reservation is deleted adds, asked on its sheet; `mayComeBackFromTheList`
-    /// is the same asked from the list. Two wordings of one thing, kept as they are; a later review of the
-    /// wording makes them one.
+    /// What the question before such a reservation is deleted adds, asked on a sheet -- the reservation's or the
+    /// programme's; `mayComeBackFromTheList` is the same asked from the list (`Reservation.whatDeletingDoes`). Two
+    /// wordings of one thing, kept as they are; a later review of the wording makes them one.
     public static let mayComeBack = "おまかせ・まる録による予約のため、レコーダーが再登録することがあります。"
     public static let mayComeBackFromTheList = "これはおまかせ・まる録によって自動登録された予約です。"
         + "削除してもレコーダーが再登録することがあります。"
