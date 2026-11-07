@@ -48,12 +48,13 @@ extension AppModel {
     /// Whether any broadcasting type is behind the recorder's last rebuild.
     var guideIsStale: Bool { !staleBroadcastingTypes.isEmpty }
 
-    /// Whether the guide is on its way: being downloaded, or about to be, by a connect that has reached the
-    /// recorder and found the cache behind -- it reads the reservations and the lists first, and then starts
-    /// the refresh (`RecorderHost.refreshTheGuideAfterTheConnect`), which is about to be counted for the turns
-    /// before it is. An empty guide says so then, rather than that there is nothing for the day.
+    /// Whether the guide is on its way: being downloaded, from the recorder or from the television's helper, or
+    /// about to be, by a connect that has reached the recorder and found the cache behind -- it reads the
+    /// reservations and the lists first, and then starts the refresh (`RecorderHost.refreshTheGuideAfterTheConnect`),
+    /// which is about to be counted for the turns before it is. An empty guide says so then, rather than that
+    /// there is nothing for the day.
     var guideOnItsWay: Bool {
-        guideDownloads > 0 || (connecting && connected && guideIsStale)
+        guideDownloads > 0 || (tvHelper?.isFetching ?? false) || (connecting && connected && guideIsStale)
             || (recorderHost.refreshesTheGuideAfterAConnect && guideIsStale)
     }
 
