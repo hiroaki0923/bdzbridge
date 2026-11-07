@@ -30,12 +30,22 @@ final class OlderTelevisionTests: XCTestCase {
         XCTAssertEqual(driver.facts.model, DemoTV.model)
     }
 
-    func testWhatAnOlderTelevisionCannotDoIsSaidInWords() async throws {
-        let (world, link, _) = await attached(older: true)
+    func testAnOlderTelevisionsReservationsAreReadAndWhatItCannotDoIsSaidInWords() async throws {
+        let (world, link, television) = await attached(older: true)
         let driver = try XCTUnwrap(link.driver as? TVDriver)
         let read = await driver.reservations()
-        XCTAssertNil(read)
-        XCTAssertEqual(world.problem, "このテレビは、RecBridge が使う方式での予約の一覧の読み取りに対応していません")
+        XCTAssertEqual(read, [], "an older television's reservations are read in 1.0")
+        XCTAssertNil(world.problem)
+        let client = try XCTUnwrap(link.client as? ScalarClient)
+        await television.put([DemoTV.Schedule(id: "recording.1", start: Date(timeIntervalSince1970: 1_900_000_000))])
+        let listed = try await client.schedules()
+        let row = try XCTUnwrap(listed.first)
+        do {
+            try await client.changeSchedule(row, repeatType: "d")
+            XCTFail("an older television changed a repeat")
+        } catch let error as ScalarError {
+            XCTAssertEqual(error.explanation, "このテレビは、RecBridge が使う方式での予約の変更に対応していません")
+        }
         XCTAssertTrue(link.session.connected, "a method the television does not have is no reason to lose it")
     }
 
@@ -60,7 +70,17 @@ final class OlderTelevisionTests: XCTestCase {
     /// Nine in the evening in Japan on Sunday 1 November 2026.
     private nonisolated static let start = Date(timeIntervalSince1970: 1_793_534_400)
 
-    private func client(of television: DemoTV) async -> ScalarClient {
+    /// A reservation by its times on a station of the television, as `addSchedule` 1.0 is sent one.
+    private func byTime(on station: DemoTV.Station) throws -> TVReservationBody {
+        let type = try XCTUnwrap(TVScheduleRow.schemes[station.scheme].flatMap { Codes.broadcasting[$0] })
+        let request = ReservationRequest(title: "時刻の予約", start: Date(timeIntervalSince1970: 1_900_000_000),
+                                         durationSec: 600, repeatCode: "1", broadcastingType: type,
+                                         serviceID: station.serviceID, qualityCode: 100, eventID: 1)
+        return try XCTUnwrap(TVReservationBody(request, on: TVStation(broadcastingType: type,
+                                                                      serviceID: station.serviceID, uri: station.uri)))
+    }
+
+    private func registered(_ television: DemoTV) async -> ScalarClient {
         await television.knows("BDBridge:test", cookie: "kept")
         let credentials = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "kept",
                                                             cookieReceived: Date(), cookieMaxAge: 1_209_600))
@@ -82,7 +102,7 @@ final class OlderTelevisionTests: XCTestCase {
                              played: true),
             DemoTV.Recording(contentID: 2, start: Self.start, durationSec: 3600, sizeMB: 3000),
         ], older: true)
-        let client = await client(of: television)
+        let client = await registered(television)
         let titles = try await client.recordings()
         XCTAssertEqual(titles.count, 2)
         XCTAssertEqual(titles.map(\.durationSec), [1800, 3600], "the length at the top of the row")
@@ -100,7 +120,7 @@ final class OlderTelevisionTests: XCTestCase {
 
     func testANewerTelevisionsRecordingsAreStillReadIn1Point5() async throws {
         let television = DemoTV(recordings: [DemoTV.Recording(contentID: 1, start: Self.start)])
-        let titles = try await client(of: television).recordings()
+        let titles = try await registered(television).recordings()
         XCTAssertEqual(titles.count, 1)
         let versions = await listVersions(television)
         XCTAssertEqual(versions, ["1.5"])
@@ -148,6 +168,66 @@ final class OlderTelevisionTests: XCTestCase {
         XCTAssertFalse(title.recording)
         XCTAssertNil(title.summary)
         XCTAssertNil(title.genreCode)
+    }
+
+    func testAnOlderTelevisionsReservationsAreReadDeletedAndMadeByTheirTimesInOnePointZero() async throws {
+        let station = DemoTV.Station(serviceID: 0x428)
+        let television = DemoTV(stations: [station], older: true)
+        let client = await registered(television)
+        try await client.addSchedule(byTime: try byTime(on: station))
+        let rows = try await client.schedules()
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertNil(rows.first?.eventId, "a reservation by its times follows no programme")
+        XCTAssertEqual(rows.first?.title, "時刻の予約", "a reservation by its times keeps the title sent")
+        _ = try await client.schedules()
+        try await client.deleteSchedule(try XCTUnwrap(rows.first))
+        let after = try await client.schedules()
+        XCTAssertEqual(after, [])
+        let calls = await television.calls.map { String($0.prefix { $0 != " " }) }
+        XCTAssertEqual(calls, ["addSchedule", "getScheduleList", "getScheduleList", "getScheduleList", "deleteSchedule",
+                               "deleteSchedule", "getScheduleList"],
+                       "1.1 is asked once and 1.0 straight after that, for each method")
+    }
+
+    func testANewerTelevisionTakesAReservationByItsTimesTooAndDeletesItInOnePointOne() async throws {
+        let station = DemoTV.Station(serviceID: 0x428)
+        let television = DemoTV(stations: [station])
+        let client = await registered(television)
+        try await client.addSchedule(byTime: try byTime(on: station), quality: "DR")
+        let rows = try await client.schedules()
+        XCTAssertEqual(rows.count, 1)
+        try await client.deleteSchedule(try XCTUnwrap(rows.first))
+        let after = try await client.schedules()
+        XCTAssertEqual(after, [])
+        let bodies = await television.bodies
+        XCTAssertTrue(bodies.contains { $0.contains(#""method":"deleteSchedule""#) && $0.contains(#""version":"1.1""#) })
+    }
+
+    func testARoundSendsAnOlderTelevisionItsReservationByItsTimesAndFindsItThereAfterwards() async throws {
+        let station = DemoTV.Station(serviceID: 0x428)
+        let television = DemoTV(stations: [station], older: true)
+        let client = await registered(television)
+        let body = try byTime(on: station)
+        let type = try XCTUnwrap(TVScheduleRow.schemes[station.scheme].flatMap { Codes.broadcasting[$0] })
+        let request = ReservationRequest(title: "時刻の予約", start: Date(timeIntervalSince1970: 1_900_000_000),
+                                         durationSec: body.durationSec, repeatCode: "1", broadcastingType: type,
+                                         serviceID: station.serviceID, qualityCode: 100, eventID: 1)
+        let row = PendingReservation(request: request, serviceName: "サンプル総合", queuedAt: Date(), target: .tv)
+
+        guard case .open(let round, let there) = await client.openRound(for: [row]) else {
+            return XCTFail("the round did not open")
+        }
+        XCTAssertEqual(there, [])
+        let (sent, _) = await client.send(row, consented: false, in: round)
+        guard case .made = sent else { return XCTFail("not made: \(sent)") }
+        let bodies = await television.bodies
+        XCTAssertTrue(bodies.contains { $0.contains(#""method":"addSchedule""#) && $0.contains(#""version":"1.0""#)
+                                        && !$0.contains("eventId") }, "the create was not one by its times, in 1.0")
+
+        guard case .open(_, let thereNow) = await client.openRound(for: [row]) else {
+            return XCTFail("the second round did not open")
+        }
+        XCTAssertEqual(thereNow, [row.id], "the reservation made by its times is not found as there")
     }
 
     func testErrorTwelveIsSomethingTheTelevisionCannotDo() {

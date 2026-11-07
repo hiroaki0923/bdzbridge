@@ -250,6 +250,7 @@ final class TVSittingTests: XCTestCase {
         ("three at once", { try await $0.sitting.threeAtOnce() }),
         ("a cookie not taken", { try await $0.sitting.aCreateWithACookieNotTaken(sentBy: $0.stranger) }),
         ("the stations named", { try await $0.sitting.theStationsNamed() }),
+        ("a time reservation in 1.0", { try await $0.sitting.aTimeReservationInVersionOne() }),
     ]
 
     private func thrown(_ check: () async throws -> Void) async -> (any Error)? {
@@ -342,6 +343,8 @@ final class TVSittingTests: XCTestCase {
             "three at once": opening + three + three,
             "a cookie not taken": opening + made,
             "the stations named": opening + made + takenOff + ["getContentList"],
+            "a time reservation in 1.0": ["getPowerStatus", "getStorageList", "getScheduleList", "getContentList"]
+                + made + takenOff,
         ]
 
         try await world.sitting.theStations()
@@ -363,12 +366,12 @@ final class TVSittingTests: XCTestCase {
             "1501 50102 1", "1503 50105 1", "1501 50102 1", "1501 50102 1",
             "1502 50104 w3", "1502 50104 title", "1502 50104 d", "1502 50104 w15", "1502 50104 w16", "1502 50104 w4",
             "1501 50109 1", "1502 50110 1", "1504 50111 1", "1501 50106 1", "1502 50107 1", "1504 50108 1",
-            "1501 50102 1", "1601 50112 1",
+            "1501 50102 1", "1601 50112 1", "1501 50102 1",
         ])
         XCTAssertEqual(try TVLedger.read(world.ledger).before, TVLedger.Counts(rows: 11, recordings: 9, overlapped: 0))
         XCTAssertEqual(try TVLedger.read(world.ledger).begun, Self.now)
         // And each written down before its create was sent: what the ledger held as the create arrived.
-        expectEqual(await world.line.ledgerAtEachCreate, (1...18).map { "\($0) entries, the last open" })
+        expectEqual(await world.line.ledgerAtEachCreate, (1...19).map { "\($0) entries, the last open" })
 
         let said = world.said.text
         expectNamesNothing(said)
@@ -402,7 +405,10 @@ final class TVSittingTests: XCTestCase {
             "station 2 of 2 (bs): not in the television's list, so nothing is sent",
             "the list: rows 11, recordings 9, losing to another 0;"
                 + " before the first create: rows 11, recordings 9, losing to another 0",
-            "the ledger: entries 18, not struck out 0; recordings listed that one of them may have left: 0",
+            "the ledger: entries 19, not struck out 0; recordings listed that one of them may have left: 0",
+            "the create in 1.0 with no quality: taken, annotation 0; rows made: 1",
+            "the row: a programme none, the title as sent yes, quality DR, repeat as sent yes",
+            "the delete in 1.0: taken", "the row after the delete in 1.0: gone",
         ] {
             XCTAssertTrue(said.components(separatedBy: "\n").contains(line), "not said: \(line)")
         }

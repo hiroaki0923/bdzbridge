@@ -100,7 +100,8 @@ public enum ScalarError: Error, Equatable, Sendable {
         case .http(let status, let method): "テレビが HTTP \(status) を返しました (\(method))"
         case .rpc(_, _, 40005, _): "テレビの電源が入っていないため、操作できませんでした"
         case .rpc(_, _, 41020, _): "録画用の USB HDD が見つかりません"
-        case .rpc(let method, _, 12, _): "このテレビは、RecBridge が使う方式での\(Self.feature(of: method))に対応していません"
+        case .rpc(let method, let version, 12, _):
+            "このテレビは、RecBridge が使う方式での\(Self.feature(of: method, version: version))に対応していません"
         case .rpc(let method, _, let code, _): "テレビがエラーを返しました (\(code): \(method))"
         case .unreadable(let method): "テレビの応答を読み取れませんでした (\(method))"
         case .notATelevision(let host): "\(host) はテレビとして応答しませんでした"
@@ -112,9 +113,10 @@ extension ScalarError: DeviceError {}
 
 extension ScalarError {
     /// What a method does, in words for a sentence about a television that does not have it.
-    static func feature(of method: String) -> String {
+    static func feature(of method: String, version: String) -> String {
         switch method {
         case "getScheduleList": "予約の一覧の読み取り"
+        case "addSchedule" where version == "1.2": "予約の変更"
         case "addSchedule": "予約"
         case "deleteSchedule": "予約の削除"
         case "getConflictScheduleList": "予約の重なりの確認"
@@ -534,21 +536,62 @@ public actor ScalarClient {
     /// says little of where reminders go. Version 1.1 only. One request for 130 rows, the most it is said to
     /// hold, and never a second: what `stIdx` counts from has not been measured. A row without what every row
     /// has is left out (`TVScheduleRow.init`), as the recorder's are.
+    ///
+    /// An older television has the method in 1.0 alone, and answers error 12 to 1.1: it is asked in 1.0 then, the
+    /// same parameters, and its rows carry no `eventId`. Which version answered is kept for this client
+    /// (`speaks`), so that the next read goes straight to it.
     func schedules() async throws -> [TVScheduleRow] {
-        let result = try await authenticated("recording", "getScheduleList", version: "1.1",
+        if speaks["getScheduleList"] == nil {
+            do {
+                let rows = try await schedules(version: "1.1")
+                speaks["getScheduleList"] = "1.1"
+                return rows
+            } catch ScalarError.rpc(_, _, 12, _) {
+                speaks["getScheduleList"] = "1.0"
+            }
+        }
+        return try await schedules(version: speaks["getScheduleList"] ?? "1.1")
+    }
+
+    /// The reservations as `getScheduleList` in `version` lists them: 1.1, or 1.0 on an older television.
+    func schedules(version: String) async throws -> [TVScheduleRow] {
+        let result = try await authenticated("recording", "getScheduleList", version: version,
                                              params: [["stIdx": 0, "cnt": 130]])
         guard let rows = (result as? [Any])?.first as? [Any] else {
             throw ScalarError.unreadable(method: "getScheduleList")
         }
-        return rows.compactMap { ($0 as? [String: Any]).flatMap { TVScheduleRow($0) } }
+        return rows.compactMap { ($0 as? [String: Any]).flatMap { TVScheduleRow($0) } }.map { row in
+            var row = row
+            row.listedByTimes = version == "1.0"
+            return row
+        }
     }
 
     /// Takes a reservation off the television: the row as it was read (`TVScheduleRow.deletion`), in a list of
     /// its own inside the parameters. One row to a request is all that has ever been sent. One request removes
     /// a repeating reservation whole. A row the television no longer has is answered with error 41200, an id
     /// it never gave as well. Nothing is sent a second time for silence: the first may have arrived.
+    ///
+    /// An older television has the method in 1.0 alone, and answers error 12 to 1.1: the same row is sent to it in
+    /// 1.0, as the one object of the parameters rather than in a list. Which version answered is kept for this
+    /// client (`speaks`).
     func deleteSchedule(_ row: TVScheduleRow) async throws {
-        _ = try await authenticated("recording", "deleteSchedule", version: "1.1", params: [[row.deletion]])
+        if speaks["deleteSchedule"] == nil {
+            do {
+                try await deleteSchedule(row, version: "1.1")
+                speaks["deleteSchedule"] = "1.1"
+                return
+            } catch ScalarError.rpc(_, _, 12, _) {
+                speaks["deleteSchedule"] = "1.0"
+            }
+        }
+        try await deleteSchedule(row, version: speaks["deleteSchedule"] ?? "1.1")
+    }
+
+    /// The delete in `version`: 1.1, the row in a list of its own inside the parameters, or 1.0, the row alone.
+    func deleteSchedule(_ row: TVScheduleRow, version: String) async throws {
+        _ = try await authenticated("recording", "deleteSchedule", version: version,
+                                    params: version == "1.0" ? [row.deletion] : [[row.deletion]])
     }
 
     /// How many stations a page of the list is asked for: what a television has been seen to give in one
@@ -641,6 +684,19 @@ public actor ScalarClient {
     @discardableResult
     func addSchedule(_ body: TVReservationBody) async throws -> Int? {
         let result = try await authenticated("recording", "addSchedule", version: "1.1", params: [body.creating])
+        return (result as? [[String: Any]])?.first?["annotation"] as? Int
+    }
+
+    /// Reserves `body` by its times alone: `recording.addSchedule` 1.0, which an older television has in place of
+    /// 1.1. No programme id is sent, so the television does not follow the programme: what is made is a
+    /// reservation of those times on that station. `quality` is sent where it is given: the version's signature
+    /// lists one, but a television took a reservation without it and listed it in DR, as it does one made in 1.1,
+    /// so the app sends none. The title sent is kept, where 1.1's is replaced by the television's own.
+    @discardableResult
+    func addSchedule(byTime body: TVReservationBody, quality: String? = nil) async throws -> Int? {
+        var fields = body.asking.merging(["type": "recording"]) { $1 }
+        if let quality { fields["quality"] = quality }
+        let result = try await authenticated("recording", "addSchedule", version: "1.0", params: [fields])
         return (result as? [[String: Any]])?.first?["annotation"] as? Int
     }
 
@@ -1229,7 +1285,12 @@ extension ScalarClient: QueueTarget {
 
         var saidThere = false
         do {
-            try await addSchedule(body)
+            // An older television, which lists its reservations in 1.0, is sent one by its times, in 1.0.
+            if speaks["getScheduleList"] == "1.0" {
+                try await addSchedule(byTime: body)
+            } else {
+                try await addSchedule(body)
+            }
         } catch let error as ScalarError where error.failure == .alreadyThere {
             saidThere = true
         } catch {

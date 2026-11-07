@@ -1452,10 +1452,10 @@ final class ScalarClientTests: XCTestCase {
             expectEqual(try await refusal(by: television, "recording", "addSchedule", "1.1", body),
                         DemoTV.inventedError, name)
         }
-        for (service, version) in [("recording", "1.0"), ("avContent", "1.1")] {
-            expectEqual(try await refusal(by: television, service, "addSchedule", version, create), 12,
-                        "\(service) \(version)")
-        }
+        // 1.0, which a real one has, is a reservation by its times: the create's programme is not one of its fields.
+        expectEqual(try await refusal(by: television, "recording", "addSchedule", "1.0", create), DemoTV.inventedError,
+                    "a programme sent in 1.0")
+        expectEqual(try await refusal(by: television, "avContent", "addSchedule", "1.1", create), 12, "avContent 1.1")
 
         let asked: [(String, String, String, [String: Any], Int?)] = [
             ("as a real one has been asked", "recording", "1.0", question, nil),

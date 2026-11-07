@@ -34,6 +34,9 @@ public struct TVScheduleRow: Sendable, Equatable {
     public var quality: String?
     /// The programme's id, in decimal. A reservation made by its times has none: the field is not there.
     public var eventId: String?
+    /// Whether it was listed by an older television, in `getScheduleList` 1.0, whose rows carry no programme
+    /// id at all: what is the request's is known by its times then (`holding`).
+    public var listedByTimes = false
 
     public init(id: String, type: String, uri: String, startDateTime: String, durationSec: Int, title: String? = nil,
                 channelName: String? = nil, repeatType: String? = nil, overlapStatus: String? = nil,
@@ -219,12 +222,20 @@ extension Array where Element == TVScheduleRow {
     ///
     /// A reminder to watch the programme is no match: it records nothing. A request with no programme id
     /// matches nothing, whatever stands at its time: its channel alone does not say which row is its own.
+    ///
+    /// A row an older television listed, in `getScheduleList` 1.0 (`listedByTimes`), has no programme id to go by:
+    /// it is the request's when it records the request's times on its channel -- the same start and length --
+    /// which is how such a television is sent one (`ScalarClient.addSchedule(byTime:quality:)`).
     func holding(_ request: ReservationRequest) -> TVScheduleRow? {
-        guard let programme = request.eventID.map({ String($0) }) else { return nil }
+        let programme = request.eventID.map { String($0) }
         return first { row in
-            guard row.type == "recording", row.eventId == programme,
-                  let channel = TVScheduleRow.channel(of: row.uri) else { return false }
-            return channel.broadcastingType == request.broadcastingType && channel.serviceID == request.serviceID
+            guard row.type == "recording", let channel = TVScheduleRow.channel(of: row.uri),
+                  channel.broadcastingType == request.broadcastingType,
+                  channel.serviceID == request.serviceID else { return false }
+            if row.listedByTimes {
+                return RecorderTime.parse(row.startDateTime) == request.start && row.durationSec == request.durationSec
+            }
+            return programme != nil && row.eventId == programme
         }
     }
 }

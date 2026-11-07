@@ -424,6 +424,24 @@ final class LiveTVTests: XCTestCase {
         }
     }
 
+    /// The reservations as each version of `getScheduleList` lists them -- 1.1, and 1.0, which an older television
+    /// has alone -- by their count and the fields their rows carry, never what they are. Reads, with the jar of a
+    /// registration; changes nothing.
+    ///
+    ///     TV_HOST=… TV_JAR=… swift test --filter LiveTVTests/testTheReservationsInEachVersion
+    func testTheReservationsInEachVersion() async throws {
+        let jar = try liveJar()
+        guard jar.load()?.cookie != nil else { throw XCTSkip("Nothing is registered in the jar yet.") }
+        let client = try liveClient(jar)
+        for version in ["1.1", "1.0"] {
+            await byItsKind("getScheduleList \(version)") {
+                let rows = try await client.schedules(version: version)
+                print("getScheduleList \(version): \(rows.count) rows, with an eventId \(rows.filter { $0.eventId != nil }.count),"
+                      + " a quality \(rows.filter { $0.quality != nil }.count), a repeat \(rows.filter { $0.repeatType != nil }.count)")
+            }
+        }
+    }
+
     /// The look a connect makes for a television that did not answer where it was saved (`TVDiscovery.find`,
     /// which the app's link is given): the MAC read at the address given, as an attach reads it, and then that
     /// MAC looked for over the subnet the address is on, through the session the app sends a television with,
@@ -517,6 +535,13 @@ final class LiveTVTests: XCTestCase {
 
     func testAWholeWriteWithTheTelevisionOn() async throws {
         try await sitting { try await $0.aWholeWrite() }
+    }
+
+    /// A reservation by its times in `addSchedule` 1.0 and its delete in `deleteSchedule` 1.0, which an older
+    /// television has in place of 1.1 (`TVSitting.aTimeReservationInVersionOne`): the television on, as for a
+    /// whole write.
+    func testATimeReservationInVersionOne() async throws {
+        try await sitting { try await $0.aTimeReservationInVersionOne() }
     }
 
     func testARecordingWhereAViewingReservationIs() async throws {
