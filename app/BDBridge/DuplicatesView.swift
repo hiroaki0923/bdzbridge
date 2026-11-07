@@ -49,8 +49,8 @@ struct DuplicatesView: View {
             }
         } message: {
             if emptied.isEmpty {
-                Text(String(format: "合計 %.1fGB。チェックの無いものは残ります。\n"
-                            + "レコーダーから削除され、元に戻せません。", chosenGB))
+                Text(String(format: "合計 %.1fGB。チェックの無いものは残ります。\n", chosenGB)
+                     + chosen.deletedForGood + "。")
             } else {
                 Text(emptiedMessage)
             }

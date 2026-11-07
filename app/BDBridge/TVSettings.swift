@@ -113,10 +113,7 @@ struct TVSection: View {
     }
 
     private func state(of tv: DeviceLink) -> String {
-        if model.tvDriver?.facts.needsPairing == true { return "登録が必要です" }
-        if tv.session.connecting { return "接続しています…" }
-        if tv.session.connected { return "接続済み" }
-        return tv.session.gaveUp ? "応答がありません" : "接続していません"
+        tv.session.standing(needsPairing: model.tvDriver?.facts.needsPairing == true)
     }
 
 }

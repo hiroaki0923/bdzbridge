@@ -166,11 +166,10 @@ struct ReservationsScreen: View {
                 switch shown {
                 case .confirm(let reservation):
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
-                         + "\(reservation.device.label)から削除されます。"
-                         + (reservation.createdByRecorder ? "\n" + RecorderDriver.mayComeBackFromTheList : ""))
+                         + reservation.whatDeletingDoes(fromTheList: true))
                 case .confirmPending(let waiting):
                     Text("\(Format.dateTime.string(from: waiting.request.start)) \(waiting.request.title)\n"
-                         + "この端末から削除し、\(waiting.target.label)には送りません。")
+                         + waiting.whatDeletingDoes)
                 case .failed(let reason), .said(let reason):
                     Text(reason.asABody)
                 }

@@ -360,6 +360,11 @@ public extension PendingQueue {
             + (diskAway ? ScalarClient.diskNotFound + "。" : "")
     }
 
+    /// What a screen says of one row that waits for `device`, with no reason held on it.
+    static func notYetAt(_ device: DeviceSlot) -> String {
+        device == .tv ? notYetAtTheTelevision : notYetAtTheRecorder
+    }
+
     private static let notYetAtTheRecorder = "レコーダーにまだ届いていない予約です。次にレコーダーにつながったときに送ります。"
     private static let notYetAtTheTelevision = "テレビにまだ届いていない予約です。次にテレビにつながったときに送ります。"
     private static let notYetAtEither = "レコーダーやテレビにまだ届いていない予約です。"
