@@ -102,7 +102,7 @@ struct ChannelsScreen: View {
     private var empty: some View {
         let type = GuideEmptyView.inSentence(broadcasting)
         ContentUnavailableView("\(type)の局はありません", systemImage: "antenna.radiowaves.left.and.right",
-                               description: Text(model.demo ? DemoData.guideCoverage
+                               description: Text(model.demo ? DemoLineUp.guideCoverage
                                                             : "局の一覧は、番組表と一緒にレコーダーから取得します"))
     }
 

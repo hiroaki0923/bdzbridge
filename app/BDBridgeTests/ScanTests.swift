@@ -1024,7 +1024,7 @@ final class ScanTests: XCTestCase {
         XCTAssertEqual(model.scanOutcome, .found(recorders: 1, televisions: 1))
         XCTAssertEqual(model.found.map(\.host), [DemoRecorder.host])
         XCTAssertTrue(model.found.first.map(model.inUse) ?? false, "the demo's recorder was not listed in use")
-        XCTAssertEqual(model.foundTelevisions, [TVSighting(host: DemoData.tvHost, model: DemoTV.model)])
+        XCTAssertEqual(model.foundTelevisions, [TVSighting(host: DemoTV.host, model: DemoTV.model)])
         XCTAssertTrue(model.canAddAFoundTelevision, "the demo's television could not be tapped")
         XCTAssertFalse(model.foundTelevisions.first.map(model.inUse) ?? true, "the demo's television was in use")
         XCTAssertFalse(model.scanBlocked, "the notice about the permission went up in the demo")

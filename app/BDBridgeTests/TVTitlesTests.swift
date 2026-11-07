@@ -877,7 +877,7 @@ final class TVTitlesTests: XCTestCase {
         let television = DemoLineUp.television()
         let credentials = MemoryTVCredentials(TVCredentials(clientID: "c", cookie: "kept"))
         await television.knows("c", cookie: "kept")
-        let client = ScalarClient(host: DemoData.tvHost, transport: television, credentials: credentials)
+        let client = ScalarClient(host: DemoTV.host, transport: television, credentials: credentials)
         let storage = try await client.storage()
         let recordings = await television.recordings
         XCTAssertEqual(recordings.count, 4)
