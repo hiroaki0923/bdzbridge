@@ -273,8 +273,10 @@ B でも C でも、1 つのリポジトリで持てます。要になるのは 
    （`SessionState.standing`）、重複の削除の文（RecorderKit にあった `deletedForGood`）、予約のシートの「登録元」と
    「番組追従」の言い方（`Reservation.madeBy`、`followsItsProgramme`）を、RecorderKit の文から言うようにした。
    テストは `ReservationSentencesTests` に 4 件。
-7. **レコーダーの一覧の規則**（`RecorderHost.swift`）: USB HDD の行を残す規則、録画の一覧が USB HDD と合っているかの判断、
-   画面下の帯に出す報告の文のつなぎ方。
+7. **レコーダーの一覧の規則**（済み）: USB HDD の行を残す規則（`keeping(_:readFrom:usb:)`）、録画の一覧が USB HDD と
+   合っているかの判断（`isOutdated(readFrom:usb:)`）、画面下の帯に出す報告の文のつなぎ方（`StripReport`）を、
+   RecorderKit の `StripReport.swift` に移した。テストは `StripReportTests` に 5 件。いつ判断するか（一覧を読めたか、
+   一括の処理の最中か、USB HDD がまだ答えていないか）はアプリ。
 8. **小さな定数と表**:
    - 放送日の 4 時の区切りを、番組表の表形式が書き写している（`GuideStore` では外から見えない）
    - 放送波の短い名前（番組表の画面にある）を `Codes` に

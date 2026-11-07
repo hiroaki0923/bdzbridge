@@ -234,7 +234,7 @@ final class TVHost: LinkHost {
     /// alike. The queue on screen is read again, always: with no round too, since a row sent again may have
     /// had its reason taken off before the television could be asked. What the round has to say goes on the
     /// strip, naming the television, added to what is there unread by the strip's rule
-    /// (`AppModel.adding(_:toUnread:)`): the next sending is not to take what this one said, which can end
+    /// (`StripReport.adding(_:toUnread:)`): the next sending is not to take what this one said, which can end
     /// with what making a reservation did to another. A round with nothing to say, and no round, leave the
     /// report where it was, as the recorder's sending does. Reached from inside a connect, so nothing here may
     /// await `AppModel.start()`.
@@ -245,7 +245,7 @@ final class TVHost: LinkHost {
         await model?.loadPending()
         model?.forgetTheWarningOnceSent()
         guard let said = round?.said(withATelevisionSaved: true) else { return }
-        if let added = AppModel.adding(said, toUnread: report) { report = added }
+        if let added = StripReport.adding(said, toUnread: report) { report = added }
     }
 
     /// A connect reached the television: its reservations are read, as the recorder's are when a connect
