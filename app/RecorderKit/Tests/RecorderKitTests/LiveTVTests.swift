@@ -372,14 +372,19 @@ final class LiveTVTests: XCTestCase {
         }
     }
 
-    /// What the television says it speaks, as the settings report it (`TVCapabilities`): no registration, nothing
-    /// changed. Printed without the model's line, as the others here never print it.
+    /// What the television says it speaks, as the settings report it (`TVCapabilities`): nothing changed. With
+    /// `TV_JAR`, the app's reads are tried with the registration in it as well, as the app tries them with its own.
+    /// Printed without the model's line, as the others here never print it.
     ///
-    ///     TV_HOST=192.0.2.20 swift test --filter LiveTVTests/testWhatTheTelevisionSpeaks
+    ///     TV_HOST=192.0.2.20 [TV_JAR=<the jar>] swift test --filter LiveTVTests/testWhatTheTelevisionSpeaks
     func testWhatTheTelevisionSpeaks() async throws {
-        let capabilities = await try liveClient(MemoryTVCredentials()).capabilities()
-        print(capabilities.report(app: "test").split(separator: "\n").filter { !$0.hasPrefix("機種") }
-            .joined(separator: "\n"))
+        let jar: any TVCredentialStore = try Self.file("TV_JAR") == nil ? MemoryTVCredentials() : try liveJar()
+        let capabilities = await try liveClient(jar).capabilities()
+        // A line at a time and put out at once: the whole of it at the end was seen cut short.
+        for line in capabilities.report(app: "test").split(separator: "\n", omittingEmptySubsequences: false)
+            where !line.hasPrefix("機種") {
+            Self.sayAtOnce(String(line))
+        }
         XCTAssertNotNil(capabilities.model, "the television did not say what it is")
         for service in capabilities.services {
             XCTAssertNil(service.failure, service.name)
