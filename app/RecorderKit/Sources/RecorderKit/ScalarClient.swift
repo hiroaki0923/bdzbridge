@@ -560,7 +560,11 @@ public actor ScalarClient {
         guard let rows = (result as? [Any])?.first as? [Any] else {
             throw ScalarError.unreadable(method: "getScheduleList")
         }
-        return rows.compactMap { ($0 as? [String: Any]).flatMap { TVScheduleRow($0) } }
+        return rows.compactMap { ($0 as? [String: Any]).flatMap { TVScheduleRow($0) } }.map { row in
+            var row = row
+            row.listedByTimes = version == "1.0"
+            return row
+        }
     }
 
     /// Takes a reservation off the television: the row as it was read (`TVScheduleRow.deletion`), in a list of
@@ -682,6 +686,10 @@ public actor ScalarClient {
         let result = try await authenticated("recording", "addSchedule", version: "1.1", params: [body.creating])
         return (result as? [[String: Any]])?.first?["annotation"] as? Int
     }
+
+    /// The quality a reservation by its times is sent with (`addSchedule(byTime:quality:)`): none, until a
+    /// television is seen to want one.
+    static let qualityByTimes: String? = nil
 
     /// Reserves `body` by its times alone: `recording.addSchedule` 1.0, which an older television has in place of
     /// 1.1. No programme id is sent, so the television does not follow the programme: what is made is a
@@ -1280,7 +1288,12 @@ extension ScalarClient: QueueTarget {
 
         var saidThere = false
         do {
-            try await addSchedule(body)
+            // An older television, which lists its reservations in 1.0, is sent one by its times, in 1.0.
+            if speaks["getScheduleList"] == "1.0" {
+                try await addSchedule(byTime: body, quality: Self.qualityByTimes)
+            } else {
+                try await addSchedule(body)
+            }
         } catch let error as ScalarError where error.failure == .alreadyThere {
             saidThere = true
         } catch {

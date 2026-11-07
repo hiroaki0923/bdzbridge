@@ -203,6 +203,33 @@ final class OlderTelevisionTests: XCTestCase {
         XCTAssertTrue(bodies.contains { $0.contains(#""method":"deleteSchedule""#) && $0.contains(#""version":"1.1""#) })
     }
 
+    func testARoundSendsAnOlderTelevisionItsReservationByItsTimesAndFindsItThereAfterwards() async throws {
+        let station = DemoTV.Station(serviceID: 0x428)
+        let television = DemoTV(stations: [station], older: true)
+        let client = await registered(television)
+        let body = try byTime(on: station)
+        let type = try XCTUnwrap(TVScheduleRow.schemes[station.scheme].flatMap { Codes.broadcasting[$0] })
+        let request = ReservationRequest(title: "時刻の予約", start: Date(timeIntervalSince1970: 1_900_000_000),
+                                         durationSec: body.durationSec, repeatCode: "1", broadcastingType: type,
+                                         serviceID: station.serviceID, qualityCode: 100, eventID: 1)
+        let row = PendingReservation(request: request, serviceName: "サンプル総合", queuedAt: Date(), target: .tv)
+
+        guard case .open(let round, let there) = await client.openRound(for: [row]) else {
+            return XCTFail("the round did not open")
+        }
+        XCTAssertEqual(there, [])
+        let (sent, _) = await client.send(row, consented: false, in: round)
+        guard case .made = sent else { return XCTFail("not made: \(sent)") }
+        let bodies = await television.bodies
+        XCTAssertTrue(bodies.contains { $0.contains(#""method":"addSchedule""#) && $0.contains(#""version":"1.0""#)
+                                        && !$0.contains("eventId") }, "the create was not one by its times, in 1.0")
+
+        guard case .open(_, let thereNow) = await client.openRound(for: [row]) else {
+            return XCTFail("the second round did not open")
+        }
+        XCTAssertEqual(thereNow, [row.id], "the reservation made by its times is not found as there")
+    }
+
     func testErrorTwelveIsSomethingTheTelevisionCannotDo() {
         let error = ScalarError.rpc(method: "addSchedule", version: "1.1", code: 12, message: "addSchedule")
         XCTAssertEqual(error.explanation, "このテレビは、RecBridge が使う方式での予約に対応していません")
