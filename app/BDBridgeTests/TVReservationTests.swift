@@ -485,7 +485,7 @@ final class TVReservationTests: XCTestCase {
         // has taken the app off its list: it registers such a client only by its PIN.
         home.credentials.save(TVCredentials(clientID: "BDBridge:unlisted", cookie: "run out"))
 
-        let attempts: [(address: String, ends: AppModel.TVRegistered)] = [
+        let attempts: [(address: String, ends: TVRegistered)] = [
             (Bench.tvHost, .pinNeeded),
             (Bench.otherHost, .failed(ScalarError.transport("no answer").explanation)),
         ]

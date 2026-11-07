@@ -287,27 +287,19 @@ struct TVRegisterSheet: View {
         working = true
         defer { working = false }
         message = nil
-        if askingForPIN {
-            switch await model.registerTV(at: tidied, pin: pin) {
-            case .registered: dismiss()
-            case .pinNeeded:
-                pin = ""
-                message = TVDriver.pinTurnedDown
-            case .failed(let text): message = text
-            }
-            return
-        }
-        switch await model.findTV(at: tidied) {
-        case .on:
-            // The sheet was closed while what is at the address was asked: no number on a panel for nobody.
-            guard !Task.isCancelled else { return }
-            switch await model.registerTV(at: tidied, pin: nil) {
-            case .pinNeeded: askingForPIN = true
-            case .registered: dismiss()
-            case .failed(let text): message = text
-            }
-        case let found:
-            message = TVDriver.says(found)
+        let host = tidied
+        // The steps are the package's; closing the sheet cancels the step, after which nothing is registered.
+        switch await TVDriver.register(askingForPIN: askingForPIN, pin: pin,
+                                       find: { await model.findTV(at: host) },
+                                       register: { await model.registerTV(at: host, pin: $0) },
+                                       closed: { Task.isCancelled }) {
+        case .askForThePIN: askingForPIN = true
+        case .askForThePINAgain(let saying):
+            pin = ""
+            message = saying
+        case .registered: dismiss()
+        case .say(let text): message = text
+        case .nothing: break
         }
     }
 }
