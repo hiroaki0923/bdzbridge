@@ -372,6 +372,22 @@ final class LiveTVTests: XCTestCase {
         }
     }
 
+    /// What the television says it speaks, as the settings report it (`TVCapabilities`): no registration, nothing
+    /// changed. Printed without the model's line, as the others here never print it.
+    ///
+    ///     TV_HOST=192.0.2.20 swift test --filter LiveTVTests/testWhatTheTelevisionSpeaks
+    func testWhatTheTelevisionSpeaks() async throws {
+        let capabilities = await try liveClient(MemoryTVCredentials()).capabilities()
+        print(capabilities.report(app: "test").split(separator: "\n").filter { !$0.hasPrefix("機種") }
+            .joined(separator: "\n"))
+        XCTAssertNotNil(capabilities.model, "the television did not say what it is")
+        for service in capabilities.services {
+            XCTAssertNil(service.failure, service.name)
+            XCTAssertFalse(service.versions.isEmpty, "\(service.name): no versions")
+            XCTAssertFalse(service.methods.isEmpty, "\(service.name): no methods")
+        }
+    }
+
     func testRegistering() async throws {
         let jar = try liveJar()
         let client = try liveClient(jar)

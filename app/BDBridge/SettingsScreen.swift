@@ -22,7 +22,7 @@ struct SettingsScreen: View {
 
     /// What the store calls the version, and the build behind it: `0.2 (12)`. The build number comes from
     /// Xcode Cloud, so it is the only thing that tells two TestFlight builds of one version apart.
-    private static var version: String {
+    static var version: String {
         let info = Bundle.main.infoDictionary
         let release = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"

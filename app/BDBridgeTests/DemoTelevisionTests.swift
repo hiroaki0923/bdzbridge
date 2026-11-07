@@ -19,6 +19,20 @@ final class DemoTelevisionTests: XCTestCase {
     /// what it is, a found television can no longer be tapped, and a reservation can go to both devices. An
     /// address of the real television's, typed in the demo, says nothing at once, with nothing asked of the
     /// permission and nothing sent to the television there.
+    /// What the settings report a television speaks, asked of the demo's in the demo: read from the demo's
+    /// television with no registration, under the app's version, and nothing real reached.
+    func testTheDemosTelevisionSaysWhatItSpeaksAndNothingRealIsReached() async throws {
+        let home = try await atHome()
+        let before = kept(home)
+        let then = try await intoTheDemo(home)
+        let report = await home.model.tvCapabilities(at: DemoTV.host)
+        XCTAssertTrue(report.hasPrefix("RecBridge \(SettingsScreen.version)\n機種: \(DemoTV.model)"), report)
+        XCTAssertTrue(report.contains("recording 1.0 1.1 1.2"), report)
+        XCTAssertFalse(report.contains("読めませんでした"), report)
+        XCTAssertNil(home.model.tv, "asking what it speaks registered the demo's television")
+        await expectNothingReal(home, since: then, keeping: before)
+    }
+
     func testTheDemosTelevisionIsRegisteredByItsNumberAndNothingRealIsReached() async throws {
         let home = try await atHome()
         let model = home.model
