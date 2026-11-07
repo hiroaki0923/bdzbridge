@@ -291,6 +291,7 @@ final class TVHost: LinkHost {
 /// read from; and what follows a reservation and a sending again is this host's own.
 extension TVHost: DeviceHost {
     static var slot: DeviceSlot { .tv }
+    func openCache() async { await model?.start() }
     var reservationDriver: (any ReservationDriver)? { driver }
     var deviceSession: SessionState? { link?.session }
     var keeping: @MainActor ([Reservation]) -> Void { { self.keep($0) } }

@@ -449,3 +449,10 @@ extension AppModel {
                                         eventID: eventID)
     }
 }
+
+extension AppModel {
+    /// The host of the device in `device`'s slot: the television's while one is in play, the recorder's always.
+    func deviceHost(for device: DeviceSlot) -> (any DeviceHost)? {
+        device == .tv ? tvHost : recorderHost
+    }
+}

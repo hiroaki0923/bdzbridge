@@ -738,6 +738,7 @@ final class RecorderHost: RecorderLinkHost {
 /// reads it; and what follows a reservation and a sending again is this host's own.
 extension RecorderHost: DeviceHost {
     static var slot: DeviceSlot { .recorder }
+    func openCache() async { await model?.start() }
     var reservations: [Reservation] { said.reservations }
     var reservationsByProgram: [String: Reservation] { said.reservationsByProgram }
     var reservationsRead: Date? { said.reservationsRead }
