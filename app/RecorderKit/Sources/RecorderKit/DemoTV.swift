@@ -162,6 +162,17 @@ public actor DemoTV: HTTPTransport {
             if let genre { fields["broadcastGenreInfo"] = [["genreId": genre]] }
             return fields
         }
+
+        /// The row as 1.2 and 1.0 list it (`olderRecordingPage`).
+        func olderFields(at index: Int) -> [String: Any] {
+            let bytes = (recording ? 0 : sizeMB) * 1_048_576
+            return [
+                "title": title, "channelName": station, "uri": uri, "index": index,
+                "startDateTime": DemoTV.startText(start), "durationSec": recording ? 0 : durationSec,
+                "fileSizeByte": bytes > Int(Int32.max) ? -1 : bytes,
+                "isProtected": protected, "isAlreadyPlayed": played,
+            ]
+        }
     }
 
     /// Holds these recordings and no others, each kept in the order given.
@@ -484,6 +495,11 @@ public actor DemoTV: HTTPTransport {
         case "getContentList":
             guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
             if Self.asks(request, object, of: "avContent", version: "1.5") { return recordingPage(object, id) }
+            if Self.asks(request, object, of: "avContent", version: "1.2")
+                || Self.asks(request, object, of: "avContent", version: "1.0"),
+               Self.parameter(of: object)?["source"] as? String == Self.recordingsSource {
+                return olderRecordingPage(object, id)
+            }
             guard Self.asks(request, object, of: "avContent", version: "1.0") else { return unknown(method, id) }
             return stationPage(object, id)
         case "getContentCount":
@@ -630,6 +646,18 @@ public actor DemoTV: HTTPTransport {
         guard mounted else { return noDisk(id) }
         let page = listedRecordings.enumerated().dropFirst(from).prefix(min(count, 50))
         return json(["result": [page.map { $0.element.fields(at: $0.offset) }], "id": id])
+    }
+
+    /// A page of the recordings in 1.2 or 1.0, by `source`, as a real one lists them there: fewer fields than 1.5 --
+    /// no text, no genre, nothing of a recording under way -- the length at the top, the size only in bytes and -1
+    /// past what a 32-bit number holds, and the two flags as booleans rather than text.
+    private func olderRecordingPage(_ object: [String: Any], _ id: Int) -> HTTPResponse {
+        guard let sent = Self.parameter(of: object), Set(sent.keys) == ["source", "stIdx", "cnt"],
+              let from = sent["stIdx"] as? Int, from >= 0,
+              let count = sent["cnt"] as? Int, count > 0 else { return refused(id) }
+        guard mounted else { return noDisk(id) }
+        let page = listedRecordings.enumerated().dropFirst(from).prefix(min(count, 50))
+        return json(["result": [page.map { $0.element.olderFields(at: $0.offset) }], "id": id])
     }
 
     /// How many recordings the list holds, as a real one counted them: `source`, with `target` or without it.

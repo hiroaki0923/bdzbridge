@@ -297,6 +297,9 @@ public actor ScalarClient {
     /// each registration, and with each renewal.
     nonisolated var cookieReceived: Date? { credentials.load()?.cookieReceived }
     private var nextID = 1
+    /// The version a method answered in on this television, where it was found by asking another first: an
+    /// older television answers error 12 to a version it does not have.
+    private var speaks: [String: String] = [:]
     /// For a request with no timeout of its own. The television answers in a fraction of a second, in standby
     /// as well, so this is generous.
     static let timeout: TimeInterval = 10
@@ -676,13 +679,31 @@ public actor ScalarClient {
     /// Any failure on any page throws, and nothing is handed back of the pages read before it: a list cut short
     /// would say of every recording past that page that the television does not have it. So does a disk that is
     /// not there, 41020. A list that has not ended after `recordingPages` throws as an answer that cannot be read.
+    ///
+    /// An older television answers error 12 to 1.5: it is asked in 1.2 then, and in 1.0 after error 12 again, by
+    /// `source` in place of `uri`. Which version answered is kept for this client (`speaks`).
     func recordings() async throws -> [RecordedTitle] {
+        if let known = speaks["getContentList"] { return try await recordings(version: known) }
+        for version in ["1.5", "1.2", "1.0"] {
+            do {
+                let titles = try await recordings(version: version)
+                speaks["getContentList"] = version
+                return titles
+            } catch ScalarError.rpc(_, _, 12, _) where version != "1.0" {
+                continue
+            }
+        }
+        throw ScalarError.unreadable(method: "getContentList")
+    }
+
+    /// The recordings as `getContentList` in `version` lists them: 1.5 by `uri`, 1.2 and 1.0 by `source`.
+    func recordings(version: String) async throws -> [RecordedTitle] {
         var titles: [RecordedTitle] = []
         var index = 0
         for _ in 0..<Self.recordingPages {
-            let rows = try await contentPage(version: "1.5", params: ["uri": .string(Self.recordingsSource),
-                                                                      "stIdx": .int(index),
-                                                                      "cnt": .int(Self.recordingsToAPage)])
+            let rows = try await contentPage(version: version,
+                                             params: [version == "1.5" ? "uri" : "source": .string(Self.recordingsSource),
+                                                      "stIdx": .int(index), "cnt": .int(Self.recordingsToAPage)])
             titles += rows.compactMap(RecordedTitle.init(televisionRow:))
             guard rows.count >= Self.recordingsToAPage else { return titles }
             index += rows.count
