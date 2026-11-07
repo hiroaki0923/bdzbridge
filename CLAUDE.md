@@ -41,7 +41,7 @@ xcodebuild test -project BDBridge.xcodeproj -scheme BDBridge -destination 'id=<s
 xcodebuild test -project BDBridge.xcodeproj -scheme BDBridge -destination 'id=<simulator udid>' -only-testing:BDBridgeUITests/DemoModeTests
 ```
 
-Android (inside `android/`, once what `android/README.md` lists is in place): `./gradlew :app:assembleDebug`; the Swift bridge's tests run on the Mac with `swift test` inside `android/core`.
+Android (inside `android/`, once what `android/README.md` lists is in place): `./gradlew :app:assembleDebug`; the Swift bridge's tests run on the Mac with `swift test` inside `android/core`; the demo's screen tests on an emulator with `ANDROID_SERIAL=<serial> ./gradlew :app:connectedDebugAndroidTest`.
 
 Every API call needs `Authorization: Bearer <BDZBRIDGE_API_TOKEN>`.
 
