@@ -485,13 +485,15 @@ public actor DemoTV: HTTPTransport {
                       + #""freeCapacityMB":\#(diskMB - usedMB)}]]"#, id)
         case "getScheduleList":
             guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
-            return json(["result": [listed.map(\.fields)], "id": id])
+            // An older one lists its reservations in 1.0 alone, whose rows carry no programme.
+            let rows = listed.map(\.fields).map { older ? $0.filter { $0.key != "eventId" } : $0 }
+            return json(["result": [rows], "id": id])
         case "deleteSchedule":
             // A real one was seen to refuse the two reads above for their cookie, and a create. A delete has
             // not been sent to one with a cookie it does not take: that it is refused the same way is taken,
             // not seen.
             guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
-            return delete(object, id)
+            return delete(object, id, inOne: Self.asks(request, object, of: "recording", version: "1.0"))
         case "getContentList":
             guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
             if Self.asks(request, object, of: "avContent", version: "1.5") { return recordingPage(object, id) }
@@ -525,6 +527,7 @@ public actor DemoTV: HTTPTransport {
             // is taken, not seen.
             guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
             if Self.asks(request, object, of: "recording", version: "1.2") { return change(object, id) }
+            if Self.asks(request, object, of: "recording", version: "1.0") { return addByTime(object, id) }
             guard Self.asks(request, object, of: "recording", version: "1.1") else { return unknown(method, id) }
             return try add(object, id)
         case "actRegister":
@@ -789,7 +792,21 @@ public actor DemoTV: HTTPTransport {
     /// has passed is taken as any other is. This one has no clock and does not tell such a create from one
     /// still ahead: what a real one answers it, and does on getting it while switched off, has not been
     /// seen yet.
-    private func make(_ asked: Asked, eventId: Int, _ id: Int) -> HTTPResponse {
+    /// A reservation by its times alone: `addSchedule` 1.0, which an older television has, the six fields of a
+    /// create without its programme, and `quality` beside them or not. Made as a create by its programme is, under
+    /// the title sent, there being no programme to take a title from.
+    ///
+    /// Taken, not seen: that a real one takes it with no `quality`, whose signature lists one; that it keeps the
+    /// title sent; and that the same station and start by their times a second time is error 41222.
+    private func addByTime(_ object: [String: Any], _ id: Int) -> HTTPResponse {
+        let keys: Set = ["type", "uri", "title", "startDateTime", "durationSec", "repeatType"]
+        guard let sent = Self.parameter(of: object), sent["type"] as? String == "recording",
+              let asked = reservation(in: sent.filter { $0.key != "quality" }, keys: keys),
+              sent["quality"] == nil || sent["quality"] is String, mounted else { return refused(id) }
+        return make(asked, eventId: nil, id)
+    }
+
+    private func make(_ asked: Asked, eventId: Int?, _ id: Int) -> HTTPResponse {
         let station = asked.station
         guard station.subscribed, Self.suitsItsDay(asked.repeatType, start: asked.start) else {
             return json(["error": [7, "not to be reserved"], "id": id])
@@ -801,7 +818,8 @@ public actor DemoTV: HTTPTransport {
         guard !there else { return json(["error": [41222, "already scheduled"], "id": id]) }
         numbered += 1
         let schedule = Schedule(id: "recording.\(numbered)", scheme: station.scheme, serviceID: station.serviceID,
-                                station: station.name, title: title(of: eventId, on: station),
+                                station: station.name,
+                                title: eventId.map { title(of: $0, on: station) } ?? asked.title,
                                 start: asked.start, durationSec: asked.durationSec,
                                 repeatType: asked.repeatType, eventId: eventId)
         held.append(schedule)
@@ -876,8 +894,11 @@ public actor DemoTV: HTTPTransport {
     /// it makes of one is not known. Here a client that sends anything but the row as it read it is caught:
     /// the texts are held scalar against scalar, since two spellings of one title are equal as strings and
     /// are not the same bytes. One row to a request, as the app sends them.
-    private func delete(_ object: [String: Any], _ id: Int) -> HTTPResponse {
-        let sent = (((object["params"] as? [Any])?.first as? [Any])?.first as? [String: Any]) ?? [:]
+    ///
+    /// In 1.0 (`inOne`) the row is the one object of the parameters; in 1.1 it is in a list of its own inside them.
+    private func delete(_ object: [String: Any], _ id: Int, inOne: Bool = false) -> HTTPResponse {
+        let first = (object["params"] as? [Any])?.first
+        let sent = (inOne ? first as? [String: Any] : (first as? [Any])?.first as? [String: Any]) ?? [:]
         func sentAs(_ field: String, _ held: String) -> Bool {
             (sent[field] as? String).map { $0.unicodeScalars.elementsEqual(held.unicodeScalars) } ?? false
         }

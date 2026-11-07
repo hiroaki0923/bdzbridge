@@ -543,6 +543,62 @@ actor TVSitting {
         }
     }
 
+    /// A reservation by its times alone, in `addSchedule` 1.0 -- what an older television has in place of 1.1 --
+    /// and its delete in `deleteSchedule` 1.0, the row alone in the parameters: whether the television takes one
+    /// with no `quality`, which the version's signature lists, and with `DR` where it does not; how it lists the
+    /// row it made (a programme or none, the title sent or its own, its quality); and that the delete in 1.0 takes
+    /// it off. The programme chosen is reserved by its times only, so the television follows nothing.
+    func aTimeReservationInVersionOne() async throws {
+        try await making {
+            guard let disk = try await ask("getStorageList", { try await client.storage() }) else {
+                throw Refused(why: "the television does not say its disk")
+            }
+            say("the disk: \(disk.mounted ? "mounted" : "not mounted")")
+            guard disk.mounted else { throw Refused(why: "the television has no disk to record to") }
+            let listed = try await list()
+            say("the list: \(TVLedger.Counts(listed).said)")
+            let (pick, station) = try choose(on: try await stations(of: Self.terrestrial), in: listed)
+            let body = try body(pick, on: station)
+            var created = try await create(leave(for: body), of: pick) { try await self.client.addSchedule(byTime: $0) }
+            say("the create in 1.0 with no quality: \(created.answer); rows made: \(created.rows.count)")
+            if !created.taken, created.rows.isEmpty {
+                created = try await create(leave(for: body, "with DR: "), of: pick) {
+                    try await self.client.addSchedule(byTime: $0, quality: "DR")
+                }
+                say("the create in 1.0 with quality DR: \(created.answer); rows made: \(created.rows.count)")
+            }
+            guard created.taken, created.rows.count == 1, let row = created.rows.first else {
+                throw Stopped(what: "the create in 1.0 did not make one row")
+            }
+            say("the row: a programme \(row.eventId.map { $0.isEmpty ? "empty" : "there" } ?? "none"),"
+                + " the title as sent \(row.title == body.title ? "yes" : "no"), quality \(row.quality ?? "none"),"
+                + " repeat as sent \(row.repeatType == body.repeatType ? "yes" : "no")")
+            try await takeOffInOnePointZero(row)
+        }
+    }
+
+    /// The one row a check made, taken off by `deleteSchedule` 1.0 and looked for in the list afterwards: gone,
+    /// its entry is struck and it is the check's no longer; there still, it stays the check's, for `takeOff` to
+    /// take off in 1.1.
+    private func takeOffInOnePointZero(_ row: TVScheduleRow) async throws {
+        guard let held = mine.first(where: { $0.row.id == row.id }) else { return }
+        do {
+            try await client.deleteSchedule(row, version: "1.0")
+            say("the delete in 1.0: taken")
+        } catch {
+            say("the delete in 1.0: \(Self.said(error))")
+            await watched()
+            return
+        }
+        await watched()
+        let after = try await list()
+        let gone = !after.contains { $0.id == row.id }
+        say("the row after the delete in 1.0: \(gone ? "gone" : "still listed")")
+        guard gone else { return }
+        mine.removeAll { $0.row.id == row.id }
+        try strike(held.entry)
+    }
+
     /// A recording of the programme the household has a viewing reservation for: the question, the create,
     /// the list, the delete of the recording. Whether a viewing reservation stops the create, is named by
     /// the question, or is answered as the same programme a second time, is what it is run to see. The
@@ -1123,7 +1179,10 @@ actor TVSitting {
     /// One create, sent once, by `sender` or by the sitting's own client, with the leave the question before
     /// it gave: the ledger first, then the request, then the list, whatever the answer and after none
     /// (`made`).
-    private func create(_ leave: Leave, of pick: TVPick, by sender: ScalarClient? = nil) async throws -> Created {
+    ///
+    /// `sending` sends it in place of the create by its programme (`addSchedule` 1.1): a create by its times.
+    private func create(_ leave: Leave, of pick: TVPick, by sender: ScalarClient? = nil,
+                        sending: ((TVReservationBody) async throws -> Int?)? = nil) async throws -> Created {
         var listed = last
         if listed == nil { listed = try await list() }
         let before = Set((listed ?? []).map(\.id))
@@ -1131,7 +1190,15 @@ actor TVSitting {
         var failure: (any Error)?
         var annotation: Int?
         sent += 1
-        do { annotation = try await (sender ?? client).addSchedule(leave.body) } catch { failure = error }
+        do {
+            if let sending {
+                annotation = try await sending(leave.body)
+            } else {
+                annotation = try await (sender ?? client).addSchedule(leave.body)
+            }
+        } catch {
+            failure = error
+        }
         await watched()
         let kind = (failure as? ScalarError)?.failure
         let sending = Sending(a: "a create", the: "the create",
