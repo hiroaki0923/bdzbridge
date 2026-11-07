@@ -45,7 +45,18 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 The first build compiles RecorderKit for Android, which takes a minute or two. A debug APK for arm64 alone is about
-160 MB: the Swift runtime and Foundation are in it, and nothing is shrunk yet.
+160 MB: the Swift runtime and Foundation are in it, with their symbols, and nothing is shrunk.
+
+A release build shrinks the Java side with R8 (`core/consumer-rules.pro` keeps what the Swift side reaches by name),
+builds the Swift side optimised and strips the libraries' symbols. There is no release key yet, so to try one on a
+device it is signed with the debug key:
+
+```
+./gradlew :app:assembleRelease -PswiftConfiguration=release -PsignWithDebugKey
+```
+
+That came to 76 MB. Of it, ICU's data for Foundation's dates and text is 38 MB: RecorderKit words dates in Japanese
+through `DateFormatter`, which needs it.
 
 What Swift hands back reaches Kotlin on Swift's own threads; `Bridge.kt` awaits it in a coroutine started on the main
 thread, so the screens' state is only ever changed there. A failure comes as the iOS app's own sentence for it.

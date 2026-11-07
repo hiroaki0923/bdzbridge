@@ -7,6 +7,8 @@ plugins {
 android {
     namespace = "jp.hiroaki.bdbridge"
     compileSdk = 34
+    // Named so that a release build strips the Swift libraries' symbols: about half of what they weigh.
+    ndkVersion = "30.0.16248370"
 
     defaultConfig {
         applicationId = "jp.hiroaki.bdbridge"
@@ -20,6 +22,16 @@ android {
     }
 
     buildFeatures { compose = true }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            // No release key yet: `-PsignWithDebugKey` signs a release build with the debug key to try it on a device.
+            if (project.hasProperty("signWithDebugKey")) signingConfig = signingConfigs.getByName("debug")
+        }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

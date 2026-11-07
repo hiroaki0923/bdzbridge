@@ -386,6 +386,12 @@ RecorderKit の中身（レコーダーの説明、テレビの在否、サブ�
 分かった約束事: Kotlin で受け取った結果と知らせは Swift のスレッドで届くので、画面の状態に入れる前に UI の
 スレッドに渡す。
 
+その後、`android/` にアプリの最初の形を作りました（`android/README.md`）。リリース版は、R8 で縮め、Swift を
+最適化してビルドし、ライブラリの記号を落として 76 MB になり、エミュレーターで動きました。R8 には、Swift の側が
+名前で呼ぶ swift-java のクラスを残す指定と、SwiftKitCore が名前だけ使う `jdk.jfr` の注釈を見逃す指定が要りました。
+76 MB のうち 38 MB は、Foundation が日付と文字の扱いに使う ICU のデータです（RecorderKit は日本語の日付を
+`DateFormatter` で書くため要る）。
+
 ## 決めたこと: B（2026-11-08）
 
 **RecorderKit は Swift のまま Android 向けにビルドし、画面は Kotlin（Jetpack Compose）で書きます。** Kotlin での
@@ -412,8 +418,6 @@ Wi-Fi の端末での測定と、Skip の試しも済みました（上）。B �
 
 - Android の送り方で、テレビに登録の要る要求を送ること（cookie を付けた読み取りと書き込み）。
 - Android 17（API 37）を対象にしたときの、ローカルネットワークの許可の求め方。エミュレーターも試しのアプリも API 36。
-- リリース版の APK の大きさ（デバッグ版で arm64 だけ 143 MB）と、R8 で縮めるときに swift-java が作るクラスが
-  残るか。
 - `SwiftArena.ofAuto()` に任せた構造体の寿命が、長く動くアプリでどう振る舞うか。
 
 ## 出典
