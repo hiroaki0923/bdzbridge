@@ -504,10 +504,34 @@ public actor DemoTV: HTTPTransport {
             return try add(object, id)
         case "actRegister":
             return register(object, request, id)
+        case "getVersions":
+            guard let listed = Self.speaks[String(request.url.path.dropFirst("/sony/".count))] else {
+                return HTTPResponse(statusCode: 404)
+            }
+            let versions = Array(Set(listed.map(\.version))).sorted().map { "\"\($0)\"" }.joined(separator: ",")
+            return ok("[[\(versions)]]", id)
+        case "getMethodTypes":
+            guard let listed = Self.speaks[String(request.url.path.dropFirst("/sony/".count))] else {
+                return HTTPResponse(statusCode: 404)
+            }
+            let rows = listed.map { #"["\#($0.method)",[],[],"\#($0.version)"]"# }.joined(separator: ",")
+            return HTTPResponse(statusCode: 200, body: Data(#"{"results":[\#(rows)],"id":\#(id)}"#.utf8))
         default:
             return unknown(method, id)
         }
     }
+
+    /// What it says it speaks (`getVersions`, `getMethodTypes`): the methods the app sends it, at the versions it
+    /// answers them in, with no types written out.
+    private static let speaks: [String: [(method: String, version: String)]] = [
+        "system": [("getPowerStatus", "1.0"), ("getInterfaceInformation", "1.0"), ("getSystemSupportedFunction", "1.0"),
+                   ("getStorageList", "1.1")],
+        "recording": [("getRecordingStatus", "1.0"), ("getConflictScheduleList", "1.0"), ("getScheduleList", "1.1"),
+                      ("deleteSchedule", "1.1"), ("addSchedule", "1.1"), ("addSchedule", "1.2")],
+        "avContent": [("deleteContent", "1.0"), ("setDeleteProtection", "1.0"), ("getContentCount", "1.0"),
+                      ("getContentList", "1.5")],
+        "accessControl": [("actRegister", "1.0")],
+    ]
 
     /// What a real one answers a method, or a version of one, that it does not have.
     private func unknown(_ method: String, _ id: Int) -> HTTPResponse {

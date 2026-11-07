@@ -217,6 +217,14 @@ extension AppModel {
         return access == .allowed ? await client.presence() : .nothing
     }
 
+    /// What the television at `host` says it speaks (`ScalarClient.capabilities`), as text for the reader to copy:
+    /// read with no registration, through the television's transport, as finding it is, and nothing changed. In
+    /// the demo, the demo's television.
+    func tvCapabilities(at host: String) async -> String {
+        let client = ScalarClient(host: host, transport: televisionTransport(host), credentials: televisionCredentials())
+        return await client.capabilities().report(app: SettingsScreen.version)
+    }
+
     /// The sheet that adds a television has closed: a wait for the permission at the address it was given ends
     /// with nothing answering, and the sheet's notice goes.
     func stopFindingTV() {

@@ -40,6 +40,7 @@ struct TVSection: View {
                     }
                     LabeledContent("IP アドレス", value: tv.host)
                     LabeledContent("状態", value: state(of: tv))
+                    NavigationLink("対応状況を調べる") { TVCapabilitiesScreen(host: tv.host) }
                     if let storage = model.tvDriver?.facts.storage {
                         // The television's MB taken as a million bytes, as the recorder's are.
                         LabeledContent("USB ハードディスク",
@@ -298,5 +299,45 @@ struct TVRegisterSheet: View {
         case .say(let text): message = text
         case .nothing: break
         }
+    }
+}
+
+/// What the television says it speaks, for the reader to copy and send on when the app does not work with it: an
+/// older television answers an error to a version the app speaks (`TVCapabilities`). Read with no registration,
+/// and nothing on the television changes.
+struct TVCapabilitiesScreen: View {
+    @Environment(AppModel.self) private var model
+    let host: String
+    @State private var report: String?
+    @State private var reading = false
+
+    var body: some View {
+        List {
+            Section {
+                Button("調べる") {
+                    reading = true
+                    Task {
+                        report = await model.tvCapabilities(at: host)
+                        reading = false
+                    }
+                }
+                .disabled(reading)
+            } footer: {
+                Text("テレビが対応している機能の一覧を読み取ります。テレビの設定は変わりません。"
+                     + "うまく動かないときは、結果をコピーして、お問い合わせの際にお送りください。")
+            }
+            if reading {
+                Section { ProgressView().frame(maxWidth: .infinity) }
+            } else if let report {
+                Section {
+                    Button("コピー", systemImage: "doc.on.doc") { UIPasteboard.general.string = report }
+                    Text(report)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .navigationTitle("テレビの対応状況")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

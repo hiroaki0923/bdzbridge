@@ -742,6 +742,23 @@ public actor ScalarClient {
         return try Self.result(of: response, method: method, version: version)
     }
 
+    /// A request that needs no registration, handed back as the whole answer: what `getMethodTypes` lists comes
+    /// under `results` rather than `result`. An error the answer carries is thrown, as `call` throws it.
+    func whole(_ service: String, _ method: String, version: String, params: [Any] = [],
+               timeout: TimeInterval? = nil) async throws -> [String: Any] {
+        let response = try await send(service, method, version: version, params: params,
+                                      headers: ["Content-Type": "application/json"], timeout: timeout)
+        guard response.statusCode == 200 else { throw ScalarError.http(status: response.statusCode, method: method) }
+        guard let object = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any] else {
+            throw ScalarError.unreadable(method: method)
+        }
+        if let error = object["error"] as? [Any], let code = error.first as? Int {
+            throw ScalarError.rpc(method: method, version: version, code: code,
+                                  message: error.dropFirst().first as? String ?? "")
+        }
+        return object
+    }
+
     /// A request that needs the cookie. A 403 is sent again once when the store has a newer cookie than the
     /// one it went with: another client renewed in between. A 403 after that is a cookie the television no
     /// longer takes -- the app taken off its list, as seen, or a cookie that ran out -- and the registration is

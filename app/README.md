@@ -558,6 +558,13 @@ test's recorder for its own.
 
 ## Checks against a real television
 
+A television the app does not work with can be read from the app itself: the television's settings have
+対応状況を調べる, which asks it, with no registration and changing nothing, for its model and for the versions
+and methods of each service the app sends to (`TVCapabilities`, `ScalarClient.capabilities`), and shows them as
+text to copy and send on. An older television answers error 12 to a version it does not have -- a 2014 set to
+version 1.1 of `getStorageList` -- and this says what it has in place of it. `LiveTVTests/testWhatTheTelevisionSpeaks`
+reads the same from a television on the LAN.
+
 What the app relies on of a real television is tried from RecorderKit, by the client and the transport the
 app sends with and not by another tool (`LiveTVTests`, every test skipped unless `TV_HOST` names a
 television). What is at an address, the registration and the two reads behind it are there, and the look a
