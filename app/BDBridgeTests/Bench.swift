@@ -1388,7 +1388,7 @@ enum Said {
         + "レコーダーで変更された場合も含みます。一覧を更新しました。"
     static let anotherAnswered = "別のレコーダーが応答したため、この操作は行っていません。"
         + "一覧を読み直しますので、確かめてからもう一度お試しください。"
-    static let cacheNotMadeOver = "iPhone 内のデータベースに書き込めなかったため、接続を中断しました。"
+    static let cacheNotMadeOver = "この端末内のデータベースに書き込めなかったため、接続を中断しました。"
         + "少し待ってから、もう一度お試しください。"
     /// What the strip says while another recorder has taken the last one's place and the app is connected.
     static let anotherTookOver = "別のレコーダーが応答したため、一覧を読み直しました。"
@@ -1405,10 +1405,10 @@ enum Said {
     static let anotherAnsweredWithNoScreen = "これまでとは別のレコーダーが応答したため、"
         + "送信待ちの予約はそのまま残しています。アプリを開いて確かめてください。"
     /// Said of a reservation kept on the phone because the recorder was not there.
-    static let keptForTheRecorder = "レコーダーに送れなかったため、予約を iPhone に保存しました。"
+    static let keptForTheRecorder = "レコーダーに送れなかったため、予約をこの端末に保存しました。"
         + "次にレコーダーにつながったときに送ります。予約タブで削除できます。"
     /// The same of a row sent again, which was on the phone before it was sent.
-    static let stillKeptForTheRecorder = "レコーダーに送れなかったため、予約は iPhone に残しています。"
+    static let stillKeptForTheRecorder = "レコーダーに送れなかったため、予約はこの端末に残しています。"
         + "次にレコーダーにつながったときに送ります。予約タブで削除できます。"
     static let gone = "この予約はレコーダーの予約一覧に見つかりませんでした。一覧を更新しました。"
     static let couldNotBeConfirmed = "予約できたか確かめられませんでした。予約タブで確かめてください。"

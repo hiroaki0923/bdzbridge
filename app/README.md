@@ -1236,7 +1236,7 @@ for one made: the Keychain's save says nothing of how it went, so the client rea
 cookie the store did not hold before the save, by the cookie or when it arrived (`ScalarClient.keep`; not the
 cookie alone, which a television giving the same value again would match, nor only the one saved, as the link's
 own client may renew the same registration in between), and the sheet says
-「テレビへの登録をこの iPhone に保存できませんでした。もう一度登録してください。」, with nothing
+「テレビへの登録をこの端末に保存できませんでした。もう一度登録してください。」, with nothing
 forgotten, saved or connected afresh: every request still sends the cookie kept before. A renewal not kept leaves
 that cookie in hand, renewed again at the next connect. And the tutorial comes up at a launch only while
 nothing is set up (`AppModel.welcomes`): a home with a television and no recorder is not shown it every time.
@@ -1824,7 +1824,7 @@ already is made with no create sent, and said so: 「レコーダーにはこの
 came to is what the round says, in the same value: made; turned down with a reason of the recorder's own -- 831,
 or a 402 on the internal disk -- kept with that reason for the reader, the sheet saying 送信待ちにしました with it
 and the line left as it was; passed over -- busy, standby -- kept with no reason, to go by itself
-(「レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約を iPhone に保存しました。…」); silence at
+(「レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約をこの端末に保存しました。…」); silence at
 the create, held for the reader with the reason above, which the line says too; silence before it, at the list,
 kept to go by itself; a programme over by the round's turn, dropped. A refusal that the USB disk picked could be
 behind keeps nothing, and the sheet that offers the disk asks for another. The round is the queue's turn, which

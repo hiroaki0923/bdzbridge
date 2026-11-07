@@ -138,7 +138,7 @@ BackgroundWork、Notify、SendWaitingIntent の 3 ファイル（合わせて約
 | Http | URLSession は FoundationNetworking にある | 条件付き import。libcurl が同梱される |
 | Xml | XMLParser は FoundationXML にある | 条件付き import。libxml2 が同梱される |
 | Series | `OSAllocatedUnfairLock` は Apple 専用。代わりの `Mutex` は iOS 18 からで、パッケージは iOS 17 対応 | `NSLock` に替える |
-| Sqlite の文言 | 「iPhone の空き容量」 | 「端末の空き容量」 |
+| Sqlite の文言 | 「iPhone の空き容量」と言っていた | iOS も Android も「この端末の空き容量」と言う（済み） |
 
 `RecorderTime` の `TimeZone(identifier: "Asia/Tokyo")` は、同梱の ICU のデータで解けるので変更は要らない見込みです。
 Android の tzdata を読むのは、端末の現在のタイムゾーンを求めるときだけです。

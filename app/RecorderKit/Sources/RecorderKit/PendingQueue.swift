@@ -337,12 +337,12 @@ public enum PendingQueue {
 public extension PendingQueue {
     /// Said when a reservation could not be kept on the phone because its cache could not be opened. No
     /// device's failure, so no device's sentence.
-    static let noCache = "予約を iPhone に保存できませんでした（iPhone 内のデータベースを開けませんでした）。"
+    static let noCache = "予約をこの端末に保存できませんでした（端末内のデータベースを開けませんでした）。"
 
     /// Said when a reservation could not be kept on the phone because writing it failed, with the error as
     /// Swift describes it, ended with 。 where the description does not end with one.
     static func couldNotBeKept(_ error: any Error) -> String {
-        let said = "予約を iPhone に保存できませんでした: \(error)"
+        let said = "予約をこの端末に保存できませんでした: \(error)"
         return said.hasSuffix("。") ? said : said + "。"
     }
 }

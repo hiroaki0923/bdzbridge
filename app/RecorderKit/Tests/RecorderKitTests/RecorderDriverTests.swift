@@ -256,15 +256,15 @@ final class RecorderDriverTests: XCTestCase {
     /// now, as a reservation just asked for is, and as the row of one asked for a moment ago still is. Each in
     /// the letters a sheet shows.
     func testARowSentAgainThatStillWaitsIsSaidToBeLeftOnThePhone() async throws {
-        XCTAssertEqual(RecorderDriver.keptUnsent, "レコーダーに送れなかったため、予約を iPhone に保存しました。"
+        XCTAssertEqual(RecorderDriver.keptUnsent, "レコーダーに送れなかったため、予約をこの端末に保存しました。"
                            + "次にレコーダーにつながったときに送ります。予約タブで削除できます。")
-        XCTAssertEqual(RecorderDriver.stillKeptUnsent, "レコーダーに送れなかったため、予約は iPhone に残しています。"
+        XCTAssertEqual(RecorderDriver.stillKeptUnsent, "レコーダーに送れなかったため、予約はこの端末に残しています。"
                            + "次にレコーダーにつながったときに送ります。予約タブで削除できます。")
         XCTAssertEqual(RecorderDriver.waitsPassedOver,
-                       "レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約を iPhone に保存しました。"
+                       "レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約をこの端末に保存しました。"
                            + "次にレコーダーにつながったときに送ります。予約タブで削除できます。")
         XCTAssertEqual(RecorderDriver.stillPassedOver,
-                       "レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約は iPhone に残しています。"
+                       "レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約はこの端末に残しています。"
                            + "次にレコーダーにつながったときに送ります。予約タブで削除できます。")
 
         let world = LinkWorld()
