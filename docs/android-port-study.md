@@ -286,7 +286,9 @@ B でも C でも、1 つのリポジトリで持てます。要になるのは 
    応答の速さ（`DemoRecorder.answerDelay`）、番組表の範囲の文（`DemoLineUp.guideCoverage`）、番組表の種まき
    （`DemoLineUp.seed`）を、RecorderKit の `DemoDevices.swift` に移した。ロゴのタイルの描画（UIKit）はアプリから渡す。
    デモの切り替えは設定の保存に結びつくので、アプリ（`DemoData.swift`）に残した。テストは `DemoDevicesTests` に 2 件。
-10. **1 度だけ言ったことの保存**（`DefaultsKey.swift`）: 保存先を外から渡す形にする。
+10. **1 度だけ言ったことの保存**（済み）: 画面のない処理が 1 度だけ言ったこと（`ToldOnce`）の読み書きと、そのキーを、
+    RecorderKit の `KeptOnce.swift` に移した。保存先はプロトコル（`KeptData`）で、iOS のアプリは `UserDefaults` で
+    答える（`DefaultsData`）。テストは `KeptOnceTests` に 3 件。
 
 ### 端末の呼び方: 「この端末」（決めて、済み）
 
@@ -335,11 +337,11 @@ B と C のどちらにするかは、次の一歩の結果で決めます。C �
 
 道具を入れ、RecorderKit を Android 向けにビルドし、テストをエミュレーターで走らせ、アプリの中から本物の
 レコーダーを読むところまでは済みました（上の「Android でビルドして分かったこと」と「アプリの中で確かめたこと」）。
+アプリに残っていた機器の規則も、RecorderKit に移しました（上の「移植の前に RecorderKit に移すもの」の 1〜10）。
 
-1. アプリに残っている機器の規則を RecorderKit に移す（上の「移植の前に RecorderKit に移すもの」）。
-2. Wi-Fi の端末で、アプリの中から、ブロードキャストが LAN に出ることと、サブネットを探してレコーダーが
+1. Wi-Fi の端末で、アプリの中から、ブロードキャストが LAN に出ることと、サブネットを探してレコーダーが
    見つかることを測る。
-3. C を試すなら、番組表の表形式の 1 画面だけを Skip で Android に出してみる。
+2. C を試すなら、番組表の表形式の 1 画面だけを Skip で Android に出してみる。
 
 ## 確かめていないこと
 

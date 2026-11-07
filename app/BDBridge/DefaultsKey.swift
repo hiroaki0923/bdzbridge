@@ -23,8 +23,8 @@ enum DefaultsKey {
     /// (`BackgroundWork.refreshTheRecorderNow`, `sendWaiting()`), whether or not a notification could be heard;
     /// written by the screens once none of the reservations warned of waits to go
     /// (`AppModel.forgetTheRecordersWarningOnceSent`); forgotten when the cache is made over to another recorder
-    /// (`RecorderHost.cacheMadeOver`).
-    static let recorderTold = "recorderTold"
+    /// (`RecorderHost.cacheMadeOver`). The key is the package's (`KeptOnce.recorderKey`).
+    static let recorderTold = KeptOnce.recorderKey
 
     // MARK: - the television
 
@@ -34,8 +34,9 @@ enum DefaultsKey {
     /// The MAC it wakes on, which is what tells it from any other. Kept to recognise it, never to wake it.
     static let tvMac = "tvMac"
     /// What the runs with no screen have told of it (`ToldOnce`), as JSON; forgotten when a television is
-    /// registered or taken away. The recorder's is kept apart from it (`recorderTold`).
-    static let tvTold = "tvTold"
+    /// registered or taken away. The recorder's is kept apart from it (`recorderTold`). The key is the package's
+    /// (`KeptOnce.televisionKey`).
+    static let tvTold = KeptOnce.televisionKey
     /// Which device the guide is fetched from where both could give it (`GuideSourceChoice`): the reader's
     /// choice in the settings, unset meaning the recorder. The helper's token is in the Keychain
     /// (`KeychainTVHelperToken`).
@@ -85,44 +86,28 @@ enum DefaultsKey {
     static let macBeforeDemo = "macBeforeDemo"
 }
 
-/// What the runs with no screen have told once of one device (`ToldOnce`), kept as JSON under its key
-/// (`DefaultsKey.recorderTold`, `DefaultsKey.tvTold`) in the defaults handed in: the entries' own,
-/// `UserDefaults.standard`, or the screens' (`AppModel.defaults`). Every reader and writer of the two keys
-/// reads and keeps it through one of these, so that each does it the same way.
+/// The defaults handed in, as the store what the runs with no screen told once is kept in (`KeptOnce`): the
+/// entries' own, `UserDefaults.standard`, or the screens' (`AppModel.defaults`).
 ///
 /// Handed to a run's own task, and Sendable by hand for that: `UserDefaults` is not marked so, and Apple's page
 /// for it says that it "is thread-safe, and you can use the same object in multiple threads or tasks
 /// simultaneously".
-struct KeptOnce: @unchecked Sendable {
-    let key: String
+struct DefaultsData: KeptData, @unchecked Sendable {
     let defaults: UserDefaults
 
-    /// The recorder's.
+    func data(forKey key: String) -> Data? { defaults.data(forKey: key) }
+    func set(_ data: Data, forKey key: String) { defaults.set(data, forKey: key) }
+    func removeData(forKey key: String) { defaults.removeObject(forKey: key) }
+}
+
+extension KeptOnce {
+    /// The recorder's, in `defaults`.
     static func recorder(in defaults: UserDefaults) -> KeptOnce {
-        KeptOnce(key: DefaultsKey.recorderTold, defaults: defaults)
+        recorder(in: DefaultsData(defaults: defaults))
     }
 
-    /// The television's.
+    /// The television's, in `defaults`.
     static func television(in defaults: UserDefaults) -> KeptOnce {
-        KeptOnce(key: DefaultsKey.tvTold, defaults: defaults)
-    }
-
-    /// What is kept; nil when nothing is, or what is cannot be read.
-    func read() -> ToldOnce? {
-        defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(ToldOnce.self, from: $0) }
-    }
-
-    /// What a run with no screen is handed to read what was told before by: what is kept, or nothing told.
-    var reading: @Sendable () -> ToldOnce {
-        { read() ?? ToldOnce() }
-    }
-
-    /// Keeps `told` in place of what was; nothing is written when it cannot be put as JSON.
-    func keep(_ told: ToldOnce) {
-        if let kept = try? JSONEncoder().encode(told) { defaults.set(kept, forKey: key) }
-    }
-
-    func forget() {
-        defaults.removeObject(forKey: key)
+        television(in: DefaultsData(defaults: defaults))
     }
 }
