@@ -138,20 +138,14 @@ struct RecorderRuleRow: View {
     }
 }
 
-/// The form for a new condition. Keywords are rows rather than one comma-separated field: the recorder holds
-/// five of them and two exclusions, so they are a list, and a list is what iOS puts on screen.
+/// The form for a new condition, over what the recorder takes (`RecorderRuleDraft`). Keywords are rows rather
+/// than one comma-separated field: the recorder holds several of them and of the exclusions, so they are a list,
+/// and a list is what iOS puts on screen.
 struct RecorderRuleSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    @State private var keywords: [Word] = [Word()]
-    @State private var excluded: [Word] = []
-    @State private var logic = "OR"
-    @State private var genreLevel1 = -1   // -1: no genre
-    @State private var genreLevel2 = -1   // -1: the whole level-1 genre
-    @State private var broadcastingScope = "ALL"
-    @State private var timeScope = "ALL"
-    /// From the settings, and not written back: see `ProgramSheet.quality`.
-    @State private var quality = DefaultQuality.current
+    /// The quality from the settings, and not written back: see `ProgramSheet.quality`.
+    @State private var draft = RecorderRuleDraft(quality: DefaultQuality.current)
     /// The disk the reader picked under 録画先, kept as picked, as on the programme's sheet
     /// (`ProgramSheet.chosenDisk`): nil until a disk is picked, and the internal disk after one was refused for
     /// being no longer offered.
@@ -163,106 +157,78 @@ struct RecorderRuleSheet: View {
     /// no second condition.
     @State private var asking = false
 
-    /// A row of the list needs an identity of its own; the text alone would reorder rows as it is typed.
-    struct Word: Identifiable {
-        let id = UUID()
-        var text = ""
-    }
-
-    private func remove(_ id: Word.ID, from list: inout [Word]) {
+    private func remove(_ id: RecorderRuleDraft.Word.ID, from list: inout [RecorderRuleDraft.Word]) {
         list.removeAll { $0.id == id }
     }
 
-    private var words: [String] { keywords.map(\.text).map(clean).filter { !$0.isEmpty } }
-    private var excludedWords: [String] { excluded.map(\.text).map(clean).filter { !$0.isEmpty } }
-    private func clean(_ text: String) -> String { text.trimmingCharacters(in: .whitespaces) }
-
-    private var subGenres: [Int] {
-        genreLevel1 < 0 ? [] : (Codes.subGenreLabel[genreLevel1]?.keys.sorted() ?? [])
-    }
-
-    /// The genres a condition can name: the twelve kinds of programme. The table also holds the extension
-    /// area (0xE), which says what the bytes after it are for and is no kind of programme. It has sub-genres
-    /// of its own, so the test for those, which keeps その他 (0xF) out, lets it in: it is left out by name.
-    private static let genres = Codes.genreLabel.keys.sorted().filter { $0 != 0xE && Codes.subGenreLabel[$0] != nil }
-
-    private var problem: String? {
-        if words.isEmpty && genreLevel1 < 0 { return "キーワードかジャンルを指定してください" }
-        return nil
-    }
+    private var subGenres: [Int] { RecorderRuleDraft.subGenres(of: draft.genre) }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    ForEach($keywords) { $word in
+                    ForEach($draft.keywords) { $word in
                         WordRow(placeholder: "キーワード", text: $word.text,
-                                remove: keywords.count > 1 ? { remove(word.id, from: &keywords) } : nil)
+                                remove: draft.mayRemoveKeyword ? { remove(word.id, from: &draft.keywords) } : nil)
                     }
-                    .onDelete { keywords.remove(atOffsets: $0) }
-                    if keywords.count < 5 {
-                        Button("キーワードを追加", systemImage: "plus") { keywords.append(Word()) }
+                    .onDelete { draft.keywords.remove(atOffsets: $0) }
+                    if draft.mayAddKeyword {
+                        Button("キーワードを追加", systemImage: "plus") { draft.keywords.append(.init()) }
                     }
                 } header: {
                     Text("キーワード")
                 } footer: {
-                    if let problem { Text(problem.asABody) } else { Text("番組名や番組内容に含まれる言葉です。5 つまで登録できます。") }
+                    if let problem = draft.problem {
+                        Text(problem.asABody)
+                    } else {
+                        Text("番組名や番組内容に含まれる言葉です。\(RecorderRuleDraft.keywordLimit) つまで登録できます。")
+                    }
                 }
 
                 Section {
-                    ForEach($excluded) { $word in
+                    ForEach($draft.excluded) { $word in
                         WordRow(placeholder: "除外ワード", text: $word.text,
-                                remove: { remove(word.id, from: &excluded) })
+                                remove: { remove(word.id, from: &draft.excluded) })
                     }
-                    .onDelete { excluded.remove(atOffsets: $0) }
-                    if excluded.count < 2 {
-                        Button("除外ワードを追加", systemImage: "plus") { excluded.append(Word()) }
+                    .onDelete { draft.excluded.remove(atOffsets: $0) }
+                    if draft.mayAddExclusion {
+                        Button("除外ワードを追加", systemImage: "plus") { draft.excluded.append(.init()) }
                     }
-                    if words.count > 1 {
-                        Picker("検索方法", selection: $logic) {
-                            Text("いずれかを含む").tag("OR")
-                            Text("すべてを含む").tag("AND")
+                    if draft.asksHowToCombine {
+                        Picker("検索方法", selection: $draft.logic) {
+                            ForEach(RecorderRuleDraft.logics, id: \.self) { Text($0.label).tag($0.code) }
                         }
                     }
                 } header: {
                     Text("除外ワード")
                 } footer: {
-                    Text("この言葉を含む番組は録画しません。2 つまで登録できます。")
+                    Text("この言葉を含む番組は録画しません。\(RecorderRuleDraft.excludedLimit) つまで登録できます。")
                 }
 
                 Section {
-                    Picker("ジャンル", selection: $genreLevel1) {
-                        Text("指定しない").tag(-1)
-                        ForEach(Self.genres, id: \.self) { level in
-                            Text(Codes.genreLabel[level] ?? "").tag(level)
+                    Picker("ジャンル", selection: $draft.genre) {
+                        Text("指定しない").tag(Int?.none)
+                        ForEach(RecorderRuleDraft.genres, id: \.self) { level in
+                            Text(Codes.genreLabel[level] ?? "").tag(Int?.some(level))
                         }
                     }
                     if !subGenres.isEmpty {
-                        Picker("サブジャンル", selection: $genreLevel2) {
-                            Text("すべて").tag(-1)
+                        Picker("サブジャンル", selection: $draft.subGenre) {
+                            Text("すべて").tag(Int?.none)
                             ForEach(subGenres, id: \.self) { level2 in
-                                Text(Codes.subGenre(level1: genreLevel1, level2: level2) ?? "").tag(level2)
+                                Text(Codes.subGenre(level1: draft.genre, level2: level2) ?? "").tag(Int?.some(level2))
                             }
                         }
                     }
-                    Picker("放送", selection: $broadcastingScope) {
-                        Text("すべての放送").tag("ALL")
-                        Text("地上放送").tag("TRD")
-                        Text("BS放送").tag("BSD")
-                        Text("CS放送").tag("CSD")
-                        if GuideRefresh.offeredTypes(model.counts).contains("bs4k") {
-                            Text("BS4K放送").tag("ADVBSD")
-                            Text("CS4K放送").tag("ADVCSD")
+                    Picker("放送", selection: $draft.broadcastingScope) {
+                        ForEach(RecorderRuleDraft.broadcastingScopes(guide: model.counts), id: \.self) {
+                            Text($0.label).tag($0.code)
                         }
                     }
-                    Picker("時間帯", selection: $timeScope) {
-                        Text("すべての時間帯").tag("ALL")
-                        Text("朝").tag("MORNING")
-                        Text("昼").tag("AFTERNOON")
-                        Text("夜").tag("NIGHT")
-                        Text("深夜").tag("MIDNIGHT")
+                    Picker("時間帯", selection: $draft.timeScope) {
+                        ForEach(RecorderRuleDraft.timeScopes, id: \.self) { Text($0.label).tag($0.code) }
                     }
-                    Picker("録画モード", selection: $quality) {
+                    Picker("録画モード", selection: $draft.quality) {
                         ForEach(Codes.qualityOrder, id: \.self) { code in
                             Text(Codes.qualityLabel[code] ?? code).tag(code)
                         }
@@ -274,8 +240,6 @@ struct RecorderRuleSheet: View {
                     Text("対象チャンネルの指定はレコーダー本体でのみ設定できます。条件の名前はレコーダーが自動で付けます。")
                 }
             }
-            // a genre's sub-genres are its own, so the choice cannot survive a change of genre
-            .onChange(of: genreLevel1) { genreLevel2 = -1 }
             .disabled(asking)
             // The strip, as on a recording's sheet: the registration's line from the press, the waking and the
             // wait for the USB slot, which the screen's strip under the sheet cannot be seen to say.
@@ -291,12 +255,7 @@ struct RecorderRuleSheet: View {
                         asking = true
                         Task {
                             defer { asking = false }
-                            let request = RecorderRuleRequest(keywords: words, excluded: excludedWords, logic: logic,
-                                                              genreLevel1: genreLevel1 < 0 ? nil : genreLevel1,
-                                                              genreLevel2: genreLevel2 < 0 ? nil : genreLevel2,
-                                                              timeScope: timeScope, broadcastingScope: broadcastingScope,
-                                                              qualityCode: Codes.quality[quality] ?? 240,
-                                                              destination: chosenDisk ?? RecorderDisk.internalID)
+                            let request = draft.request(to: chosenDisk)
                             switch await model.addRecorderRule(request) {
                             case .done:
                                 dismiss()
@@ -311,7 +270,7 @@ struct RecorderRuleSheet: View {
                             }
                         }
                     }
-                    .disabled(problem != nil || model.isBusy(for: .recorder) || asking)
+                    .disabled(draft.problem != nil || model.isBusy(for: .recorder) || asking)
                 }
             }
             .interactiveDismissDisabled(asking)

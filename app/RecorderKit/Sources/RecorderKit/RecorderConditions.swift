@@ -230,3 +230,113 @@ extension RecorderDriver {
         return read
     }
 }
+
+/// A new keyword condition as its form holds it, before it is sent (`RecorderDriver.addRule`): what the recorder
+/// takes -- five keywords, two exclusions, the genres, broadcasts and times of day it knows -- and the check that
+/// a condition names something to look for. The words are rows, each with an identity of its own, so that a
+/// list on screen does not reorder them as they are typed.
+public struct RecorderRuleDraft: Sendable, Equatable {
+    /// How many keywords, and how many exclusions, the recorder holds on one condition.
+    public static let keywordLimit = 5
+    public static let excludedLimit = 2
+
+    /// Said while the condition names neither a keyword nor a genre, which the recorder would take for anything.
+    public static let needsAKeywordOrAGenre = "キーワードかジャンルを指定してください"
+
+    /// What the recorder records in where the form was given a mode it does not offer: LSR.
+    public static let fallbackQualityCode = 240
+
+    /// One word of the condition.
+    public struct Word: Identifiable, Sendable, Equatable {
+        public let id: UUID
+        public var text: String
+
+        public init(_ text: String = "") {
+            id = UUID()
+            self.text = text
+        }
+    }
+
+    /// One choice the form offers, as the recorder spells it and as the form says it.
+    public struct Choice: Sendable, Equatable, Hashable {
+        public var code: String
+        public var label: String
+    }
+
+    /// The genres a condition can name: the twelve kinds of programme. The table also holds the extension area
+    /// (0xE), which says what the bytes after it are for and is no kind of programme. It has sub-genres of its
+    /// own, so the test for those, which keeps その他 (0xF) out, lets it in: it is left out by name.
+    public static let genres = Codes.genreLabel.keys.sorted().filter { $0 != 0xE && Codes.subGenreLabel[$0] != nil }
+
+    /// The sub-genres of `genre`, none without one.
+    public static func subGenres(of genre: Int?) -> [Int] {
+        genre.flatMap { Codes.subGenreLabel[$0]?.keys.sorted() } ?? []
+    }
+
+    /// How several keywords are combined.
+    public static let logics = [Choice(code: "OR", label: "いずれかを含む"), Choice(code: "AND", label: "すべてを含む")]
+
+    /// The broadcasts a condition can be narrowed to: the 4K ones only where the guide has 4K channels, which a
+    /// recorder without 4K tuners has not.
+    public static func broadcastingScopes(guide counts: [String: GuideCounts]) -> [Choice] {
+        let fourK = GuideRefresh.offeredTypes(counts).contains("bs4k")
+        return ["ALL", "TRD", "BSD", "CSD"].map(scope) + (fourK ? Codes.advancedScopes.map(scope) : [])
+    }
+
+    public static let timeScopes = ["ALL", "MORNING", "AFTERNOON", "NIGHT", "MIDNIGHT"].map {
+        Choice(code: $0, label: Codes.timeScopeLabel[$0] ?? $0)
+    }
+
+    private static func scope(_ code: String) -> Choice {
+        Choice(code: code, label: Codes.broadcastingScopeLabel[code] ?? code)
+    }
+
+    /// One empty keyword row to begin with, and no exclusion.
+    public var keywords = [Word()]
+    public var excluded: [Word] = []
+    public var logic = "OR"
+    /// The level-1 genre, nil for none. Choosing another takes the sub-genre away: a genre's sub-genres are
+    /// its own.
+    public var genre: Int? {
+        didSet { if genre != oldValue { subGenre = nil } }
+    }
+    /// One sub-genre of `genre`, nil for the whole genre.
+    public var subGenre: Int?
+    public var broadcastingScope = "ALL"
+    public var timeScope = "ALL"
+    /// The recording mode by its name (`Codes.qualityOrder`).
+    public var quality: String
+
+    public init(quality: String) {
+        self.quality = quality
+    }
+
+    /// The words as they are sent: trimmed, the empty ones left out.
+    public var words: [String] { Self.cleaned(keywords) }
+    public var excludedWords: [String] { Self.cleaned(excluded) }
+
+    public var mayAddKeyword: Bool { keywords.count < Self.keywordLimit }
+    public var mayAddExclusion: Bool { excluded.count < Self.excludedLimit }
+    /// Whether the last keyword row may be taken away: one is always left to type into.
+    public var mayRemoveKeyword: Bool { keywords.count > 1 }
+    /// Whether how the keywords are combined is asked: only once there is more than one.
+    public var asksHowToCombine: Bool { words.count > 1 }
+
+    /// Why the condition cannot be sent yet, or nil.
+    public var problem: String? {
+        words.isEmpty && genre == nil ? Self.needsAKeywordOrAGenre : nil
+    }
+
+    /// What is sent to record to `disk`, the internal disk where none was picked.
+    public func request(to disk: String?) -> RecorderRuleRequest {
+        RecorderRuleRequest(keywords: words, excluded: excludedWords, logic: logic, genreLevel1: genre,
+                            genreLevel2: genre == nil ? nil : subGenre, timeScope: timeScope,
+                            broadcastingScope: broadcastingScope,
+                            qualityCode: Codes.quality[quality] ?? Self.fallbackQualityCode,
+                            destination: disk ?? RecorderDisk.internalID)
+    }
+
+    private static func cleaned(_ rows: [Word]) -> [String] {
+        rows.map { $0.text.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+}
