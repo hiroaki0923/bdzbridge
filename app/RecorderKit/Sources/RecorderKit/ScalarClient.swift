@@ -417,7 +417,7 @@ public actor ScalarClient {
 
     /// Said when the television registered the app and the phone could not keep what it gave (`NotKept`):
     /// nothing of the registration kept before has changed.
-    public static let registrationNotKept = "テレビへの登録をこの iPhone に保存できませんでした。もう一度登録してください。"
+    public static let registrationNotKept = "テレビへの登録をこの端末に保存できませんでした。もう一度登録してください。"
 
     /// Said when the television at the address is not the one saved, and nothing was registered. "Answered as
     /// another" and not "is another": which MAC a television gives on Wi-Fi rather than a cable has not been

@@ -172,7 +172,7 @@ struct SettingsScreen: View {
                         ChannelsScreen(broadcasting: model.broadcasting)
                     }
                 } footer: {
-                    Text("番組表に出す局と、その並び順を放送ごとに選べます。この iPhone の番組表だけが変わり、"
+                    Text("番組表に出す局と、その並び順を放送ごとに選べます。この端末の番組表だけが変わり、"
                          + "レコーダーの録画には影響しません。")
                 }
 

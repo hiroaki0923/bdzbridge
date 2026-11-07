@@ -96,7 +96,7 @@ public final class RecorderDriver: LinkDriver {
 
     /// Said when the recorder that answered is another one and the cache could not be made over to it: the
     /// database is busy with another writer for longer than it will wait, or cannot be written to.
-    public static let cacheNotMadeOver = "iPhone 内のデータベースに書き込めなかったため、接続を中断しました。"
+    public static let cacheNotMadeOver = "この端末内のデータベースに書き込めなかったため、接続を中断しました。"
         + "少し待ってから、もう一度お試しください。"
 
     /// Only while the recorder is not known to be away already: silence is said once, as a television's is, so
@@ -957,9 +957,9 @@ public final class RecorderDriver: LinkDriver {
     /// with nothing that says anything of the row -- and of one a connect's sending left so: it goes by itself
     /// the next time the recorder answers. A row sent again is said to be left on the phone, where it was
     /// before it was sent (`stillPassedOver`).
-    public static let waitsPassedOver = "レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約を iPhone に保存しました。"
+    public static let waitsPassedOver = "レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約をこの端末に保存しました。"
         + "次にレコーダーにつながったときに送ります。予約タブで削除できます。"
-    public static let stillPassedOver = "レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約は iPhone に残しています。"
+    public static let stillPassedOver = "レコーダーがほかの操作中かスタンバイ中で受け付けなかったため、予約はこの端末に残しています。"
         + "次にレコーダーにつながったときに送ります。予約タブで削除できます。"
     /// Said of a row sent again that the recorder's list held already, as the round found it before sending
     /// (`RecorderClient.openRound`).
@@ -1751,15 +1751,15 @@ public final class RecorderDriver: LinkDriver {
     /// Said of a reservation kept on the phone because the recorder could not be asked: it goes the next time
     /// the recorder answers. A row sent again is said to be left on the phone, where it was before it was sent
     /// (`stillKeptUnsent`).
-    public static let keptUnsent = "レコーダーに送れなかったため、予約を iPhone に保存しました。"
+    public static let keptUnsent = "レコーダーに送れなかったため、予約をこの端末に保存しました。"
         + "次にレコーダーにつながったときに送ります。予約タブで削除できます。"
-    public static let stillKeptUnsent = "レコーダーに送れなかったため、予約は iPhone に残しています。"
+    public static let stillKeptUnsent = "レコーダーに送れなかったため、予約はこの端末に残しています。"
         + "次にレコーダーにつながったときに送ります。予約タブで削除できます。"
 
     /// What a screen says a reservation on the recorder will do, before the reader confirms it: sent, or, with
     /// the recorder known to be away (`away`), kept on the phone and sent at the next connect.
     public static func confirming(away: Bool) -> String {
-        away ? "レコーダーに接続できないため、予約を iPhone に保存します。次につながったときに送ります。"
+        away ? "レコーダーに接続できないため、予約をこの端末に保存します。次につながったときに送ります。"
             : "レコーダーに予約を送ります。"
     }
 

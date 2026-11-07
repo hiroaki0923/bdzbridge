@@ -118,20 +118,20 @@ public enum SqliteError: Error, CustomStringConvertible, Sendable {
     public var explanation: String {
         let reason = switch primaryCode {
         case SQLITE_FULL:
-            "iPhone の空き容量が足りないため、iPhone 内のデータベースに書き込めませんでした。"
+            "この端末の空き容量が足りないため、端末内のデータベースに書き込めませんでした。"
                 + "空き容量を増やしてから、もう一度お試しください"
         case SQLITE_BUSY, SQLITE_LOCKED:
-            "iPhone 内のデータベースがほかの処理で使われていました。しばらくしてから、もう一度お試しください"
+            "この端末内のデータベースがほかの処理で使われていました。しばらくしてから、もう一度お試しください"
         case SQLITE_CORRUPT, SQLITE_NOTADB:
-            "iPhone 内のデータベースが壊れています"
+            "この端末内のデータベースが壊れています"
         case SQLITE_IOERR:
-            "iPhone 内のデータベースの読み書きに失敗しました"
+            "この端末内のデータベースの読み書きに失敗しました"
         case SQLITE_CANTOPEN, SQLITE_PERM, SQLITE_READONLY, SQLITE_AUTH:
-            "iPhone 内のデータベースを開けませんでした"
+            "この端末内のデータベースを開けませんでした"
         case SQLITE_NOMEM:
-            "メモリが足りないため、iPhone 内のデータベースを読み書きできませんでした"
+            "メモリが足りないため、この端末内のデータベースを読み書きできませんでした"
         default:
-            "iPhone 内のデータベースでエラーが起きました"
+            "この端末内のデータベースでエラーが起きました"
         }
         return "\(reason) (SQLite \(code))"
     }

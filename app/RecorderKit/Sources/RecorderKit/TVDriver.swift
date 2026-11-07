@@ -834,29 +834,29 @@ public final class TVDriver: LinkDriver {
     public static let reservingLine = "テレビに予約を送信中"
     /// Said of a reservation kept on the phone because the television could not be asked: not connected,
     /// given up on, or silent to what a round reads before it sends anything.
-    public static let waitsNotConnected = "テレビに接続していないため、予約を iPhone に保存しました。"
+    public static let waitsNotConnected = "テレビに接続していないため、予約をこの端末に保存しました。"
         + "次にテレビにつながったときに送ります。予約タブで削除できます。"
     /// Said of one kept because the television wants the app registered with it again.
-    public static let waitsForTheRegistration = "テレビの登録が必要なため、予約を iPhone に保存しました。"
+    public static let waitsForTheRegistration = "テレビの登録が必要なため、予約をこの端末に保存しました。"
         + "テレビへの登録が済むと送ります。予約タブで削除できます。"
     /// Said of one kept because the disk the television records to is away: it goes by itself once the
     /// disk is back.
-    public static let waitsForTheDisk = "録画用の USB HDD が見つからないため、予約を iPhone に保存しました。"
+    public static let waitsForTheDisk = "録画用の USB HDD が見つからないため、予約をこの端末に保存しました。"
         + "USB HDD が見つかったあと、次にテレビにつながったときに送ります。予約タブで削除できます。"
     /// Said of one kept because the television's answers said nothing that reads. Its second sentence ends the
     /// sentence for silence at a create, the same thing following: the next sending reads the television's list
     /// before it sends anything.
-    public static let waitsUnanswered = "テレビの応答を読み取れなかったため、予約を iPhone に保存しました。"
+    public static let waitsUnanswered = "テレビの応答を読み取れなかったため、予約をこの端末に保存しました。"
         + "次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。予約タブで削除できます。"
     /// The four above as a row sent again is kept with them (`resend`): the row was on the phone before it was
     /// sent, so it is said to be left there, not saved there now.
-    public static let stillWaitsNotConnected = "テレビに接続していないため、予約は iPhone に残しています。"
+    public static let stillWaitsNotConnected = "テレビに接続していないため、予約はこの端末に残しています。"
         + "次にテレビにつながったときに送ります。予約タブで削除できます。"
-    public static let stillWaitsForTheRegistration = "テレビの登録が必要なため、予約は iPhone に残しています。"
+    public static let stillWaitsForTheRegistration = "テレビの登録が必要なため、予約はこの端末に残しています。"
         + "テレビへの登録が済むと送ります。予約タブで削除できます。"
-    public static let stillWaitsForTheDisk = "録画用の USB HDD が見つからないため、予約は iPhone に残しています。"
+    public static let stillWaitsForTheDisk = "録画用の USB HDD が見つからないため、予約はこの端末に残しています。"
         + "USB HDD が見つかったあと、次にテレビにつながったときに送ります。予約タブで削除できます。"
-    public static let stillWaitsUnanswered = "テレビの応答を読み取れなかったため、予約は iPhone に残しています。"
+    public static let stillWaitsUnanswered = "テレビの応答を読み取れなかったため、予約はこの端末に残しています。"
         + "次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。予約タブで削除できます。"
     /// Said of a reservation the television's list held already. Nothing was made, and what is held is the
     /// television's own: it is taken for there already unless it is known to be less than was asked.
@@ -867,7 +867,7 @@ public final class TVDriver: LinkDriver {
     /// it either: nothing says whether it was made.
     public static let couldNotBeConfirmed = "予約できたか確かめられませんでした。予約タブで確かめてください。"
     /// What a screen says a reservation on the television will do, before the reader confirms it.
-    public static let confirming = "テレビに予約を送ります。テレビが応答しないときは iPhone に保存し、"
+    public static let confirming = "テレビに予約を送ります。テレビが応答しないときはこの端末に保存し、"
         + "次にテレビにつながったときに送ります。"
 
     /// The mode a television records in, by its name in `Codes.quality`.

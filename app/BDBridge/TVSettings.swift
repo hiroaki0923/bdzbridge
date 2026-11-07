@@ -85,7 +85,7 @@ struct TVSection: View {
                         Task { await model.takeTheTelevisionAway(counted: waiting) }
                     }
                 } message: {
-                    Text("この iPhone から、テレビのアドレスと登録を消します。テレビ側の登録済みの機器の一覧には残るので、"
+                    Text("この端末から、テレビのアドレスと登録を消します。テレビ側の登録済みの機器の一覧には残るので、"
                          + "テレビの設定から消してください。" + whatGoesWithIt)
                 }
             } else {
@@ -227,7 +227,7 @@ struct TVRegisterSheet: View {
                     // takes: the PIN goes to the address the field shows, which is to be the one asked.
                     .disabled(askingForPIN || working)
                 } footer: {
-                    Text("テレビと同じ Wi-Fi につないだ iPhone から登録します。")
+                    Text("テレビと同じ Wi-Fi につないだこの端末から登録します。")
                 }
                 if askingForPIN {
                     Section {

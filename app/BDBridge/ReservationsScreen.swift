@@ -170,7 +170,7 @@ struct ReservationsScreen: View {
                          + (reservation.createdByRecorder ? "\n" + RecorderDriver.mayComeBackFromTheList : ""))
                 case .confirmPending(let waiting):
                     Text("\(Format.dateTime.string(from: waiting.request.start)) \(waiting.request.title)\n"
-                         + "この iPhone から削除し、\(waiting.target.label)には送りません。")
+                         + "この端末から削除し、\(waiting.target.label)には送りません。")
                 case .failed(let reason), .said(let reason):
                     Text(reason.asABody)
                 }

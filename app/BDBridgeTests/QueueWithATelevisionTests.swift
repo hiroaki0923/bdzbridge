@@ -452,7 +452,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         let kept = await reserve(other)
         let onThePhone = try await GuideStore(path: bench.guidePath).pendingReservations()
         let row = try XCTUnwrap(onThePhone.first, "the reservation was not kept")
-        XCTAssertEqual(kept, .waiting(row, saying: "レコーダーに送れなかったため、予約を iPhone に保存しました。"
+        XCTAssertEqual(kept, .waiting(row, saying: "レコーダーに送れなかったため、予約をこの端末に保存しました。"
                                       + "次にレコーダーにつながったときに送ります。予約タブで削除できます。"))
         XCTAssertEqual(model.pending(for: other, on: .recorder), row)
         expectEqual(await recorder.heard(since: heard), [], "a recorder known to be away was asked")
@@ -793,7 +793,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         let (free, stopped) = (try XCTUnwrap(onThePhone.first { $0.id == freed.id }),
                                try XCTUnwrap(onThePhone.first { $0.id == stopping.id }))
         XCTAssertEqual([free.problem, stopped.problem], [nil, Self.wouldStop], "a reason stayed that goes, or went")
-        XCTAssertEqual(goes, .waiting(free, saying: "テレビに接続していないため、予約は iPhone に残しています。"
+        XCTAssertEqual(goes, .waiting(free, saying: "テレビに接続していないため、予約はこの端末に残しています。"
                                       + "次にテレビにつながったときに送ります。予約タブで削除できます。"))
         XCTAssertEqual(stays, .waiting(stopped, saying: "テレビに接続していません。"
                                        + "テレビの電源とネットワーク接続を確かめてください。"))

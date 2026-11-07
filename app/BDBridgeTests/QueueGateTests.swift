@@ -592,7 +592,7 @@ final class QueueGateTests: XCTestCase {
         expectFalse(await reserve(with: model), "a reservation that could not be saved is said to have been kept")
         let said = whyNotJustNow(model) ?? "nothing"
         XCTAssertEqual(model.problem(for: .recorder), line, "a reservation that could not be saved wrote the line")
-        XCTAssertTrue(said.hasPrefix("予約を iPhone に保存できませんでした: "), "what is said instead: \(said)")
+        XCTAssertTrue(said.hasPrefix("予約をこの端末に保存できませんでした: "), "what is said instead: \(said)")
         XCTAssertNil(keptJustNow(model), "a reservation that was not saved is said to be waiting")
         XCTAssertNil(model.pending(for: program))
         expectEqual(reasons(try await store.pendingReservations()), [:])
@@ -610,7 +610,7 @@ final class QueueGateTests: XCTestCase {
         try FileManager.default.createDirectory(atPath: other.guidePath, withIntermediateDirectories: true)
         let without = other.model(recorder: SilentRecorder())
         expectFalse(await reserve(with: without), "a reservation with nowhere to be saved is said to have been kept")
-        XCTAssertEqual(whyNotJustNow(without), "予約を iPhone に保存できませんでした（iPhone 内のデータベースを開けませんでした）。")
+        XCTAssertEqual(whyNotJustNow(without), "予約をこの端末に保存できませんでした（端末内のデータベースを開けませんでした）。")
         XCTAssertNil(keptJustNow(without))
         XCTAssertTrue(without.pending.isEmpty)
         XCTAssertEqual(other.clientsMade, 0, "a connect was set going with no cache to connect over")

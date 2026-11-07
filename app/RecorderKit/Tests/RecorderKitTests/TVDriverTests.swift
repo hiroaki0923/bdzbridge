@@ -1765,9 +1765,9 @@ final class TVDriverTests: XCTestCase {
 
     // MARK: - reserving a programme
 
-    private static let waitsNotConnected = "テレビに接続していないため、予約を iPhone に保存しました。"
+    private static let waitsNotConnected = "テレビに接続していないため、予約をこの端末に保存しました。"
         + "次にテレビにつながったときに送ります。予約タブで削除できます。"
-    private static let waitsForTheRegistration = "テレビの登録が必要なため、予約を iPhone に保存しました。"
+    private static let waitsForTheRegistration = "テレビの登録が必要なため、予約をこの端末に保存しました。"
         + "テレビへの登録が済むと送ります。予約タブで削除できます。"
     private static let metSilence = "送信の途中でテレビの応答がなくなりました。届いている場合もあるため、"
         + "送り直していません。次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。"
@@ -1896,7 +1896,7 @@ final class TVDriverTests: XCTestCase {
     /// reservation is kept until the list after its round is asked for. The round asks the television
     /// nothing, the list is read, and the row is in the queue as it was written, with no reason on it.
     func testAReservationWhoseRoundCouldNotReadTheQueueIsSaidToWait() async throws {
-        let unanswered = "テレビの応答を読み取れなかったため、予約を iPhone に保存しました。"
+        let unanswered = "テレビの応答を読み取れなかったため、予約をこの端末に保存しました。"
             + "次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。予約タブで削除できます。"
         let bench = try await attachedQueueBench()
         let path = temporaryPath()
@@ -1968,7 +1968,7 @@ final class TVDriverTests: XCTestCase {
         let without = try await attachedQueueBench()
         without.world.cache = nil
         expectEqual(try await turnedAway("no cache", soon, on: without),
-                    .notDone("予約を iPhone に保存できませんでした（iPhone 内のデータベースを開けませんでした）。"))
+                    .notDone("予約をこの端末に保存できませんでした（端末内のデータベースを開けませんでした）。"))
 
         // The lock is held on purpose and the wait for it cut short: what is tested is giving up.
         let locked = try await attachedQueueBench()
@@ -1980,7 +1980,7 @@ final class TVDriverTests: XCTestCase {
         let unkept = try await turnedAway("a cache that cannot be written to", soon, on: locked, keptIn: impatient)
         try writer.execute("ROLLBACK")
         guard case .notDone(let said) = unkept else { return XCTFail("not turned away: \(unkept)") }
-        XCTAssertTrue(said.hasPrefix("予約を iPhone に保存できませんでした: "), "what is said instead: \(said)")
+        XCTAssertTrue(said.hasPrefix("予約をこの端末に保存できませんでした: "), "what is said instead: \(said)")
 
         let driver: TVDriver, gate: TVGate, world: LinkWorld, store: GuideStore
         do {
@@ -2154,7 +2154,7 @@ final class TVDriverTests: XCTestCase {
         XCTAssertEqual(TVDriver.recordsIn, "DR")
         XCTAssertEqual(Codes.qualityLabel[TVDriver.recordsIn], "DR(高画質)")
         let repeatNotTaken = "この番組には、選んだ毎回録画の設定でテレビに予約できません。"
-        let noCache = "予約を iPhone に保存できませんでした（iPhone 内のデータベースを開けませんでした）。"
+        let noCache = "予約をこの端末に保存できませんでした（端末内のデータベースを開けませんでした）。"
         var japan = Calendar(identifier: .gregorian)
         japan.timeZone = RecorderTime.timeZone
         // The calendar counts the days of the week from Sunday, which is 1.
@@ -2209,9 +2209,9 @@ final class TVDriverTests: XCTestCase {
         unlisted.problem = "テレビのチャンネル一覧にこの局が見つかりませんでした。"
         daily.request.repeatCode = "d"
         let remark = "「サンプル劇場」はほかの予約と重なっていて、録画されないことがあります"
-        let forTheDisk = "録画用の USB HDD が見つからないため、予約を iPhone に保存しました。"
+        let forTheDisk = "録画用の USB HDD が見つからないため、予約をこの端末に保存しました。"
             + "USB HDD が見つかったあと、次にテレビにつながったときに送ります。予約タブで削除できます。"
-        let unanswered = "テレビの応答を読み取れなかったため、予約を iPhone に保存しました。"
+        let unanswered = "テレビの応答を読み取れなかったため、予約をこの端末に保存しました。"
             + "次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。予約タブで削除できます。"
         let unconfirmed = "予約できたか確かめられませんでした。予約タブで確かめてください。"
         let once = [DemoTV.Schedule(id: "recording.31", start: row.request.start, eventId: 50101), Self.weather]
@@ -2353,7 +2353,7 @@ final class TVDriverTests: XCTestCase {
         held.problem = nil
         XCTAssertNil(TVDriver.asks(of: held), "a row with no reason")
 
-        XCTAssertEqual(TVDriver.confirming, "テレビに予約を送ります。テレビが応答しないときは iPhone に保存し、"
+        XCTAssertEqual(TVDriver.confirming, "テレビに予約を送ります。テレビが応答しないときはこの端末に保存し、"
                        + "次にテレビにつながったときに送ります。")
     }
 
@@ -2609,11 +2609,11 @@ final class TVDriverTests: XCTestCase {
     func testWhatARowSentAgainCameToIsHandedBack() async throws {
         let notConnected = "テレビに接続していません。テレビの電源とネットワーク接続を確かめてください。"
         let toBeRegistered = "テレビへの登録が必要です。設定の「テレビ」から登録してください"
-        let waitsNotConnected = "テレビに接続していないため、予約は iPhone に残しています。"
+        let waitsNotConnected = "テレビに接続していないため、予約はこの端末に残しています。"
             + "次にテレビにつながったときに送ります。予約タブで削除できます。"
-        let forTheDisk = "録画用の USB HDD が見つからないため、予約は iPhone に残しています。"
+        let forTheDisk = "録画用の USB HDD が見つからないため、予約はこの端末に残しています。"
             + "USB HDD が見つかったあと、次にテレビにつながったときに送ります。予約タブで削除できます。"
-        let unanswered = "テレビの応答を読み取れなかったため、予約は iPhone に残しています。"
+        let unanswered = "テレビの応答を読み取れなかったため、予約はこの端末に残しています。"
             + "次にテレビにつながったときに一覧で確かめ、届いていなければ送ります。予約タブで削除できます。"
         let nothingSaid = HTTPResponse(
             statusCode: 200, body: Data(#"{"error":[\#(DemoTV.inventedError),"invented"],"id":1}"#.utf8))
