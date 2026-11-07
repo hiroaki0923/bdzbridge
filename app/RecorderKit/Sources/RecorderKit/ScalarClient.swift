@@ -84,6 +84,9 @@ public enum ScalarError: Error, Equatable, Sendable {
         case .rpc(_, _, 40005, _): .needsPower
         case .rpc(_, _, 41222, _): .alreadyThere
         case .rpc(_, _, 41200, _), .rpc(_, _, 41001, _): .unknownItem
+        // The method, in the version asked, is not one the television has: an older one. Every request would get
+        // the same answer.
+        case .rpc(_, _, 12, _): .deviceCannot(reason: explanation)
         case .http, .rpc, .unreadable, .notATelevision: .unexpected(explanation)
         }
     }
@@ -97,6 +100,7 @@ public enum ScalarError: Error, Equatable, Sendable {
         case .http(let status, let method): "テレビが HTTP \(status) を返しました (\(method))"
         case .rpc(_, _, 40005, _): "テレビの電源が入っていないため、操作できませんでした"
         case .rpc(_, _, 41020, _): "録画用の USB HDD が見つかりません"
+        case .rpc(let method, _, 12, _): "このテレビは、RecBridge が使う方式での\(Self.feature(of: method))に対応していません"
         case .rpc(let method, _, let code, _): "テレビがエラーを返しました (\(code): \(method))"
         case .unreadable(let method): "テレビの応答を読み取れませんでした (\(method))"
         case .notATelevision(let host): "\(host) はテレビとして応答しませんでした"
@@ -105,6 +109,24 @@ public enum ScalarError: Error, Equatable, Sendable {
 }
 
 extension ScalarError: DeviceError {}
+
+extension ScalarError {
+    /// What a method does, in words for a sentence about a television that does not have it.
+    static func feature(of method: String) -> String {
+        switch method {
+        case "getScheduleList": "予約の一覧の読み取り"
+        case "addSchedule": "予約"
+        case "deleteSchedule": "予約の削除"
+        case "getConflictScheduleList": "予約の重なりの確認"
+        case "getContentList", "getContentCount": "録画の一覧の読み取り"
+        case "deleteContent": "録画の削除"
+        case "setDeleteProtection": "録画の保護"
+        case "getRecordingStatus": "録画中かどうかの確認"
+        case "getStorageList": "USB HDD の確認"
+        default: "操作（\(method)）"
+        }
+    }
+}
 
 /// What a television says it is, without a registration.
 public struct TVInterface: Sendable, Equatable {
@@ -486,10 +508,17 @@ public actor ScalarClient {
 
     // MARK: - what needs a registration
 
-    /// The USB disk: `usb:recStorage`. Version 1.1 only; 1.0 answers error 12.
-    public func storage() async throws -> TVStorage {
-        let result = try await authenticated("system", "getStorageList", version: "1.1",
+    /// The USB disk: `usb:recStorage`. Version 1.1 only; 1.0 answers error 12. Nil for a television that answers
+    /// error 12 to 1.1 as well: an older one, which has no way to say its disk (a 2014 set lists no
+    /// `getStorageList` at all), and whose disk is then not known either way.
+    public func storage() async throws -> TVStorage? {
+        let result: Any
+        do {
+            result = try await authenticated("system", "getStorageList", version: "1.1",
                                              params: [["uri": "usb:recStorage"]])
+        } catch ScalarError.rpc(_, _, 12, _) {
+            return nil
+        }
         guard let row = (result as? [[[String: Any]]])?.first?.first else {
             throw ScalarError.unreadable(method: "getStorageList")
         }
@@ -1073,7 +1102,10 @@ extension ScalarClient: QueueTarget {
     /// reason for that.
     public func openRound(for waiting: [PendingReservation]) async -> RoundOpened<TVRound> {
         do {
-            guard try await storage().mounted else { return .stopped(.cannotRecord(reason: Self.diskNotFound)) }
+            // A television that does not say its disk is sent to as one whose disk is there.
+            guard try await storage()?.mounted ?? true else {
+                return .stopped(.cannotRecord(reason: Self.diskNotFound))
+            }
             let listed = try await schedules()
             let there = waiting.filter { row in
                 listed.holding(row.request).map { !$0.fallsShort(of: row.request) } == true

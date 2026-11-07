@@ -878,7 +878,8 @@ final class TVTitlesTests: XCTestCase {
         let credentials = MemoryTVCredentials(TVCredentials(clientID: "c", cookie: "kept"))
         await television.knows("c", cookie: "kept")
         let client = ScalarClient(host: DemoTV.host, transport: television, credentials: credentials)
-        let storage = try await client.storage()
+        let disk = try await client.storage()
+        let storage = try XCTUnwrap(disk)
         let recordings = await television.recordings
         XCTAssertEqual(recordings.count, 4)
         let used = try XCTUnwrap(storage.totalMB) - (try XCTUnwrap(storage.freeMB))

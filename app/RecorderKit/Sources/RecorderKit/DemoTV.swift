@@ -64,9 +64,13 @@ public actor DemoTV: HTTPTransport {
     /// `stations` and `holding` are what `receives` and `put` would give it, `recordings` what is on its disk, and
     /// `titles` what it lists a reservation of a programme under: given as it is made, for whoever makes it where
     /// nothing can be awaited, as the app makes the demo's television in its transport. Each is empty unless given.
+    ///
+    /// `older` makes it a television of the 2014 sets' kind: it has the methods those list, in their versions, and
+    /// answers error 12 to any other -- no `getStorageList` at all, the recording service in 1.0 alone.
     public init(power: String = "standby", mac: String = DemoTV.mac, stations: [Station] = [],
                 holding: [Schedule] = [], titles: [Programme: String] = [:], recordings: [Recording] = [],
-                diskMB: Int = 1000) {
+                diskMB: Int = 1000, older: Bool = false) {
+        self.older = older
         self.power = power
         self.mac = mac
         self.stations = stations
@@ -450,6 +454,11 @@ public actor DemoTV: HTTPTransport {
         calls.append("\(method) cookie=\(cookie == nil ? "no" : "yes") pin=\(request.headers["Authorization"] == nil ? "no" : "yes")")
         bodies.append(String(decoding: request.body ?? Data(), as: UTF8.self))
         if silent { throw RecorderError.transport("The request timed out.") }
+        let service = String(request.url.path.dropFirst("/sony/".count))
+        if older, !["getVersions", "getMethodTypes"].contains(method),
+           !(Self.olderSpeaks[service] ?? []).contains(where: { $0 == (method, object["version"] as? String ?? "") }) {
+            return unknown(method, id)
+        }
         switch method {
         case "getPowerStatus":
             return ok(#"[{"status":"\#(power)"}]"#, id)
@@ -505,13 +514,13 @@ public actor DemoTV: HTTPTransport {
         case "actRegister":
             return register(object, request, id)
         case "getVersions":
-            guard let listed = Self.speaks[String(request.url.path.dropFirst("/sony/".count))] else {
+            guard let listed = (older ? Self.olderSpeaks : Self.speaks)[service] else {
                 return HTTPResponse(statusCode: 404)
             }
             let versions = Array(Set(listed.map(\.version))).sorted().map { "\"\($0)\"" }.joined(separator: ",")
             return ok("[[\(versions)]]", id)
         case "getMethodTypes":
-            guard let listed = Self.speaks[String(request.url.path.dropFirst("/sony/".count))] else {
+            guard let listed = (older ? Self.olderSpeaks : Self.speaks)[service] else {
                 return HTTPResponse(statusCode: 404)
             }
             let rows = listed.map { #"["\#($0.method)",[],[],"\#($0.version)"]"# }.joined(separator: ",")
@@ -532,6 +541,20 @@ public actor DemoTV: HTTPTransport {
                       ("getContentList", "1.5")],
         "accessControl": [("actRegister", "1.0")],
     ]
+
+    /// What an older one speaks, as a 2014 set lists it: no `getStorageList`, the recording service in 1.0 alone,
+    /// and the recordings' list in 1.0 and 1.2.
+    private static let olderSpeaks: [String: [(method: String, version: String)]] = [
+        "system": [("getPowerStatus", "1.0"), ("getInterfaceInformation", "1.0"), ("getSystemSupportedFunction", "1.0")],
+        "recording": [("getRecordingStatus", "1.0"), ("getConflictScheduleList", "1.0"), ("getScheduleList", "1.0"),
+                      ("deleteSchedule", "1.0"), ("addSchedule", "1.0")],
+        "avContent": [("deleteContent", "1.0"), ("setDeleteProtection", "1.0"), ("getContentCount", "1.0"),
+                      ("getContentCount", "1.1"), ("getContentList", "1.0"), ("getContentList", "1.2")],
+        "accessControl": [("actRegister", "1.0")],
+    ]
+
+    /// Whether it is one of the older kind (`init(older:)`).
+    private let older: Bool
 
     /// What a real one answers a method, or a version of one, that it does not have.
     private func unknown(_ method: String, _ id: Int) -> HTTPResponse {

@@ -263,7 +263,7 @@ final class TVRecordingsTests: XCTestCase {
         await television.leavesOutOfItsList([rows[1].uri])
         expectEqual(try await tv.recordings().map(\.id), [rows[0].uri])
         expectEqual(try await tv.contentCount(version: "1.1", params: ["source": "usb:recStorage"]), 1)
-        expectEqual(try await tv.storage().freeMB, 13_400)
+        expectEqual(try await tv.storage()?.freeMB, 13_400)
 
         await television.leavesOutOfItsList([])
         expectEqual(try await tv.recordings().count, 2)

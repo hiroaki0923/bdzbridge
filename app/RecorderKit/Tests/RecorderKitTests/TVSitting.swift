@@ -526,7 +526,9 @@ actor TVSitting {
     /// just read, and the list. The row read back is held against what was sent.
     func aWholeWrite() async throws {
         try await making {
-            let disk = try await ask("getStorageList") { try await client.storage() }
+            guard let disk = try await ask("getStorageList", { try await client.storage() }) else {
+                throw Refused(why: "the television does not say its disk")
+            }
             say("the disk: \(disk.mounted ? "mounted" : "not mounted")")
             guard disk.mounted else { throw Refused(why: "the television has no disk to record to") }
             let listed = try await list()
@@ -809,7 +811,9 @@ actor TVSitting {
                     throw Refused(why: "the sitting was handed a line that its client does not send on")
                 }
                 began = true
-                let disk = try await ask("getStorageList") { try await client.storage() }
+                guard let disk = try await ask("getStorageList", { try await client.storage() }) else {
+                    throw Refused(why: "the television does not say its disk")
+                }
                 say("the disk: \(disk.mounted ? "mounted" : "not mounted")")
                 guard disk.mounted else { throw Refused(why: "the television has no disk to record to") }
                 let listed = try await list()
@@ -2177,7 +2181,9 @@ extension TVSitting {
 
     /// The steps of the change in standby, between the guard and the end (`aChangeInStandby`).
     private func changingInStandby() async throws {
-        let disk = try await ask("getStorageList") { try await client.storage() }
+        guard let disk = try await ask("getStorageList", { try await client.storage() }) else {
+            throw Refused(why: "the television does not say its disk")
+        }
         say("the disk: \(disk.mounted ? "mounted" : "not mounted")")
         try stillInStandby()
         guard disk.mounted else { throw Refused(why: "the television has no disk to record to") }
