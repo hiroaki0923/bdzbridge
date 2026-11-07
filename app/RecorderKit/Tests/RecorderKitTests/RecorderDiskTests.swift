@@ -174,6 +174,41 @@ final class RecorderDiskTests: XCTestCase {
         XCTAssertEqual(notice(free: atTheLine, warned: false), .nothing)
     }
 
+    /// The internal disk's size is the one its own answer gives in the recorder's MB, which agrees with its free
+    /// space and the size it is sold as, and not the bytes the free space's answer gives for it, 4000 times 1024³ on
+    /// a 4 TB recorder: those only where the disk gives no size of its own. Each read of the free space after it is
+    /// shown against it. The figures are a real one's.
+    @MainActor
+    func testTheInternalDisksSizeIsItsOwnInTheRecordersMB() async throws {
+        func recorder(_ ownDisk: HTTPResponse) -> RecorderClient {
+            RecorderClient(host: Stub.host, transport: StubTransport { request, _ in
+                guard request.headers["SOAPACTION"]?.contains("#X_HDLnkGetRecordDestinationInfo") == true else {
+                    return ownDisk
+                }
+                return Stub.soap("X_HDLnkGetRecordDestinationInfo", extra: "<RecordDestinationInfo>"
+                    + Soap.escape("<info totalCapacity=\"4294967296000\" availableCapacity=\"167252066304\" />")
+                    + "</RecordDestinationInfo>")
+            })
+        }
+        let own = Stub.soap("X_GetMediaInfo", result: Self.slot(name: "", remain: "167252", total: "4000000",
+                                                                 registered: ""))
+        let size = try await RecorderDriver.internalSize(of: recorder(own))
+        XCTAssertEqual(size, 4_000_000_000_000, "the disk's own size, in its MB of a million bytes")
+        let space = try await RecorderDriver.storage(of: recorder(own))
+        XCTAssertEqual(space?.total, 4_294_967_296_000, "the free space's read asks one thing, and says its bytes")
+        let session = SessionState()
+        session.learned(internalSize: size)
+        session.learned(storage: space)
+        XCTAssertEqual(session.storage?.free, 167_252_066_304)
+        XCTAssertEqual(session.storage?.total, 4_000_000_000_000, "the free space shown against the disk's own size")
+
+        let unsaid = try await RecorderDriver.internalSize(of: recorder(Stub.fault("402")))
+        XCTAssertNil(unsaid)
+        session.learned(internalSize: unsaid)
+        session.learned(storage: space)
+        XCTAssertEqual(session.storage?.total, 4_294_967_296_000, "the bytes, where the disk gives no size of its own")
+    }
+
     /// A size is shown as its own device's screen shows it, the figures measured on each: a recorder's MB over
     /// 1000, a television's over 1024 and rounded up to a tenth; and a sum is the sum of the figures the rows show.
     func testASizeIsInTheGigabytesOfItsOwnDevice() {

@@ -76,6 +76,7 @@ public actor DemoRecorder: HTTPTransport {
         func argument(_ name: String) -> String {
             body?.firstDescendantText(name) ?? ""
         }
+        let destination = argument("recordDestinationID")
 
         switch action(of: request) {
         // MARK: reservations
@@ -143,11 +144,17 @@ public actor DemoRecorder: HTTPTransport {
             return soap(result: "<status><playStatus>stop</playStatus></status>")
         case "X_PowerControl":
             return soap(result: "<power><powerstatus>on</powerstatus></power>")
-        case "X_GetMediaInfo" where usbDisk && argument("recordDestinationID") == RecorderDisk.usbID:
+        case "X_GetMediaInfo" where usbDisk && destination == RecorderDisk.usbID:
             return soap(result: DemoRecorder.wrap(["<name>\(DemoRecorder.usbName)</name><mount>1</mount>"
                 + "<remain>\(usbFreeMB)</remain><total>\(DemoRecorder.usbTotalMB)</total>"
                 + "<registeredTime>\(DemoRecorder.usbRegistered)</registeredTime>"
                 + "<recordableRemain>\(usbFreeMB)</recordableRemain>"]))
+        case "X_GetMediaInfo" where destination == RecorderDisk.internalID:
+            // As a real one describes its own disk: no name, no time it was registered, the sizes in its MB.
+            let freeMB = free / RecorderDisk.bytesPerMB
+            return soap(result: DemoRecorder.wrap(["<name></name><mount>1</mount><remain>\(freeMB)</remain>"
+                + "<total>\(DemoRecorder.totalBytes / RecorderDisk.bytesPerMB)</total><registeredTime></registeredTime>"
+                + "<recordableRemain>\(freeMB)</recordableRemain>"]))
         case "X_HDLnkGetRecordDestinationInfo":
             let info = "<recordDestinationInfo totalCapacity=\"\(DemoRecorder.totalBytes)\" "
                 + "availableCapacity=\"\(free)\" />"

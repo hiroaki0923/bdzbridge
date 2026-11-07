@@ -204,7 +204,15 @@ public final class SessionState {
     }
 
     public func learned(firmware: String) { self.firmware = firmware }
-    public func learned(storage: (free: Int, total: Int)?) { self.storage = storage }
+    /// The free space, shown against the disk's own size where an attach read one (`internalSize`).
+    public func learned(storage: (free: Int, total: Int)?) {
+        self.storage = storage.map { ($0.free, internalSize ?? $0.total) }
+    }
+
+    /// The internal disk's own size, read once an attach (`RecorderDriver.internalSize`), nil where it gave none:
+    /// each read of the free space after it is shown against this.
+    public private(set) var internalSize: Int?
+    public func learned(internalSize: Int?) { self.internalSize = internalSize }
     /// A USB disk known that the slot has not answered: one kept through an answer of none, which is then waited
     /// for (`usbDiskUnanswered`), or none, the one known let go of with no answer behind it -- the cache made over
     /// to another recorder.

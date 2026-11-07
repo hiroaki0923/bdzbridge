@@ -60,7 +60,7 @@ final class USBDiskTests: XCTestCase {
                                       + " / \(Format.gigabytes(storage.total, on: .recorder))")],
                            what)
             expectEqual(await recorder.heard, ["description.xml", "X_GetFirmwareVersion", "X_GetPrivateIp",
-                                               "X_HDLnkGetRecordDestinationInfo", "X_GetMediaInfo",
+                                               "X_HDLnkGetRecordDestinationInfo", Ask.ownDisk, "X_GetMediaInfo",
                                                "X_GetRecordScheduleList"], what)
 
             let before = await recorder.asked
