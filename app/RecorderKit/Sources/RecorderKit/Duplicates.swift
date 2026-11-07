@@ -33,7 +33,8 @@ public struct DuplicateSet: Sendable, Identifiable {
     public var reasons: [String: String]
 
     public var id: String { items.map(\.id).joined(separator: "-") }
-    public var sizeGB: Double { Double(sizeMB) / 1024 }
+    /// What its recordings come to, each as its own device shows it.
+    public var sizeGB: Double { Gigabytes.of(items) }
 }
 
 public enum Duplicates {

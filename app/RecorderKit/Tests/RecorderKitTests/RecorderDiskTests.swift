@@ -164,6 +164,7 @@ final class RecorderDiskTests: XCTestCase {
             RecorderDisk.internalSpace(freeBytes: free, totalBytes: 2_000_000_000_000, warned: warned,
                                        warnBelowGB: 50)
         }
+        // The line in the GB the recorder's own screen shows, a thousand million bytes each.
         let low = 42_000_000_000, atTheLine = 50_000_000_000, justUnder = 49_999_999_999
         XCTAssertEqual(notice(free: low, warned: false), .warn(freeGB: 42, mark: RecorderDisk.internalID))
         XCTAssertEqual(notice(free: low, warned: true), .nothing, "warned twice in one fall")
@@ -171,6 +172,27 @@ final class RecorderDiskTests: XCTestCase {
                        .warn(freeGB: Double(justUnder) / 1e9, mark: RecorderDisk.internalID))
         XCTAssertEqual(notice(free: atTheLine, warned: true), .roomAgain)
         XCTAssertEqual(notice(free: atTheLine, warned: false), .nothing)
+    }
+
+    /// A size is shown as its own device's screen shows it, the figures measured on each: a recorder's MB over
+    /// 1000, a television's over 1024 and rounded up to a tenth; and a sum is the sum of the figures the rows show.
+    func testASizeIsInTheGigabytesOfItsOwnDevice() {
+        XCTAssertEqual(Gigabytes.of(megabytes: 167_252, on: .recorder), 167.252, accuracy: 1e-9)
+        XCTAssertEqual(Gigabytes.of(megabytes: 498_333, on: .recorder), 498.333, accuracy: 1e-9)
+        XCTAssertEqual(Gigabytes.of(bytes: 167_252_066_304, on: .recorder), 167.252066304, accuracy: 1e-9)
+        XCTAssertEqual([375, 624, 991, 3011, 7633].map { Gigabytes.of(megabytes: $0, on: .tv) }, [0.4, 0.7, 1.0, 3.0, 7.5])
+        XCTAssertEqual(Gigabytes.of(megabytes: 1024, on: .tv), 1.0, "a whole gigabyte is not rounded up past itself")
+        XCTAssertEqual(Gigabytes.of(bytes: 3_798_388 * TVStorage.bytesPerMB, on: .tv), 3709.4)
+        XCTAssertEqual(Gigabytes.of(megabytes: 1000, on: DeviceSlot(rawValue: "later")), 1.0, "counted as a recorder")
+
+        func title(_ sizeMB: Int, on device: DeviceSlot) -> RecordedTitle {
+            RecordedTitle(id: "\(device.rawValue)\(sizeMB)", title: "サンプル番組", start: Date(timeIntervalSince1970: 0),
+                          durationSec: 60, broadcastingType: 0, serviceID: 0, qualityCode: 0, protected: false,
+                          isNew: true, recording: false, destination: "HDD", sizeMB: sizeMB, device: device)
+        }
+        let mixed = [title(1000, on: .recorder), title(624, on: .tv)]
+        XCTAssertEqual(Gigabytes.of(mixed), 1.7, accuracy: 1e-9)
+        XCTAssertEqual(TitleGroup.group(mixed).first?.sizeGB ?? 0, 1.7, accuracy: 1e-9)
     }
 
     // MARK: - what is offered, what is sent and what is named

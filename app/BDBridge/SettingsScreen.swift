@@ -370,14 +370,16 @@ struct SettingsScreen: View {
         if let storage {
             rows.append(usb == nil
                 ? StorageRow(label: "残り容量",
-                             value: "\(Format.gigabytes(storage.free)) / \(Format.gigabytes(storage.total))")
+                             value: "\(Format.gigabytes(storage.free, on: .recorder))"
+                                 + " / \(Format.gigabytes(storage.total, on: .recorder))")
                 : StorageRow(label: RecorderDisk.label(RecorderDisk.internalID, named: nil),
-                             value: Format.storage(mounted: true, freeBytes: storage.free, totalBytes: storage.total)))
+                             value: Format.storage(mounted: true, freeBytes: storage.free, totalBytes: storage.total,
+                                                   on: .recorder)))
         }
         if let usb {
             rows.append(StorageRow(label: RecorderDisk.label(usb.destination, named: usb.name),
                                    value: Format.storage(mounted: usb.mounted, freeBytes: usb.freeBytes,
-                                                         totalBytes: usb.totalBytes)))
+                                                         totalBytes: usb.totalBytes, on: .recorder)))
         }
         return rows
     }

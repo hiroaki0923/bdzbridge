@@ -59,7 +59,7 @@ struct TitleSheet: View {
                     LabeledContent("録画", value: Format.dateTime.string(from: current.start))
                     if current.lengthKnown { LabeledContent("長さ", value: Format.duration(current.durationSec)) }
                     if let size = current.sizeMB {
-                        LabeledContent("サイズ", value: String(format: "%.1f GB", Double(size) / 1024))
+                        LabeledContent("サイズ", value: Format.gigabytes(megabytes: size, on: current.device))
                     }
                     if let quality = current.qualityName {
                         LabeledContent("録画モード", value: Codes.qualityLabel[quality] ?? quality)

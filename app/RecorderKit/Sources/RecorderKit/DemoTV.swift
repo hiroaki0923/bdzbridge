@@ -145,10 +145,10 @@ public actor DemoTV: HTTPTransport {
 
         /// Its row as the list gives it, at `index`: a real one's flags as strings, the length in an object, and
         /// -1 for `fileSizeByte` where the size does not fit in 32 bits, as a real one wrote it on recordings of
-        /// three gigabytes and more; where the line runs is taken, not seen.
+        /// three gigabytes and more; where the line runs is taken, not seen. Its MB is 1,048,576 bytes.
         func fields(at index: Int) -> [String: Any] {
             let size = recording ? 0 : sizeMB
-            let bytes = size * 1_000_000
+            let bytes = size * TVStorage.bytesPerMB
             var fields: [String: Any] = [
                 "title": title, "channelName": station, "uri": uri, "index": index,
                 "startDateTime": DemoTV.startText(start), "duration": ["durationSec": recording ? 0 : durationSec],
@@ -165,7 +165,7 @@ public actor DemoTV: HTTPTransport {
 
         /// The row as 1.2 and 1.0 list it (`olderRecordingPage`).
         func olderFields(at index: Int) -> [String: Any] {
-            let bytes = (recording ? 0 : sizeMB) * 1_048_576
+            let bytes = (recording ? 0 : sizeMB) * TVStorage.bytesPerMB
             return [
                 "title": title, "channelName": station, "uri": uri, "index": index,
                 "startDateTime": DemoTV.startText(start), "durationSec": recording ? 0 : durationSec,

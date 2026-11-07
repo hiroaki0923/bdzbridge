@@ -169,9 +169,13 @@ public struct TVStorage: Sendable, Equatable {
     public var freeMB: Int?
     public var totalMB: Int?
 
+    /// Bytes to the television's MB: its free space over 1024 is what its own screen shows in GB, as a recording's
+    /// `sizeMB` is its `fileSizeByte` over 1,048,576 (both measured).
+    public static let bytesPerMB = 1_048_576
+
     /// The sizes in bytes, the unit the recorder's disks are shown in (`Format.storage`).
-    public var freeBytes: Int? { freeMB.map { $0 * 1_000_000 } }
-    public var totalBytes: Int? { totalMB.map { $0 * 1_000_000 } }
+    public var freeBytes: Int? { freeMB.map { $0 * Self.bytesPerMB } }
+    public var totalBytes: Int? { totalMB.map { $0 * Self.bytesPerMB } }
 }
 
 /// A value of a television's JSON as it came, for an answer whose fields no reader has been written for yet:

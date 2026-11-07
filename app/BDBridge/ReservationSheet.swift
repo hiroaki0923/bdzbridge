@@ -270,7 +270,7 @@ struct ReservationSheet: View {
         }
         LabeledContent("登録元", value: reservation.madeBy)
         if let size = reservation.sizeMB {
-            LabeledContent("録画サイズ", value: String(format: "%.1f GB", Double(size) / 1024))
+            LabeledContent("録画サイズ", value: Format.gigabytes(megabytes: size, on: reservation.device))
         }
     }
 

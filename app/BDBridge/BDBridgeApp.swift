@@ -643,16 +643,32 @@ enum Format {
         "\(max(0, seconds) / 60)分"
     }
 
-    static func gigabytes(_ bytes: Int) -> String {
-        String(format: "%.1f GB", Double(bytes) / 1_000_000_000)
+    /// A size in bytes on `device`, as that device's screen counts a GB (`Gigabytes`), written `3.0 GB`.
+    static func gigabytes(_ bytes: Int, on device: DeviceSlot) -> String {
+        gigabytes(Gigabytes.of(bytes: bytes, on: device))
     }
 
-    /// How full a disk is, in the words the television's USB disk was first given and the recorder's disks share:
-    /// both sizes, or that a disk is there and has not said how full, or that it is not there.
-    static func storage(mounted: Bool, freeBytes: Int?, totalBytes: Int?) -> String {
+    /// A size `device` gave in its megabytes, as a recording's is.
+    static func gigabytes(megabytes: Int, on device: DeviceSlot) -> String {
+        gigabytes(Gigabytes.of(megabytes: megabytes, on: device))
+    }
+
+    /// A recording's size, as its own device shows it.
+    static func size(of title: RecordedTitle) -> String? {
+        title.sizeMB.map { gigabytes(megabytes: $0, on: title.device) }
+    }
+
+    /// Gigabytes counted already, as a sum of recordings is.
+    static func gigabytes(_ count: Double) -> String {
+        String(format: "%.1f GB", count)
+    }
+
+    /// How full a disk of `device` is, in the words the television's USB disk was first given and the recorder's
+    /// disks share: both sizes, or that a disk is there and has not said how full, or that it is not there.
+    static func storage(mounted: Bool, freeBytes: Int?, totalBytes: Int?, on device: DeviceSlot) -> String {
         guard mounted else { return "つながっていません" }
         guard let freeBytes, let totalBytes else { return "つながっています" }
-        return "残り \(gigabytes(freeBytes)) / \(gigabytes(totalBytes))"
+        return "残り \(gigabytes(freeBytes, on: device)) / \(gigabytes(totalBytes, on: device))"
     }
 }
 

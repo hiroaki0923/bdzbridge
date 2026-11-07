@@ -416,10 +416,11 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
     /// The USB disk's space against `marked`, the disk last warned about: a disk below the line is warned about
     /// unless it is that disk, and that disk with room again takes the mark away. A disk that takes no recordings
     /// says nothing of its room, and the mark is left as it was. The mark a warning leaves is the disk's identity,
-    /// so that another disk in the slot has not been warned about. The line is `warnBelowGB`, in GB.
+    /// so that another disk in the slot has not been warned about. The line is `warnBelowGB`, in the GB the
+    /// recorder's screen shows (`Gigabytes`).
     public static func usbSpace(_ disk: RecorderDisk, marked: String?, warnBelowGB: Double) -> SpaceNotice {
         guard disk.takesRecordings, let free = disk.freeBytes else { return .nothing }
-        let freeGB = Double(free) / 1e9
+        let freeGB = Gigabytes.of(bytes: free, on: .recorder)
         let warned = marked == disk.identity
         if freeGB >= warnBelowGB { return warned ? .roomAgain : .nothing }
         return warned ? .nothing : .warn(freeGB: freeGB, mark: disk.identity)
@@ -435,10 +436,36 @@ public struct RecorderDisk: Equatable, Sendable, Codable {
     /// (`RecorderDriver.storage(of:)`), and nothing is told of it.
     public static func internalSpace(freeBytes: Int, totalBytes: Int, warned: Bool,
                                      warnBelowGB: Double) -> SpaceNotice {
-        let freeGB = Double(freeBytes) / 1e9
+        let freeGB = Gigabytes.of(bytes: freeBytes, on: .recorder)
         if freeGB >= warnBelowGB { return warned ? .roomAgain : .nothing }
         return warned ? .nothing : .warn(freeGB: freeGB, mark: internalID)
     }
+}
+
+/// A size in GB as its own device's screen writes it, which the two kinds do not agree on, so that a figure in the
+/// app is the figure the reader sees on the device. A recorder's MB are a million bytes, and its screen shows them
+/// over 1000: 167,252 MB free as 167GB, a USB disk's 498,333 MB as 498GB. A television's MB are 1,048,576 bytes,
+/// and its screen shows them over 1024, a recording's rounded up to a tenth: 624 MB as 0.7GB and 3011 MB as 3.0GB,
+/// and 3,798,388 MB free as 3709.4GB, which rounding up gives too. All measured. A device the app does not know is
+/// counted as a recorder.
+public enum Gigabytes {
+    /// A size `device` gave in its megabytes, as a recording's and a USB disk's are.
+    public static func of(megabytes: Int, on device: DeviceSlot) -> Double {
+        device == .tv ? tenthsUp(Double(megabytes) / 1024) : Double(megabytes) / 1000
+    }
+
+    /// A size in bytes, as the recorder's own disk gives its space and the app keeps every disk's, of `device`.
+    public static func of(bytes: Int, on device: DeviceSlot) -> Double {
+        device == .tv ? tenthsUp(Double(bytes) / 1_073_741_824) : Double(bytes) / 1_000_000_000
+    }
+
+    /// What `titles` come to, each as its own device shows it: the sum of the figures the rows show.
+    public static func of(_ titles: [RecordedTitle]) -> Double {
+        titles.reduce(0) { $0 + of(megabytes: $1.sizeMB ?? 0, on: $1.device) }
+    }
+
+    /// Up to the next tenth, as a television writes a size. Exact for these: a power of two divides them.
+    private static func tenthsUp(_ gigabytes: Double) -> Double { (gigabytes * 10).rounded(.up) / 10 }
 }
 
 /// What `description.xml` says about a recorder found on the LAN.

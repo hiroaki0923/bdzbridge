@@ -62,7 +62,7 @@ struct RecordingsScreen: View {
                 // the free space is worth a permanent place; the sort and the watch state are worth a menu
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 0) {
-                        Text(model.shownFreeBytes.map { "残り \(Format.gigabytes($0))" } ?? "録画")
+                        Text(model.shownFreeBytes.map { "残り \(Format.gigabytes($0, on: model.shownFreeDevice))" } ?? "録画")
                             .font(.subheadline.weight(.semibold))
                         Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
@@ -174,7 +174,7 @@ struct RecordingsScreen: View {
     /// What is about to go, and how much of the disk it gives back. Said in full because there is no undo.
     static func deleteMessage(_ title: RecordedTitle) -> String {
         var lines = [title.title, Format.dateTime.string(from: title.start)]
-        if let size = title.sizeMB { lines.append(String(format: "%.1f GB", Double(size) / 1024)) }
+        if let size = Format.size(of: title) { lines.append(size) }
         return lines.joined(separator: "\n") + "\n" + [title].deletedForGood.asABody
     }
 
@@ -342,7 +342,7 @@ struct TitleRowView: View {
             parts.append(Text(channel))
         }
         if title.lengthKnown { parts.append(Text(Format.duration(title.durationSec))) }
-        if let size = title.sizeMB { parts.append(Text(String(format: "%.1fGB", Double(size) / 1024))) }
+        if let size = Format.size(of: title) { parts.append(Text(size)) }
         if let quality = title.qualityName { parts.append(Text(quality)) }
         return parts.dropFirst().reduce(parts[0]) { $0 + Text.rowGap + $1 }
     }
@@ -400,7 +400,7 @@ struct GroupRowView: View {
 
     /// How many, how big, and how many are new or protected, as one line of text that wraps as a line does.
     private var counts: Text {
-        var line = Text("\(group.count) 件") + Text.rowGap + Text(String(format: "%.1fGB", group.sizeGB))
+        var line = Text("\(group.count) 件") + Text.rowGap + Text(Format.gigabytes(group.sizeGB))
         if group.newCount > 0 {
             line = line + Text.rowGap + Text("未視聴 \(group.newCount)").foregroundStyle(Color.accentColor)
         }
@@ -452,8 +452,8 @@ struct GroupSheet: View {
         members.filter { selected.contains($0.listKey) }
     }
 
-    private static func gigabytes(_ titles: [RecordedTitle]) -> Double {
-        titles.reduce(0) { $0 + Double($1.sizeMB ?? 0) } / 1024
+    private static func gigabytes(_ titles: [RecordedTitle]) -> String {
+        Format.gigabytes(Gigabytes.of(titles))
     }
 
     var body: some View {
@@ -528,8 +528,8 @@ struct GroupSheet: View {
             } message: { shown in
                 switch shown {
                 case .bulk:
-                    Text(String(format: "合計 %.1fGB。保護された録画と録画中のものは削除されません。\n",
-                                Self.gigabytes(chosen)) + chosen.deletedForGood.asABody)
+                    Text("合計 \(Self.gigabytes(chosen))。保護された録画と録画中のものは削除されません。\n"
+                         + chosen.deletedForGood.asABody)
                 case .one(let title): Text(RecordingsScreen.deleteMessage(title))
                 case .failed(let reason), .told(let reason): Text(reason.asABody)
                 }
@@ -613,7 +613,7 @@ struct GroupSheet: View {
             Button(role: .destructive) {
                 confirmingDelete = true
             } label: {
-                Text(String(format: "選択した %d 件を削除（%.1fGB）", chosen.count, Self.gigabytes(chosen)))
+                Text("選択した \(chosen.count) 件を削除（\(Self.gigabytes(chosen))）")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
