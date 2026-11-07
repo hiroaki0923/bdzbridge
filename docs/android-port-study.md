@@ -411,6 +411,22 @@ Foundation の RunLoop は、メインのスレッドで回ると、メインの
 - main actor の実行役をアプリが差し替える仕組み（`MainExecutor`、`ExecutorFactory`）は、
   `@_spi(ExperimentalCustomExecutors)` の中にある。
 
+### モデルの変化を Kotlin に知らせる試し（2026-11-08）
+
+手順 2（下）の形を決めるため、iOS のモデルと同じ `@MainActor @Observable` のクラスを、使い捨てのアプリで Kotlin から
+見ました。swift-java 0.7.0、エミュレーター。
+
+| 確かめたこと | 結果 |
+|---|---|
+| `@MainActor @Observable` のクラスをそのまま出す | コンパイルできない。swift-java は同期の呼び口を作り、main actor の外から呼ぶことになる。async の関数だけは通る |
+| 前に main actor でない窓口を置く（操作は async で main actor に渡る） | 動く。`Observations` でも `withObservationTracking` でも、変化 1 回につき 1 回、Kotlin の listener に届いた。届くのは Android のメインスレッド |
+| listener の引数 | 数（`Int64`）、文字、真偽値は届く。`Int` は swift-java の作るコードがコンパイルできない。構造体の一覧は、アプリのクラスを探せず落ちた（`NoClassDefFoundError`） |
+| Foundation の `UserDefaults` | 値が残らなかった（HOME と XDG をアプリのフォルダーに向けても同じ）。Application Support の場所は、XDG を向ければ取れる |
+
+分かった形: モデルは iOS のまま `@MainActor @Observable` にし、前に画面ごとの窓口を置く。窓口は「何が変わったか」だけを
+知らせ、値は Kotlin が async で読む（Kotlin から呼んだ結果なら、構造体の一覧も届く）。設定の置き場所には、Android 用の
+差し込み口が要る。
+
 ## 決めたこと: B（2026-11-08）
 
 **RecorderKit は Swift のまま Android 向けにビルドし、画面は Kotlin（Jetpack Compose）で書きます。** Kotlin での
