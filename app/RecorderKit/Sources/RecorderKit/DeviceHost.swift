@@ -1,17 +1,16 @@
 import Foundation
-import RecorderKit
 
-/// What the screens and the model's entries ask of either device's host (`RecorderHost`, `TVHost`): its line,
+/// What the screens and the app's entries ask of either device's host, the recorder's and the television's: its line,
 /// whether it works, the reservations it holds and how old they are, and what its sendings came to. And the six
 /// entries of a device's reservations -- the list read, the list pulled down, a delete, a change, a reservation, a
 /// waiting row sent again -- written once below, over the driver's steps (`ReservationDriver`). Each opens the
-/// cache before it asks, whichever device it is for (`AppModel.start`). Where the two hosts still differ in them
+/// cache before it asks, whichever device it is for (`openCache`). Where the two hosts still differ in them
 /// is a hook each answers for itself: which list a read is kept on (`keeping`), and what follows a reservation
 /// and a sending (`afterAReservation`, `tell`).
 ///
 /// Not a `LinkHost`: a screen reads a host's line here, and is given no way to set it.
 @MainActor
-protocol DeviceHost: AnyObject {
+public protocol DeviceHost: AnyObject {
     static var slot: DeviceSlot { get }
     /// What went wrong with the device.
     var problem: String? { get }
@@ -29,8 +28,9 @@ protocol DeviceHost: AnyObject {
     var reservationDriver: (any ReservationDriver)? { get }
     /// The session of the device's link, for whether a connect to a device that answered last time is under way.
     var deviceSession: SessionState? { get }
-    /// The model, whose cache is opened before an entry asks (`AppModel.start`); nil once it has gone.
-    var model: AppModel? { get }
+    /// Opens the phone's cache before an entry asks, as the app opens it when it starts; nothing once the app's
+    /// model has gone.
+    func openCache() async
     /// Keeps a list the driver handed back for the device answered for as this is read: an entry reads it as it
     /// begins, and keeps what comes back with it.
     var keeping: @MainActor ([Reservation]) -> Void { get }
@@ -47,7 +47,7 @@ extension DeviceHost {
     /// asked, since the list is then read as a screen appears; and nil with no rows, when nothing old is shown.
     /// Nil too while a connect to a device that answered last time is under way: the list is read as that
     /// connect gets there, and it is old only once the connect has failed.
-    var staleSince: Date? {
+    public var staleSince: Date? {
         guard !reservations.isEmpty, reservationDriver?.canBeAsked != true else { return nil }
         if let session = deviceSession, session.connecting, session.connected { return nil }
         return reservationsRead
@@ -58,22 +58,22 @@ extension DeviceHost {
     /// entry began (`keeping`): a list read for a device let go of meanwhile is kept where no screen reads it. One
     /// that could not be read leaves the last list, and its time, as they were.
     @discardableResult
-    func readReservations() async -> [Reservation]? {
+    public func readReservations() async -> [Reservation]? {
         let keep = keeping
-        await model?.start()
+        await openCache()
         return await read(keepingOn: keep)
     }
 
     /// Reads the list, as a screen that shows it does when it appears.
-    func loadReservations() async {
+    public func loadReservations() async {
         _ = await readReservations()
     }
 
-    /// The same read with nothing before it, for what a connect reaches, which may not await `AppModel.start()`
-    /// and has tried to open the cache already (`cacheForAttempt`), and for a delete that reads the list in the
+    /// The same read with nothing before it, for what a connect reaches, which may not await the opening of the
+    /// cache and has tried to open it already (`LinkHost.cacheForAttempt`), and for a delete that reads the list in the
     /// queue's turn, whose row is one of the cache already open.
     @discardableResult
-    func readReservationsNow() async -> [Reservation]? {
+    public func readReservationsNow() async -> [Reservation]? {
         await read(keepingOn: keeping)
     }
 
@@ -86,9 +86,9 @@ extension DeviceHost {
     /// What pulling the reservations down asks of the device: what waits sent and then the list read, or a
     /// connect when it cannot be asked, which does both once the device has answered -- the driver's to decide.
     /// The list it hands back is kept as the entry began.
-    func refreshReservations() async {
+    public func refreshReservations() async {
         let keep = keeping
-        await model?.start()
+        await openCache()
         guard let list = await reservationDriver?.refreshReservations() else { return }
         keep(list)
     }
@@ -97,9 +97,9 @@ extension DeviceHost {
     /// it. The list read on the way is kept either way, since a delete that was refused has still seen what the
     /// device holds now. Nil for a row that is not the device's, which the driver refuses with nothing said.
     /// With no driver nothing is sent, and the answer is that the app is not connected.
-    func cancel(_ reservation: Reservation) async -> Altered? {
+    public func cancel(_ reservation: Reservation) async -> Altered? {
         let keep = keeping
-        await model?.start()
+        await openCache()
         guard let driver = reservationDriver else { return .notDone(Self.slot.notConnected) }
         let came = await driver.cancel(reservation)
         if let list = came.list { keep(list) }
@@ -108,9 +108,9 @@ extension DeviceHost {
 
     /// Changes a reservation on the device, by what its driver reads of `terms`. What it came to, as for a
     /// delete; the list read on the way is kept whatever it came to.
-    func change(_ reservation: Reservation, _ terms: ReservationTerms) async -> Altered? {
+    public func change(_ reservation: Reservation, _ terms: ReservationTerms) async -> Altered? {
         let keep = keeping
-        await model?.start()
+        await openCache()
         guard let driver = reservationDriver else { return .notDone(Self.slot.notConnected) }
         let came = await driver.update(reservation, terms)
         if let list = came.list { keep(list) }
@@ -121,9 +121,9 @@ extension DeviceHost {
     /// it, and nothing of the reservation itself goes on the strip, where it would read as one that had been
     /// waiting. The list a reservation made was read back with is kept, and what follows a reservation is done
     /// (`afterAReservation`). With no driver nothing is kept or sent.
-    func reserve(_ program: GuideProgramRow, _ terms: ReservationTerms) async -> Reserved {
+    public func reserve(_ program: GuideProgramRow, _ terms: ReservationTerms) async -> Reserved {
         let keep = keeping
-        await model?.start()
+        await openCache()
         guard let driver = reservationDriver else { return .notDone(Self.slot.notConnected) }
         let came = await driver.reserve(program, terms)
         if let list = came.list { keep(list) }
@@ -142,20 +142,13 @@ extension DeviceHost {
     /// still that reservation, said by its result alone as `reserve` is: on the strip it would read as one that
     /// had been waiting.
     @discardableResult
-    func resend(_ waiting: PendingReservation, neverWaited: Bool = false) async -> Reserved? {
+    public func resend(_ waiting: PendingReservation, neverWaited: Bool = false) async -> Reserved? {
         let keep = keeping
-        await model?.start()
+        await openCache()
         guard let driver = reservationDriver else { return nil }
         let sent = await driver.resend(waiting, neverWaited: neverWaited)
         if let list = sent.list { keep(list) }
         await tell(neverWaited ? nil : sent.round)
         return sent.came
-    }
-}
-
-extension AppModel {
-    /// The host of the device in `device`'s slot: the television's while one is in play, the recorder's always.
-    func deviceHost(for device: DeviceSlot) -> (any DeviceHost)? {
-        device == .tv ? tvHost : recorderHost
     }
 }

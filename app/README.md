@@ -36,10 +36,10 @@
   `conflicts`), each by the rules a television's driver keeps. Six of those steps are the same on both devices
   -- the list read, the list pulled down, a delete, a change, a reservation, a waiting row sent again -- and both
   drivers answer them through one protocol (`ReservationDriver`, a change and a reservation taking one request
-  value, `ReservationTerms`); both hosts' entries for them are one text over it (`DeviceHost`, in
-  `DeviceHost.swift`), with what still differs between the hosts as a hook each answers for itself: where a
-  list is kept, and what follows a reservation and a sending again. Every one of the six opens the cache before
-  it asks, whichever device it is for (`AppModel.start`); only the read a connect makes as it reaches a device,
+  value, `ReservationTerms`); both hosts' entries for them are one text over it, in the package (`DeviceHost`, in
+  RecorderKit's `DeviceHost.swift`), with what still differs between the hosts as a hook each answers for itself:
+  where a list is kept, and what follows a reservation and a sending again. Every one of the six opens the cache
+  before it asks, whichever device it is for (`openCache`, which each host answers with `AppModel.start`); only the read a connect makes as it reaches a device,
   which may not wait for that, and the one a television's waiting-row delete makes in the queue's turn read with
   nothing before them (`readReservationsNow`). `AppModelReservations` picks the host by the row's device
   (`deviceHost(for:)`) and does nothing else: a reservation goes to the device the programme's sheet named, a

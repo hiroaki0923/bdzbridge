@@ -260,8 +260,9 @@ B でも C でも、1 つのリポジトリで持てます。要になるのは 
    バックグラウンドタスク（`UIApplication`）、終わったあとの再接続とテレビの一覧の読み直し。いつ始めてよいかは
    アプリの規則として `RecorderHostRuns.swift` に残した。ループのテストは `BulkRunsTests` に 6 件。アプリのテスト
    （`RunGateTests` など）はモデルを通して確かめるので、アプリに残した。
-4. **2 つの機器の予約の入口**（`DeviceHost.swift`、161 行）: アプリのモデルに触れるのは、キャッシュを開く 6 か所だけ。
-   `ReservationDriver.swift` の横に置く。
+4. **2 つの機器の予約の入口**（済み）: 6 つの入口と古い表示の判断（`staleSince`）を、RecorderKit の
+   `DeviceHost.swift` に移した。アプリのモデルに触れていたキャッシュを開くところは、各ホストが答える `openCache` に
+   した。テストは `DeviceHostTests` に 8 件。
 5. **テレビの登録の手順**（`TVSettings.swift` と `AppModelTV.swift` の登録）: 探す、PIN なしで登録する、PIN を聞いて
    登録する、の順と、クライアント ID の持ち方。`TVDriver` に置く。
 6. **画面で書き写している機器の文**:
