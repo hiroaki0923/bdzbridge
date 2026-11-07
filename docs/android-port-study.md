@@ -353,6 +353,39 @@ C を選ぶかを決めるため、iOS の番組表の表形式（`GuideGridView
   長い修飾の連なりは、分けないと Android 向けのコンパイルで型が決まりませんでした。
 - Android の部分だけを Compose で書いて埋め込む仕組み（`ComposeView`）はあります。
 
+## swift-java の試し（2026-11-08）
+
+B のいちばんの不確かさだった「Kotlin から RecorderKit を呼べるか」を、使い捨ての小さなアプリで確かめました。
+swift-java 0.7.0 の JNI 方式で、Swift の小さなパッケージ（RecorderKit を使う）から Java の呼び口を自動で作り、
+Kotlin の Activity から呼んで、Android 16 のエミュレーターで動かしました。組み立ては swift-android-examples の
+`swift-java-weather-app` と同じです。
+
+| 確かめたこと | 結果 |
+|---|---|
+| ふつうの関数 | `String` で返る。日本語もそのまま |
+| async の関数 | `CompletableFuture` で返る。完了するのは Swift の並行処理のスレッドで、UI のスレッドではない |
+| throws の関数 | `CompletionException` の中に、Swift のエラーの型名つきの Java の例外として届く |
+| 構造体 | Java のクラスになり、getter で読める。受け取るときは寿命を持つ `SwiftArena` を渡す |
+| 一覧 | `[String]` は `String[]`、構造体の一覧は構造体のクラスの配列で受け取れる |
+| Swift から Kotlin へ知らせる | Kotlin で実装した protocol（`enableJavaCallbacks`）を、Swift の Task から呼べる。届くのは Swift のスレッド |
+
+RecorderKit の中身（レコーダーの説明、テレビの在否、サブネットの探索）も、Kotlin まで届きました。
+
+組み立てで要ったこと:
+
+- swift-java の Java の支え（SwiftKitCore）は Maven Central になく、swift-java のチェックアウトから
+  `publishToMavenLocal` で手元に置く。既定は JDK 25 を求めるが、`-PswiftJavaJdk=21` で JDK 21 でもビルドでき、
+  出来上がりは Java 11 向け。Homebrew の JDK は `JAVA_HOME` を `…/libexec/openjdk.jdk/Contents/Home` にする
+  （そうしないと版を読めず 25 を探しに行く）。
+- `enableJavaCallbacks` を使うと、Swift のビルドの途中で swift-java が Gradle を動かすので、`swift build` にも
+  `JAVA_HOME`（17 以上）が要る。サンドボックスも外す（`--disable-sandbox`）。
+- APK に詰めるのは、ビルドした `.so`（RecorderKit は中に静的に入る）、`libc++_shared.so`、Swift の実行時の
+  ライブラリ（Foundation、FoundationNetworking、FoundationXML、Observation などを含む 19 個）。デバッグ版で
+  arm64 だけの APK は 143 MB だった。
+
+分かった約束事: Kotlin で受け取った結果と知らせは Swift のスレッドで届くので、画面の状態に入れる前に UI の
+スレッドに渡す。
+
 ## 決めたこと: B（2026-11-08）
 
 **RecorderKit は Swift のまま Android 向けにビルドし、画面は Kotlin（Jetpack Compose）で書きます。** Kotlin での
@@ -370,8 +403,7 @@ C を選ぶかを決めるため、iOS の番組表の表形式（`GuideGridView
 
 Wi-Fi の端末での測定と、Skip の試しも済みました（上）。B での次の一歩は次の順です。
 
-1. Kotlin（Compose）の小さなアプリから、swift-java で RecorderKit を呼ぶ試し。ビルドのつなぎ方、Swift の async 関数の
-   結果を Kotlin に渡すこと、どのスレッドで返るかを確かめる。B のいちばん大きな不確かさなので、先に潰す。
+1. ~~Kotlin から swift-java で RecorderKit を呼ぶ試し~~（済み、上の「swift-java の試し」）。
 2. アプリのモデル（`AppModel`、`RecorderHost`、`TVHost`、一覧の組み立て、シートの状態の移り変わり）を、UI のない
    パッケージに出し、Kotlin から値の写しと操作で見られる形にする。iOS もこれを使う。
 3. 画面を Compose で書く。
@@ -380,7 +412,9 @@ Wi-Fi の端末での測定と、Skip の試しも済みました（上）。B �
 
 - Android の送り方で、テレビに登録の要る要求を送ること（cookie を付けた読み取りと書き込み）。
 - Android 17（API 37）を対象にしたときの、ローカルネットワークの許可の求め方。エミュレーターも試しのアプリも API 36。
-- swift-java で、Kotlin から RecorderKit の async 関数を呼べるか（上の「次の一歩」の 1）。
+- リリース版の APK の大きさ（デバッグ版で arm64 だけ 143 MB）と、R8 で縮めるときに swift-java が作るクラスが
+  残るか。
+- `SwiftArena.ofAuto()` に任せた構造体の寿命が、長く動くアプリでどう振る舞うか。
 
 ## 出典
 
