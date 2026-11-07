@@ -30,19 +30,19 @@ final class DemoTelevisionTests: XCTestCase {
         }
         XCTAssertEqual(typed, .nothing, "the real television answered in the demo")
 
-        expectEqual(await model.findTV(at: DemoData.tvHost), .on(model: DemoTV.model))
-        expectEqual(await model.registerTV(at: DemoData.tvHost, pin: nil), .pinNeeded)
-        expectEqual(await model.registerTV(at: DemoData.tvHost, pin: "0000"), .pinNeeded)
+        expectEqual(await model.findTV(at: DemoTV.host), .on(model: DemoTV.model))
+        expectEqual(await model.registerTV(at: DemoTV.host, pin: nil), .pinNeeded)
+        expectEqual(await model.registerTV(at: DemoTV.host, pin: "0000"), .pinNeeded)
         XCTAssertNil(model.tv, "a wrong number registered the demo's television")
-        expectEqual(await model.registerTV(at: DemoData.tvHost, pin: DemoTV.pin), .registered)
+        expectEqual(await model.registerTV(at: DemoTV.host, pin: DemoTV.pin), .registered)
 
         XCTAssertTrue(model.demo)
-        XCTAssertEqual(model.tv?.host, DemoData.tvHost)
+        XCTAssertEqual(model.tv?.host, DemoTV.host)
         XCTAssertEqual(model.tv?.session.connected, true, "the demo's television was not connected")
         XCTAssertEqual(model.tvDriver?.facts.model, DemoTV.model)
         XCTAssertNotNil(model.demoTVCredentials?.load(), "the demo's registration was kept nowhere")
         XCTAssertFalse(model.canAddAFoundTelevision, "a found television could be tapped with the demo's added")
-        XCTAssertTrue(model.inUse(TVSighting(host: DemoData.tvHost, model: DemoTV.model)))
+        XCTAssertTrue(model.inUse(TVSighting(host: DemoTV.host, model: DemoTV.model)))
         XCTAssertEqual(model.destinations, [.recorder, .tv])
         await expectNothingReal(home, since: then, keeping: before)
     }
@@ -194,10 +194,10 @@ final class DemoTelevisionTests: XCTestCase {
 
         let made = home.bench.televisionTransportsMade
         let found = try await within(2, "the demo's address was waited on after the demo") {
-            await model.findTV(at: DemoData.tvHost)
+            await model.findTV(at: DemoTV.host)
         }
         XCTAssertEqual(found, .nothing, "the demo's address answered after the demo")
-        XCTAssertEqual(home.bench.televisionTransportsMade.dropFirst(made.count).filter { $0 == DemoData.tvHost }, [],
+        XCTAssertEqual(home.bench.televisionTransportsMade.dropFirst(made.count).filter { $0 == DemoTV.host }, [],
                        "a way to the LAN was taken for the demo's address")
 
         await model.enterDemo()
@@ -206,7 +206,7 @@ final class DemoTelevisionTests: XCTestCase {
         expectEqual(await model.waitingForTheTelevision(), 0, "what waited for it was kept for the next demo")
         model.scanForDevices()
         try await until("the demo's search never ended") { model.scanOutcome != nil }
-        XCTAssertEqual(model.foundTelevisions, [TVSighting(host: DemoData.tvHost, model: DemoTV.model)])
+        XCTAssertEqual(model.foundTelevisions, [TVSighting(host: DemoTV.host, model: DemoTV.model)])
         XCTAssertTrue(model.canAddAFoundTelevision)
         XCTAssertFalse(model.foundTelevisions.contains(where: model.inUse), "the demo's television was in use")
         await model.leaveDemo()
@@ -276,7 +276,7 @@ final class DemoTelevisionTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
         let away = Task { await model.takeTheTelevisionAway(counted: 0) }
         try await Task.sleep(for: .milliseconds(300))
-        XCTAssertEqual(model.tv?.host, DemoData.tvHost, "外す did not wait for the queue's turn")
+        XCTAssertEqual(model.tv?.host, DemoTV.host, "外す did not wait for the queue's turn")
         let leaving = Task { await model.leaveDemo() }
         try await until("the demo never ended") { !model.demo }
         XCTAssertEqual(model.tv?.host, Bench.tvHost, "the real television's link was not made again")
@@ -375,9 +375,9 @@ final class DemoTelevisionTests: XCTestCase {
     /// Registers the demo's television as the sheet does: found at its address, asked for its number, and
     /// given the one the sheet says.
     private func register(_ model: AppModel, file: StaticString = #filePath, line: UInt = #line) async throws {
-        expectEqual(await model.findTV(at: DemoData.tvHost), .on(model: DemoTV.model), file: file, line: line)
-        expectEqual(await model.registerTV(at: DemoData.tvHost, pin: nil), .pinNeeded, file: file, line: line)
-        expectEqual(await model.registerTV(at: DemoData.tvHost, pin: DemoTV.pin), .registered, file: file, line: line)
+        expectEqual(await model.findTV(at: DemoTV.host), .on(model: DemoTV.model), file: file, line: line)
+        expectEqual(await model.registerTV(at: DemoTV.host, pin: nil), .pinNeeded, file: file, line: line)
+        expectEqual(await model.registerTV(at: DemoTV.host, pin: DemoTV.pin), .registered, file: file, line: line)
         try await untilTheTelevisionIsConnected(model)
     }
 

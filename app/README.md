@@ -167,7 +167,7 @@ either. Ending the demo lets go of the demo's link first -- the real one's is ma
 after, which a link left in place would stop -- and then of the television, its registration and a
 registration of it under way; what waited for it goes with the demo's guide, and the real television comes
 back connected, with nothing asked of the reader. A launch with the demo on has no television, and opening the
-demo's guide deletes what waited for one (`DemoData.seed`). `DemoTelevisionTests` holds that on the model, and
+demo's guide deletes what waited for one (`DemoLineUp.seed`). `DemoTelevisionTests` holds that on the model, and
 `testTheDemosTelevisionIsFoundReservedAndGoesWithTheDemo` walks it on the screens.
 
 ## The model's tests

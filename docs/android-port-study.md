@@ -282,8 +282,10 @@ B でも C でも、1 つのリポジトリで持てます。要になるのは 
    `RecorderDriver.recordsIn` の 1 つにした（`Codes.qualityOrder` はなくした）。おまかせ・まる録の条件の行の組み立ては
    `RecorderRule.details` に移した。検索方法の言い方が 3 通りあるのは、最後の文言の確認でまとめる（`Codes` の表は
    サーバーと同じ語で、`docs/port` で突き合わせている）。テストは `SmallTablesTests` に 4 件。
-9. **サンプルの機器の残り**（`DemoData.swift`）: サンプルの機器の組、テレビのアドレス、番組表の範囲、番組表の種まき。
-   `DemoRecorder`、`DemoTV`、`DemoLineUp` の横に置く。ロゴのタイルを描くところ（UIKit）は外から渡す。
+9. **サンプルの機器の残り**（済み）: サンプルの機器の組（`DemoDevices`）、テレビのアドレス（`DemoTV.host`）、
+   応答の速さ（`DemoRecorder.answerDelay`）、番組表の範囲の文（`DemoLineUp.guideCoverage`）、番組表の種まき
+   （`DemoLineUp.seed`）を、RecorderKit の `DemoDevices.swift` に移した。ロゴのタイルの描画（UIKit）はアプリから渡す。
+   デモの切り替えは設定の保存に結びつくので、アプリ（`DemoData.swift`）に残した。テストは `DemoDevicesTests` に 2 件。
 10. **1 度だけ言ったことの保存**（`DefaultsKey.swift`）: 保存先を外から渡す形にする。
 
 ### 端末の呼び方: 「この端末」（決めて、済み）

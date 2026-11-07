@@ -133,7 +133,7 @@ extension AppModel {
     /// once the demo has ended, a client made for it -- by a link of the demo's let go of with a request still
     /// to make -- reaches nothing, and never the LAN.
     func televisionTransport(_ host: String) -> any HTTPTransport {
-        if RecorderAddress.same(host, DemoData.tvHost) { return demo ? theDemoTV() : NoTelevision() }
+        if RecorderAddress.same(host, DemoTV.host) { return demo ? theDemoTV() : NoTelevision() }
         return demo ? NoTelevision() : surroundings.tvTransport(host)
     }
 

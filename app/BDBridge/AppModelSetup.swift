@@ -64,7 +64,7 @@ extension AppModel {
     /// because it holds what the reader has done to it: the link's requests and the demo's search both reach
     /// this one. It has a USB disk, so that the screens of a home with one can be seen in the demo.
     func theDemoRecorder() -> DemoRecorder {
-        let recorder = demoRecorder ?? DemoRecorder(delay: DemoData.answerDelay, usbDisk: true)
+        let recorder = demoRecorder ?? DemoRecorder(delay: DemoRecorder.answerDelay, usbDisk: true)
         demoRecorder = recorder
         return recorder
     }
@@ -283,7 +283,7 @@ extension AppModel {
     /// What a scan looks round: the addresses of the Wi-Fi, or in the demo the demo's own devices' addresses,
     /// with the interfaces never read.
     private func searchAddresses() -> [String] {
-        guard !demo else { return [DemoRecorder.host, DemoData.tvHost] }
+        guard !demo else { return [DemoRecorder.host, DemoTV.host] }
         return surroundings.lanInterfaces().flatMap { LocalNetwork.hosts(around: $0) }
     }
 
@@ -291,7 +291,7 @@ extension AppModel {
     /// demo the demo's devices, with the session never made.
     private func searchTransport() -> any HTTPTransport {
         guard demo else { return surroundings.scanTransport() }
-        return DemoDevices(recorder: theDemoRecorder(), television: televisionTransport(DemoData.tvHost))
+        return DemoDevices(recorder: theDemoRecorder(), television: televisionTransport(DemoTV.host))
     }
 
     /// The same, for a scan that has got past the press. On none the scan is over: that is said, nobody is

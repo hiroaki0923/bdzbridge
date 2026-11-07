@@ -85,7 +85,7 @@ final class AppModelTests: XCTestCase {
         let bench = try aBench()
         try await bench.cacheAGuide()
         // The demo's own pace, for the moment in which two pieces of work overlap.
-        let model = bench.model(recorder: DemoRecorder(delay: DemoData.answerDelay))
+        let model = bench.model(recorder: DemoRecorder(delay: DemoRecorder.answerDelay))
         await model.start()
         try await until("the first connect never finished") { model.connected && !isConnecting(model) }
 

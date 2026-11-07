@@ -331,7 +331,7 @@ struct GuideEmptyView: View {
             // The demo's guide is what DemoLineUp invented and DemoData's seed wrote, and a refresh would fetch
             // the same again.
             ContentUnavailableView(cached == 0 ? "\(type)の番組表はありません" : "この日の番組表はありません",
-                                   systemImage: "calendar", description: Text(DemoData.guideCoverage))
+                                   systemImage: "calendar", description: Text(DemoLineUp.guideCoverage))
         } else if model.info?.epgCapable == false {
             ContentUnavailableView("このレコーダーは番組表に対応していません", systemImage: "calendar",
                                    description: Text("この機種からは番組表を取得できません"))
