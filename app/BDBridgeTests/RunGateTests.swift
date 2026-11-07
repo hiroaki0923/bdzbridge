@@ -50,7 +50,7 @@ final class RunGateTests: XCTestCase {
     }
 
     /// A bulk delete or protect as its screen starts one, and waited for until it is over.
-    private func run(_ model: AppModel, _ kind: AppModel.BulkJob.Kind, _ ids: [String]) async throws {
+    private func run(_ model: AppModel, _ kind: BulkJob.Kind, _ ids: [String]) async throws {
         model.startBulk(kind, ids: ids)
         try await untilTheRunEnds(model)
     }
@@ -73,8 +73,8 @@ final class RunGateTests: XCTestCase {
     }
 
     /// A recording a run passed over, and why, as its job lists it.
-    private func skip(_ title: RecordedTitle, _ reason: String) -> AppModel.BulkJob.Skip {
-        AppModel.BulkJob.Skip(id: title.id, reason: reason)
+    private func skip(_ title: RecordedTitle, _ reason: String) -> BulkJob.Skip {
+        BulkJob.Skip(id: title.id, reason: reason)
     }
 
     // MARK: - a bulk delete and a bulk protect to their ends
@@ -234,7 +234,7 @@ final class RunGateTests: XCTestCase {
     /// stopped by 中止, and has the stop's own sentence for the line under that; silence has none, and nor has
     /// a run nothing stopped.
     func testWhatAJobSaysOnceItHasStoppedLetterForLetter() {
-        typealias Job = AppModel.BulkJob
+        typealias Job = BulkJob
         func job(_ kind: Job.Kind, cancelled: Bool = false, stopped: RunStop? = nil, skipped: Int = 0) -> Job {
             var job = Job(kind: kind, total: 5)
             job.done = 3
@@ -458,7 +458,7 @@ final class RunGateTests: XCTestCase {
     func testSilenceAtARecordingStopsTheRunIsSaidOnTheLineAndMarksTheRecordingsUnreadOnlyAfterAWrite() async throws {
         let (_, recorder, model, _) = try await settled()
         let lost = "したところで、レコーダーの応答がなくなったため中止しました"
-        let rows: [(name: String, kind: AppModel.BulkJob.Kind, silent: String, heard: [String], outcome: String,
+        let rows: [(name: String, kind: BulkJob.Kind, silent: String, heard: [String], outcome: String,
                     said: String, unread: Bool)] = [
             ("the second delete", .delete, Ask.deleteRecording,
              [Ask.details, Ask.deleteRecording, Ask.details, Ask.deleteRecording], "1 件を削除" + lost,
@@ -511,11 +511,11 @@ final class RunGateTests: XCTestCase {
         await recorder.answer(Ask.deleteRecording, with: .silence)
         await recorder.letGo()
         try await until("the run neither ended nor waited for the app to come back") {
-            !model.jobRunning || model.backInFront != nil
+            !model.jobRunning || model.jobWaitsForTheApp
         }
 
         XCTAssertFalse(model.jobRunning, "a run that met silence while the app was away waits for its return")
-        XCTAssertNil(model.backInFront, "a run that met silence while the app was away waits for its return")
+        XCTAssertFalse(model.jobWaitsForTheApp, "a run that met silence while the app was away waits for its return")
         XCTAssertTrue(model.gaveUp, "silence at a delete while the app was away did not leave the app given up")
         expectEqual(await recorder.heard(since: count), [Ask.details, Ask.deleteRecording],
                     "something was asked after the silence")
@@ -904,7 +904,7 @@ final class RunGateTests: XCTestCase {
     func testNoRunIsStartedOnAClientThatHasNotHeardWhichRecorderAnswers() async throws {
         let (bench, recorder, model, idle) = try await settled(withACopy: true)
         addTeardownBlock { await recorder.letGo() }
-        let kinds: [(kind: AppModel.BulkJob.Kind, outcome: String)] = [
+        let kinds: [(kind: BulkJob.Kind, outcome: String)] = [
             (.delete, "0 件を削除したところで中止しました"), (.protecting(true), "0 件を保護したところで中止しました"),
         ]
 
@@ -1050,7 +1050,7 @@ final class RunGateTests: XCTestCase {
     func testARunThatCannotBeginIsAJobThatHasEndedAndSaysWhy() async throws {
         let (_, recorder, model, idle) = try await settled(withACopy: true)
         let two = [idle[0].id, idle[1].id]
-        let kinds: [(kind: AppModel.BulkJob.Kind, outcome: String)] = [
+        let kinds: [(kind: BulkJob.Kind, outcome: String)] = [
             (.delete, "0 件を削除したところで中止しました"), (.protecting(true), "0 件を保護したところで中止しました"),
             (.protecting(false), "0 件を保護解除したところで中止しました"),
         ]
@@ -1127,7 +1127,7 @@ final class RunGateTests: XCTestCase {
 
         // Silence at a request of the run's own.
         let lost = "したところで、レコーダーの応答がなくなったため中止しました"
-        let rows: [(name: String, kind: AppModel.BulkJob.Kind?, silent: String, afterSending: Bool, outcome: String)] = [
+        let rows: [(name: String, kind: BulkJob.Kind?, silent: String, afterSending: Bool, outcome: String)] = [
             ("a delete", .delete, Ask.deleteRecording, true, "0 件を削除" + lost),
             ("the question a delete asks first", .delete, Ask.details, false, "0 件を削除" + lost),
             ("a protect", .protecting(true), Ask.changeRecording, true, "0 件を保護" + lost),
@@ -1192,7 +1192,7 @@ final class RunGateTests: XCTestCase {
             model.wentToBackground()
             await recorder.letGo()
             try await until("\(what) never counted the recording that was out") { (model.job?.done ?? 0) > 0 }
-            XCTAssertNotNil(model.backInFront, "\(what) did not wait for the app to come back")
+            XCTAssertTrue(model.jobWaitsForTheApp, "\(what) did not wait for the app to come back")
             XCTAssertEqual(model.job?.done, 1, "\(what) counted more than the recording that was out")
             XCTAssertEqual(model.stepTask, .invalid, "\(what) kept a background task while it waited")
             expectEqual(await recorder.asked(Ask.details, since: before), 1,
@@ -1228,7 +1228,7 @@ final class RunGateTests: XCTestCase {
         let (bench, recorder, model, idle) = try await settled()
         model.wentToBackground()
         model.startBulk(.delete, ids: [idle[0].id, idle[1].id])
-        try await until("the run never waited for the app to come back") { model.backInFront != nil }
+        try await until("the run never waited for the app to come back") { model.jobWaitsForTheApp }
         bench.network = "away"
         await recorder.goQuiet(for: 1)
         await lookAtTheNetwork(model)
@@ -1250,7 +1250,7 @@ final class RunGateTests: XCTestCase {
         let (_, recorder, model, idle) = try await settled(wakeable: true)
         model.wentToBackground()
         model.startBulk(.delete, ids: [idle[0].id])
-        try await until("the run never waited for the app to come back") { model.backInFront != nil }
+        try await until("the run never waited for the app to come back") { model.jobWaitsForTheApp }
         // A check whose own ask meets silence, and the first ask of its waking held.
         leaveALine(on: model)
         await recorder.hold(only: Ask.description)
@@ -1313,7 +1313,7 @@ final class RunGateTests: XCTestCase {
             } else {
                 model.startBulk(.delete, ids: [idle[0].id])
             }
-            try await until("\(what) never waited for the app to come back") { model.backInFront != nil }
+            try await until("\(what) never waited for the app to come back") { model.jobWaitsForTheApp }
             await hearItBusy(bench, recorder, model, what)
 
             model.cancelBulk()
@@ -1337,7 +1337,7 @@ final class RunGateTests: XCTestCase {
             }
             model.wentToBackground()
             await recorder.letGo()
-            try await until("the run never waited for the app to come back") { model.backInFront != nil }
+            try await until("the run never waited for the app to come back") { model.jobWaitsForTheApp }
             XCTAssertEqual(model.job?.changed, [idle[0].id])
             await hearItBusy(bench, recorder, model, "a bulk delete that had deleted one")
 
@@ -1378,7 +1378,7 @@ final class RunGateTests: XCTestCase {
             } else {
                 model.startBulk(.delete, ids: [idle[0].id])
             }
-            try await until("\(what) never waited for the app to come back") { model.backInFront != nil }
+            try await until("\(what) never waited for the app to come back") { model.jobWaitsForTheApp }
             // A check whose own ask meets silence, and the first ask of its waking held.
             await recorder.hold(only: Ask.description)
             let before = await recorder.asked
@@ -1422,7 +1422,7 @@ final class RunGateTests: XCTestCase {
         }
         model.wentToBackground()
         await recorder.letGo()
-        try await until("the run never waited for the app to come back") { model.backInFront != nil }
+        try await until("the run never waited for the app to come back") { model.jobWaitsForTheApp }
         XCTAssertEqual(model.job?.changed, [idle[0].id])
         bench.network = "away"
         await recorder.goQuiet(for: 1)
@@ -1457,11 +1457,11 @@ final class RunGateTests: XCTestCase {
         model.wentToBackground()
         await recorder.letGo()
         try await until("the run neither ended nor waited for the app to come back") {
-            !model.jobRunning || model.backInFront != nil
+            !model.jobRunning || model.jobWaitsForTheApp
         }
 
         XCTAssertFalse(model.jobRunning, "a run stopped as the app left waits for its return")
-        XCTAssertNil(model.backInFront, "a run stopped as the app left waits for its return")
+        XCTAssertFalse(model.jobWaitsForTheApp, "a run stopped as the app left waits for its return")
         expectEqual(await recorder.heard(since: count), [Ask.details, Ask.deleteRecording, Ask.freeSpace],
                     "a recording after 中止 was asked about, or the free space was not read once")
         XCTAssertEqual(model.job?.changed, [idle[0].id])
@@ -1488,10 +1488,10 @@ final class RunGateTests: XCTestCase {
         addTeardownBlock { await recorder.letGo() }
         let guarded = Set(model.titles.filter(\.protected).map(\.id))
         /// A run started with the app away, waiting before its first step for the app to come back.
-        func waiting(_ kind: AppModel.BulkJob.Kind, _ ids: [String]) async throws {
+        func waiting(_ kind: BulkJob.Kind, _ ids: [String]) async throws {
             model.wentToBackground()
             XCTAssertTrue(model.startBulk(kind, ids: ids), "the run was not started")
-            try await until("the run never waited for the app to come back") { model.backInFront != nil }
+            try await until("the run never waited for the app to come back") { model.jobWaitsForTheApp }
         }
 
         // Deleted from its sheet meanwhile.
@@ -1709,7 +1709,7 @@ final class RunGateTests: XCTestCase {
         model.wentToBackground()
         before = await recorder.asked
         model.startDuplicateScan()
-        try await until("the scan never waited for the app to come back") { model.backInFront != nil }
+        try await until("the scan never waited for the app to come back") { model.jobWaitsForTheApp }
         model.cancelBulk()
         await model.returnedToForeground()
         try await untilTheRunEnds(model, "the scan never ended")
@@ -1821,7 +1821,7 @@ final class RunGateTests: XCTestCase {
         let (bench, recorder, model, idle) = try await settled()
         model.wentToBackground()
         model.startBulk(.delete, ids: [idle[0].id])
-        try await until("the run never waited for the app to come back") { model.backInFront != nil }
+        try await until("the run never waited for the app to come back") { model.jobWaitsForTheApp }
         await recorder.become(2)
         bench.network = "another"
         await lookAtTheNetwork(model)
@@ -1854,7 +1854,7 @@ final class RunGateTests: XCTestCase {
         addTeardownBlock { await recorder.letGo() }
         model.wentToBackground()
         model.startBulk(.delete, ids: [idle[0].id])
-        try await until("the run never waited for the app to come back") { model.backInFront != nil }
+        try await until("the run never waited for the app to come back") { model.jobWaitsForTheApp }
         await recorder.become(2)
         bench.network = "another"
         await lookAtTheNetwork(model)
@@ -1891,7 +1891,7 @@ final class RunGateTests: XCTestCase {
             } else {
                 model.startBulk(.delete, ids: [id])
             }
-            try await until("\(what) never waited for the app to come back") { model.backInFront != nil }
+            try await until("\(what) never waited for the app to come back") { model.jobWaitsForTheApp }
 
             let writer = Writer(to: bench.guidePath)
             await recorder.become(2)

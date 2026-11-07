@@ -213,7 +213,7 @@ extension WhichRecorderTests {
 
         model.wentToBackground()
         model.startBulk(.delete, ids: [id])
-        try await until("the job never waited for the app to come back") { model.backInFront != nil }
+        try await until("the job never waited for the app to come back") { model.jobWaitsForTheApp }
         await recorder.become(2)
         bench.network = "another"
         await lookAtTheNetwork(model)

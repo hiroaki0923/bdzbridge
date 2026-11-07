@@ -639,7 +639,7 @@ final class TVTitlesTests: XCTestCase {
         try await until("the delete was never sent") { await home.door.isHolding }
         model.wentToBackground()
         await home.door.letGo()
-        try await until("the run did not stop to wait for the app") { model.backInFront != nil }
+        try await until("the run did not stop to wait for the app") { model.jobWaitsForTheApp }
         await home.television.leavesOutOfItsList(Set(ids))
         let deletes = await home.television.calls.filter { $0.hasPrefix("deleteContent") }.count
 
