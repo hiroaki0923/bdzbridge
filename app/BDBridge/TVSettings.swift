@@ -42,10 +42,9 @@ struct TVSection: View {
                     LabeledContent("状態", value: state(of: tv))
                     NavigationLink("対応状況を調べる") { TVCapabilitiesScreen(host: tv.host) }
                     if let storage = model.tvDriver?.facts.storage {
-                        // The television's MB taken as a million bytes, as the recorder's are.
                         LabeledContent("USB ハードディスク",
                                        value: Format.storage(mounted: storage.mounted, freeBytes: storage.freeBytes,
-                                                             totalBytes: storage.totalBytes))
+                                                             totalBytes: storage.totalBytes, on: .tv))
                     }
                     if model.tvDriver?.facts.needsPairing == true {
                         Button("登録する") { sheet = TVSheetRequest(host: tv.host, connectAtOnce: false, again: true) }

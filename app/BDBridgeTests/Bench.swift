@@ -675,10 +675,15 @@ actor NamedRecorder: HTTPTransport {
         lastElements[what]
     }
 
-    /// What kind of request `request` is: its SOAP action, or the file it asks for by its name.
+    /// What kind of request `request` is: its SOAP action, or the file it asks for by its name. The internal
+    /// disk's own size is told from the slot's, which the same action asks (`Ask.ownDisk`).
     static func kind(of request: HTTPRequest) -> String {
-        request.headers["SOAPACTION"].flatMap { $0.split(separator: "#").last }
+        let kind = request.headers["SOAPACTION"].flatMap { $0.split(separator: "#").last }
             .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) } ?? request.url.lastPathComponent
+        let body = String(decoding: request.body ?? Data(), as: UTF8.self)
+        guard kind == Ask.slot,
+              body.contains("<recordDestinationID>\(RecorderDisk.internalID)</recordDestinationID>") else { return kind }
+        return Ask.ownDisk
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -1363,6 +1368,8 @@ enum Ask {
     static let freeSpace = "X_HDLnkGetRecordDestinationInfo"
     /// The USB slot.
     static let slot = "X_GetMediaInfo"
+    /// The internal disk's own size, asked by the same action beside its free space (`RecorderDriver.internalSize`).
+    static let ownDisk = "X_GetMediaInfo HDD"
     /// What a client asks, once, to find the port of the guide's files before its first.
     static let portOfTheGuide = "Browse"
     /// The guide's files in the order they are fetched: 地上デジタル, BS, CS, BS4K.

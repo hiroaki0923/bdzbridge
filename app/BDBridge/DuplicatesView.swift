@@ -24,7 +24,7 @@ struct DuplicatesView: View {
     }
 
     private var chosenGB: Double {
-        chosen.reduce(0) { $0 + Double($1.sizeMB ?? 0) } / 1024
+        Gigabytes.of(chosen)
     }
 
     var body: some View {
@@ -49,7 +49,7 @@ struct DuplicatesView: View {
             }
         } message: {
             if emptied.isEmpty {
-                Text(String(format: "合計 %.1fGB。チェックの無いものは残ります。\n", chosenGB)
+                Text("合計 \(Format.gigabytes(chosenGB))。チェックの無いものは残ります。\n"
                      + chosen.deletedForGood + "。")
             } else {
                 Text(emptiedMessage)
@@ -116,7 +116,7 @@ struct DuplicatesView: View {
                 } header: {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(set.title).font(.subheadline).textCase(nil).lineLimit(2)
-                        Text("\(set.items.count) 本 · \(String(format: "%.1fGB", set.sizeGB))"
+                        Text("\(set.items.count) 本 · \(Format.gigabytes(set.sizeGB))"
                              + " · \(set.confidence.label)")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -131,7 +131,7 @@ struct DuplicatesView: View {
                 Button(role: .destructive) {
                     confirming = true
                 } label: {
-                    Text(String(format: "選択した %d 件を削除（%.1fGB）", chosen.count, chosenGB))
+                    Text("選択した \(chosen.count) 件を削除（\(Format.gigabytes(chosenGB))）")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -205,7 +205,7 @@ struct DuplicatesView: View {
         let channel = model.channelName(for: title)
         var parts = [model.diskShown(title), channel.isEmpty ? nil : channel].compactMap { $0 }.map { Text($0) }
         parts.append(Text(Format.duration(title.durationSec)))
-        if let size = title.sizeMB { parts.append(Text(String(format: "%.1fGB", Double(size) / 1024))) }
+        if let size = Format.size(of: title) { parts.append(Text(size)) }
         if let quality = title.qualityName { parts.append(Text(quality)) }
         parts.append(Text(title.watchState.label))
         return parts.dropFirst().reduce(parts[0]) { $0 + Text.rowGap + $1 }

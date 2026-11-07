@@ -56,8 +56,10 @@ public struct TitleGroup: Sendable, Equatable, Identifiable {
     public var protectedCount: Int
     public var newCount: Int
 
+    /// What its recordings come to, each as its own device shows it (`Gigabytes.of(_:)`).
+    public var sizeGB: Double = 0
+
     public var id: String { key }
-    public var sizeGB: Double { Double(sizeMB) / 1024 }
 
     /// Recordings grouped into programmes by their titles, newest group first.
     ///
@@ -99,6 +101,7 @@ public struct TitleGroup: Sendable, Equatable, Identifiable {
         private var names: [(name: String, count: Int)] = []
         private var count = 0
         private var sizeMB = 0
+        private var sizeGB = 0.0
         private var protectedCount = 0
         private var newCount = 0
         private var latest: Date
@@ -121,6 +124,7 @@ public struct TitleGroup: Sendable, Equatable, Identifiable {
             }
             count += 1
             sizeMB += title.sizeMB ?? 0
+            sizeGB += Gigabytes.of([title])
             latest = max(latest, title.start)
             earliest = min(earliest, title.start)
             lastEnd = max(lastEnd, title.end)
@@ -131,7 +135,7 @@ public struct TitleGroup: Sendable, Equatable, Identifiable {
         func group(key: String) -> TitleGroup {
             TitleGroup(key: key, name: names.max { $0.count < $1.count }?.name ?? "", count: count,
                        sizeMB: sizeMB, latest: latest, earliest: earliest, lastEnd: lastEnd, protectedCount: protectedCount,
-                       newCount: newCount)
+                       newCount: newCount, sizeGB: sizeGB)
         }
     }
 }

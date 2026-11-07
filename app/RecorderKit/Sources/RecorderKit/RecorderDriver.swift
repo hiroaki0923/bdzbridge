@@ -180,7 +180,9 @@ public final class RecorderDriver: LinkDriver {
             if let settings = try await RecorderError.silenceOnly({ try await client.networkSettings() }) {
                 owner?.keepMAC(settings.mac)
             }
-            link.session.learned(storage: try await Self.storage(of: client))
+            let storage = try await Self.storage(of: client)
+            link.session.learned(internalSize: storage == nil ? nil : try await Self.internalSize(of: client))
+            link.session.learned(storage: storage)
             // From the moment it answers -- a waking above all, after which the slot answers none with the disk in
             // it -- a disk known is not to be had until the slot answers it: in the same turn as the answer, before
             // anything waiting is sent, so that nothing that names the slot goes in between.
@@ -303,6 +305,25 @@ public final class RecorderDriver: LinkDriver {
         guard let capacity = try await RecorderError.silenceOnly({ try await client.recordDestinationInfo() }),
               capacity.totalBytes > 0 else { return nil }
         return (capacity.freeBytes, capacity.totalBytes)
+    }
+
+    /// The internal disk's size as `X_GetMediaInfo` puts it, in bytes: its MB are a million bytes, as its free space
+    /// in bytes and in MB agree, and they come to the size the recorder is sold as -- 4,000,000 MB on a 4 TB one.
+    /// The bytes `recordDestinationInfo` gives for the size do not: 4000 times 1024³ there, which would make more
+    /// used than the disk holds (measured). Nil where the answer gives none, and the bytes are used then. Only a
+    /// retired client's refusal is thrown: the free space has been read, and is worth showing.
+    ///
+    /// Read once an attach, beside the free space (`SessionState.learned(internalSize:)`): a disk's size does not
+    /// change, and nothing but the screens shows it, so the reads of the free space after a run and in the night
+    /// ask one thing, as they always have.
+    static func internalSize(of client: RecorderClient) async throws -> Int? {
+        do {
+            return try await client.disk(RecorderDisk.internalID)?.totalBytes
+        } catch let error as DeviceLetGo {
+            throw error
+        } catch {
+            return nil
+        }
     }
 
     /// The disk in the recorder's USB slot, when the recorder has registered one; nil when the slot is refused, its

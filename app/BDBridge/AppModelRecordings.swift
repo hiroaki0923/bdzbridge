@@ -128,6 +128,9 @@ extension AppModel {
         titleDestination.flatMap { id in titleDestinations.contains { $0.destination == id } ? id : nil }
     }
 
+    /// Which device's disk `shownFreeBytes` is of, which says how its GB are counted (`Gigabytes`).
+    var shownFreeDevice: DeviceSlot { shownDestination == TVDriver.recordsTo ? .tv : .recorder }
+
     /// The free space the title bar shows: the USB disk's or the television's when the list is narrowed to it,
     /// otherwise the internal disk's, as it always was.
     var shownFreeBytes: Int? {

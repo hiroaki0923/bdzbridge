@@ -86,6 +86,15 @@ final class LiveRecordingDestinationTests: XCTestCase {
         let remain = internalDisk.disk?.freeMB.map(String.init) ?? "-"
         let total = internalDisk.disk?.totalMB.map(String.init) ?? "-"
         print("internal disk: remain \(remain), recordableRemain \(internalDisk.recordable ?? "-"), total \(total)")
+        // The two as the app reads them, and the disk's own size, which an attach reads for the screens.
+        do {
+            let space = try await RecorderDriver.storage(of: client)
+            let size = try await RecorderDriver.internalSize(of: client)
+            print("the space the app reads: free \(space.map { "\($0.free)" } ?? "-"),"
+                  + " total \(space.map { "\($0.total)" } ?? "-"), the disk's own size \(size.map(String.init) ?? "-")")
+        } catch {
+            print("the space the app reads: \(Self.code(error))")
+        }
 
         var lists: [String: [RecordedTitle]] = [:]
         for id in [RecorderDisk.internalID, RecorderDisk.usbID] {

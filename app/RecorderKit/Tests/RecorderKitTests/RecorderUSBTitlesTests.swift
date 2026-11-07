@@ -41,6 +41,8 @@ final class RecorderUSBTitlesTests: XCTestCase {
     /// the test lets it go.
     private actor TwoDisks: HTTPTransport {
         static let usbList = "X_GetTitleList USBHDD"
+        /// The internal disk's own size, asked by the same action as the slot, once an attach.
+        static let ownDisk = "X_GetMediaInfo HDD"
         enum Reply { case answer(HTTPResponse), silence }
         private var slot: Reply
         private var slotAhead: [Reply] = []
@@ -88,6 +90,10 @@ final class RecorderUSBTitlesTests: XCTestCase {
             case "X_GetTitleList":
                 asked.append(action)
                 return own
+            case "X_GetMediaInfo" where body.contains("<recordDestinationID>\(RecorderDisk.internalID)</recordDestinationID>"):
+                // No size of its own here: the free space's answer is used for it.
+                asked.append(Self.ownDisk)
+                return Stub.soap(action)
             case "X_GetMediaInfo":
                 asked.append(action)
                 return try Self.answered(slotAhead.isEmpty ? slot : slotAhead.removeFirst())

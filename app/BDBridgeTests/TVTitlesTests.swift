@@ -114,7 +114,7 @@ final class TVTitlesTests: XCTestCase {
         model.titleDestination = TVDriver.recordsTo
         XCTAssertEqual(model.shownDestination, TVDriver.recordsTo)
         XCTAssertEqual(model.titlesOnTheShownDisk.map(\.device), [.tv, .tv])
-        XCTAssertEqual(model.shownFreeBytes, 13_400 * 1_000_000)
+        XCTAssertEqual(model.shownFreeBytes, 13_400 * TVStorage.bytesPerMB, "the television's MB is 1,048,576 bytes")
         XCTAssertEqual(model.titleDestinationLabel(TVDriver.recordsTo), "テレビ")
 
         model.titleDestination = RecorderDisk.internalID

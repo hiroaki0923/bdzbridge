@@ -164,6 +164,7 @@ final class RecorderDiskTests: XCTestCase {
             RecorderDisk.internalSpace(freeBytes: free, totalBytes: 2_000_000_000_000, warned: warned,
                                        warnBelowGB: 50)
         }
+        // The line in the GB the recorder's own screen shows, a thousand million bytes each.
         let low = 42_000_000_000, atTheLine = 50_000_000_000, justUnder = 49_999_999_999
         XCTAssertEqual(notice(free: low, warned: false), .warn(freeGB: 42, mark: RecorderDisk.internalID))
         XCTAssertEqual(notice(free: low, warned: true), .nothing, "warned twice in one fall")
@@ -171,6 +172,62 @@ final class RecorderDiskTests: XCTestCase {
                        .warn(freeGB: Double(justUnder) / 1e9, mark: RecorderDisk.internalID))
         XCTAssertEqual(notice(free: atTheLine, warned: true), .roomAgain)
         XCTAssertEqual(notice(free: atTheLine, warned: false), .nothing)
+    }
+
+    /// The internal disk's size is the one its own answer gives in the recorder's MB, which agrees with its free
+    /// space and the size it is sold as, and not the bytes the free space's answer gives for it, 4000 times 1024³ on
+    /// a 4 TB recorder: those only where the disk gives no size of its own. Each read of the free space after it is
+    /// shown against it. The figures are a real one's.
+    @MainActor
+    func testTheInternalDisksSizeIsItsOwnInTheRecordersMB() async throws {
+        func recorder(_ ownDisk: HTTPResponse) -> RecorderClient {
+            RecorderClient(host: Stub.host, transport: StubTransport { request, _ in
+                guard request.headers["SOAPACTION"]?.contains("#X_HDLnkGetRecordDestinationInfo") == true else {
+                    return ownDisk
+                }
+                return Stub.soap("X_HDLnkGetRecordDestinationInfo", extra: "<RecordDestinationInfo>"
+                    + Soap.escape("<info totalCapacity=\"4294967296000\" availableCapacity=\"167252066304\" />")
+                    + "</RecordDestinationInfo>")
+            })
+        }
+        let own = Stub.soap("X_GetMediaInfo", result: Self.slot(name: "", remain: "167252", total: "4000000",
+                                                                 registered: ""))
+        let size = try await RecorderDriver.internalSize(of: recorder(own))
+        XCTAssertEqual(size, 4_000_000_000_000, "the disk's own size, in its MB of a million bytes")
+        let space = try await RecorderDriver.storage(of: recorder(own))
+        XCTAssertEqual(space?.total, 4_294_967_296_000, "the free space's read asks one thing, and says its bytes")
+        let session = SessionState()
+        session.learned(internalSize: size)
+        session.learned(storage: space)
+        XCTAssertEqual(session.storage?.free, 167_252_066_304)
+        XCTAssertEqual(session.storage?.total, 4_000_000_000_000, "the free space shown against the disk's own size")
+
+        let unsaid = try await RecorderDriver.internalSize(of: recorder(Stub.fault("402")))
+        XCTAssertNil(unsaid)
+        session.learned(internalSize: unsaid)
+        session.learned(storage: space)
+        XCTAssertEqual(session.storage?.total, 4_294_967_296_000, "the bytes, where the disk gives no size of its own")
+    }
+
+    /// A size is shown as its own device's screen shows it, the figures measured on each: a recorder's MB over
+    /// 1000, a television's over 1024 and rounded up to a tenth; and a sum is the sum of the figures the rows show.
+    func testASizeIsInTheGigabytesOfItsOwnDevice() {
+        XCTAssertEqual(Gigabytes.of(megabytes: 167_252, on: .recorder), 167.252, accuracy: 1e-9)
+        XCTAssertEqual(Gigabytes.of(megabytes: 498_333, on: .recorder), 498.333, accuracy: 1e-9)
+        XCTAssertEqual(Gigabytes.of(bytes: 167_252_066_304, on: .recorder), 167.252066304, accuracy: 1e-9)
+        XCTAssertEqual([375, 624, 991, 3011, 7633].map { Gigabytes.of(megabytes: $0, on: .tv) }, [0.4, 0.7, 1.0, 3.0, 7.5])
+        XCTAssertEqual(Gigabytes.of(megabytes: 1024, on: .tv), 1.0, "a whole gigabyte is not rounded up past itself")
+        XCTAssertEqual(Gigabytes.of(bytes: 3_798_388 * TVStorage.bytesPerMB, on: .tv), 3709.4)
+        XCTAssertEqual(Gigabytes.of(megabytes: 1000, on: DeviceSlot(rawValue: "later")), 1.0, "counted as a recorder")
+
+        func title(_ sizeMB: Int, on device: DeviceSlot) -> RecordedTitle {
+            RecordedTitle(id: "\(device.rawValue)\(sizeMB)", title: "サンプル番組", start: Date(timeIntervalSince1970: 0),
+                          durationSec: 60, broadcastingType: 0, serviceID: 0, qualityCode: 0, protected: false,
+                          isNew: true, recording: false, destination: "HDD", sizeMB: sizeMB, device: device)
+        }
+        let mixed = [title(1000, on: .recorder), title(624, on: .tv)]
+        XCTAssertEqual(Gigabytes.of(mixed), 1.7, accuracy: 1e-9)
+        XCTAssertEqual(TitleGroup.group(mixed).first?.sizeGB ?? 0, 1.7, accuracy: 1e-9)
     }
 
     // MARK: - what is offered, what is sent and what is named

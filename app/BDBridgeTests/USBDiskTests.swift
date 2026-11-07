@@ -56,10 +56,11 @@ final class USBDiskTests: XCTestCase {
             let storage = try XCTUnwrap(model.storage, what)
             XCTAssertEqual(SettingsScreen.storageRows(storage: model.storage, usb: model.usbDisk),
                            [.init(label: "残り容量",
-                                  value: "\(Format.gigabytes(storage.free)) / \(Format.gigabytes(storage.total))")],
+                                  value: "\(Format.gigabytes(storage.free, on: .recorder))"
+                                      + " / \(Format.gigabytes(storage.total, on: .recorder))")],
                            what)
             expectEqual(await recorder.heard, ["description.xml", "X_GetFirmwareVersion", "X_GetPrivateIp",
-                                               "X_HDLnkGetRecordDestinationInfo", "X_GetMediaInfo",
+                                               "X_HDLnkGetRecordDestinationInfo", Ask.ownDisk, "X_GetMediaInfo",
                                                "X_GetRecordScheduleList"], what)
 
             let before = await recorder.asked
@@ -82,14 +83,15 @@ final class USBDiskTests: XCTestCase {
                                                    registered: "2026-01-02T03:04:05+0900"))
         let storage = try XCTUnwrap(model.storage)
         XCTAssertEqual(SettingsScreen.storageRows(storage: model.storage, usb: model.usbDisk), [
-            .init(label: "HDD", value: "残り \(Format.gigabytes(storage.free)) / \(Format.gigabytes(storage.total))"),
+            .init(label: "HDD", value: "残り \(Format.gigabytes(storage.free, on: .recorder))"
+                      + " / \(Format.gigabytes(storage.total, on: .recorder))"),
             .init(label: "録画用ディスク", value: "残り 123.5 GB / 2000.4 GB"),
         ])
 
         let (_, _, away) = try await connected(answering: Self.slot(mount: "0"))
         XCTAssertEqual(SettingsScreen.storageRows(storage: away.storage, usb: away.usbDisk).last,
                        .init(label: "録画用ディスク", value: "つながっていません"))
-        XCTAssertEqual(Format.storage(mounted: true, freeBytes: nil, totalBytes: nil), "つながっています")
+        XCTAssertEqual(Format.storage(mounted: true, freeBytes: nil, totalBytes: nil, on: .recorder), "つながっています")
     }
 
     /// What an overnight run told, in order.

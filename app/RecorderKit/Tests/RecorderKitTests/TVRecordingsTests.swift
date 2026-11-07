@@ -198,7 +198,8 @@ final class TVRecordingsTests: XCTestCase {
     // MARK: - the invented television
 
     /// It writes a row as a real one wrote it, down to the types: strings for the flags, the length in an object,
-    /// `sizeMB` a whole number, `fileSizeByte` -1 on a large one, `index` its place, and no text where it has none.
+    /// `sizeMB` a whole number, `fileSizeByte` -1 on a large one and its MB in bytes on another, `index` its place,
+    /// and no text where it has none.
     func testTheInventedTelevisionWritesARowAsARealOneDid() async throws {
         var large = recording(1, sizeMB: 7000)
         large.summary = "あらすじ"
@@ -218,7 +219,7 @@ final class TVRecordingsTests: XCTestCase {
             "description": .object(["summary": "あらすじ", "detail": "くわしい内容"]),
             "broadcastGenreInfo": .list([.object(["genreId": 48])]),
         ])
-        XCTAssertEqual(page[1]["fileSizeByte"], 100_000_000)
+        XCTAssertEqual(page[1]["fileSizeByte"], 104_857_600, "its MB is 1,048,576 bytes, as a real one's are")
         XCTAssertEqual(page[1]["index"], 1)
         XCTAssertNil(page[1]["description"], "text where it has none")
         XCTAssertEqual(page[2]["duration"], .object(["durationSec": 0]), "a row being recorded")
