@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- preferExternal: a TV's own storage is small and often nearly full; a USB drive set up as internal
-     storage ("adopted") takes the helper when there is one, and an update stays where the app is. -->
+<!-- internalOnly: the helper starts itself at boot, and Android delivers BOOT_COMPLETED before an app on
+     external storage is there to take it ("App install location"). One on a USB drive set up as internal
+     storage did not come back after its TV restarted itself. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    android:installLocation="preferExternal">
+    android:installLocation="internalOnly">
 
     <!-- What the helper reads: the tuner's channels, programmes and logos in the TV's own guide store. -->
     <uses-permission android:name="android.permission.READ_TV_LISTINGS" />
