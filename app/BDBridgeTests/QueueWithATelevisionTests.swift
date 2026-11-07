@@ -1592,7 +1592,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         // Turns for the run, its MAC read, to have asked for the queue's turn behind the screens' sending.
         for _ in 0..<10_000 { await Task.yield() }
 
-        var registering: [Task<AppModel.TVRegistered, Never>] = []
+        var registering: [Task<TVRegistered, Never>] = []
         let returned = Returned()
         for _ in 0..<count {
             kept.value = ToldOnce(stop: .registration)

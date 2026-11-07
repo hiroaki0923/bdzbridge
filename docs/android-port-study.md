@@ -263,8 +263,10 @@ B でも C でも、1 つのリポジトリで持てます。要になるのは 
 4. **2 つの機器の予約の入口**（済み）: 6 つの入口と古い表示の判断（`staleSince`）を、RecorderKit の
    `DeviceHost.swift` に移した。アプリのモデルに触れていたキャッシュを開くところは、各ホストが答える `openCache` に
    した。テストは `DeviceHostTests` に 8 件。
-5. **テレビの登録の手順**（`TVSettings.swift` と `AppModelTV.swift` の登録）: 探す、PIN なしで登録する、PIN を聞いて
-   登録する、の順と、クライアント ID の持ち方。`TVDriver` に置く。
+5. **テレビの登録の手順**（済み）: アドレスに何があるかを聞き、電源の入ったテレビにだけ PIN なしで登録し、PIN を
+   聞いて登録する、という押すたびの手順（閉じたフォームのためには登録しないことも）と、クライアント ID の決め方を、
+   `TVRegistration.swift`（`TVDriver.register`、`TVDriver.clientID`）に移した。テストは `TVRegistrationTests` に 6 件。
+   登録が通ったあとに保存し、リンクを作り直してつなぐのはアプリ（`AppModel.registerTV`）。
 6. **画面で書き写している機器の文**:
    - 番組のシートの「〈機器〉にまだ届いていない予約です。…」は、`PendingQueue` の中の文の写し
    - 予約の削除の確認が 3 か所、送信待ちの削除の確認が 2 か所、接続の状態の言葉が 2 か所に書いてある

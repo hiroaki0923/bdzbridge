@@ -249,19 +249,12 @@ extension AppModel {
         tvAddressTurnedAway = false
     }
 
-    /// What became of a registration.
-    enum TVRegistered: Equatable {
-        /// The television wants its PIN, which it shows on its screen when it is showing a broadcast.
-        case pinNeeded
-        case registered
-        case failed(String)
-    }
-
     /// Registers with the television at `host`: with nothing at first, when it answers by putting its PIN on its
     /// screen, and then with the PIN the reader read there. The steps, and what each failure is said as, are
-    /// the client's (`ScalarClient.enrol`). What is the app's is the client id, made once and kept, so that the
-    /// PIN goes with the request that asked for it; and, once registered, saving the television and connecting
-    /// to it on a link made afresh: an attach still out on the last one, with the last cookie, ends there.
+    /// the client's (`ScalarClient.enrol`), and so is which client id it goes with (`TVDriver.clientID`). What
+    /// is the app's is keeping that id until the registration has gone through, so that the PIN goes with the
+    /// request that asked for it; and, once registered, saving the television and connecting to it on a link
+    /// made afresh: an attach still out on the last one, with the last cookie, ends there.
     ///
     /// With a television saved, the registration is for that one: another, by the MAC saved with it, is
     /// refused before anything is asked of it, and what is saved and what waits for the one saved stay as they
@@ -273,7 +266,7 @@ extension AppModel {
     func registerTV(at host: String, pin: String?) async -> TVRegistered {
         let inDemo = demo
         let credentials = televisionCredentials()
-        let clientID = credentials.load()?.clientID ?? tvClientID ?? "BDBridge:\(UUID().uuidString)"
+        let clientID = TVDriver.clientID(saved: credentials.load(), pending: tvClientID)
         tvClientID = clientID
         let client = ScalarClient(host: host, transport: televisionTransport(host), credentials: credentials)
         switch await client.enrol(clientID: clientID, nickname: Self.tvNickname, pin: pin, expecting: savedTVMac) {
