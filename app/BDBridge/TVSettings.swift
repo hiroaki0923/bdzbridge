@@ -303,8 +303,9 @@ struct TVRegisterSheet: View {
 }
 
 /// What the television says it speaks, for the reader to copy and send on when the app does not work with it: an
-/// older television answers an error to a version the app speaks (`TVCapabilities`). Read with no registration,
-/// and nothing on the television changes.
+/// older television answers an error to a version the app speaks (`TVCapabilities`). With the registration, the
+/// app's reads are tried too, and what their rows are made of said, never what they say. Nothing on the
+/// television changes.
 struct TVCapabilitiesScreen: View {
     @Environment(AppModel.self) private var model
     let host: String
@@ -323,8 +324,10 @@ struct TVCapabilitiesScreen: View {
                 }
                 .disabled(reading)
             } footer: {
-                Text("テレビが対応している機能の一覧を読み取ります。テレビの設定は変わりません。"
-                     + "うまく動かないときは、結果をコピーして、お問い合わせの際にお送りください。")
+                Text("テレビが対応している機能と、予約や録画の一覧を読めるかを調べます。読むだけで、"
+                     + "テレビの予約や設定は変わりません。結果に番組名や局名は含まれません。"
+                     + "うまく動かないときは、結果をコピーして、お問い合わせの際にお送りください。"
+                     + "テレビに予約と録画が 1 件ずつあると、より詳しく分かります。")
             }
             if reading {
                 Section { ProgressView().frame(maxWidth: .infinity) }

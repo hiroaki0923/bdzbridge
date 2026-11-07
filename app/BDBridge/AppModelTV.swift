@@ -218,8 +218,8 @@ extension AppModel {
     }
 
     /// What the television at `host` says it speaks (`ScalarClient.capabilities`), as text for the reader to copy:
-    /// read with no registration, through the television's transport, as finding it is, and nothing changed. In
-    /// the demo, the demo's television.
+    /// read through the television's transport, as finding it is, and nothing changed; with the registration the
+    /// app holds for the television, the app's reads are tried as well. In the demo, the demo's television.
     func tvCapabilities(at host: String) async -> String {
         let client = ScalarClient(host: host, transport: televisionTransport(host), credentials: televisionCredentials())
         return await client.capabilities().report(app: SettingsScreen.version)

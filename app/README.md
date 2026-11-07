@@ -559,11 +559,18 @@ test's recorder for its own.
 ## Checks against a real television
 
 A television the app does not work with can be read from the app itself: the television's settings have
-対応状況を調べる, which asks it, with no registration and changing nothing, for its model and for the versions
-and methods of each service the app sends to (`TVCapabilities`, `ScalarClient.capabilities`), and shows them as
-text to copy and send on. An older television answers error 12 to a version it does not have -- a 2014 set to
-version 1.1 of `getStorageList` -- and this says what it has in place of it. `LiveTVTests/testWhatTheTelevisionSpeaks`
-reads the same from a television on the LAN.
+対応状況を調べる, which asks it, changing nothing, for its model, its power and recording status, whether it
+gives a MAC to wake it by, and the versions and methods of each service the app sends to (`TVCapabilities`,
+`ScalarClient.capabilities`), and shows them as text to copy and send on. An older television answers error 12 to
+a version it does not have -- a 2014 set to version 1.1 of `getStorageList` -- and this says what it has in place
+of it. A method listed may still not answer (a television lists `getScheduleList` 1.0 and answers it with error
+7), so with the registration the app holds, the app's reads are tried as well, in every version the app may send
+them in: the disk, the reservations, the recordings, the stations of each kind of broadcast, and the question a
+reservation is checked with, asked of one as the app writes it, which makes nothing. For each it says whether it
+answered, how many rows came and how many the app's reader takes, each field with its type, and the forms of the
+start and the uri: what the rows are made of, never a title, a station, a time or a MAC. That is what support for
+a model is built on; whether its writes go through is not tried there. `LiveTVTests/testWhatTheTelevisionSpeaks`
+reads the same from a television on the LAN, with `TV_JAR` for the reads.
 
 What the app relies on of a real television is tried from RecorderKit, by the client and the transport the
 app sends with and not by another tool (`LiveTVTests`, every test skipped unless `TV_HOST` names a

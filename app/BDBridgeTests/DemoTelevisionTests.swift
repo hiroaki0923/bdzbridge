@@ -58,6 +58,9 @@ final class DemoTelevisionTests: XCTestCase {
         XCTAssertFalse(model.canAddAFoundTelevision, "a found television could be tapped with the demo's added")
         XCTAssertTrue(model.inUse(TVSighting(host: DemoTV.host, model: DemoTV.model)))
         XCTAssertEqual(model.destinations, [.recorder, .tv])
+        let report = await model.tvCapabilities(at: DemoTV.host)
+        XCTAssertTrue(report.contains("読み取りの試し（"), "the demo's registration was not tried with:\n\(report)")
+        XCTAssertFalse(report.contains(DemoTV.mac), report)
         await expectNothingReal(home, since: then, keeping: before)
     }
 

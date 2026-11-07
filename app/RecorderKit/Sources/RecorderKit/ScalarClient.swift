@@ -865,6 +865,15 @@ public actor ScalarClient {
         return object
     }
 
+    /// Whether the app holds a registration for this television: a cookie to send.
+    nonisolated var holdsARegistration: Bool { credentials.load()?.cookie != nil }
+
+    /// The `result` of a request that needs the cookie, as the television wrote it, sent as every such request
+    /// is: what the capabilities report tries the app's reads with (`TVCapabilities.Trial`).
+    func registeredResult(_ service: String, _ method: String, version: String, params: [Any]) async throws -> Any {
+        try await authenticated(service, method, version: version, params: params)
+    }
+
     /// A request that needs the cookie. A 403 is sent again once when the store has a newer cookie than the
     /// one it went with: another client renewed in between. A 403 after that is a cookie the television no
     /// longer takes -- the app taken off its list, as seen, or a cookie that ran out -- and the registration is

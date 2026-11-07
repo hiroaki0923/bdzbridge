@@ -475,6 +475,9 @@ public actor DemoTV: HTTPTransport {
             return ok(#"[{"status":"\#(power)"}]"#, id)
         case "getInterfaceInformation":
             return ok(#"[{"productCategory":"tv","productName":"BRAVIA","modelName":"\#(Self.model)","serverName":"","interfaceVersion":"5.7.0"}]"#, id)
+        case "getRecordingStatus":
+            // What a real one said whenever it was asked, on and in standby.
+            return ok(#"[{"status":"notStarted"}]"#, id)
         case "getSystemSupportedFunction":
             return ok(#"[[{"option":"WOL","value":"\#(mac)"}]]"#, id)
         case "getStorageList":
@@ -485,6 +488,10 @@ public actor DemoTV: HTTPTransport {
                       + #""freeCapacityMB":\#(diskMB - usedMB)}]]"#, id)
         case "getScheduleList":
             guard let cookie, cookies.contains(cookie) else { return HTTPResponse(statusCode: 403) }
+            // A newer one lists 1.0 among its methods and answers it so, with the registration and lit.
+            if !older, Self.asks(request, object, of: "recording", version: "1.0") {
+                return json(["error": [7, "Illegal State"], "id": id])
+            }
             // An older one lists its reservations in 1.0 alone, whose rows carry no programme.
             let rows = listed.map(\.fields).map { older ? $0.filter { $0.key != "eventId" } : $0 }
             return json(["result": [rows], "id": id])
