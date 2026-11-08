@@ -36,12 +36,16 @@ public struct GuideScreen: Sendable {
 public struct Station: Sendable {
     public var serviceID: Int64
     public var name: String
+    /// The logo the recorder sent for it, as an image file; empty for a station whose logo the recorder never had.
+    public var logo: [UInt8]
 }
 
 /// One programme's row, as the iOS list words it (`ProgramRowView`). Whether it is on air or over is the screen's
 /// to work out each minute from `starts` and `ends`, as the iOS row does from its clock.
 public struct GuideRow: Sendable {
     public var id: String
+    /// The station's, whose logo is among the stations'.
+    public var serviceID: Int64
     /// `21:00`, Japan time.
     public var time: String
     /// `54分`.
@@ -150,7 +154,9 @@ public final class GuideWindow: Sendable {
                 Choice(code: $0, label: Codes.broadcastingLabel[$0] ?? $0)
             },
             broadcasting: type,
-            stations: model.channels.map { Station(serviceID: Int64($0.serviceID), name: $0.name) },
+            stations: model.channels.map {
+                Station(serviceID: Int64($0.serviceID), name: $0.name, logo: $0.logo.map { [UInt8]($0) } ?? [])
+            },
             station: Int64(model.serviceFilter ?? -1),
             days: model.days.map { Format.day.string(from: $0) },
             day: Int64(model.days.firstIndex { Calendar.current.isDate($0, inSameDayAs: model.day) } ?? 0),
@@ -168,7 +174,7 @@ public final class GuideWindow: Sendable {
             mark = "送信待ち"
             red = waiting.problem != nil
         }
-        return GuideRow(id: program.id, time: Format.time.string(from: program.start),
+        return GuideRow(id: program.id, serviceID: Int64(program.serviceID), time: Format.time.string(from: program.start),
                         length: Format.duration(program.durationSec), title: program.title,
                         station: program.serviceName, mark: mark, markIsRed: red, genre: program.genre?.label ?? "",
                         summary: program.summary, starts: seconds(program.start), ends: seconds(program.end))

@@ -15,8 +15,9 @@ public struct ReservationsScreen: Sendable {
     public var empty: Said
     /// `12 件 · 録画中 1`, under the screen's title.
     public var subtitle: String
-    /// The reservations waiting on this device to be sent, then the list by day.
+    /// The reservations waiting on this device to be sent, with what is said of when they go, then the list by day.
     public var waiting: [WaitingRow]
+    public var waitingSays: String
     public var sections: [ReservationSection]
     /// The recorder's line while it works, or what went wrong, in red.
     public var line: String
@@ -101,6 +102,7 @@ public final class ReservationsWindow: Sendable {
                 return WaitingRow(id: waiting.id, title: waiting.request.title, details: parts.joined(separator: " · "),
                                   problem: waiting.problem?.asABody ?? "")
             },
+            waitingSays: model.whatWaitsSays,
             sections: model.reservationSections.map { section in
                 ReservationSection(title: section.title, rows: section.items.map { row($0, model) })
             },

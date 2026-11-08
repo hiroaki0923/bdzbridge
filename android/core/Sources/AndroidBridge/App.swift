@@ -67,6 +67,7 @@ public final class RecBridgeApp: Sendable {
     public func guide() -> GuideWindow { GuideWindow(model) }
     public func reservations() -> ReservationsWindow { ReservationsWindow(model) }
     public func recordings() -> RecordingsWindow { RecordingsWindow(model) }
+    public func strip() -> StripWindow { StripWindow(model) }
 }
 
 extension Surroundings {
