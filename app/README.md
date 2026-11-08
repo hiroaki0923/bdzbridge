@@ -7,7 +7,10 @@
 - `BDBridge/` — the app itself: SwiftUI, five tabs, no server in the middle. What the screens share is
   `AppModel`, in `RecBridgeModel`: its state and its start in `AppModel.swift`, and what it does in extensions
   beside it, one file to a concern (`AppModelSession`, `AppModelSetup`, `AppModelGuide`, `AppModelReservations`,
-  `AppModelRecorderRules`, `AppModelRecordings`, `AppModelTV`). The connection to each device -- when it is
+  `AppModelRecorderRules`, `AppModelRecordings`, `AppModelTV`). The screens' own rules are the model's as well,
+  where tests hold them: a programme's and a reservation's sheet as the reader works them (`ProgramSheetState`,
+  `ReservationSheetState`), the search (`SearchState`), the channels' screen (`ChannelsState`), and what an empty
+  screen says (`AppModelEmptyScreens.swift`); the SwiftUI views lay them out and hand them the reader's presses. The connection to each device -- when it is
   asked, woken, made sure of, looked for at another address and given up on -- is RecorderKit's `DeviceLink`
   with the device's driver (`RecorderDriver`, `TVDriver`); what the link tells the app is told to a host of
   the device's own (`LinkHost`), and what it reaches on the network is the model's to give it

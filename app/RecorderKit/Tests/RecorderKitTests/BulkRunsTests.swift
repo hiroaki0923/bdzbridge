@@ -199,7 +199,7 @@ final class BulkRunsTests: XCTestCase {
         runs.startBulk(.protecting(true), ids: ["r1", "r2"], onTV: [], recorder: (recorder, said), television: nil)
         let holding = await eventually { recorder.isHoldingTheRead }
         XCTAssertTrue(holding, "the run did not wait for the read of the list that was out")
-        XCTAssertEqual(recorder.asked, ["may go on"], "something was asked before the list came in")
+        XCTAssertEqual(recorder.asked, [], "something was asked before the list came in")
         said.titles = [recording("r2")]
         recorder.releaseTheRead()
         try await finished()

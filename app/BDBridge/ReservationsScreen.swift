@@ -64,15 +64,15 @@ struct ReservationsScreen: View {
             Group {
                 // Away from home there is still something to show: what the recorder said last time, and
                 // the television, and above all the queue, which is in use exactly then.
-                if !model.connected, model.allReservations.isEmpty, model.pending.isEmpty {
+                if model.reservationsHaveNoRecorder {
                     NoRecorderView(icon: "clock", welcoming: $welcoming)
                 } else {
                     // The empty state sits on top of the list rather than in its place, so that pulling
                     // down still reloads: a plain placeholder has nothing to pull.
                     list.overlay {
-                        if model.shownReservations.isEmpty, model.pending.isEmpty {
-                            ContentUnavailableView("予約はありません", systemImage: "clock",
-                                                   description: Text("番組表から番組を選んで予約できます"))
+                        if model.reservationsAreEmpty {
+                            ContentUnavailableView(AppModel.noReservations.title, systemImage: "clock",
+                                                   description: Text(AppModel.noReservations.detail ?? ""))
                         }
                     }
                 }
@@ -135,7 +135,7 @@ struct ReservationsScreen: View {
             // state moved. A television that cannot be asked is sent nothing by this; a connect that reaches
             // one reads its list itself (`TVHost.reached`).
             .task { await model.loadReservations(of: .tv) }
-            .sheet(item: $opened) { ReservationSheet(reservation: $0) }
+            .sheet(item: $opened) { ReservationSheet(reservation: $0, model: model) }
             // The reservation picked for deletion is the last recorder's when its lists are let go of: see
             // `timesForgotten`. The sheet closes itself. Not a waiting reservation picked for deletion, which
             // is the reader's and no recorder's. A television's row goes the same way with the television's

@@ -23,27 +23,26 @@ struct GuideScreen: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if nothingAndNoRecorder {
+                switch model.guideShows(grid: grid) {
+                case .noRecorder:
                     NoRecorderView(icon: "calendar", welcoming: $welcoming)
-                } else if nothing, !nothingByChoice, model.guideOnItsWay {
-                    // The first run lands here as soon as the recorder answers. Saying there is nothing for the
-                    // day would read as though the download had come to nothing.
+                case .fetching:
                     ContentUnavailableView {
-                        Label("番組表を取得しています", systemImage: "calendar")
+                        Label(AppModel.fetchingTheGuide.title, systemImage: "calendar")
                     } description: {
-                        Text("初回は少し時間がかかります")
+                        Text(AppModel.fetchingTheGuide.detail ?? "")
                     } actions: {
                         ProgressView()
                     }
-                } else if nothing {
+                case .empty:
                     GuideEmptyView(narrowed: narrowed) { arranging = true }
-                } else if grid {
+                case .programmes where grid:
                     GuideGridView(channels: model.channels, programs: model.programs, day: model.day,
                                   nowRequests: model.nowRequests,
                                   reservationFor: { model.reservation(for: $0) },
                                   pendingFor: { model.pending(for: $0) }) { tapped = $0 }
                     .frame(maxHeight: .infinity)
-                } else {
+                case .programmes:
                     list
                 }
             }
@@ -125,7 +124,7 @@ struct GuideScreen: View {
                     .disabled(!model.canRefreshGuideByHand)
                 }
             }
-            .sheet(item: $tapped) { ProgramSheet(program: $0) }
+            .sheet(item: $tapped) { ProgramSheet(program: $0, model: model) }
             .sheet(isPresented: $arranging) { ChannelsSheet(broadcasting: model.broadcasting) }
             // Said here, where it was asked for: the line of what went wrong is not shown over a guide.
             .alert("番組表を取得できませんでした",
@@ -185,27 +184,8 @@ struct GuideScreen: View {
         return shown.first { $0.end > now }
     }
 
-    /// Nothing for the day on screen, and no recorder to fetch it from: `NoRecorderView` says what is wrong and
-    /// offers 再接続 and レコーダーを探す.
-    private var nothingAndNoRecorder: Bool {
-        model.guideSource == .recorder && !model.connected && nothing && !nothingByChoice
-    }
-
-    /// Nothing for the day on screen. The grid shows every channel whatever the list is narrowed to, so it is
-    /// judged by all of the day's programmes.
-    private var nothing: Bool {
-        (grid ? model.programs : shown).isEmpty
-    }
-
     /// Whether the list is narrowed to one channel. The grid is not, whatever the list is set to.
     private var narrowed: Bool { !grid && model.serviceFilter != nil }
-
-    /// Nothing on screen because of what the reader chose rather than what the cache holds: every channel
-    /// hidden, or the list narrowed to a channel with nothing that day. Said ahead of anything about the
-    /// recorder, which is not the reason and could not put it right.
-    private var nothingByChoice: Bool {
-        model.everyChannelHidden || (narrowed && !model.programs.isEmpty)
-    }
 
     /// The day's programmes. Only reached with some to show: the empty states are the body's. A guide in the
     /// cache is shown whatever the recorder is doing, which is what the cache is for: away from home a
@@ -310,46 +290,27 @@ struct GuideEmptyView: View {
 
     @ViewBuilder
     var body: some View {
-        let type = Self.inSentence(model.broadcasting)
-        let cached = model.counts[model.broadcasting]?.programs ?? 0
-        if model.everyChannelHidden {
+        let empty = model.guideEmpty(narrowed: narrowed)
+        let says = model.says(empty)
+        switch empty {
+        case .everyChannelHidden:
             ContentUnavailableView {
-                Label("\(type)の局をすべて非表示にしています", systemImage: "eye.slash")
+                Label(says.title, systemImage: "eye.slash")
             } description: {
-                Text("表示する局を選ぶと、番組表に出てきます")
+                Text(says.detail ?? "")
             } actions: {
                 if let arrange {
                     Button("チャンネルの表示と並び順", action: arrange)
                 }
             }
-        } else if narrowed, !model.programs.isEmpty {
+        case .narrowedToNothing:
             ContentUnavailableView {
-                Label("この日の\(model.channelName)の番組はありません", systemImage: "calendar")
+                Label(says.title, systemImage: "calendar")
             } actions: {
                 Button("すべての局を表示") { model.serviceFilter = nil }
             }
-        } else if model.demo {
-            // The demo's guide is what DemoLineUp invented and DemoData's seed wrote, and a refresh would fetch
-            // the same again.
-            ContentUnavailableView(cached == 0 ? "\(type)の番組表はありません" : "この日の番組表はありません",
-                                   systemImage: "calendar", description: Text(DemoLineUp.guideCoverage))
-        } else if model.info?.epgCapable == false {
-            ContentUnavailableView("このレコーダーは番組表に対応していません", systemImage: "calendar",
-                                   description: Text("この機種からは番組表を取得できません"))
-        } else if let problem = model.whyNothingToShow {
-            ContentUnavailableView("番組表を表示できません", systemImage: "calendar", description: Text(problem))
-        } else if cached == 0, model.counts.values.contains(where: { $0.programs > 0 }) {
-            // The other types came in and this one did not: the recorder had no file for it, which is what a
-            // model without that kind of tuner answers.
-            ContentUnavailableView("\(type)の番組表はありません", systemImage: "calendar",
-                                   description: Text("レコーダーが対応していない放送は空のままです。"
-                                                     + "右上の更新ボタンで取得し直せます"))
-        } else if cached == 0 {
-            ContentUnavailableView("番組表をまだ取得していません", systemImage: "calendar",
-                                   description: Text("右上の更新ボタンでレコーダーから取得できます"))
-        } else {
-            ContentUnavailableView("この日の番組表はありません", systemImage: "calendar",
-                                   description: Text("右上の更新ボタンでレコーダーから取得できます"))
+        default:
+            ContentUnavailableView(says.title, systemImage: "calendar", description: Text(says.detail ?? ""))
         }
     }
 

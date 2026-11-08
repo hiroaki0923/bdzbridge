@@ -54,7 +54,7 @@ struct RootView: View {
             GuideScreen()
                 .tabItem { Label("番組表", systemImage: "squareshape.split.3x3") }
                 .tag("guide")
-            SearchScreen()
+            SearchScreen(model: model)
                 .tabItem { Label("検索", systemImage: "magnifyingglass") }
                 .tag("search")
             ReservationsScreen()
@@ -372,27 +372,25 @@ struct NoRecorderView: View {
 
     @ViewBuilder
     private var states: some View {
-        if model.host.isEmpty {
+        switch model.noRecorderSays {
+        case .notAdded:
             ContentUnavailableView {
-                Label("レコーダーが追加されていません", systemImage: icon)
+                Label(AppModel.notAdded.title, systemImage: icon)
             } description: {
-                Text("同じ Wi-Fi 上のレコーダーを探して追加してください")
+                Text(AppModel.notAdded.detail ?? "")
             } actions: {
                 Button("レコーダーを探す") { welcoming = true }
                     .buttonStyle(.borderedProminent)
             }
-        } else if let busy = model.recorderBusy {
-            // While the app is working on it, this is not a failure and should not read as one. The
-            // recorder's lines only: the television's work is no waking of the recorder.
+        case .working(let busy):
             ContentUnavailableView {
                 Label(busy, systemImage: icon)
             } description: {
-                Text("レコーダーが起きるまで数秒かかります")
+                Text(AppModel.wakingDetail)
             } actions: {
                 ProgressView()
             }
-        } else if model.connectBlocked {
-            // Checking the power and the Wi-Fi, which the last case asks for, would change nothing here.
+        case .blocked:
             ContentUnavailableView {
                 Label(LocalNetworkNotice.title, systemImage: "lock.shield")
             } description: {
@@ -401,18 +399,12 @@ struct NoRecorderView: View {
                 OpenSettingsButton()
                     .buttonStyle(.borderedProminent)
             }
-        } else {
-            // Titled as the guide tab titles it when what is said is the phone's own cache, which is no
-            // failure to reach the recorder.
-            let phones = model.whyNothingToShow != nil && model.whyNothingToShow == model.phoneProblem
+        case .notReached(let why, let phones):
+            let says = AppModel.notReached(why: why, phones: phones)
             ContentUnavailableView {
-                Label(phones ? "エラー" : "レコーダーに接続できません",
-                      systemImage: phones ? "exclamationmark.triangle" : icon)
+                Label(says.title, systemImage: phones ? "exclamationmark.triangle" : icon)
             } description: {
-                // What went wrong when the app knows, since this is where the guide says it now: an address
-                // that is not one, or a device there that is not a recorder, is not put right by checking
-                // the power.
-                Text(model.whyNothingToShow ?? "レコーダーの電源と、同じネットワークに接続されているかを確かめてください")
+                Text(says.detail ?? "")
             } actions: {
                 VStack(spacing: 12) {
                     // Connecting sends a magic packet by itself when the recorder answered nothing at all, so
