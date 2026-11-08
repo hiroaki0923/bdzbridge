@@ -186,7 +186,7 @@ struct SearchScreen: View {
                 if scope == .reservations { await model.loadReservations(of: .tv) }
                 if scope == .recordings { await model.loadTVTitles() }
             }
-            .sheet(item: $openedProgram) { ProgramSheet(program: $0) }
+            .sheet(item: $openedProgram) { ProgramSheet(program: $0, model: model) }
             .sheet(item: $openedReservation) { ReservationSheet(reservation: $0) }
             .sheet(item: $openedTitle) { TitleSheet(title: $0) }
         }

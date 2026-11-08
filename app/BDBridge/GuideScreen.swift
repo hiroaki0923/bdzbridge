@@ -125,7 +125,7 @@ struct GuideScreen: View {
                     .disabled(!model.canRefreshGuideByHand)
                 }
             }
-            .sheet(item: $tapped) { ProgramSheet(program: $0) }
+            .sheet(item: $tapped) { ProgramSheet(program: $0, model: model) }
             .sheet(isPresented: $arranging) { ChannelsSheet(broadcasting: model.broadcasting) }
             // Said here, where it was asked for: the line of what went wrong is not shown over a guide.
             .alert("番組表を取得できませんでした",

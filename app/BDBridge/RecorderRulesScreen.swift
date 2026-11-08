@@ -132,10 +132,10 @@ struct RecorderRuleRow: View {
 struct RecorderRuleSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    /// The quality from the settings, and not written back: see `ProgramSheet.quality`.
+    /// The quality from the settings, and not written back: see `ProgramSheetState.quality`.
     @State private var draft = RecorderRuleDraft(quality: DefaultQuality.current)
     /// The disk the reader picked under 録画先, kept as picked, as on the programme's sheet
-    /// (`ProgramSheet.chosenDisk`): nil until a disk is picked, and the internal disk after one was refused for
+    /// (`ProgramSheetState.chosenDisk`): nil until a disk is picked, and the internal disk after one was refused for
     /// being no longer offered.
     @State private var chosenDisk: String?
     @State private var failure: String?

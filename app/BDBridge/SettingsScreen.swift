@@ -373,14 +373,7 @@ struct SettingsScreen: View {
     }
 }
 
-/// The recording mode a new reservation and a new keyword condition start at. Chosen here and only here: the
-/// sheets start their own picker from it and leave it alone, where they used to be bound to it, so that
-/// trying a mode on one programme quietly changed the next one's.
-enum DefaultQuality {
-    static let fallback = "LSR"
-
-    static var current: String {
-        let saved = UserDefaults.standard.string(forKey: DefaultsKey.defaultQuality) ?? fallback
-        return RecorderDriver.recordsIn.contains(saved) ? saved : fallback
-    }
+extension DefaultQuality {
+    /// The mode saved in the app's own defaults, for a sheet that starts from it before it has the model.
+    static var current: String { current(in: .standard) }
 }
