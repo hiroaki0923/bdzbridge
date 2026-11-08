@@ -219,6 +219,10 @@ public final class BulkRuns {
             // And before the recorder is made sure of: a run stopped while it waited for the app is not worth
             // asking who answers for, nor waking a recorder gone to sleep.
             if job?.cancelled == true { break }
+            // A read of the device's list that is out comes in first, and the step goes on the list it brought
+            // (`RunDriver.afterTheListRead`): before the check, so that the check and the look-up of the recording
+            // come one after the other, as they always have, with whatever the read met already known.
+            await side.driver.afterTheListRead()
             stopped = await side.driver.mayGoOn(side.run)
             guard stopped == nil else { break }
             // and after the wait, so that 中止 tapped while the recorder was being woken is heeded
@@ -402,8 +406,6 @@ public final class BulkRuns {
     /// its delete was sent (`RecorderDriver.mayGoOn`), or the device let go of, when nothing is counted and
     /// the list, which is no longer that device's, is left alone -- or nil: see `runBulk`.
     private func deleteOne(_ id: String, on side: Side) async -> RunStop? {
-        // In the list a read out brings, not in the one it is about to replace (`RunDriver.afterTheListRead`).
-        await side.driver.afterTheListRead()
         guard let title = side.list.titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: RecorderDriver.notInTheList))
             return nil
@@ -427,7 +429,6 @@ public final class BulkRuns {
 
     /// One recording of a bulk protect, as `deleteOne`.
     private func protectOne(_ id: String, _ on: Bool, on side: Side) async -> RunStop? {
-        await side.driver.afterTheListRead()
         guard let title = side.list.titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: RecorderDriver.notInTheList))
             return nil

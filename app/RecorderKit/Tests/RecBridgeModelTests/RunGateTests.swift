@@ -1535,7 +1535,8 @@ final class RunGateTests: XCTestCase {
             await recorder.asked(Ask.recordings, since: before) == 1
         }
         let back = Task { await model.returnedToForeground() }
-        try await until("the run never began its step") { model.holdsAStep }
+        // The run goes on from its wait for the app, and its step waits for the read out (`afterTheListRead`).
+        try await until("the run never left its wait for the app") { !model.jobWaitsForTheApp }
         await recorder.letGo()
         try await within(10, "the recordings were never read again") { await reading.value }
         try await within(10, "the return to the app never ended") { await back.value }

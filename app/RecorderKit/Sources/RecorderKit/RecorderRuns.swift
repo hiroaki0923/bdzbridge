@@ -30,7 +30,8 @@ public protocol RunDriver: AnyObject, Sendable {
     func protect(_ title: RecordedTitle, _ on: Bool, in run: Run) async -> ItemCame
     func end(_ run: Run, deleted: Int, stopped: RunStop?) async
     /// Returns once a read of the device's list that is out has handed its list over, at once with none out: a
-    /// run looks each recording up only after it, in the list that read brought (`BulkRuns`).
+    /// run waits for it before each recording, before it asks whether it may go on, and looks the recording up in
+    /// the list that read brought (`BulkRuns`).
     func afterTheListRead() async
 }
 
