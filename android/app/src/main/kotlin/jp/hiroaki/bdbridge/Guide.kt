@@ -29,10 +29,12 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -75,7 +77,7 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GuideScreen(search: () -> Unit) {
+fun GuideScreen(search: () -> Unit, arrange: () -> Unit) {
     val guide = RecBridge.guide.collectAsState().value ?: return
     val scope = rememberCoroutineScope()
     // The programme whose sheet is open: shown at once with what its row says.
@@ -91,7 +93,7 @@ fun GuideScreen(search: () -> Unit) {
     Scaffold(topBar = {
         Column {
             TopAppBar(
-                title = { WhatIsShown(guide) },
+                title = { WhatIsShown(guide, arrange) },
                 actions = {
                     IconButton(onClick = { scope.launch { RecBridge.act { it.guide.goToNow() } } }) {
                         Icon(Icons.Outlined.Today, contentDescription = "今")
@@ -106,7 +108,6 @@ fun GuideScreen(search: () -> Unit) {
                     }, enabled = guide.canRefresh && !refreshing) {
                         Icon(Icons.Default.Refresh, contentDescription = "番組表を更新")
                     }
-                    AppMenu(search)
                 },
             )
             DayBar(guide)
@@ -117,10 +118,9 @@ fun GuideScreen(search: () -> Unit) {
             when (guide.shows) {
                 "noRecorder" -> NoRecorderView(Icons.Outlined.GridView, guide.noRecorder, search)
                 "fetching" -> Unavailable(Icons.Outlined.GridView, guide.title, guide.detail) { CircularProgressIndicator() }
-                // `arrange`, the stations' settings for a type with every station hidden, comes with that screen:
-                // until it does, nothing on Android hides a station.
                 "empty" -> Unavailable(if (guide.offers == "arrange") Icons.Outlined.VisibilityOff else Icons.Outlined.GridView,
                                        guide.title, guide.detail) {
+                    if (guide.offers == "arrange") Button(onClick = arrange) { Text("チャンネルの表示と並び順") }
                     if (guide.offers == "everyStation") {
                         TextButton(onClick = { scope.launch { RecBridge.act { it.guide.chooseStation(-1) } } }) {
                             Text("すべての局を表示")
@@ -135,7 +135,7 @@ fun GuideScreen(search: () -> Unit) {
 
 /** The type, or the station the list is narrowed to, as the top app bar's title: a menu of the types and the stations. */
 @Composable
-private fun WhatIsShown(guide: Guide) {
+private fun WhatIsShown(guide: Guide, arrange: () -> Unit) {
     val scope = rememberCoroutineScope()
     var open by remember { mutableStateOf(false) }
     Box {
@@ -150,6 +150,14 @@ private fun WhatIsShown(guide: Guide) {
                     scope.launch { RecBridge.act { it.guide.chooseBroadcasting(choice.code) } }
                 }
             }
+            // Above the stations rather than after them, where a type with sixty would leave it at the foot of a long
+            // menu, as on iOS.
+            HorizontalDivider()
+            DropdownMenuItem(text = { Text("チャンネルの表示と並び順") }, leadingIcon = { Icon(Icons.Default.SwapVert, contentDescription = null) },
+                             onClick = {
+                                 open = false
+                                 arrange()
+                             })
             if (guide.stations.isNotEmpty()) {
                 HorizontalDivider()
                 Choosable("すべての局", guide.station < 0) {

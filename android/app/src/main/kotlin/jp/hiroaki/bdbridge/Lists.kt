@@ -62,8 +62,7 @@ fun ReservationsScreen(search: () -> Unit) {
     opened?.let { row -> ReservationSheetView(row.title, open = { RecBridge.openReservation(row.id) }) { opened = null } }
     Scaffold(topBar = {
         Column {
-            TopAppBar(title = { TitleWithSubtitle("予約", if (shown.hasNoRecorder) "" else shown.subtitle) },
-                      actions = { AppMenu(search) })
+            TopAppBar(title = { TitleWithSubtitle("予約", if (shown.hasNoRecorder) "" else shown.subtitle) })
             StripBar()
         }
     }, bottomBar = { Line(shown.line, shown.lineIsAProblem) }) { padding ->
@@ -154,10 +153,7 @@ fun RecordingsScreen(search: () -> Unit) {
     Scaffold(topBar = {
         Column {
             TopAppBar(title = { TitleWithSubtitle(shown.heading, if (shown.hasNoRecorder || shown.isLoading) "" else shown.subtitle) },
-                      actions = {
-                          Filters(shown)
-                          AppMenu(search)
-                      })
+                      actions = { Filters(shown) })
             StripBar()
         }
     }, bottomBar = {

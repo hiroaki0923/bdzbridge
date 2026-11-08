@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -33,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import kotlinx.coroutines.launch
 
 /**
@@ -59,19 +62,37 @@ fun App() {
     if (choosing ?: shown.welcomes) DevicesScreen(shown, close) else RecorderScreen { choosing = true }
 }
 
-/** The screens the navigation goes between, as the iOS app's tabs. 検索 and 設定 come with their screens. */
+/** The screens the navigation goes between, as the iOS app's tabs. 検索 comes with its screen. */
 enum class Destination(val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
     Guide("番組表", Icons.Outlined.GridView, Icons.Filled.GridView),
     Reservations("予約", Icons.Outlined.Schedule, Icons.Filled.Schedule),
     Recordings("録画", Icons.Outlined.VideoLibrary, Icons.Filled.VideoLibrary),
+    Settings("設定", Icons.Outlined.Settings, Icons.Filled.Settings),
 }
+
+/** A page over the destinations, with the way back: the stations' settings, and ご利用上の注意. */
+enum class Page { Channels, Disclaimer }
 
 /**
  * The destinations, with Material's navigation for the width: a bar along the foot of a phone, a rail down the side
- * of anything wider (600 dp, Material's medium width). Each screen has its own top app bar and the strip under it.
+ * of anything wider (600 dp, Material's medium width). Each screen has its own top app bar, and all but the settings
+ * the strip under it, as on iOS. A page opened from one of them goes over the whole, the navigation and all.
  */
 @Composable
 fun RecorderScreen(search: () -> Unit) {
+    var page by rememberSaveable { mutableStateOf<Page?>(null) }
+    Box(Modifier.fillMaxSize()) {
+        Box(if (page != null) Modifier.clearAndSetSemantics {} else Modifier) { Destinations(search) { page = it } }
+        when (page) {
+            Page.Channels -> ChannelsPage { page = null }
+            Page.Disclaimer -> DisclaimerPage { page = null }
+            null -> {}
+        }
+    }
+}
+
+@Composable
+private fun Destinations(search: () -> Unit, open: (Page) -> Unit) {
     val scope = rememberCoroutineScope()
     var destination by rememberSaveable { mutableStateOf(Destination.Guide) }
     val select = { chosen: Destination ->
@@ -81,9 +102,10 @@ fun RecorderScreen(search: () -> Unit) {
     }
     val screen = @Composable {
         when (destination) {
-            Destination.Guide -> GuideScreen(search)
+            Destination.Guide -> GuideScreen(search) { open(Page.Channels) }
             Destination.Reservations -> ReservationsScreen(search)
             Destination.Recordings -> RecordingsScreen(search)
+            Destination.Settings -> SettingsScreen({ open(Page.Channels) }) { open(Page.Disclaimer) }
         }
     }
     if (LocalConfiguration.current.screenWidthDp >= 600) {

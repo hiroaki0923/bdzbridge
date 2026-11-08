@@ -1,6 +1,7 @@
 package jp.hiroaki.bdbridge
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,9 +11,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.SwapHoriz
@@ -20,12 +22,12 @@ import androidx.compose.material.icons.outlined.TheaterComedy
 import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material.icons.outlined.WifiOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -101,17 +103,42 @@ fun TitleWithSubtitle(title: String, subtitle: String) {
     }
 }
 
-/** The top app bars' overflow menu: what is not yet on a screen of its own. */
+/** What a search came to, with the likely causes under it when it found nothing, in the tutorial and the settings. */
 @Composable
-fun AppMenu(search: () -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        IconButton(onClick = { open = true }) { Icon(Icons.Default.MoreVert, contentDescription = "その他") }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(text = { Text("レコーダーを探す") }, onClick = {
-                open = false
-                search()
-            })
+fun SearchOutcome(outcome: String, failed: Boolean, note: String, causes: List<String>) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(outcome, style = MaterialTheme.typography.bodyMedium,
+             color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+        if (note.isNotEmpty()) Footnote(note)
+        if (causes.isNotEmpty()) {
+            Text("考えられる原因", style = MaterialTheme.typography.labelMedium)
+            for (cause in causes) Footnote("・$cause")
+        }
+    }
+}
+
+/** The recorders a search found, in the tutorial and the settings: the one in use says so, any other connects. */
+@Composable
+fun FoundRecordersCard(recorders: List<FoundRecorder>, canChoose: Boolean, choose: (String) -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Text("見つかったレコーダー", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+             modifier = Modifier.padding(start = 16.dp, top = 12.dp))
+        recorders.forEachIndexed { index, found ->
+            if (index > 0) HorizontalDivider()
+            ListItem(
+                leadingContent = { Icon(Icons.Outlined.Router, contentDescription = null) },
+                headlineContent = { Text(found.name) },
+                supportingContent = { Text(found.details) },
+                trailingContent = {
+                    if (found.inUse) Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Check, contentDescription = null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        Text("使用中", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                    } else {
+                        Text("接続する", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                    }
+                },
+                modifier = Modifier.clickable(enabled = canChoose) { choose(found.host) },
+            )
         }
     }
 }

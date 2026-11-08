@@ -21,7 +21,7 @@ final class AndroidBridgeTests: XCTestCase {
 
     @MainActor
     private func demo() async -> RecBridgeApp {
-        let app = RecBridgeApp(model: AppModel(surroundings: .android(files: folder.path, version: "0.1 (1)")))
+        let app = RecBridgeApp.made(files: folder.path, version: "0.1 (1)")
         await app.start()
         await app.devices().enterDemo()
         return app
@@ -148,7 +148,7 @@ final class AndroidBridgeTests: XCTestCase {
 
     @MainActor
     func testATypedAddressIsSaidAsTheIOSFieldSaysIt() {
-        let app = RecBridgeApp(model: AppModel(surroundings: .android(files: folder.path, version: "0.1 (1)")))
+        let app = RecBridgeApp.made(files: folder.path, version: "0.1 (1)")
         let devices = app.devices()
         XCTAssertFalse(devices.typed("").usable)
         XCTAssertEqual(devices.typed("").note, "")
@@ -381,4 +381,100 @@ final class Counting: ScreenListener, @unchecked Sendable {
     var count: Int { lock.withLock { told } }
 
     func changed() { lock.withLock { told += 1 } }
+}
+
+// MARK: - the settings
+
+extension AndroidBridgeTests {
+    /// The settings say the demo's recorder and the guide kept, take what is typed as the reader's and what the model
+    /// sets as its own, keep the mode chosen, and end the demo, the fields following.
+    @MainActor
+    func testTheSettingsSayTheRecorderAndFollowTheFields() async throws {
+        let app = await demo()
+        let settings = await app.settings()
+        await settings.appeared()
+        let shown = await until(settings.read) { !$0.facts.isEmpty && $0.canChoose && $0.typedHost == DemoRecorder.host }
+        XCTAssertTrue(shown.demo)
+        XCTAssertEqual(shown.facts.first?.label, "機種")
+        XCTAssertFalse(shown.standing.isEmpty)
+        XCTAssertFalse(shown.offersConnect)
+        XCTAssertFalse(shown.offersReconnect)
+        XCTAssertEqual(shown.version, "0.1 (1)")
+        XCTAssertTrue(shown.guide.contains { $0.label == Codes.broadcastingLabel["td"] && $0.value.hasSuffix(" 番組") })
+        XCTAssertGreaterThan(shown.hostSet, 0, "the address the field started at was not said to be the model's")
+
+        // Typed, the address is offered the connect and said back, and is not taken for the model's own setting.
+        await settings.typeHost("192.0.2.10:64220", seen: shown.hostSet)
+        let typed = await until(settings.read) { $0.offersConnect }
+        XCTAssertEqual(typed.typedHost, "192.0.2.10:64220")
+        XCTAssertEqual(typed.hostSet, shown.hostSet, "what was typed was taken for the model's")
+        XCTAssertTrue(typed.addressNote.contains("「:64220」"))
+        XCTAssertFalse(typed.addressWarning)
+        XCTAssertFalse(typed.connectHeld)
+        // A keystroke typed over a value the model has replaced since is dropped.
+        await settings.typeHost("192.0.2.1", seen: shown.hostSet - 1)
+        let stale = await settings.read()
+        XCTAssertEqual(stale.typedHost, "192.0.2.10:64220", "a keystroke over the model's older value was kept")
+
+        let other = try XCTUnwrap(shown.qualities.first { $0.code != shown.quality })
+        await settings.chooseQuality(other.code)
+        _ = await until(settings.read) { $0.quality == other.code }
+        XCTAssertEqual(DefaultQuality.current(in: app.quality.defaults), other.code, "the mode chosen was not kept")
+        await settings.chooseQuality("not a mode")
+        let kept = await settings.read()
+        XCTAssertEqual(kept.quality, other.code)
+
+        let disclaimer = settings.disclaimer()
+        XCTAssertEqual(disclaimer.title, Disclaimer.title)
+        XCTAssertEqual(disclaimer.sections.map(\.label), Disclaimer.sections.map(\.heading))
+
+        // Nothing was set up before the demo, so ending it leaves no address, which the field follows.
+        await settings.leaveDemo()
+        let after = await until(settings.read) { !$0.demo && $0.typedHost.isEmpty }
+        XCTAssertGreaterThan(after.hostSet, typed.hostSet, "the model's moving the address was not said")
+        XCTAssertTrue(after.facts.isEmpty)
+        XCTAssertEqual(after.standing, "")
+    }
+
+    /// A station hidden, moved and put back, as the guide then shows them; kept in the cache, so that the list read
+    /// again has them as they were left.
+    @MainActor
+    func testTheStationsAreHiddenMovedAndPutBack() async throws {
+        let app = await demo()
+        let guide = app.guide()
+        _ = await until(guide.read) { $0.shows == "programmes" }
+        let channels = await app.channels()
+        defer { Task { await channels.closed() } }
+        let listed = await until(channels.read) { $0.loaded && $0.stations.count >= 3 }
+        XCTAssertEqual(listed.broadcasting, "td")
+        XCTAssertFalse(listed.customised)
+        XCTAssertEqual(listed.footer, ChannelsState.footer)
+        XCTAssertTrue(listed.types.contains { $0.code == "bs" })
+        let first = listed.stations[0], third = listed.stations[2]
+
+        await channels.show(first.id, false)
+        let hidden = await until(channels.read) { !$0.stations[0].shown }
+        XCTAssertTrue(hidden.customised)
+        _ = await until(guide.read) { shown in !shown.stations.contains { $0.name == first.name } }
+
+        await channels.move(from: 0, to: 2)
+        let moved = await until(channels.read) { $0.stations[2].id == first.id }
+        XCTAssertEqual(moved.stations[1].id, third.id)
+        let again = await app.channels()
+        defer { Task { await again.closed() } }
+        let reread = await until(again.read) { $0.loaded && !$0.stations.isEmpty }
+        XCTAssertEqual(reread.stations.map(\.id), moved.stations.map(\.id), "the order was not kept")
+
+        await channels.reset()
+        let back = await until(channels.read) { !$0.customised }
+        XCTAssertEqual(back.stations.map(\.id), listed.stations.map(\.id))
+        XCTAssertTrue(back.stations.allSatisfy(\.shown))
+
+        await channels.choose("bs")
+        let bs = await until(channels.read) { $0.broadcasting == "bs" && $0.stations.first?.id.hasPrefix("bs") == true }
+        XCTAssertFalse(bs.stations.isEmpty)
+        await channels.choose("none of them")
+        let still = await channels.read()
+        XCTAssertEqual(still.broadcasting, "bs")
+    }
 }

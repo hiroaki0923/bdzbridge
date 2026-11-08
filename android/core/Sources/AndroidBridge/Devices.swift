@@ -38,6 +38,14 @@ public struct FoundRecorder: Sendable {
     /// `192.0.2.10 · BDZ-FBT4100 · 番組表あり`.
     public var details: String
     public var inUse: Bool
+
+    /// As the tutorial and the settings list it (`FoundRecorderRow`).
+    init(_ found: RecorderDescription, inUse: Bool) {
+        host = found.host
+        name = found.product
+        details = "\(found.host) · \(found.friendlyName)" + (found.epgCapable ? " · 番組表あり" : " · 番組表なし")
+        self.inUse = inUse
+    }
 }
 
 /// What a typed address comes to: the address to connect to, and what is said under the field (`warning` in red).
@@ -112,21 +120,12 @@ public final class DevicesWindow: Sendable {
         await model.leaveDemo()
     }
 
-    /// What `typed` comes to as an address, as the iOS field says it (`AddressNote`).
+    /// What `typed` comes to as an address, and what the field says of it (`RecorderAddress.Typed.note`).
     public func typed(_ typed: String) -> TypedAddress {
         let tidied = RecorderAddress.tidy(typed)
-        let usable = RecorderAddress.isUsable(tidied.host)
-        if tidied.host.isEmpty { return TypedAddress(host: "", usable: false, note: "", warning: false) }
-        if !usable {
-            return TypedAddress(host: tidied.host, usable: false,
-                                note: "アドレスの形式が正しくありません。192.168.1.10 のような IP アドレスを入力してください。",
-                                warning: true)
-        }
-        if let port = tidied.port {
-            return TypedAddress(host: tidied.host, usable: true,
-                                note: "ポート番号は不要です。「:\(port)」は使わずに \(tidied.host) に接続します。", warning: false)
-        }
-        return TypedAddress(host: tidied.host, usable: true, note: "", warning: false)
+        let note = tidied.note
+        return TypedAddress(host: tidied.host, usable: RecorderAddress.isUsable(tidied.host), note: note?.text ?? "",
+                            warning: note?.warning ?? false)
     }
 
     @MainActor
@@ -139,12 +138,7 @@ public final class DevicesWindow: Sendable {
             outcome: outcome?.text ?? "", outcomeFailed: outcome?.failed ?? false,
             outcomeNote: outcome?.noRecorderBeside ?? "", causes: outcome?.causes ?? [],
             busy: model.busy ?? "", problem: model.problem(for: .recorder)?.asABody ?? "",
-            recorders: model.found.map { found in
-                FoundRecorder(host: found.host, name: found.product,
-                              details: "\(found.host) · \(found.friendlyName)"
-                                  + (found.epgCapable ? " · 番組表あり" : " · 番組表なし"),
-                              inUse: model.inUse(found))
-            },
+            recorders: model.found.map { FoundRecorder($0, inUse: model.inUse($0)) },
             canChoose: model.canChangeRecorder, demo: model.demo,
             chosenAnswered: choosing.chosenAt.map { model.timesAttached > $0 } ?? false)
     }

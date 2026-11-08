@@ -6,14 +6,19 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.isEnabled
+import androidx.compose.ui.test.isOff
+import androidx.compose.ui.test.isOn
 import androidx.compose.ui.test.isSelectable
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -168,6 +173,27 @@ class DemoTests {
         compose.onNodeWithText("視聴状態").assertExists()
         InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.waitUntilDoesNotExist(hasText("この録画を削除"), 10_000)
+    }
+
+    /**
+     * The settings say the demo's recorder, and the stations' page opens from them: a station turned off, and the back
+     * key going back to the settings. Writes only to the demo's guide, which leaving the demo deletes.
+     */
+    @Test fun theSettingsSayTheRecorderAndOpenTheStations() {
+        openTheDemo()
+        destination("設定").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("機種"), 30_000)
+        // The settings are a lazy list: a row past the screen's foot is made only as it is scrolled to.
+        val settings = compose.onNode(hasScrollToNodeAction())
+        settings.performScrollToNode(hasText("状態"))
+        settings.performScrollToNode(hasText("チャンネルの表示と並び順"))
+        compose.onNodeWithText("チャンネルの表示と並び順").performClick()
+        compose.waitUntilAtLeastOneExists(isToggleable() and isOn(), 10_000)
+        compose.onAllNodes(isToggleable())[0].performClick()
+        compose.waitUntilAtLeastOneExists(isToggleable() and isOff(), 10_000)
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntilDoesNotExist(isToggleable(), 10_000)
+        compose.onNodeWithText("チャンネルの表示と並び順").assertExists()
     }
 
     @Test fun leavingTheDemoSaysNoRecorderIsAddedAndOffersTheSearch() {

@@ -1,7 +1,6 @@
 package jp.hiroaki.bdbridge
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,18 +13,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -88,7 +82,9 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
                     Footnote("検索中 ${shown.searched} / ${shown.toSearch}")
                 }
             }
-            if (shown.outcome.isNotEmpty()) item { Outcome(shown) }
+            if (shown.outcome.isNotEmpty()) item {
+                SearchOutcome(shown.outcome, shown.outcomeFailed, shown.outcomeNote, shown.causes)
+            }
             if (shown.busy.isNotEmpty()) item {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -99,28 +95,8 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
                 Text(shown.problem, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
             }
             if (shown.recorders.isNotEmpty()) item {
-                Card(Modifier.fillMaxWidth()) {
-                    Text("見つかったレコーダー", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
-                         modifier = Modifier.padding(start = 16.dp, top = 12.dp))
-                    shown.recorders.forEachIndexed { index, found ->
-                        if (index > 0) HorizontalDivider()
-                        ListItem(
-                            leadingContent = { Icon(Icons.Outlined.Router, contentDescription = null) },
-                            headlineContent = { Text(found.name) },
-                            supportingContent = { Text(found.details) },
-                            trailingContent = {
-                                if (found.inUse) Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Check, contentDescription = null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                                    Text("使用中", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-                                } else {
-                                    Text("接続する", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-                                }
-                            },
-                            modifier = Modifier.clickable(enabled = shown.canChoose) {
-                                scope.launch { RecBridge.act { it.devices.choose(found.host) } }
-                            },
-                        )
-                    }
+                FoundRecordersCard(shown.recorders, shown.canChoose) { host ->
+                    scope.launch { RecBridge.act { it.devices.choose(host) } }
                 }
             }
             item {
@@ -153,20 +129,6 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
                              + "実在の放送局・番組ではありません。")
                 }
             }
-        }
-    }
-}
-
-/** What the search came to, with the likely causes under it when it found nothing. */
-@Composable
-private fun Outcome(shown: Devices) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(shown.outcome, style = MaterialTheme.typography.bodyMedium,
-             color = if (shown.outcomeFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-        if (shown.outcomeNote.isNotEmpty()) Footnote(shown.outcomeNote)
-        if (shown.causes.isNotEmpty()) {
-            Text("考えられる原因", style = MaterialTheme.typography.labelMedium)
-            for (cause in shown.causes) Footnote("・$cause")
         }
     }
 }

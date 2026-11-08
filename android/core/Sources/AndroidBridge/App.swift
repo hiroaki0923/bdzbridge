@@ -19,9 +19,15 @@ public protocol ScreenListener {
 /// The app: its one model, and the windows of its screens.
 public final class RecBridgeApp: Sendable {
     let model: AppModel
+    /// The setting the settings screen writes itself, as the iOS screen writes it, and what the app's version is
+    /// called, for the settings to say.
+    let quality: ChosenQuality
+    let version: String
 
-    init(model: AppModel) {
+    init(model: AppModel, quality: ChosenQuality, version: String) {
         self.model = model
+        self.quality = quality
+        self.version = version
     }
 
     @MainActor private static var opened: RecBridgeApp?
@@ -32,10 +38,18 @@ public final class RecBridgeApp: Sendable {
     public static func open(files: String, version: String) async -> RecBridgeApp {
         await MainActor.run {
             if let opened { return opened }
-            let app = RecBridgeApp(model: AppModel(surroundings: .android(files: files, version: version)))
+            let app = made(files: files, version: version)
             opened = app
             return app
         }
+    }
+
+    /// A model on `files`: what `open` makes once for the process, and each test for itself.
+    @MainActor
+    static func made(files: String, version: String) -> RecBridgeApp {
+        let defaults = WrittenDefaults.android(files: files)
+        let model = AppModel(surroundings: .android(files: files, defaults: defaults, version: version))
+        return RecBridgeApp(model: model, quality: ChosenQuality(defaults), version: version)
     }
 
     /// Opens the cache and shows what it holds, and makes the first connect: what every iOS screen awaits first.
@@ -68,18 +82,23 @@ public final class RecBridgeApp: Sendable {
     public func reservations() -> ReservationsWindow { ReservationsWindow(model) }
     public func recordings() -> RecordingsWindow { RecordingsWindow(model) }
     public func strip() -> StripWindow { StripWindow(model) }
+    public func settings() async -> SettingsWindow {
+        await MainActor.run { SettingsWindow(model, quality: quality, version: version) }
+    }
+
+    /// Which stations the guide shows and in what order, opened at the broadcasting type the guide is on: from the
+    /// settings, from the guide's station menu, or from a guide with every station hidden.
+    public func channels() async -> ChannelsWindow {
+        await MainActor.run { ChannelsWindow(ChannelsState(broadcasting: model.broadcasting, model: model)) }
+    }
 }
 
 extension Surroundings {
     /// What the model reaches on Android. The settings go in a file of the app's folder (`WrittenDefaults`). What only
     /// the iOS app has yet -- notifications, the network's watcher, the television's registration kept for good, the
     /// demo's logos -- is left as the model's own defaults give it, which do nothing.
-    static func android(files: String, version: String) -> Surroundings {
+    static func android(files: String, defaults: WrittenDefaults, version: String) -> Surroundings {
         let folder = URL(fileURLWithPath: files, isDirectory: true)
-        let settings = folder.appendingPathComponent("settings", isDirectory: true)
-        try? FileManager.default.createDirectory(at: settings, withIntermediateDirectories: true)
-        // A suite is refused only by the name of the global domain, which a path is not.
-        let defaults = WrittenDefaults(suiteName: settings.appendingPathComponent("recbridge").path)!
         var android = Surroundings(defaults: defaults, folder: { folder }, transport: { _ in URLSessionTransport() },
                                    networkSignature: LocalNetwork.signature, reachesTheLAN: true,
                                    asksAboutNotifications: false)
@@ -98,6 +117,14 @@ extension Surroundings {
 /// writes itself out at each change, as the model makes it. Measured on the emulator: without it nothing was written,
 /// and a second start read nothing.
 final class WrittenDefaults: UserDefaults {
+    /// The app's, in `<files>/settings`.
+    static func android(files: String) -> WrittenDefaults {
+        let settings = URL(fileURLWithPath: files, isDirectory: true).appendingPathComponent("settings", isDirectory: true)
+        try? FileManager.default.createDirectory(at: settings, withIntermediateDirectories: true)
+        // A suite is refused only by the name of the global domain, which a path is not.
+        return WrittenDefaults(suiteName: settings.appendingPathComponent("recbridge").path)!
+    }
+
     override func set(_ value: Any?, forKey defaultName: String) {
         super.set(value, forKey: defaultName)
         synchronize()
