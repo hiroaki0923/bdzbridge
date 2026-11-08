@@ -42,9 +42,21 @@ enum Notify {
         }
     }
 
-    /// Where permission stands, for the settings to say.
+    /// Where permission stands.
     static func status() async -> UNAuthorizationStatus {
         await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
+
+    /// The same, for the settings to say (`AppModel.notifications`).
+    static func permission() async -> NotificationPermission {
+        switch await status() {
+        case .notDetermined: .notDetermined
+        case .denied: .denied
+        case .authorized: .authorized
+        case .ephemeral: .ephemeral
+        case .provisional: .provisional
+        @unknown default: .unknown
+        }
     }
 
     /// Whether a notification posted now would reach the reader at all, quietly included.
@@ -220,4 +232,15 @@ enum Notify {
                          warnBelowGB: Double = lowSpaceGB) -> RecorderDisk.SpaceNotice {
         RecorderDisk.usbSpace(disk, marked: marked, warnBelowGB: warnBelowGB)
     }
+}
+
+extension Notifications {
+    /// The system's, as the steps above take them (`Surroundings.app`).
+    static let system = Notifications(
+        permission: { await Notify.permission() },
+        allowQuietly: { await Notify.allowQuietly() },
+        askIfNeeded: { await Notify.askIfNeeded() },
+        recorder: { await Notify.recorder(notYet: $0, withdraws: $1) },
+        withdrawTelevision: { Notify.withdrawTelevision($0) },
+        withdrawTelevisionNotYet: { Notify.withdrawTelevisionNotYet() })
 }

@@ -1,7 +1,6 @@
 import Foundation
 import Observation
 import RecorderKit
-import UIKit
 
 /// What the recorder in play said, held in memory for the screens: its lists, the sets of copies with their ticks
 /// and the texts they were built on, and what its sendings came to, for the strip. Exactly what letting go of a
@@ -165,8 +164,10 @@ final class RecorderHost: RecorderLinkHost {
     private(set) var guideAfterAConnect: Int?
     /// Counts the refreshes connects have started, so that one that ends takes down only itself.
     @ObservationIgnored private var guideRefreshesStarted = 0
-    /// The background task the step of a bulk job under way runs under (`holdAStep`).
-    var stepTask = UIBackgroundTaskIdentifier.invalid
+    /// How to end the time the system gives the step of a bulk job under way (`holdAStep`), while it has some.
+    var stepEnd: (@MainActor () -> Void)?
+    /// Whether the step of a bulk job under way has that time.
+    var holdsAStep: Bool { stepEnd != nil }
     /// The recorder's link, for the model's life.
     let link: DeviceLink
     /// The model that made this, for what is the phone's.
@@ -345,16 +346,17 @@ final class RecorderHost: RecorderLinkHost {
         defaults.removeObject(forKey: DefaultsKey.warnedLowSpaceOnUSB)
         defaults.removeObject(forKey: DefaultsKey.lastBackgroundRefresh)
         let kept = KeptOnce.recorder(in: defaults), withdraws = surroundings.asksAboutNotifications
+        let notifications = surroundings.notifications
         kept.forget()
         Task {
             _ = await PendingQueue.betweenFlushes {
                 kept.forget()
-                if withdraws { await Notify.recorder(notYet: nil, withdraws: true) }
+                if withdraws { await notifications.recorder(nil, true) }
             }
         }
         await model.reloadFromCache()
         await model.loadPending()
-        if surroundings.asksAboutNotifications { await Notify.recorder(notYet: nil, withdraws: true) }
+        if surroundings.asksAboutNotifications { await notifications.recorder(nil, true) }
     }
 
     /// It lets go of the client as well -- left in hand, a programme reserved from the guide still on screen
@@ -400,7 +402,7 @@ final class RecorderHost: RecorderLinkHost {
         timesReached += 1
         if !demo, surroundings.asksAboutNotifications {
             Task {
-                await Notify.allowQuietly()
+                await surroundings.notifications.allowQuietly()
                 await model.readNotifications()
             }
         }

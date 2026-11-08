@@ -1,6 +1,5 @@
 import Foundation
 import RecorderKit
-import SwiftUI
 
 /// Reservations: the list and its orders, what marks a programme in the guide, making, changing and
 /// cancelling one, and the queue of those waiting for the recorder.

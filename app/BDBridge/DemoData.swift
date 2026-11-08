@@ -1,6 +1,5 @@
 import Foundation
 import RecorderKit
-import UIKit
 
 /// The demo: its switch, and the seed of its guide.
 ///
@@ -11,9 +10,9 @@ import UIKit
 /// What it shows is invented in RecorderKit: the recorder (`DemoRecorder`), which answers in the XML a
 /// BDZ-FBT4100 really sends and remembers what is done to it, the stations and their programmes it is made from
 /// (`DemoLineUp`), and the television (`DemoTV`), with their addresses, their pace, the guide written out of the
-/// line-up and the devices as the demo's search meets them (`DemoDevices`). Here are the switch, and the logo
-/// tiles drawn for the guide, which `seed` writes into a database of its own, so that trying the demo leaves
-/// nothing in the cache of a real recorder.
+/// line-up and the devices as the demo's search meets them (`DemoDevices`). Here is the switch. The logo tiles
+/// drawn for the guide are the app's (`DemoTiles.swift`), and the guide goes into a database of its own, so that
+/// trying the demo leaves nothing in the cache of a real recorder.
 ///
 /// It has a television too, which the reader adds from the demo's search (`DemoLineUp.television()`): the
 /// package's invented one, receiving the guide's stations and listing what it records under the guide's titles.
@@ -26,10 +25,10 @@ enum DemoData {
 
     /// Whether to say on screen that the data is invented. On, always, for anyone using the demo -- the free
     /// space and the recordings on those screens are not theirs. Off for the App Store screenshots
-    /// (`-demoBanner 0`), which are pictures of the app as it looks with a real recorder.
-    static var banner: Bool {
-        UserDefaults.standard.object(forKey: DefaultsKey.demoBanner) == nil
-            || UserDefaults.standard.bool(forKey: DefaultsKey.demoBanner)
+    /// (`-demoBanner 0`), which are pictures of the app as it looks with a real recorder. Read in the defaults a
+    /// model was given (`Surroundings.defaults`), which in the app are the ones a launch argument reaches.
+    static func banner(in defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: DefaultsKey.demoBanner) == nil || defaults.bool(forKey: DefaultsKey.demoBanner)
     }
 
     /// Remembers the real recorder, if there is one, and turns the demo on.
@@ -47,41 +46,5 @@ enum DemoData {
         defaults.removeObject(forKey: DefaultsKey.macBeforeDemo)
         defaults.set(false, forKey: DefaultsKey.demoData)
         return (host, mac.isEmpty ? nil : mac)
-    }
-
-    // MARK: - filling the guide cache
-
-    /// Writes the invented guide into the app's own cache, which is where the screens read it from
-    /// (`DemoLineUp.seed`), with a coloured tile drawn for each station's logo.
-    @MainActor
-    static func seed(store: GuideStore) async throws {
-        try await DemoLineUp.seed(store) { text, index in tile(text, colour: tileColours[index % tileColours.count]) }
-    }
-
-    private static let tileColours: [UIColor] = [
-        UIColor(red: 0.20, green: 0.44, blue: 0.80, alpha: 1),
-        UIColor(red: 0.16, green: 0.58, blue: 0.42, alpha: 1),
-        UIColor(red: 0.84, green: 0.36, blue: 0.24, alpha: 1),
-        UIColor(red: 0.45, green: 0.32, blue: 0.70, alpha: 1),
-        UIColor(red: 0.84, green: 0.60, blue: 0.16, alpha: 1),
-        UIColor(red: 0.24, green: 0.55, blue: 0.62, alpha: 1),
-    ]
-
-    @MainActor
-    private static func tile(_ text: String, colour: UIColor) -> Data? {
-        let size = CGSize(width: 64, height: 36)
-        return UIGraphicsImageRenderer(size: size).pngData { context in
-            colour.setFill()
-            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6).fill()
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 20, weight: .bold),
-                .foregroundColor: UIColor.white,
-            ]
-            let bounds = (text as NSString).size(withAttributes: attributes)
-            (text as NSString).draw(at: CGPoint(x: (size.width - bounds.width) / 2,
-                                                y: (size.height - bounds.height) / 2),
-                                    withAttributes: attributes)
-            _ = context
-        }
     }
 }

@@ -11,8 +11,10 @@ import RecorderKit
 /// an invented recorder for a transport -- the demo's, or one that never answers -- a network that
 /// changes when the test says so, and a Wi-Fi of invented addresses for a search to go through.
 ///
-/// Only what the tests need is here. The overnight run, the demo's own switch and the screens still read the
-/// shared defaults for themselves.
+/// It is also how the model reaches what only the platform has -- the Keychain, notifications, a background
+/// task, VoiceOver, a watcher of the network, UIKit's drawing -- so that the model itself names none of them:
+/// the app's are in `SurroundingsApp.swift`. The overnight run, the demo's own switch and the screens still
+/// read the shared defaults for themselves.
 struct Surroundings {
     /// Where the address, the MAC and the screens' choices are kept, and whether the demo is on.
     var defaults: UserDefaults
@@ -89,26 +91,53 @@ struct Surroundings {
     /// Where a search writes what it did, a line at a time, for reading afterwards: the system's log in the
     /// app (`ScanLog`, which says what a line may hold). Nowhere, unless a test keeps the lines to look at.
     var scanLog: @MainActor (String) -> Void = { _ in }
+    /// What the model has the system post or take away of its own accord about notifications, and where the
+    /// reader stands on them: the system's own in the app (`Notify`). Asked only while
+    /// `asksAboutNotifications`, and nothing at all unless a test says otherwise.
+    var notifications = Notifications()
+    /// The time the system gives a step of a bulk job to finish once the reader has left the app
+    /// (`RecorderHost.holdAStep`): a background task in the app. Begun with what to do should that time run out,
+    /// it hands back how to end it, or nil when the system gives none. A test's is given at once and has nothing
+    /// to end.
+    var holdTime: @MainActor (_ ranOut: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? = { _ in {} }
+    /// Says a sentence to a reader whose screen reader is on, for words that appear away from where their focus
+    /// is (`AppModel.report`): an announcement to VoiceOver in the app. Nothing in a test.
+    var announce: @MainActor (String) -> Void = { _ in }
+    /// Watches the network underneath, calling back at each change it reports, for as long as what it hands
+    /// back is kept (`AppModel.watchNetwork`): `NWPathMonitor` in the app. Asked only while `reachesTheLAN`.
+    var watchTheNetwork: (_ reported: @escaping @Sendable () -> Void) -> AnyObject? = { _ in nil }
+    /// The logo the demo's guide shows for a station, from the station's two characters and its place in the
+    /// line-up (`DemoLineUp.seed`): a coloured tile drawn in the app (`DemoData.logo`). None in a test.
+    var demoLogo: @MainActor (_ text: String, _ index: Int) -> Data? = { _, _ in nil }
+}
 
-    static var app: Surroundings {
-        Surroundings(defaults: .standard,
-                     folder: Storage.directory,
-                     transport: { _ in URLSessionTransport() },
-                     networkSignature: LocalNetwork.signature,
-                     reachesTheLAN: true,
-                     asksAboutNotifications: true,
-                     tvTransport: { _ in URLSessionTransport.withoutCookies() },
-                     tvCredentials: KeychainTVCredentials(),
-                     tvHelperTokens: KeychainTVHelperToken(),
-                     localNetworkAccess: { await LocalNetwork.access(probing: $0) },
-                     waitForLocalNetwork: { await LocalNetwork.waitForAccess(probing: $0) {} },
-                     linkIsBlocked: { await LocalNetwork.access(probing: $0) == .blocked },
-                     waitForTheLinksPermission: { await LocalNetwork.waitForAccess(probing: $0) {} },
-                     lanInterfaces: LocalNetwork.lanInterfaces,
-                     scanTransport: { URLSessionTransport.withoutCookies() },
-                     scanPause: { try? await Task.sleep(for: $0) },
-                     scanLog: { ScanLog.note($0) })
-    }
+/// What the model has the system do about notifications (`Surroundings.notifications`), a step at a time:
+/// the app's are `Notify`'s. Nothing, unless a test or the app says otherwise.
+struct Notifications: Sendable {
+    /// Where the reader stands on them, for the settings to say.
+    var permission: @Sendable () async -> NotificationPermission = { .notDetermined }
+    /// Permission to post quietly, the first time and only then, with no dialog (`Notify.allowQuietly`).
+    var allowQuietly: @Sendable () async -> Void = {}
+    /// The system's dialog, unless the reader has answered it (`Notify.askIfNeeded`).
+    var askIfNeeded: @Sendable () async -> Void = {}
+    /// The recorder's warning of reservations not yet there, posted or taken away (`Notify.recorder`).
+    var recorder: @Sendable (_ notYet: String?, _ withdraws: Bool) async -> Void = { _, _ in }
+    /// What is to go of what the runs with no screen told of the television (`Notify.withdrawTelevision`).
+    var withdrawTelevision: @Sendable (NoScreenNotices) -> Void = { _ in }
+    /// The television's warning of reservations not yet there, taken away (`Notify.withdrawTelevisionNotYet`).
+    var withdrawTelevisionNotYet: @Sendable () -> Void = {}
+}
+
+/// Where the reader stands on the app's notifications, as the settings say it: not asked yet, refused, allowed,
+/// allowed for a while, or allowed quietly into Notification Centre without having been asked. `unknown` is a
+/// standing the system has that none of these is.
+enum NotificationPermission: Sendable {
+    case notDetermined
+    case denied
+    case authorized
+    case ephemeral
+    case provisional
+    case unknown
 }
 
 /// What a search reaches where no subnet has been given: nobody, at any address.

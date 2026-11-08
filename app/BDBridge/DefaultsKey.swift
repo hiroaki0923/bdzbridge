@@ -79,7 +79,7 @@ enum DefaultsKey {
 
     /// Also the name of the launch argument (`-demoData 1`), which is how the screenshots turn it on.
     static let demoData = "demoData"
-    /// See `DemoData.banner`.
+    /// See `DemoData.banner(in:)`.
     static let demoBanner = "demoBanner"
     /// Where the real recorder's address and MAC are kept while the demo has the screen.
     static let hostBeforeDemo = "hostBeforeDemo"

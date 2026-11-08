@@ -45,7 +45,7 @@ extension AppModel {
         if let busy { return .busy(busy) }
         if anotherTookOver, connected { return .anotherTookOver }
         if let line = queueReport { return .report(line, inFull: tv != nil) }
-        if demo, DemoData.banner, !inSheet { return .demo }
+        if demo, DemoData.banner(in: defaults), !inSheet { return .demo }
         if connectBlocked { return .blocked }
         if gaveUp { return .recorderGaveUp }
         if waitingForTVTitles { return .busy(TVDriver.titlesComingLine) }

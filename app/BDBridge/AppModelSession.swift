@@ -1,8 +1,5 @@
 import Foundation
-import Network
 import RecorderKit
-import SwiftUI
-import UserNotifications
 
 /// The model's side of the connection to the recorder. What is asked of the recorder, when, and what silence
 /// leaves behind is RecorderKit's (`DeviceLink`, `RecorderDriver`); what the link tells the app -- the line, the
@@ -11,19 +8,17 @@ import UserNotifications
 /// watcher, and coming and going from the foreground. The rules are set out in docs/porting.md (端末側の設計メモ)
 /// and held by `SessionRuleTests`.
 extension AppModel {
-    /// Asks again when the network underneath changes, and only then. `NWPathMonitor` reports rather more
-    /// than that -- an interface going up on its own account, a route changing -- so the decision is left to
-    /// the addresses this device holds, which is what actually says whether the recorder might be nearby.
+    /// Asks again when the network underneath changes, and only then. The app's watcher (`NWPathMonitor`,
+    /// `Surroundings.watchTheNetwork`) reports rather more than that -- an interface going up on its own account,
+    /// a route changing -- so the decision is left to the addresses this device holds, which is what actually
+    /// says whether the recorder might be nearby.
     func watchNetwork() {
-        guard pathMonitor == nil, surroundings.reachesTheLAN else { return }
-        let monitor = NWPathMonitor()
-        pathMonitor = monitor
-        // Weak here as well as in the task: the monitor, which the model holds, keeps this handler, and a
+        guard networkWatch == nil, surroundings.reachesTheLAN else { return }
+        // Weak here as well as in the task: the watcher, which the model holds, keeps this handler, and a
         // handler that names `self` only inside the task still holds it strongly.
-        monitor.pathUpdateHandler = { [weak self] _ in
+        networkWatch = surroundings.watchTheNetwork { [weak self] in
             Task { @MainActor [weak self] in self?.networkReported() }
         }
-        monitor.start(queue: .global(qos: .utility))
     }
 
     /// Connects, and wakes the recorder first if that is what it needs (`DeviceLink.connect`).
@@ -154,13 +149,13 @@ extension AppModel {
     // MARK: - notifications
 
     func readNotifications() async {
-        notifications = await Notify.status()
+        notifications = await surroundings.notifications.permission()
     }
 
     /// The system's dialog, when the reader has not answered it yet. See `Notify.askIfNeeded`.
     func askForNotifications() async {
         guard surroundings.asksAboutNotifications else { return }
-        await Notify.askIfNeeded()
+        await surroundings.notifications.askIfNeeded()
         await readNotifications()
     }
 }
@@ -210,7 +205,9 @@ extension AppModel {
                 guard let told = kept.read(), let waiting = try? await store.pendingReservations(),
                       let after = told.afterTheScreensSent(waiting: waiting, words: .recorder) else { return }
                 kept.keep(after)
-                if self.surroundings.asksAboutNotifications { await Notify.recorder(notYet: nil, withdraws: true) }
+                if self.surroundings.asksAboutNotifications {
+                    await self.surroundings.notifications.recorder(nil, true)
+                }
             }
         }
     }
