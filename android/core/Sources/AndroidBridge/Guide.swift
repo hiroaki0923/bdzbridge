@@ -1,118 +1,176 @@
 import Foundation
+import RecBridgeModel
 import RecorderKit
 
-// The guide, kept as the iOS app keeps it: in RecorderKit's cache (`GuideStore`), one file per recorder in a folder
-// the app names, filled from the recorder's own guide files (`GuideRefresh`) or, for the demo, with the invented
-// line-up (`DemoLineUp.seed`). Reading the guide changes nothing on the recorder.
+/// The guide's screen as the iOS app's list shows it (`GuideScreen`): one broadcasting type and one broadcast day,
+/// every station or one, from the cache, with what it says in place of the programmes when there are none.
+public struct GuideScreen: Sendable {
+    /// `programmes`, or what is shown in their place (`AppModel.guideShows`): `noRecorder`, `fetching` or `empty`.
+    public var shows: String
+    /// What is said with no recorder to talk to.
+    public var noRecorder: NoRecorder
+    /// What is said while the guide is on its way, or when it is empty for the day.
+    public var said: Said
+    /// What an empty guide offers: `arrange` (every station hidden: the stations' settings), `everyStation` (the
+    /// list narrowed to a station with nothing that day: back to all of them), or nothing.
+    public var offers: String
+    /// The station the list is narrowed to, or the broadcasting type.
+    public var heading: String
+    public var broadcastings: [Choice]
+    public var broadcasting: String
+    /// The stations of the type, in the reader's order, hidden ones left out; `station` is the one the list is
+    /// narrowed to, -1 for all of them.
+    public var stations: [Station]
+    public var station: Int64
+    /// The days of the guide, `11/8(日)`, and the one shown.
+    public var days: [String]
+    public var day: Int64
+    public var programmes: [GuideRow]
+    /// Counts the asks to go back to what is on now (`AppModel.goToNow`), which the list answers by scrolling there.
+    public var nowRequests: Int64
+    /// Whether 番組表を更新 is live (`AppModel.canRefreshGuideByHand`).
+    public var canRefresh: Bool
+    public var demo: Bool
+}
 
-/// A station of one broadcasting type, in the guide's order.
-public struct ChannelRow {
-    public var serviceID: Int
+public struct Station: Sendable {
+    public var serviceID: Int64
     public var name: String
 }
 
-/// One programme of a day, worded for its row and for its sheet, which shows what the iOS app's does.
-public struct ProgrammeRow {
-    public var eventID: Int
+/// One programme's row, as the iOS list words it (`ProgramRowView`). Whether it is on air or over is the screen's
+/// to work out each minute from `starts` and `ends`, as the iOS row does from its clock.
+public struct GuideRow: Sendable {
+    public var id: String
+    /// `21:00`, Japan time.
+    public var time: String
+    /// `54分`.
+    public var length: String
     public var title: String
-    /// `21:00〜21:54`.
-    public var span: String
-    /// The length and the genre: `54分 · ドラマ`.
-    public var details: String
+    public var station: String
+    /// `予約` or `録画中` for a reservation the recorder or the television holds, `送信待ち` for one waiting on this
+    /// device to be sent, or nothing; `markIsRed` for one recording now, or a waiting one the device refused.
+    public var mark: String
+    public var markIsRed: Bool
+    public var genre: String
+    public var summary: String
+    public var starts: Int64
+    public var ends: Int64
+}
+
+/// What a programme's sheet says of it, before its reservation part (`ProgramSheet`).
+public struct ProgrammeSheet: Sendable {
+    public var title: String
     public var station: String
     /// `11/8(日) 21:00`.
     public var starts: String
-    /// `54分`.
     public var length: String
-    /// Empty when the guide gives none.
     public var genre: String
     public var summary: String
     public var extended: String
-    public var onAir: Bool
-    public var ended: Bool
 }
 
-// In an extension, so that the memberwise initialiser stays.
-extension ProgrammeRow {
-    init(_ program: GuideProgramRow, now: Date) {
-        let length = "\(max(0, program.durationSec) / 60)分"
-        let genre = program.genre?.label ?? ""
-        self.init(eventID: program.eventID, title: program.title,
-                  span: "\(Wording.time.string(from: program.start))〜\(Wording.time.string(from: program.end))",
-                  details: [length, genre].filter { !$0.isEmpty }.joined(separator: " · "),
-                  station: program.serviceName, starts: Wording.day.string(from: program.start), length: length,
-                  genre: genre, summary: program.summary, extended: program.extended,
-                  onAir: program.start <= now && now < program.end, ended: program.end <= now)
+public final class GuideWindow: Sendable {
+    let model: AppModel
+    private let shown: Watched<GuideScreen>
+
+    init(_ model: AppModel) {
+        self.model = model
+        shown = Watched { GuideWindow.screen(model) }
     }
-}
 
-/// The guide's caches, one opened per file and kept open.
-actor GuideFiles {
-    static let shared = GuideFiles()
-    private var open: [String: GuideStore] = [:]
+    public func read() async -> GuideScreen { await shown.read() }
+    public func observe(_ listener: some ScreenListener) { shown.watch(listener) }
 
-    func store(in folder: String, for host: String) throws -> GuideStore {
-        let name = host == DemoRecorder.host ? "guide-demo.sqlite3" : "guide-\(host).sqlite3"
-        let path = (folder as NSString).appendingPathComponent(name)
-        if let store = open[path] { return store }
-        let store = try GuideStore(path: path)
-        open[path] = store
-        return store
+    public func chooseBroadcasting(_ broadcasting: String) async {
+        await MainActor.run { model.broadcasting = broadcasting }
+        await model.reloadFromCache()
     }
-}
 
-/// Fills the guide of the recorder at `host` into its cache in `folder`: terrestrial, BS and CS from the recorder, or
-/// the demo's invented line-up. Says what came of it, in the iOS app's words where something failed.
-public func refreshGuide(host: String, folder: String) async throws -> String {
-    do {
-        let store = try await GuideFiles.shared.store(in: folder, for: host)
-        if host == DemoRecorder.host {
-            try await DemoLineUp.seed(store) { _, _ in nil }
-            return "デモの番組表を入れました"
+    /// Narrows the list to one station, or with -1 shows all of them again.
+    public func chooseStation(_ serviceID: Int64) async {
+        await MainActor.run { model.serviceFilter = serviceID < 0 ? nil : Int(serviceID) }
+    }
+
+    /// The day at `index` of `days`.
+    public func chooseDay(_ index: Int64) async {
+        let chosen = await MainActor.run { () -> Bool in
+            guard model.days.indices.contains(Int(index)) else { return false }
+            model.day = model.days[Int(index)]
+            return true
         }
-        let outcome = await GuideRefresh.run(client: RecorderClient(host: host), store: store,
-                                             types: ["td", "bs", "cs"])
-        let failed = RecorderDriver.guideFailed(outcome.failed)
-        if outcome.stopped == .silent { return (failed + ["レコーダーが応答しませんでした"]).joined(separator: "\n") }
-        return failed.isEmpty ? "番組表を更新しました" : failed.joined(separator: "\n")
-    } catch {
-        throw BridgeError.from(error)
+        if chosen { await model.reloadFromCache() }
     }
-}
 
-/// The stations of `broadcasting` (`td`, `bs`, `cs`) the cache in `folder` holds for the recorder at `host`.
-public func channels(host: String, folder: String, broadcasting: String) async throws -> [ChannelRow] {
-    do {
-        let store = try await GuideFiles.shared.store(in: folder, for: host)
-        return try await store.channels(broadcasting: broadcasting).map { ChannelRow(serviceID: $0.serviceID, name: $0.name) }
-    } catch {
-        throw BridgeError.from(error)
+    /// Back to what is on now: today, scrolled to it.
+    public func goToNow() async {
+        await model.goToNow()
     }
-}
 
-/// One station's programmes on the broadcast day `dayOffset` days from today's (a day runs 04:00 to 04:00, Japan time).
-public func programmes(host: String, folder: String, broadcasting: String, serviceID: Int,
-                       dayOffset: Int) async throws -> [ProgrammeRow] {
-    do {
-        let store = try await GuideFiles.shared.store(in: folder, for: host)
-        let day = broadcastDay(dayOffset)
-        let now = Date()
-        return try await store.day(day, broadcasting: broadcasting, serviceID: serviceID).map { ProgrammeRow($0, now: now) }
-    } catch {
-        throw BridgeError.from(error)
+    /// 番組表を更新: every type, from the device the guide comes from. What there is to say of it, or nothing.
+    public func refreshByHand() async -> String {
+        await model.refreshGuideByHandFromSource()?.asABody ?? ""
     }
-}
 
-/// The broadcast day `dayOffset` days from today's, as a heading: `11/8(日)`.
-public func dayHeading(dayOffset: Int) -> String {
-    Wording.dayOnly.string(from: GuideStore.dayRange(containing: broadcastDay(dayOffset)).start)
-}
+    /// The sheet of the programme whose row has `id`, while the day on screen has it.
+    public func programme(_ id: String) async -> ProgrammeSheet? {
+        await MainActor.run {
+            model.programs.first { $0.id == id }.map { program in
+                ProgrammeSheet(title: program.title, station: program.serviceName,
+                               starts: Format.dateTime.string(from: program.start),
+                               length: Format.duration(program.durationSec), genre: program.genre?.label ?? "",
+                               summary: program.summary, extended: program.extended)
+            }
+        }
+    }
 
-/// The broadcast day `dayOffset` days from the one on air now, as `GuideStore.dayRange` takes it: until four in the
-/// morning the day on air is still the day before's (`GuideStore.broadcastDay`).
-func broadcastDay(_ dayOffset: Int, from now: Date = Date()) -> Date {
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = RecorderTime.timeZone
-    let today = GuideStore.broadcastDay(containing: now)
-    return calendar.date(byAdding: .day, value: dayOffset, to: today) ?? today
+    @MainActor
+    private static func screen(_ model: AppModel) -> GuideScreen {
+        let narrowed = model.serviceFilter != nil
+        let shows = model.guideShows(grid: false)
+        var said = Said("")
+        var offers = ""
+        switch shows {
+        case .fetching:
+            said = Said(AppModel.fetchingTheGuide)
+        case .empty:
+            let empty = model.guideEmpty(narrowed: narrowed)
+            said = Said(model.says(empty))
+            if empty == .everyChannelHidden { offers = "arrange" }
+            if empty == .narrowedToNothing { offers = "everyStation" }
+        case .noRecorder, .programmes:
+            break
+        }
+        let channel = model.serviceFilter.flatMap { id in model.channels.first { $0.serviceID == id } }
+        let type = model.broadcasting
+        return GuideScreen(
+            shows: "\(shows)", noRecorder: NoRecorder(model), said: said, offers: offers,
+            heading: channel?.name ?? Codes.broadcastingShortLabel[type] ?? Codes.broadcastingLabel[type] ?? "番組表",
+            broadcastings: GuideRefresh.offeredTypes(model.counts).map {
+                Choice(code: $0, label: Codes.broadcastingLabel[$0] ?? $0)
+            },
+            broadcasting: type,
+            stations: model.channels.map { Station(serviceID: Int64($0.serviceID), name: $0.name) },
+            station: Int64(model.serviceFilter ?? -1),
+            days: model.days.map { Format.day.string(from: $0) },
+            day: Int64(model.days.firstIndex { Calendar.current.isDate($0, inSameDayAs: model.day) } ?? 0),
+            programmes: model.filteredPrograms.map { row($0, model) },
+            nowRequests: Int64(model.nowRequests), canRefresh: model.canRefreshGuideByHand, demo: model.demo)
+    }
+
+    @MainActor
+    private static func row(_ program: GuideProgramRow, _ model: AppModel) -> GuideRow {
+        var mark = "", red = false
+        if let reservation = model.reservation(for: program) {
+            mark = reservation.recording ? "録画中" : "予約"
+            red = reservation.recording
+        } else if let waiting = model.pending(for: program) {
+            mark = "送信待ち"
+            red = waiting.problem != nil
+        }
+        return GuideRow(id: program.id, time: Format.time.string(from: program.start),
+                        length: Format.duration(program.durationSec), title: program.title,
+                        station: program.serviceName, mark: mark, markIsRed: red, genre: program.genre?.label ?? "",
+                        summary: program.summary, starts: seconds(program.start), ends: seconds(program.end))
+    }
 }

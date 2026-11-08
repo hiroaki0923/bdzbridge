@@ -1,11 +1,12 @@
 // swift-tools-version: 6.2
-// What the Android app calls in Swift: a thin layer over RecorderKit whose Java side swift-java's JNI mode generates
-// (android/README.md). Reads only, for now.
+// What the Android app calls in Swift: windows over the app's model (RecBridgeModel, beside RecorderKit), whose Java
+// side swift-java's JNI mode generates (android/README.md). macOS 26 for Observation's `Observations`, which the
+// windows watch the model by; nothing here is built for iOS.
 import PackageDescription
 
 let package = Package(
     name: "AndroidBridge",
-    platforms: [.macOS(.v15), .iOS(.v17)],
+    platforms: [.macOS(.v26)],
     products: [
         .library(name: "AndroidBridge", type: .dynamic, targets: ["AndroidBridge"]),
     ],
@@ -18,6 +19,7 @@ let package = Package(
             name: "AndroidBridge",
             dependencies: [
                 .product(name: "RecorderKit", package: "RecorderKit"),
+                .product(name: "RecBridgeModel", package: "RecorderKit"),
                 .product(name: "SwiftJava", package: "swift-java"),
             ],
             swiftSettings: [.swiftLanguageMode(.v5)],

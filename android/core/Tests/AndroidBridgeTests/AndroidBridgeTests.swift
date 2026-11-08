@@ -1,73 +1,169 @@
+import Foundation
+import RecBridgeModel
+import RecorderKit
 import XCTest
 @testable import AndroidBridge
 
-/// The bridge against the demo's invented recorder: what the Android screens are handed.
+/// The windows over the app's model, against the demo's invented recorder: what the Android screens are handed. Each
+/// test makes a model of its own on a folder it throws away, as the model's own tests do; nothing reaches the LAN,
+/// since nothing here is given an address but the demo's.
 final class AndroidBridgeTests: XCTestCase {
-    func testTheDemoRecorderDescribesItself() async throws {
-        let info = try await describeRecorder(host: demoHost())
-        XCTAssertEqual(info.host, demoHost())
-        XCTAssertFalse(info.name.isEmpty)
-        XCTAssertFalse(info.model.isEmpty)
+    private var folder: URL!
+
+    override func setUp() {
+        folder = FileManager.default.temporaryDirectory.appendingPathComponent("bridge-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     }
 
-    func testReservationsAreWordedAndSoonestFirst() async throws {
-        let rows = try await reservations(host: demoHost())
-        XCTAssertFalse(rows.isEmpty, "the demo holds reservations")
-        XCTAssertTrue(rows.allSatisfy { $0.date.contains("(") && $0.span.contains("〜") && $0.span.hasSuffix("分") })
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: folder)
     }
 
-    func testRecordingsAreWordedAndNewestFirst() async throws {
-        let rows = try await recordings(host: demoHost())
-        XCTAssertFalse(rows.isEmpty, "the demo holds recordings")
-        XCTAssertTrue(rows.allSatisfy { !$0.title.isEmpty && $0.details.contains("分") })
+    @MainActor
+    private func demo() async -> RecBridgeApp {
+        let app = RecBridgeApp(model: AppModel(surroundings: .android(files: folder.path, version: "0.1 (1)")))
+        await app.start()
+        await app.devices().enterDemo()
+        return app
     }
 
-    func testAJobOnTheMainActorRunsOnTheMainThread() async {
-        let said = await mainActorCheck()
-        XCTAssertEqual(said, "main actor ran on the main thread")
-    }
-
-    func testTheDemosGuideIsFilledAndReadAStationAtATime() async throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("bridge-guide-\(UUID().uuidString)").path
-        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(atPath: folder) }
-        let said = try await refreshGuide(host: demoHost(), folder: folder)
-        XCTAssertEqual(said, "デモの番組表を入れました")
-        let stations = try await channels(host: demoHost(), folder: folder, broadcasting: "td")
-        XCTAssertFalse(stations.isEmpty)
-        let today = try await programmes(host: demoHost(), folder: folder, broadcasting: "td",
-                                         serviceID: stations[0].serviceID, dayOffset: 0)
-        XCTAssertFalse(today.isEmpty, "the demo's guide covers today")
-        XCTAssertTrue(today.allSatisfy { $0.span.contains("〜") && $0.details.contains("分") })
-        XCTAssertTrue(today.allSatisfy { $0.station == stations[0].name && $0.starts.hasSuffix($0.span.prefix(5)) },
-                      "the sheet's station and start are the row's")
-        XCTAssertTrue(today.contains { !$0.summary.isEmpty }, "the demo's programmes say what they are")
-        XCTAssertEqual(today.filter(\.onAir).count, 1, "one programme is on air on today's list")
-        XCTAssertTrue(dayHeading(dayOffset: 0).contains("("))
-    }
-
-    /// Just before four in the morning the day on air is still the one before; from four it is the new one.
-    func testTodayIsTheBroadcastDayOnAir() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "Asia/Tokyo")!
-        func at(_ day: Int, _ hour: Int) -> Date {
-            calendar.date(from: DateComponents(year: 2026, month: 11, day: day, hour: hour, minute: 59))!
+    /// Waits for what a window shows to come to `done`, reading it as the screen does.
+    @MainActor
+    private func until<Shown>(_ read: () async -> Shown, _ done: (Shown) -> Bool,
+                              file: StaticString = #filePath, line: UInt = #line) async -> Shown {
+        for _ in 0..<200 {
+            let shown = await read()
+            if done(shown) { return shown }
+            try? await Task.sleep(for: .milliseconds(25))
         }
-        func named(_ day: Date) -> Int { calendar.component(.day, from: day) }
-        XCTAssertEqual(named(broadcastDay(0, from: at(8, 1))), 7, "two in the morning is still the 7th's")
-        XCTAssertEqual(named(broadcastDay(0, from: at(8, 4))), 8)
-        XCTAssertEqual(named(broadcastDay(1, from: at(8, 1))), 8)
+        let shown = await read()
+        XCTAssertTrue(done(shown), "never came to it", file: file, line: line)
+        return shown
     }
 
-    func testAFailureIsSaidInTheAppsWords() async {
-        do {
-            _ = try await reservations(host: "not an address")
-            XCTFail("an address that is none answered")
-        } catch let error as BridgeError {
-            XCTAssertFalse(error.description.isEmpty)
-            XCTAssertFalse(error.description.contains("BridgeError"), "the words, not the type: \(error.description)")
-        } catch {
-            XCTFail("not said as the bridge's: \(error)")
-        }
+    @MainActor
+    func testTheDemosGuideIsWordedAsTheIOSListWordsIt() async throws {
+        let guide = await demo().guide()
+        let shown = await until(guide.read) { $0.shows == "programmes" }
+        XCTAssertTrue(shown.demo)
+        XCTAssertEqual(shown.broadcasting, "td")
+        XCTAssertEqual(shown.heading, "地デジ")
+        XCTAssertEqual(shown.station, -1, "every station")
+        XCTAssertFalse(shown.stations.isEmpty)
+        XCTAssertTrue(shown.broadcastings.contains { $0.code == "bs" && $0.label == Codes.broadcastingLabel["bs"] })
+        XCTAssertEqual(shown.days.count, GuideStore.broadcastDays().count)
+        XCTAssertEqual(shown.day, 0)
+        XCTAssertTrue(shown.programmes.allSatisfy { $0.time.count == 5 && $0.length.hasSuffix("分") })
+        XCTAssertGreaterThan(Set(shown.programmes.map(\.station)).count, 1, "every station's programmes")
+        let now = Int64(Date().timeIntervalSince1970)
+        XCTAssertGreaterThan(shown.programmes.filter { $0.starts <= now && now < $0.ends }.count, 0, "some on air now")
+
+        let first = try XCTUnwrap(shown.programmes.first)
+        let sheet = await guide.programme(first.id)
+        XCTAssertEqual(sheet?.title, first.title)
+        XCTAssertEqual(sheet?.station, first.station)
+        XCTAssertTrue(sheet?.starts.hasSuffix(first.time) ?? false)
+        let nothing = await guide.programme("none")
+        XCTAssertNil(nothing)
     }
+
+    @MainActor
+    func testTheGuideFollowsWhatTheReaderChooses() async throws {
+        let guide = await demo().guide()
+        let today = await until(guide.read) { $0.shows == "programmes" }
+        let station = try XCTUnwrap(today.stations.last)
+
+        await guide.chooseStation(station.serviceID)
+        let narrowed = await until(guide.read) { $0.station == station.serviceID }
+        XCTAssertEqual(narrowed.heading, station.name)
+        XCTAssertTrue(narrowed.programmes.allSatisfy { $0.station == station.name })
+
+        await guide.chooseDay(1)
+        let tomorrow = await until(guide.read) { $0.day == 1 }
+        XCTAssertNotEqual(tomorrow.programmes.first?.id, narrowed.programmes.first?.id)
+
+        await guide.chooseStation(-1)
+        await guide.chooseBroadcasting("bs")
+        let bs = await until(guide.read) { $0.broadcasting == "bs" && $0.shows == "programmes" }
+        XCTAssertEqual(bs.heading, "BS")
+
+        await guide.goToNow()
+        let back = await until(guide.read) { $0.day == 0 && $0.nowRequests > tomorrow.nowRequests }
+        XCTAssertEqual(back.broadcasting, "bs", "going to now keeps the type")
+    }
+
+    @MainActor
+    func testAWindowTellsItsListenerOfAChange() async throws {
+        let guide = await demo().guide()
+        _ = await until(guide.read) { $0.shows == "programmes" }
+        let listener = Counting()
+        guide.observe(listener)
+        _ = await until({ listener.count }) { $0 >= 1 }
+        let told = listener.count
+        await guide.chooseDay(2)
+        _ = await until({ listener.count }) { $0 > told }
+        let shown = await guide.read()
+        XCTAssertEqual(shown.day, 2, "what it told of is what is read")
+    }
+
+    @MainActor
+    func testTheDemosReservationsAndRecordingsAreListed() async throws {
+        let app = await demo()
+        let reservations = app.reservations()
+        await reservations.load()
+        let listed = await until(reservations.read) { !$0.sections.isEmpty }
+        XCTAssertFalse(listed.hasNoRecorder)
+        XCTAssertFalse(listed.isEmpty)
+        XCTAssertTrue(listed.subtitle.contains("件"))
+        XCTAssertTrue(listed.sections.allSatisfy { $0.title.contains("(") && !$0.rows.isEmpty })
+        XCTAssertTrue(listed.sections.flatMap(\.rows).allSatisfy { $0.time.count == 5 && !$0.title.isEmpty })
+
+        let recordings = app.recordings()
+        await recordings.load()
+        let titles = await until(recordings.read) { !$0.rows.isEmpty }
+        XCTAssertFalse(titles.hasNoRecorder)
+        XCTAssertEqual(titles.subtitle, "\(titles.rows.count) 件")
+        XCTAssertTrue(titles.rows.allSatisfy { $0.details.contains("(") && !$0.watched.isEmpty })
+    }
+
+    @MainActor
+    func testLeavingTheDemoGoesBackToNoRecorder() async throws {
+        let app = await demo()
+        let devices = app.devices()
+        let inDemo = await devices.read()
+        XCTAssertTrue(inDemo.demo)
+        XCTAssertFalse(inDemo.welcomes)
+        await devices.leaveDemo()
+        let after = await until(devices.read) { !$0.demo }
+        XCTAssertTrue(after.welcomes, "nothing was set up before the demo")
+        let guide = await until(app.guide().read) { $0.shows == "noRecorder" }
+        XCTAssertEqual(guide.noRecorder.kind, "notAdded")
+        XCTAssertEqual(guide.noRecorder.said.title, AppModel.notAdded.title)
+    }
+
+    @MainActor
+    func testATypedAddressIsSaidAsTheIOSFieldSaysIt() {
+        let app = RecBridgeApp(model: AppModel(surroundings: .android(files: folder.path, version: "0.1 (1)")))
+        let devices = app.devices()
+        XCTAssertFalse(devices.typed("").usable)
+        XCTAssertEqual(devices.typed("").note, "")
+        let wrong = devices.typed("レコーダー")
+        XCTAssertFalse(wrong.usable)
+        XCTAssertTrue(wrong.warning)
+        let port = devices.typed("192.0.2.10:64220")
+        XCTAssertTrue(port.usable)
+        XCTAssertEqual(port.host, "192.0.2.10")
+        XCTAssertTrue(port.note.contains(":64220"))
+        let wide = devices.typed("１９２．０．２．１０")
+        XCTAssertEqual(wide.host, "192.0.2.10", "full-width digits are taken")
+    }
+}
+
+final class Counting: ScreenListener, @unchecked Sendable {
+    private let lock = NSLock()
+    private var told = 0
+
+    var count: Int { lock.withLock { told } }
+
+    func changed() { lock.withLock { told += 1 } }
 }
