@@ -100,9 +100,13 @@ public final class TVRegisterState {
         press()
     }
 
-    /// テレビに接続, or 登録する once the PIN is asked for.
+    /// テレビに接続, or 登録する once the PIN is asked for. Held from the press on, in the same turn: a second press
+    /// before the step has begun would otherwise start one of its own and take the first's place as the one closing
+    /// the sheet ends, leaving the first to go on to the registration -- a number put on the panel for nobody.
     public func press() {
         guard !working else { return }
+        working = true
+        message = nil
         step = Task { await next() }
     }
 
@@ -113,11 +117,7 @@ public final class TVRegisterState {
     }
 
     private func next() async {
-        // A second tap before the button is drawn disabled would send the whole of it again.
-        guard !working else { return }
-        working = true
         defer { working = false }
-        message = nil
         let host = tidied
         let model = model
         // The steps are the package's; closing the sheet cancels the step, after which nothing is registered.

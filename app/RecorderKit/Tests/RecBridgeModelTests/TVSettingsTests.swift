@@ -87,6 +87,27 @@ final class TVSettingsTests: XCTestCase {
         XCTAssertFalse(closing.done)
     }
 
+    /// A second press before the first step has begun does nothing, and closing the sheet then ends the first: the
+    /// television is asked for no registration, and no number goes on its panel.
+    func testASecondPressIsHeldAndClosingEndsTheFirstStep() async throws {
+        let bench = try aBench()
+        let television = DemoTV(power: "active")
+        let model = bench.modelWithNoRecorder(television: television, credentials: MemoryTVCredentials(),
+                                              saved: false)
+        let sheet = TVRegisterState(model: model, host: Bench.tvHost)
+        sheet.press()
+        XCTAssertTrue(sheet.holdsThePress, "the button was not held from the press on")
+        sheet.press()
+        sheet.closed()
+        // Once the step has asked what is at the address, which it does closed or not, and has ended.
+        try await until("the step never ended") {
+            await television.calls.contains { $0.hasPrefix("getPowerStatus") } && !sheet.working
+        }
+        let registrations = await television.calls.filter { $0.hasPrefix("actRegister") }
+        XCTAssertEqual(registrations, [], "a registration was asked for after the sheet had closed")
+        XCTAssertFalse(sheet.askingForPIN)
+    }
+
     /// The helper's code is six figures: anything else holds the button, and so does a registration out. What went
     /// wrong is said, and the sheet stays.
     func testTheHelpersCodeIsSixFiguresAndWhatWentWrongIsSaid() async throws {
