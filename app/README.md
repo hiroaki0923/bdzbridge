@@ -80,7 +80,8 @@
   What the screens say of what waits is chosen in the model, where a test can hold it:
   the device a waiting row names and what the reservations tab says under the rows (`deviceSaid`,
   `whatWaitsSays`, whose sentences are the queue's, `PendingQueue.whatWaits`), and which one line the strip at
-  the top of every screen shows (`AppModel.strip`, beside the view that draws it in `BDBridgeApp.swift`). What
+  the top of every screen shows (`AppModel.strip`, in `AppModelStrip.swift`; the view that draws it is in
+  `BDBridgeApp.swift`). What
   the app knows of the recorder and of the link to it -- described, unreachable, given up on, being woken -- is
   `SessionState`, which changes only by what happened to it; the screens read it through `AppModel`.
 - `BDBridgeTests/` — unit tests of `AppModel`, run inside the app with no recorder and no network (below).

@@ -1,6 +1,5 @@
 import RecorderKit
 import SwiftUI
-import UserNotifications
 
 struct SettingsScreen: View {
     @Environment(AppModel.self) private var model
@@ -384,13 +383,13 @@ struct SettingsScreen: View {
         return rows
     }
 
-    private static func permissionLabel(_ status: UNAuthorizationStatus) -> String {
+    private static func permissionLabel(_ status: NotificationPermission) -> String {
         switch status {
         case .authorized, .ephemeral: "オン"
         case .provisional: "通知センターのみ"
         case .denied: "オフ"
         case .notDetermined: "未設定"
-        @unknown default: ""
+        case .unknown: ""
         }
     }
 

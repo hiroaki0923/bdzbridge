@@ -1,6 +1,5 @@
 import Foundation
 import RecorderKit
-import SwiftUI
 
 /// Choosing the recorder: the demo and leaving it, an address typed in or picked from a scan, and the
 /// scan of the subnet itself, which looks for the recorder and the television together.
@@ -132,7 +131,7 @@ extension AppModel {
             phoneProblem = Self.cacheNotOpened(error)
         }
         if let store {
-            if demo { try? await DemoData.seed(store: store) }
+            if demo { try? await DemoLineUp.seed(store, logo: surroundings.demoLogo) }
             await reloadFromCache()
             await loadPending()
         }
@@ -392,7 +391,7 @@ extension AppModel {
     /// VoiceOver reader's focus still is, on the button they tapped.
     private func report(_ outcome: ScanOutcome) {
         scanOutcome = outcome
-        AccessibilityNotification.Announcement(outcome.text).post()
+        surroundings.announce(outcome.text)
     }
 
     /// What a scan came to, in the package's words (`DeviceSearch.Outcome`): what was found of each kind,

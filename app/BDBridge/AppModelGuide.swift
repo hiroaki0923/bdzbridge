@@ -1,6 +1,5 @@
 import Foundation
 import RecorderKit
-import SwiftUI
 
 /// The guide as the screens read it: the day and the clock, which broadcasting types are behind and
 /// fetching them, the cache, the logos, the search, and which channels are shown.

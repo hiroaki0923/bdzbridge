@@ -615,10 +615,10 @@ final class RunGateTests: XCTestCase {
             await recorder.asked(Ask.freeSpace, since: before) == 1
         }
         XCTAssertTrue(model.jobRunning, "the job ended before its free space had been read")
-        XCTAssertNotEqual(model.stepTask, .invalid, "the free space after a run is read under no background task")
+        XCTAssertTrue(model.holdsAStep, "the free space after a run is read under no background task")
         await recorder.letGo()
         try await untilTheRunEnds(model)
-        XCTAssertEqual(model.stepTask, .invalid, "the background task was kept once the run had ended")
+        XCTAssertFalse(model.holdsAStep, "the background task was kept once the run had ended")
         XCTAssertEqual(model.job?.outcome, "1 件を削除しました")
     }
 
@@ -1188,13 +1188,13 @@ final class RunGateTests: XCTestCase {
             try await until("\(what) never asked its first question") {
                 await recorder.asked(Ask.details, since: before) == 1
             }
-            XCTAssertNotEqual(model.stepTask, .invalid, "\(what): the step that is out is under no background task")
+            XCTAssertTrue(model.holdsAStep, "\(what): the step that is out is under no background task")
             model.wentToBackground()
             await recorder.letGo()
             try await until("\(what) never counted the recording that was out") { (model.job?.done ?? 0) > 0 }
             XCTAssertTrue(model.jobWaitsForTheApp, "\(what) did not wait for the app to come back")
             XCTAssertEqual(model.job?.done, 1, "\(what) counted more than the recording that was out")
-            XCTAssertEqual(model.stepTask, .invalid, "\(what) kept a background task while it waited")
+            XCTAssertFalse(model.holdsAStep, "\(what) kept a background task while it waited")
             expectEqual(await recorder.asked(Ask.details, since: before), 1,
                         "\(what) went on to its next recording while the app was away")
             await model.returnedToForeground()
@@ -1467,7 +1467,7 @@ final class RunGateTests: XCTestCase {
         XCTAssertEqual(model.job?.changed, [idle[0].id])
         XCTAssertEqual(model.job?.outcome, "1 件を削除したところで中止しました")
         XCTAssertNil(model.job?.stopped, "a run stopped by 中止 says a reason of the recorder's")
-        XCTAssertEqual(model.stepTask, .invalid, "the background task was kept once the run had ended")
+        XCTAssertFalse(model.holdsAStep, "the background task was kept once the run had ended")
     }
 
     // MARK: - the list under a run
@@ -1536,7 +1536,7 @@ final class RunGateTests: XCTestCase {
             await recorder.asked(Ask.recordings, since: before) == 1
         }
         let back = Task { await model.returnedToForeground() }
-        try await until("the run never began its step") { model.stepTask != .invalid }
+        try await until("the run never began its step") { model.holdsAStep }
         await recorder.letGo()
         try await within(10, "the recordings were never read again") { await reading.value }
         try await within(10, "the return to the app never ended") { await back.value }

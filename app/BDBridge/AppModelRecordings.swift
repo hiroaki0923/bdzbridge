@@ -1,6 +1,5 @@
 import Foundation
 import RecorderKit
-import SwiftUI
 
 /// Recordings: the list, its orders and groups, one recording's details, protecting, deleting and
 /// playing it, and powering the recorder on.

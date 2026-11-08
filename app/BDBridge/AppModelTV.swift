@@ -318,7 +318,7 @@ extension AppModel {
         if let under = told?.registration, registrations.contains(under) { return }
         if let left = ToldOnce.kept(forgetting: told, by: forgetting) { kept.keep(left) } else { kept.forget() }
         guard surroundings.asksAboutNotifications else { return }
-        Notify.withdrawTelevision(ToldOnce.withdrawn(forgetting: told, by: forgetting))
+        surroundings.notifications.withdrawTelevision(ToldOnce.withdrawn(forgetting: told, by: forgetting))
     }
 
     /// The warning the runs with no screen left of reservations not yet at the television is taken away once
@@ -339,7 +339,9 @@ extension AppModel {
                 guard let told = kept.read(), let waiting = try? await store.pendingReservations(),
                       let after = told.afterTheScreensSent(waiting: waiting) else { return }
                 kept.keep(after)
-                if self.surroundings.asksAboutNotifications { Notify.withdrawTelevisionNotYet() }
+                if self.surroundings.asksAboutNotifications {
+                    self.surroundings.notifications.withdrawTelevisionNotYet()
+                }
             }
         }
     }

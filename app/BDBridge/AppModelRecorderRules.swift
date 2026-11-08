@@ -1,6 +1,5 @@
 import Foundation
 import RecorderKit
-import SwiftUI
 
 /// The recorder's own keyword conditions (おまかせ・まる録): read, added and removed, never changed.
 extension AppModel {

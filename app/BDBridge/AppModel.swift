@@ -1,8 +1,6 @@
 import Foundation
-import Network
+import Observation
 import RecorderKit
-import SwiftUI
-import UserNotifications
 
 /// Everything the screens share: which recorder we talk to, the guide cache, and what is on screen now.
 ///
@@ -249,7 +247,7 @@ final class AppModel {
     /// Where notification permission stands, for the settings to say. Nil until it has been read. The app
     /// changes it itself -- provisionally after the first connect, with the dialog when a reservation is
     /// queued -- and the reader can change it in the Settings app, so it is read again after each.
-    var notifications: UNAuthorizationStatus?
+    var notifications: NotificationPermission?
 
     var store: GuideStore?
     /// The recorder's client: the attempt's under way, or the last one's. Nil when the recorder has been let go of.
@@ -259,7 +257,8 @@ final class AppModel {
     /// Set once the first connect has been set going, so that it is set going once, however many screens
     /// call `start()`.
     private var launched = false
-    var pathMonitor: NWPathMonitor?
+    /// What watches the network underneath, kept for as long as it is to watch (`watchNetwork`).
+    var networkWatch: AnyObject?
     /// Kept for as long as the demo lasts, because it holds what the reader has done to it: a reservation
     /// made in the demo has to still be there after a reconnect.
     var demoRecorder: DemoRecorder?
@@ -283,9 +282,10 @@ final class AppModel {
     /// log of a scan for a recorder.
     var appIsActive = true
     /// Whether a bulk job is waiting between two steps for the app to come back (`BulkRuns.waitsForTheApp`), and
-    /// the background task its step runs under (`RecorderHost.stepTask`).
+    /// whether the step under way has the time the system gives it once the reader leaves the app
+    /// (`RecorderHost.holdsAStep`).
     var jobWaitsForTheApp: Bool { recorderHost.runs.waitsForTheApp }
-    var stepTask: UIBackgroundTaskIdentifier { recorderHost.stepTask }
+    var holdsAStep: Bool { recorderHost.holdsAStep }
     /// Where the settings and the database are kept, how requests reach the recorder, and what the model
     /// does on the network by itself. The app's own everywhere but in the unit tests; see `Surroundings`.
     let surroundings: Surroundings
@@ -404,7 +404,7 @@ final class AppModel {
                                    busyTimeoutMilliseconds: surroundings.storeBusyTimeoutMilliseconds)
             // Invented programmes: for the screenshots, and for anyone without a recorder to hand. See
             // DemoData.
-            if demo, let store { try? await DemoData.seed(store: store) }
+            if demo, let store { try? await DemoLineUp.seed(store, logo: surroundings.demoLogo) }
             await reloadFromCache()
             // A guide cached by a build that searched only titles and descriptions is made searchable by its
             // details here, once, in place: fetching it again would need the recorder. The guide is on
@@ -430,8 +430,8 @@ final class AppModel {
         let television = Task { await self.tv?.connect() }
         if !host.isEmpty { await connect() }
         await television.value
-        // After the first attempt, not before it: `NWPathMonitor` reports the path it already has as
-        // soon as it starts, and that would be a second connect racing the first.
+        // After the first attempt, not before it: the app's watcher (`NWPathMonitor`) reports the path it
+        // already has as soon as it starts, and that would be a second connect racing the first.
         watchNetwork()
     }
 

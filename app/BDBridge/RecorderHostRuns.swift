@@ -1,6 +1,5 @@
 import Foundation
 import RecorderKit
-import UIKit
 
 extension RecorderSaid: DuplicatesHeld {}
 extension TVHost: TitlesHeld {}
@@ -114,20 +113,18 @@ extension RecorderHost {
         if walkedTheTelevision { await model?.tvHost?.loadTitles() }
     }
 
-    /// Begins the background task one step of a job runs under, so that a step under way when the reader leaves
-    /// the app is finished rather than frozen half way, and hands back its end. iOS allows half a minute or so,
-    /// which a step fits in with room to spare unless the recorder has gone quiet, and then the task is ended when
-    /// the time runs out, as iOS requires.
+    /// Begins the time the system gives one step of a job once the reader leaves the app (`Surroundings.holdTime`,
+    /// a background task in the app), so that a step under way then is finished rather than frozen half way, and
+    /// hands back its end. iOS allows half a minute or so, which a step fits in with room to spare unless the
+    /// recorder has gone quiet, and then the time is ended when it runs out, as iOS requires.
     func holdAStep() -> @MainActor () -> Void {
-        stepTask = UIApplication.shared.beginBackgroundTask(withName: "BulkStep") { [weak self] in
-            self?.endStepTask()
-        }
-        return { [weak self] in self?.endStepTask() }
+        stepEnd = model?.surroundings.holdTime { [weak self] in self?.endStepTime() }
+        return { [weak self] in self?.endStepTime() }
     }
 
-    private func endStepTask() {
-        guard stepTask != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(stepTask)
-        stepTask = .invalid
+    private func endStepTime() {
+        guard let end = stepEnd else { return }
+        stepEnd = nil
+        end()
     }
 }

@@ -21,7 +21,7 @@ final class SendWaitingTests: XCTestCase {
         XCTAssertEqual(sending, .nothingWaiting)
         let asked = await recorder.asked
         XCTAssertEqual(asked, 0, "the recorder was asked with nothing to send it")
-        XCTAssertEqual(SendWaitingIntent.saying(sending), "送信待ちの予約はありません。")
+        XCTAssertEqual(BackgroundWork.saying(sending), "送信待ちの予約はありません。")
     }
 
     /// A reservation queued away from home goes to the recorder once it answers, and leaves the queue.
@@ -39,7 +39,7 @@ final class SendWaitingTests: XCTestCase {
         }
         XCTAssertEqual(outcome.sent.map(\.id), [waiting.id])
         expectTrue(try await store.pendingReservations().isEmpty, "what was sent stayed in the queue")
-        XCTAssertTrue(SendWaitingIntent.saying(sending).contains("を予約しました"))
+        XCTAssertTrue(BackgroundWork.saying(sending).contains("を予約しました"))
     }
 
     /// Still away, or the recorder not coming up: nothing is lost, and the next chance sends it.
