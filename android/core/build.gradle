@@ -1,0 +1,77 @@
+// The Swift bridge (Package.swift beside this file) as an Android library: built for arm64 with the Swift SDK for
+// Android through swiftly, swift-java's generated Java added as sources, and the libraries with Swift's runtime packed
+// as jniLibs. After swift-android-examples' swift-java-weather-app. See README.md for what has to be in place.
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace "jp.hiroaki.bdbridge.core"
+    compileSdk 34
+    ndkVersion "30.0.16248370"
+    defaultConfig { minSdk 28 }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    api('org.swift.swiftkit:swiftkit-core:0.7.0')
+}
+
+android {
+    defaultConfig {
+        // Kept whole in a shrunk build: the Swift side reaches these by their names through JNI.
+        consumerProguardFiles "consumer-rules.pro"
+    }
+}
+
+def home = System.getProperty('user.home')
+def swiftly = System.getenv('SWIFTLY_PATH') ?: "${home}/.swiftly/bin/swiftly"
+def swiftVersion = "6.4.2"
+def swiftSdk = "swift-${swiftVersion}-RELEASE_android"
+def swiftSdkPath = "${home}/Library/org.swift.swiftpm/swift-sdks/${swiftSdk}.artifactbundle"
+// The Swift SDK's floor is API 28, the app's too.
+def triple = "aarch64-unknown-linux-android28"
+// `-PswiftConfiguration=release` builds the Swift side optimised, for a release build of the app.
+def swiftConfiguration = project.findProperty("swiftConfiguration") ?: "debug"
+def runtime = ["swiftCore", "swift_Concurrency", "swift_StringProcessing", "swift_RegexParser", "swift_Builtin_float",
+               "swift_math", "swiftAndroid", "dispatch", "BlocksRuntime", "swiftSwiftOnoneSupport", "swiftDispatch",
+               "Foundation", "FoundationEssentials", "FoundationInternationalization", "_FoundationICU",
+               "FoundationNetworking", "FoundationXML", "swiftSynchronization", "swiftObservation"]
+def jniLibsDir = layout.buildDirectory.dir("generated/jniLibs")
+
+def buildSwift = tasks.register("buildSwift", Exec) {
+    inputs.file(new File(projectDir, "Package.swift"))
+    inputs.dir(new File(projectDir, "Sources"))
+    inputs.dir(new File(projectDir, "../../app/RecorderKit/Sources"))
+    outputs.dir(layout.projectDirectory.dir(".build/plugins/outputs/core/AndroidBridge/destination/JExtractSwiftPlugin/src/generated/java"))
+    outputs.dir(layout.projectDirectory.dir(".build/${triple}/${swiftConfiguration}"))
+    workingDir = layout.projectDirectory
+    doFirst { environment "ANDROID_NDK_HOME", android.ndkDirectory.absolutePath }
+    executable swiftly
+    args "run", "swift", "build", "+${swiftVersion}", "--swift-sdk", swiftSdk, "--triple", triple,
+         "-c", swiftConfiguration, "--build-system", "native", "--disable-sandbox"
+}
+
+def copyJniLibs = tasks.register("copyJniLibs", Copy) {
+    dependsOn buildSwift
+    from(layout.projectDirectory.dir(".build/${triple}/${swiftConfiguration}")) { include "*.so"; into "arm64-v8a" }
+    from(file("${swiftSdkPath}/swift-android/ndk-sysroot/usr/lib/aarch64-linux-android/libc++_shared.so")) { into "arm64-v8a" }
+    from(runtime.collect { "${swiftSdkPath}/swift-android/swift-resources/usr/lib/swift-aarch64/android/lib${it}.so" }) {
+        into "arm64-v8a"
+    }
+    into jniLibsDir
+}
+
+android {
+    sourceSets {
+        main {
+            java { srcDir(buildSwift) }
+            jniLibs { srcDir(jniLibsDir) }
+        }
+    }
+}
+
+preBuild.dependsOn(copyJniLibs)

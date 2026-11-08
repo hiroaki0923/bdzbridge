@@ -12,13 +12,16 @@ RecBridge の iOS アプリを Android に持っていけるか、とくにレ�
   残りは Foundation と標準ライブラリ（async/await、actor、Observation）だけで書いてあります。
 - Kotlin で書き直すと、RecorderKit とアプリのモデルを合わせて約 25,000 行と、そのテストを二重に持つことになります。
   以後、レコーダーやテレビの振る舞いを直すたびに、Swift と Kotlin（とサーバーの Python）を直すことになります。
-- 画面はどの道でも Android 用に作ります（または Skip で SwiftUI を Jetpack Compose に写します）。ここがいちばん大きい仕事です。
+- 画面はどの道でも Android 用に作ります。ここがいちばん大きい仕事です。
+- **道は B に決めました（2026-11-08）。** RecorderKit は Swift のまま、画面は Kotlin（Jetpack Compose）で書きます
+  （下の「決めたこと」）。
 - **RecorderKit は Android 向けにビルドでき、テスト 953 件が Android のエミュレーターですべて通りました**（2026-11-05、
   下の「Android でビルドして分かったこと」）。Android の Foundation の違いが 2 つ見つかり、RecorderKit の側で合わせました。
   テレビ用の送り方がリダイレクトについて行くことと、途中で切れた XML を読めたと答えることです。
-- アプリの中からも本物のレコーダーを読め、平文の HTTP の設定も要らないことを、エミュレーターで確かめました
-  （2026-11-07、下の「アプリの中で確かめたこと」）。まだ確かめていないのは、本物の Wi-Fi の端末から LAN に
-  ブロードキャストが出ることと、テレビに話すことです（下の「確かめていないこと」）。
+- アプリの中からも本物のレコーダーとテレビを読め、平文の HTTP の設定も要らないことを、エミュレーターで確かめました
+  （2026-11-07、下の「アプリの中で確かめたこと」）。本物の Wi-Fi のタブレットでも、サブネットを探してレコーダーと
+  テレビが見つかり、Wake-on-LAN のブロードキャストが LAN に出ました（2026-11-08）。まだ確かめていないのは、テレビに
+  登録の要る要求を送ることです（下の「確かめていないこと」）。
 
 ## 規模
 
@@ -99,8 +102,18 @@ adb の shell から走らせたテストは、アプリとは違う権限で動
   宛先の MAC は、どの機器のものでもないものにしました。
 - **`getifaddrs` はアプリの中でも使え**、Wi-Fi（`wlan0`）がサブネットを探す先に入りました。ただ、エミュレーターは
   Mac の NAT の内側（10.0.2.0/24）にいるので、探しても LAN のレコーダーは見つかりません（そのとおり 0 件でした）。
-- **32 ビットの ARM（armv7）向けのビルドは通りません。** `Int` が 32 ビットになり、サンプルのレコーダーの容量
-  （2 TB）の定数があふれます。容量をバイト数の `Int` で持つところは、動かしたときにもあふれます。
+- **アプリの中からテレビにも話せました。** `LiveTVTests/testWhatTheTelevisionSpeaks`（登録の要らない読み取り:
+  機種、電源、録画の状態、Wake-on-LAN の MAC があるか、各サービスの版と方法の一覧）が通り、Mac で読んだときと同じ
+  答えでした。テレビへの送り方も、平文の HTTP の設定なしで通ります。
+- **本物の Wi-Fi のタブレットでも通りました**（2026-11-08、Android 16、arm64）。同じ試しのアプリの中から、アプリの
+  「レコーダーとテレビを探す」と同じ探し方（`LiveTVTests/testLookingRoundTheSubnetForBoth`）で、サブネットの 253 の
+  アドレスを 5.4 秒で探し、レコーダー 1 台とテレビ 1 台が見つかりました。テレビは指定したアドレスで、機種名も読めました。
+  レコーダーの探し方（`LiveRecorderTests/testScanningTheSubnetFindsTheRecorder`）でも見つかりました。その前に送った
+  Wake-on-LAN（宛先はどの機器のものでもない MAC）は、ポート 9 と 7 で、サブネットのブロードキャストと
+  `255.255.255.255` の両方が Mac に届きました。平文の HTTP の設定は、ここでも要りませんでした。
+- **32 ビットの ARM（armv7）は対象にしません**（2026-11-07 に決めました）。ビルドも通りません。`Int` が 32 ビットに
+  なり、サンプルのレコーダーの容量（2 TB）の定数があふれ、容量をバイト数の `Int` で持つところは動かしたときにも
+  あふれます。
 
 ## Android 向けのビルドとテストのやり方
 
@@ -311,9 +324,8 @@ RecorderKit の文のうち 26 行が「iPhone」と書いていました（端�
   使っていない。モデルをパッケージに出せば、多くは `swift test` で走り、Android でも走らせられる。
 - 画面の中の状態にも規則がある: 番組のシート（約 260 行）と予約のシート（約 120 行）の状態の移り変わり、空の画面で何を
   言うかの決め方（約 150 行）、検索、局の並べ替え。どれも単体テストがない。
-- B（Compose）なら、これらを全部パッケージに出し、Kotlin から変化を見られる形（値の写しと操作）にする必要がある。
-  C（Skip）なら画面のまま Android でビルドされるので、出すのは必須ではない。ただし番組のシートと予約のシートは、
-  どちらの道でもテストできる形に出す価値がある。
+- B に決めたので、これらを全部パッケージに出し、Kotlin から変化を見られる形（値の写しと操作）にする。
+  番組のシートと予約のシートの状態の移り変わりも出し、テストを書く。
 
 ### 移すついでに確かめたいこと（今の iOS の振る舞い）
 
@@ -325,13 +337,104 @@ RecorderKit の文のうち 26 行が「iPhone」と書いていました（端�
 - 局の名前の表は数字の放送波コードを、ロゴの表は文字の種別をキーにしている。今は正しいが、取り違えやすい。
 - 番組表の日の番号だけが端末の時刻帯の暦を使う（ほかは日本時間）。今は害がない。
 
-## おすすめ
+## Skip で番組表の表形式を写した試し（2026-11-08）
 
-**Swift のまま持っていく（B か C）。Kotlin での書き直し（A）は採らない。** 開発の総量が少なく、以後の変更も
-RecorderKit の 1 か所で済むからです。
+C を選ぶかを決めるため、iOS の番組表の表形式（`GuideGridView`）を、作りを変えずに Skip Fuse の小さなアプリに
+写し、Android のタブレットで動かしました。RecorderKit とアプリ固有の部品は最小の代わりに差し替え、番組は作りものです。
 
-B と C のどちらにするかは、次の一歩の結果で決めます。C で番組表の表形式が写せるなら C、写せないなら、
-その画面だけ Compose で書くか B にするかを、その時点で比べます。
+- **描くことはできました。** 局の列、時刻の目盛り、番組の枠、ジャンルの色、予約の色は出ました。
+- **作りの芯が働きませんでした。** 番組表は、スクロールの中に置いた `GeometryReader` で中身のずれを読み、時刻と局名の
+  見出しを動かし、見えている範囲だけを描いています。Android では、スクロールしてもこの位置が知らされず、見出しが
+  ついてこず、描く範囲も古いままで空白ができました。スクロールの位置を読む別の書き方（`scrollPosition`）は、
+  Skip のソースでは中身のない形だけのもので、`onScrollGeometryChange` はありませんでした。開いたときに今の時刻へ
+  移る `scrollTo` も効きませんでした。
+- **Android 側にない書き方が 6 種類ありました。** `@State private var`（internal にしないと使えない）、`Text + Text`、
+  `coordinateSpace`、`contentShape`、SF Symbols の `minus`、文字列をそのまま渡す `accessibilityLabel`。ほかに、
+  長い修飾の連なりは、分けないと Android 向けのコンパイルで型が決まりませんでした。
+- Android の部分だけを Compose で書いて埋め込む仕組み（`ComposeView`）はあります。
+
+## swift-java の試し（2026-11-08）
+
+B のいちばんの不確かさだった「Kotlin から RecorderKit を呼べるか」を、使い捨ての小さなアプリで確かめました。
+swift-java 0.7.0 の JNI 方式で、Swift の小さなパッケージ（RecorderKit を使う）から Java の呼び口を自動で作り、
+Kotlin の Activity から呼んで、Android 16 のエミュレーターで動かしました。組み立ては swift-android-examples の
+`swift-java-weather-app` と同じです。
+
+| 確かめたこと | 結果 |
+|---|---|
+| ふつうの関数 | `String` で返る。日本語もそのまま |
+| async の関数 | `CompletableFuture` で返る。完了するのは Swift の並行処理のスレッドで、UI のスレッドではない |
+| throws の関数 | `CompletionException` の中に、Swift のエラーの型名つきの Java の例外として届く |
+| 構造体 | Java のクラスになり、getter で読める。受け取るときは寿命を持つ `SwiftArena` を渡す |
+| 一覧 | `[String]` は `String[]`、構造体の一覧は構造体のクラスの配列で受け取れる |
+| Swift から Kotlin へ知らせる | Kotlin で実装した protocol（`enableJavaCallbacks`）を、Swift の Task から呼べる。届くのは Swift のスレッド |
+
+RecorderKit の中身（レコーダーの説明、テレビの在否、サブネットの探索）も、Kotlin まで届きました。
+
+組み立てで要ったこと:
+
+- swift-java の Java の支え（SwiftKitCore）は Maven Central になく、swift-java のチェックアウトから
+  `publishToMavenLocal` で手元に置く。既定は JDK 25 を求めるが、`-PswiftJavaJdk=21` で JDK 21 でもビルドでき、
+  出来上がりは Java 11 向け。Homebrew の JDK は `JAVA_HOME` を `…/libexec/openjdk.jdk/Contents/Home` にする
+  （そうしないと版を読めず 25 を探しに行く）。
+- `enableJavaCallbacks` を使うと、Swift のビルドの途中で swift-java が Gradle を動かすので、`swift build` にも
+  `JAVA_HOME`（17 以上）が要る。サンドボックスも外す（`--disable-sandbox`）。
+- APK に詰めるのは、ビルドした `.so`（RecorderKit は中に静的に入る）、`libc++_shared.so`、Swift の実行時の
+  ライブラリ（Foundation、FoundationNetworking、FoundationXML、Observation などを含む 19 個）。デバッグ版で
+  arm64 だけの APK は 143 MB だった。
+
+分かった約束事: Kotlin で受け取った結果と知らせは Swift のスレッドで届くので、画面の状態に入れる前に UI の
+スレッドに渡す。
+
+その後、`android/` にアプリの最初の形を作りました（`android/README.md`）。リリース版は、R8 で縮め、Swift を
+最適化してビルドし、ライブラリの記号を落として 76 MB になり、エミュレーターで動きました。R8 には、Swift の側が
+名前で呼ぶ swift-java のクラスを残す指定と、SwiftKitCore が名前だけ使う `jdk.jfr` の注釈を見逃す指定が要りました。
+76 MB のうち 38 MB は、Foundation が日付と文字の扱いに使う ICU のデータです（RecorderKit は日本語の日付を
+`DateFormatter` で書くため要る）。
+
+**Android では、そのままでは Swift の main actor が動きません。** Swift のメインのキューを回すものがないため、
+`@MainActor` の処理は始まらず、待つものは永遠に待ちます（エミュレーターで 8 秒待っても返らなかった）。
+RecorderKit の多くとアプリのモデルは `@MainActor` なので、B ではここが要になります。
+
+Foundation の RunLoop は、メインのスレッドで回ると、メインのキューも回します（iPhone で UIKit の下で回るのと
+同じ）。Android のメインのスレッドは Android の Looper のものなので、RunLoop に回させ続けることはできません。
+そこで、画面が出ている間、アプリのメインのスレッドから 1 フレームに 1 回ほど RunLoop を一度だけ回し、それまでに
+来た処理を済ませてすぐ戻るようにしました（`android/core/Sources/AndroidBridge/MainQueue.swift` と
+`MainActivity`）。エミュレーターで確かめたことは次の 2 つです。
+
+- これを止めると、デモの番組表が 30 秒たっても出ず、画面のテストが落ちる。
+- 画面を出したまま何もしないときの CPU は、止めたときの 0〜0.6% に対して 0.8〜1.4%。画面が裏に回ると止まる。
+
+呼ぶのは公開の関数だけです。処理が来たときにちょうど起こす方法は、どちらも Swift 6.4.2 では公開されていません。
+
+- メインのキューのファイル記述子を Looper に登録する方法は、libdispatch の非公開の関数を使う。
+- main actor の実行役をアプリが差し替える仕組み（`MainExecutor`、`ExecutorFactory`）は、
+  `@_spi(ExperimentalCustomExecutors)` の中にある。
+
+### モデルの変化を Kotlin に知らせる試し（2026-11-08）
+
+手順 2（下）の形を決めるため、iOS のモデルと同じ `@MainActor @Observable` のクラスを、使い捨てのアプリで Kotlin から
+見ました。swift-java 0.7.0、エミュレーター。
+
+| 確かめたこと | 結果 |
+|---|---|
+| `@MainActor @Observable` のクラスをそのまま出す | コンパイルできない。swift-java は同期の呼び口を作り、main actor の外から呼ぶことになる。async の関数だけは通る |
+| 前に main actor でない窓口を置く（操作は async で main actor に渡る） | 動く。`Observations` でも `withObservationTracking` でも、変化 1 回につき 1 回、Kotlin の listener に届いた。届くのは Android のメインスレッド |
+| listener の引数 | 数（`Int64`）、文字、真偽値は届く。`Int` は swift-java の作るコードがコンパイルできない。構造体の一覧は、アプリのクラスを探せず落ちた（`NoClassDefFoundError`） |
+| Foundation の `UserDefaults` | `.standard` と名前で指定したものは、値が残らなかった（HOME と XDG をアプリのフォルダーに向け、フォルダーを作っても同じ。アプリの bundle identifier が取れない）。置き場所をファイルの場所（絶対パス）で指定した `UserDefaults(suiteName:)` は、次の起動でも値が読めた。Application Support の場所は、XDG を向ければ取れる |
+
+分かった形: モデルは iOS のまま `@MainActor @Observable` にし、前に画面ごとの窓口を置く。窓口は「何が変わったか」だけを
+知らせ、値は Kotlin が async で読む（Kotlin から呼んだ結果なら、構造体の一覧も届く）。設定は、モデルが今も
+`Surroundings` から受け取る `UserDefaults` のままでよく、Android はファイルの場所で指定したものを渡す。
+
+## 決めたこと: B（2026-11-08）
+
+**RecorderKit は Swift のまま Android 向けにビルドし、画面は Kotlin（Jetpack Compose）で書きます。** Kotlin での
+書き直し（A）も、Skip（C）も採りません。リポジトリの持ち主が決めました。理由は次の 3 つです。
+
+- Android のアプリは Android らしい見た目と操作にしたい。
+- B のほうが試行錯誤が少なくて済む（試しでは、番組表の 1 画面で Android 側にない書き方に 6 種類当たった）。
+- 開発の総量はコード量だけではない。あとの手入れで Skip が行き詰まりの元になるのは避けたい。
 
 ## 次の一歩
 
@@ -339,18 +442,23 @@ B と C のどちらにするかは、次の一歩の結果で決めます。C �
 レコーダーを読むところまでは済みました（上の「Android でビルドして分かったこと」と「アプリの中で確かめたこと」）。
 アプリに残っていた機器の規則も、RecorderKit に移しました（上の「移植の前に RecorderKit に移すもの」の 1〜10）。
 
-1. Wi-Fi の端末で、アプリの中から、ブロードキャストが LAN に出ることと、サブネットを探してレコーダーが
-   見つかることを測る。
-2. C を試すなら、番組表の表形式の 1 画面だけを Skip で Android に出してみる。
+Wi-Fi の端末での測定と、Skip の試しも済みました（上）。B での次の一歩は次の順です。
+
+1. ~~Kotlin から swift-java で RecorderKit を呼ぶ試し~~（済み、上の「swift-java の試し」）。
+2. アプリのモデル（`AppModel`、`RecorderHost`、`TVHost`、一覧の組み立て、シートの状態の移り変わり）を、UI のない
+   パッケージに出し、Kotlin から値の写しと操作で見られる形にする。iOS もこれを使う。
+3. 画面を Compose で書く。
+
+3 の入口として、読むだけのアプリの骨組みを先に作りました（`android/README.md`）。レコーダーにアドレス、探索、
+デモのどれかでつなぎ、番組表（放送日ごと、放送中の番組から開く、番組のシート）、予約、録画を読みます。
+エミュレーターから本物のレコーダーも読めました。デモを画面からたどるテストが 4 件あります。骨組みの
+`AppState.kt` は、2 のパッケージができたら、それを映すだけのものに置き換えます。
 
 ## 確かめていないこと
 
-- 本物の Wi-Fi の端末から、Wake-on-LAN のブロードキャストが LAN に出ること。サブネットを探して、レコーダーが
-  見つかること。エミュレーターでは、アプリから送れることと、探す先にサブネットが入ることまで。
-- Android の送り方で、テレビに話すこと（`LiveTVTests`）。
+- Android の送り方で、テレビに登録の要る要求を送ること（cookie を付けた読み取りと書き込み）。
 - Android 17（API 37）を対象にしたときの、ローカルネットワークの許可の求め方。エミュレーターも試しのアプリも API 36。
-- 32 ビットの ARM（armv7）を対象にするか。今はビルドが通らない（上の「アプリの中で確かめたこと」）。
-- Skip が番組表の表形式を写せるか。
+- `SwiftArena.ofAuto()` に任せた構造体の寿命が、長く動くアプリでどう振る舞うか。
 
 ## 出典
 
