@@ -155,14 +155,15 @@ fun RecordingsScreen(search: () -> Unit) {
         Column {
             TopAppBar(title = { TitleWithSubtitle(shown.heading, if (shown.hasNoRecorder || shown.isLoading) "" else shown.subtitle) },
                       actions = {
-                          if (!shown.hasNoRecorder) Filters(shown)
+                          Filters(shown)
                           AppMenu(search)
                       })
             StripBar()
         }
     }, bottomBar = {
         Column {
-            if (shown.tvNote.isNotEmpty() && !shown.hasNoRecorder) Line(shown.tvNote, false)
+            // Under a list that is drawn, as on iOS: not while it is being read, nor with no recorder.
+            if (shown.tvNote.isNotEmpty() && !shown.hasNoRecorder && !shown.isLoading) Line(shown.tvNote, false)
             Line(shown.line, shown.lineIsAProblem)
         }
     }) { padding ->
@@ -173,14 +174,20 @@ fun RecordingsScreen(search: () -> Unit) {
                 else -> PullToRefreshBox(isRefreshing = pulling, onRefresh = {
                     pulling = true
                     scope.launch {
-                        RecBridge.act { it.recordings.pullDown() }
-                        pulling = false
+                        try {
+                            RecBridge.act { it.recordings.pullDown() }
+                        } finally {
+                            pulling = false
+                        }
                     }
                 }, modifier = Modifier.fillMaxSize()) {
+                    // The empty state is the list's one item, so that an empty list can be pulled down as well.
                     LazyColumn(Modifier.fillMaxSize()) {
+                        if (shown.rows.isEmpty()) {
+                            item { Box(Modifier.fillParentMaxSize()) { Unavailable(Icons.Outlined.VideoLibrary, shown.emptyTitle, shown.emptyDetail) } }
+                        }
                         items(shown.rows, key = { it.id }) { row -> RecordingRow(row) { opened = row } }
                     }
-                    if (shown.rows.isEmpty()) Unavailable(Icons.Outlined.VideoLibrary, shown.emptyTitle, shown.emptyDetail)
                 }
             }
         }

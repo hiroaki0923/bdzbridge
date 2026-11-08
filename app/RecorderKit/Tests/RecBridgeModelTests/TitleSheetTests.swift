@@ -42,13 +42,16 @@ final class TitleSheetTests: XCTestCase {
         XCTAssertFalse(sheet.done)
         XCTAssertFalse(sheet.isAsking)
 
-        // Watched partway: 最初から再生 on the button, and how far in the 視聴状態.
-        if let partway = model.titles.first(where: { $0.watchState == .partway && $0.resumeSec != nil && !$0.recording }) {
-            let partwaySheet = TitleSheetState(title: partway, model: model)
-            XCTAssertEqual(partwaySheet.playLabel, "最初から再生")
-            XCTAssertEqual(partwaySheet.viewing, "\(partway.watchState.label)（\((partway.resumeSec ?? 0) / 60)分）")
-        }
-        XCTAssertEqual(sheet.playLabel, title.watchState == .partway ? "最初から再生" : "再生")
+        // Watched partway -- the demo's one stopped at 1,240 seconds -- 最初から再生 on the button, and how far in the
+        // 視聴状態; one not yet watched, 再生 and 未視聴.
+        let partway = try XCTUnwrap(model.titles.first { $0.resumeSec == 1_240 }, "the demo has no recording watched partway")
+        let partwaySheet = TitleSheetState(title: partway, model: model)
+        XCTAssertEqual(partwaySheet.playLabel, "最初から再生")
+        XCTAssertEqual(partwaySheet.viewing, "途中（20分）")
+        let unwatched = try XCTUnwrap(model.titles.first { $0.watchState == .unwatched && !$0.recording })
+        let unwatchedSheet = TitleSheetState(title: unwatched, model: model)
+        XCTAssertEqual(unwatchedSheet.playLabel, "再生")
+        XCTAssertEqual(unwatchedSheet.viewing, "未視聴")
 
         // A television's row is not played from the sheet, and is protected under the plain word.
         var television = title

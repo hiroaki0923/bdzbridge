@@ -627,7 +627,8 @@ public final class TitleSheetWindow: Sendable {
     /// 再生, 一時停止 / 再開 or 停止: `play`, `pause` or `stop`.
     public func play(_ operation: String) async {
         await MainActor.run {
-            guard sheet.offersPlayback, !sheet.holdsPlayback, operation != "play" || sheet.whyNotPlayed == nil else { return }
+            guard ["play", "pause", "stop"].contains(operation), sheet.offersPlayback, !sheet.holdsPlayback,
+                  operation != "play" || sheet.whyNotPlayed == nil else { return }
             sheet.play(operation)
         }
     }

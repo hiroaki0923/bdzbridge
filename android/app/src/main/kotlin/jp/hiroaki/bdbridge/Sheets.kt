@@ -112,7 +112,7 @@ private fun HeldSheet(held: Boolean, close: () -> Unit, content: @Composable () 
  * its closing button. An answer with OK alone goes either way.
  */
 @Composable
-private fun AskDialog(asked: Asked, act: () -> Unit, closeAsked: () -> Unit) {
+private fun AskDialog(asked: Asked, act: () -> Unit, closeAsked: () -> Unit, actionEnabled: Boolean = true) {
     val closing = @Composable { TextButton(onClick = closeAsked) { Text(asked.closing) } }
     AlertDialog(
         onDismissRequest = closeAsked,
@@ -121,8 +121,12 @@ private fun AskDialog(asked: Asked, act: () -> Unit, closeAsked: () -> Unit) {
         text = { Text(asked.message) },
         confirmButton = {
             if (asked.action.isEmpty()) closing()
-            else TextButton(onClick = act) {
-                Text(asked.action, color = if (asked.destructive) MaterialTheme.colorScheme.error else Color.Unspecified)
+            else TextButton(onClick = act, enabled = actionEnabled) {
+                Text(asked.action, color = when {
+                    !actionEnabled -> Color.Unspecified
+                    asked.destructive -> MaterialTheme.colorScheme.error
+                    else -> Color.Unspecified
+                })
             }
         },
         dismissButton = if (asked.action.isEmpty()) null else closing,
@@ -136,8 +140,8 @@ fun ProgrammeSheetView(row: Programme, close: () -> Unit) {
     val scope = rememberCoroutineScope()
     val handle = rememberOpened(row.id) { RecBridge.openProgramme(row.id) }
     val sheet = handle?.let { it.shown.collectAsState().value }
-    var editing by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(sheet?.done) { if (sheet?.done == true) close() }
+    var editing by remember { mutableStateOf<String?>(null) }
     val act = { work: suspend RecBridge.ProgrammeSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
     val free = sheet != null && sheet.asking.isEmpty()
 
@@ -385,8 +389,9 @@ fun TitleSheetView(row: RecordingItem, close: () -> Unit) {
         if (sheet.problem.isNotEmpty()) Problem(sheet.problem)
     }
     sheet?.asked?.let { asked ->
-        AskDialog(asked, act = { if (!sheet.actionHeld) act { confirmDelete(asked.key) } },
-                  closeAsked = { act { closeAsked(asked.key) } })
+        // 削除する is held while the device works or a run is under way, as on iOS.
+        AskDialog(asked, act = { act { confirmDelete(asked.key) } }, closeAsked = { act { closeAsked(asked.key) } },
+                  actionEnabled = !sheet.actionHeld)
     }
 }
 

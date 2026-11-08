@@ -123,7 +123,7 @@ final class AndroidBridgeTests: XCTestCase {
 
         let recordings = app.recordings()
         await recordings.load()
-        let titles = await until(recordings.read) { !$0.rows.isEmpty }
+        let titles = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
         XCTAssertFalse(titles.hasNoRecorder)
         XCTAssertEqual(titles.subtitle, "\(titles.rows.count) 件")
         XCTAssertTrue(titles.rows.allSatisfy { $0.details.contains("(") && !$0.watched.isEmpty })
@@ -297,7 +297,7 @@ extension AndroidBridgeTests {
         let app = await demo()
         let recordings = app.recordings()
         await recordings.load()
-        let all = await until(recordings.read) { !$0.rows.isEmpty }
+        let all = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
         XCTAssertFalse(all.filtering)
         XCTAssertEqual(all.genre, "")
         XCTAssertTrue(all.genres.first?.label.hasPrefix("すべて") ?? false)
@@ -313,8 +313,16 @@ extension AndroidBridgeTests {
         await recordings.chooseGenre("")
         await recordings.chooseState("unwatched")
         let unwatched = await until(recordings.read) { $0.state == "unwatched" }
+        XCTAssertFalse(unwatched.rows.isEmpty, "the demo has recordings not yet watched")
         XCTAssertTrue(unwatched.rows.allSatisfy(\.unwatched))
         await recordings.chooseState("")
+
+        // Oldest first puts the first of the newest-first list last.
+        await recordings.chooseSort(AppModel.TitleSort.oldest.rawValue)
+        let oldest = await until(recordings.read) { $0.sort == AppModel.TitleSort.oldest.rawValue }
+        XCTAssertTrue(oldest.filtering, "a sort other than newest first was not said")
+        XCTAssertEqual(oldest.rows.last?.id, all.rows.first?.id)
+        await recordings.chooseSort(AppModel.TitleSort.newest.rawValue)
         _ = await until(recordings.read) { !$0.filtering }
     }
 
