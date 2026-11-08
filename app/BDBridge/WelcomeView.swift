@@ -194,23 +194,16 @@ struct WelcomeView: View {
     }
 }
 
-/// What the address field says back about what was typed, under the field in both the tutorial and the
-/// settings. Tidying is done without a word, except for a port: somebody typed it on purpose, so it is
-/// said that it will not be used. Nothing is said while the field is empty or the address is fine.
+/// What the address field says back about what was typed (`RecorderAddress.Typed.note`), under the field in
+/// both the tutorial and the settings.
 struct AddressNote: View {
     let typed: RecorderAddress.Typed
 
     var body: some View {
-        if typed.host.isEmpty {
-            EmptyView()
-        } else if !RecorderAddress.isUsable(typed.host) {
-            Text("アドレスの形式が正しくありません。192.168.1.10 のような IP アドレスを入力してください。")
-                .font(.caption)
-                .foregroundStyle(.red)
-        } else if let port = typed.port {
-            Text("ポート番号は不要です。「:\(port)」は使わずに \(typed.host) に接続します。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        if let note = typed.note, note.warning {
+            Text(note.text).font(.caption).foregroundStyle(.red)
+        } else if let note = typed.note {
+            Text(note.text).font(.caption).foregroundStyle(.secondary)
         }
     }
 }
