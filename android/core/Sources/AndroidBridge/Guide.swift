@@ -62,18 +62,6 @@ public struct GuideRow: Sendable {
     public var ends: Int64
 }
 
-/// What a programme's sheet says of it, before its reservation part (`ProgramSheet`).
-public struct ProgrammeSheet: Sendable {
-    public var title: String
-    public var station: String
-    /// `11/8(日) 21:00`.
-    public var starts: String
-    public var length: String
-    public var genre: String
-    public var summary: String
-    public var extended: String
-}
-
 public final class GuideWindow: Sendable {
     let model: AppModel
     private let shown: Watched<GuideScreen>
@@ -116,14 +104,12 @@ public final class GuideWindow: Sendable {
         await model.refreshGuideByHandFromSource()?.asABody ?? ""
     }
 
-    /// The sheet of the programme whose row has `id`, while the day on screen has it.
-    public func programme(_ id: String) async -> ProgrammeSheet? {
+    /// The sheet of the programme whose row has `id`, while the day on screen has it: a window of its own, ended
+    /// as the sheet closes (`ProgrammeSheetWindow.closed`).
+    public func open(_ id: String) async -> ProgrammeSheetWindow? {
         await MainActor.run {
-            model.programs.first { $0.id == id }.map { program in
-                ProgrammeSheet(title: program.title, station: program.serviceName,
-                               starts: Format.dateTime.string(from: program.start),
-                               length: Format.duration(program.durationSec), genre: program.genre?.label ?? "",
-                               summary: program.summary, extended: program.extended)
+            model.programs.first { $0.id == id }.map {
+                ProgrammeSheetWindow(ProgramSheetState(program: $0, model: model), model: model)
             }
         }
     }

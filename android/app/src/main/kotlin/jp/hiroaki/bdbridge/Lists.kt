@@ -1,6 +1,7 @@
 package jp.hiroaki.bdbridge
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,6 +48,8 @@ fun ReservationsScreen(search: () -> Unit) {
     val shown = RecBridge.reservations.collectAsState().value ?: return
     LaunchedEffect(shown.loadKey) { RecBridge.act { it.reservations.load() } }
     LaunchedEffect(Unit) { RecBridge.act { it.reservations.loadTV() } }
+    var opened by remember { mutableStateOf<ReservationItem?>(null) }
+    opened?.let { row -> ReservationSheetView(row.title, open = { RecBridge.openReservation(row.id) }) { opened = null } }
     Scaffold(topBar = {
         Column {
             TopAppBar(title = { TitleWithSubtitle("予約", if (shown.hasNoRecorder) "" else shown.subtitle) },
@@ -62,7 +69,7 @@ fun ReservationsScreen(search: () -> Unit) {
                 }
                 for (section in shown.sections) {
                     heading(section.title)
-                    items(section.rows, key = { it.id }) { row -> ReservationRow(row) }
+                    items(section.rows, key = { it.id }) { row -> ReservationRow(row) { opened = row } }
                 }
             }
             if (shown.isEmpty) Unavailable(Icons.Outlined.Schedule, shown.emptyTitle, shown.emptyDetail)
@@ -83,7 +90,7 @@ private fun LazyListScope.heading(title: String) {
 
 /** One reservation, as the iOS row says it: when and how long, marked, the title, then the station and how it records. */
 @Composable
-private fun ReservationRow(item: ReservationItem) {
+private fun ReservationRow(item: ReservationItem, open: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val marks = LocalMarks.current
     ListItem(
@@ -97,6 +104,7 @@ private fun ReservationRow(item: ReservationItem) {
         },
         headlineContent = { Text(item.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         supportingContent = { Text(item.details) },
+        modifier = Modifier.clickable(onClick = open),
     )
     HorizontalDivider()
 }

@@ -66,6 +66,16 @@ public final class ReservationsWindow: Sendable {
     public func read() async -> ReservationsScreen { await shown.read() }
     public func observe(_ listener: some ScreenListener) { shown.watch(listener) }
 
+    /// The sheet of the reservation whose row has `id` (`Reservation.listKey`), while the list has it: a window of
+    /// its own, ended as the sheet closes (`ReservationSheetWindow.closed`).
+    public func open(_ id: String) async -> ReservationSheetWindow? {
+        await MainActor.run {
+            model.reservation(listKey: id).map {
+                ReservationSheetWindow(ReservationSheetState(reservation: $0, model: model), model: model)
+            }
+        }
+    }
+
     /// The queue on this device, then the recorder's list.
     public func load() async {
         await model.loadPending()

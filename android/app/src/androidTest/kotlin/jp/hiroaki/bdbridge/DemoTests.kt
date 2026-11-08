@@ -116,6 +116,48 @@ class DemoTests {
         compose.waitUntilAtLeastOneExists(startsWithADayAndATime, 30_000)
     }
 
+    /** A reservation's first line: `21:00 · 54分`. */
+    private val aTimeAndALength = SemanticsMatcher("a time and a length") { node ->
+        node.config.getOrNull(SemanticsProperties.Text).orEmpty().any { Regex("^\\d\\d:\\d\\d · \\d+分$").matches(it.text) }
+    }
+
+    /**
+     * A programme of the demo's next day is reserved from its sheet -- the question, 予約する, the sheet closing -- and,
+     * its sheet opened again, the recorder's reservation of it is there to delete, which closes the sheet in turn.
+     * Writes only to the demo's invented recorder.
+     */
+    @Test fun aProgrammeIsReservedFromItsSheetAndDeletedAgain() {
+        openTheDemo()
+        compose.waitUntilAtLeastOneExists(hasText("放送中"), 10_000)
+        compose.onNodeWithContentDescription("次の日").performClick()
+        compose.waitUntilDoesNotExist(hasText("放送中"), 10_000)
+        compose.waitUntilAtLeastOneExists(hasText("04:00"), 10_000)
+        compose.onAllNodesWithText("04:00")[0].performClick()
+        compose.waitUntilAtLeastOneExists(hasText("録画予約する") and isEnabled(), 30_000)
+        compose.onNodeWithText("録画予約する").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("この番組を録画予約しますか？"), 10_000)
+        compose.onNodeWithText("予約する").performClick()
+        compose.waitUntilDoesNotExist(hasText("録画予約する"), 30_000)
+
+        compose.onAllNodesWithText("04:00")[0].performClick()
+        compose.waitUntilAtLeastOneExists(hasText("予約を削除") and isEnabled(), 30_000)
+        compose.onNodeWithText("予約を削除").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("この予約を削除しますか？"), 10_000)
+        compose.onNodeWithText("削除する").performClick()
+        compose.waitUntilDoesNotExist(hasText("予約を削除"), 30_000)
+    }
+
+    @Test fun aReservationsSheetOpensFromTheList() {
+        openTheDemo()
+        destination("予約").performClick()
+        compose.waitUntilAtLeastOneExists(aTimeAndALength, 30_000)
+        compose.onAllNodes(aTimeAndALength)[0].performClick()
+        compose.waitUntilAtLeastOneExists(hasText("予約を削除"), 30_000)
+        compose.onNodeWithText("登録元").assertExists()
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntilDoesNotExist(hasText("予約を削除"), 10_000)
+    }
+
     @Test fun leavingTheDemoSaysNoRecorderIsAddedAndOffersTheSearch() {
         openTheDemo()
         // The strip's 終了, held while the model is at work on the demo's recorder, as on iOS.
