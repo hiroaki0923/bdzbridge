@@ -402,6 +402,8 @@ public final class BulkRuns {
     /// its delete was sent (`RecorderDriver.mayGoOn`), or the device let go of, when nothing is counted and
     /// the list, which is no longer that device's, is left alone -- or nil: see `runBulk`.
     private func deleteOne(_ id: String, on side: Side) async -> RunStop? {
+        // In the list a read out brings, not in the one it is about to replace (`RunDriver.afterTheListRead`).
+        await side.driver.afterTheListRead()
         guard let title = side.list.titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: RecorderDriver.notInTheList))
             return nil
@@ -425,6 +427,7 @@ public final class BulkRuns {
 
     /// One recording of a bulk protect, as `deleteOne`.
     private func protectOne(_ id: String, _ on: Bool, on side: Side) async -> RunStop? {
+        await side.driver.afterTheListRead()
         guard let title = side.list.titles.first(where: { $0.id == id }) else {
             job?.skipped.append(.init(id: id, reason: RecorderDriver.notInTheList))
             return nil

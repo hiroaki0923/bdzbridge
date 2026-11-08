@@ -375,6 +375,9 @@ extension TVDriver {
                 return (.notDone(owner?.problem ?? self.whyNotConnected), false)
             }
             var sending = false
+            // On the client the write was asked on, which sends nothing once the television has been let go of
+            // (`RecorderDriver.afterTheListRead`).
+            await self.afterTheListRead()
             do {
                 let found = try await client.recordings().tvTarget(of: title)
                 owner?.problem = nil
@@ -515,4 +518,11 @@ extension TVDriver {
     }
 }
 
-extension TVDriver: RunDriver {}
+extension TVDriver: RunDriver {
+    /// Returns once the read of the list that is out, if one is, has ended, as the recorder's does
+    /// (`RecorderDriver.afterTheListRead`): a write waits for it before it is sent, and a run before it looks a
+    /// recording up.
+    public func afterTheListRead() async {
+        if let titlesReading { _ = await titlesReading.value }
+    }
+}

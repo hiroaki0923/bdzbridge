@@ -1483,13 +1483,6 @@ final class RunGateTests: XCTestCase {
     /// the read -- a list that has lost a row above the recording, deleted on the recorder's own screen, so that
     /// every row below has moved up one -- leaves the flag on the recording protected and on no other.
     func testARunLooksEachRecordingUpInTheListAsItIsWhenItComesToIt() async throws {
-        #if os(Android)
-        // Seen on Android's emulator every time: the list read again comes into the model after the protect behind
-        // it has been answered, and takes away the flag the protect put on. Nothing in the model holds the two in
-        // the order they were answered in; an iPhone and a Mac have so far run them in it. Not to be waved away:
-        // the order is to be the model's own, and this skip goes with that change.
-        throw XCTSkip("the list read again comes in after the protect behind it, on Android")
-        #endif
         let (_, recorder, model, idle) = try await settled()
         addTeardownBlock { await recorder.letGo() }
         let guarded = Set(model.titles.filter(\.protected).map(\.id))
@@ -1551,6 +1544,33 @@ final class RunGateTests: XCTestCase {
         XCTAssertEqual(model.job?.changed, [subject.id])
         XCTAssertEqual(Set(model.titles.filter(\.protected).map(\.id)), guarded.union([idle[3].id, subject.id]),
                        "the flag is on another row than the recording protected")
+    }
+
+    /// A recording protected, and another deleted, from their own sheets while the list is being read again: each is
+    /// sent once that read has handed its list over (`RecorderDriver.afterTheListRead`), and the list it brought,
+    /// read before either was answered, takes neither back -- the flag stays on, and the recording stays gone. On
+    /// Android's emulator the list came in after a write behind it until writes waited for it.
+    func testASingleWriteWaitsForTheListReadOutAndIsNotUndoneByIt() async throws {
+        let (_, recorder, model, idle) = try await settled()
+        addTeardownBlock { await recorder.letGo() }
+        let (protecting, deleting) = (idle[0], idle[1])
+        XCTAssertFalse(protecting.protected, "the recording was meant to be unprotected")
+        let before = await recorder.asked
+        await recorder.holdTheNext(Ask.recordings)
+        let reading = Task { await model.loadTitles(force: true) }
+        try await until("the recordings were never asked for again") {
+            await recorder.asked(Ask.recordings, since: before) == 1
+        }
+        let protect = Task { await protectARecording(model, protecting, true) }
+        let delete = Task { await deleteARecording(model, deleting) }
+        await recorder.letGo()
+        try await within(10, "the recordings were never read again") { await reading.value }
+        let (protected, deleted) = (await protect.value, await delete.value)
+        expectTrue(protected, model.problem(for: .recorder) ?? "the protect did not go through")
+        expectTrue(deleted, model.problem(for: .recorder) ?? "the delete did not go through")
+        XCTAssertEqual(model.titles.first { $0.id == protecting.id }?.protected, true,
+                       "the list read before the protect took its flag off")
+        XCTAssertFalse(model.titles.contains { $0.id == deleting.id }, "the list read before the delete put it back")
     }
 
     /// The sets of copies on screen were worked out from recordings that a bulk delete may have taken away, so

@@ -40,6 +40,20 @@ final class BulkRunsTests: XCTestCase {
         func end(_ run: Run, deleted: Int, stopped: RunStop?) async {
             asked.append("end, \(deleted) deleted" + (stopped.map { ", stopped by \($0)" } ?? ""))
         }
+
+        /// Holds the end of a read of the list said to be out, the first time it is waited for, until
+        /// `releaseTheRead`.
+        var holdsTheRead = false
+        private var readHeld: CheckedContinuation<Void, Never>?
+        var isHoldingTheRead: Bool { readHeld != nil }
+        func releaseTheRead() {
+            holdsTheRead = false
+            readHeld?.resume()
+            readHeld = nil
+        }
+        func afterTheListRead() async {
+            if holdsTheRead { await withCheckedContinuation { readHeld = $0 } }
+        }
     }
 
     /// What the recorder said, as far as a run reads and writes it.
@@ -173,6 +187,26 @@ final class BulkRunsTests: XCTestCase {
         try await finished()
         XCTAssertFalse(runs.waitsForTheApp)
         XCTAssertEqual(recorder.asked, ["may go on", "delete r1", "may go on", "delete r2", "end, 2 deleted"])
+    }
+
+    /// A run looks a recording up in the list a read out brings, once that read has handed it over, and not in the
+    /// list the read is about to replace (`RunDriver.afterTheListRead`): a recording that list no longer has is
+    /// passed over with nothing asked, and the next is asked as that list has it.
+    func testARunLooksARecordingUpOnlyOnceTheListReadOutHasComeIn() async throws {
+        let recorder = Driver()
+        recorder.holdsTheRead = true
+        let said = Said(["r1", "r2"])
+        runs.startBulk(.protecting(true), ids: ["r1", "r2"], onTV: [], recorder: (recorder, said), television: nil)
+        let holding = await eventually { recorder.isHoldingTheRead }
+        XCTAssertTrue(holding, "the run did not wait for the read of the list that was out")
+        XCTAssertEqual(recorder.asked, ["may go on"], "something was asked before the list came in")
+        said.titles = [recording("r2")]
+        recorder.releaseTheRead()
+        try await finished()
+        XCTAssertEqual(recorder.asked, ["may go on", "may go on", "protect r2 true", "end, 0 deleted"])
+        let job = try XCTUnwrap(runs.job)
+        XCTAssertEqual(job.skipped, [.init(id: "r1", reason: RecorderDriver.notInTheList)])
+        XCTAssertEqual(job.changed, ["r2"])
     }
 
     func testAStoppedRunGoesNoFurtherThanTheRecordingItIsOn() async throws {

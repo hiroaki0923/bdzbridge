@@ -328,6 +328,8 @@ extension RecorderDriver {
         let began = link.generation
         let came = await asked(on ? Self.protectingLine : Self.unprotectingLine,
                                .aWrite(sending: Self.mayHaveArrived), on: link, since: began) { _, client in
+            // Under the protect's line and on the client it was asked on: one let go of meanwhile sends nothing.
+            await self.afterTheListRead()
             let client = try await self.waitForTheDisk(of: title, handed: client, since: began)
             try await client.updateTitle(id: title.id, protected: on)
             if !link.letGo(since: began) { keep() }
@@ -372,6 +374,7 @@ extension RecorderDriver {
         let began = link.generation
         return await link.underALine(Self.deletingTitleLine) { _ in
             let there = await self.asked(nil, .aWrite(sending: nil), on: link, since: began) { _, client in
+                await self.afterTheListRead()
                 let client = try await self.waitForTheDisk(of: title, handed: client, since: began)
                 do {
                     _ = try await client.titleDetail(id: title.id)
@@ -680,6 +683,17 @@ extension RecorderDriver {
         self[keyPath: out] = ReadOut(generation: link.generation, client: ObjectIdentifier(client), number: number,
                                      value: value)
         return await value.value
+    }
+
+    /// Returns once the read of the list that is out, if one is, has handed its list over and ended. A write to a
+    /// recording waits for it before it is sent, and a run before it looks a recording up (`BulkRuns`): that list
+    /// was read before the write was answered, and handed over after the write's change it would undo the change in
+    /// the app's list -- a protect's flag taken off, a recording deleted put back. The recorder answers one
+    /// request at a time, but which of two answers the app takes in first is not held by that, and it was not
+    /// always the one the recorder gave first (seen on Android). Only the read out as this is asked is waited
+    /// for: one begun after it reads what the write has done.
+    public func afterTheListRead() async {
+        if let reading = titlesReading { _ = await reading.value.value }
     }
 
     /// What a write asked through `asked` came to, for its result: done, or not, saying why. What was sent and
