@@ -6,8 +6,8 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.isEnabled
+import androidx.compose.ui.test.isSelectable
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -75,12 +75,15 @@ class DemoTests {
     private fun openTheDemo() {
         compose.waitUntilAtLeastOneExists(hasText("サンプルデータで試す"), 20_000)
         compose.onNodeWithText("サンプルデータで試す").performClick()
-        compose.waitUntilAtLeastOneExists(hasText("デモ"), 30_000)
+        compose.waitUntilAtLeastOneExists(hasText("サンプルデータを表示しています"), 30_000)
     }
+
+    /** A destination of the navigation, which is the only selectable node with its label: a row's mark is not. */
+    private fun destination(label: String) = compose.onNode(hasText(label) and isSelectable())
 
     @Test fun theDemosGuideOpensAtWhatIsOnAndAProgrammeSaysWhatItIs() {
         openTheDemo()
-        compose.onNodeWithText("前の日").assertExists()
+        compose.onNodeWithContentDescription("前の日").assertExists()
         compose.waitUntilAtLeastOneExists(hasText("放送中"), 10_000)
         compose.onAllNodesWithText("放送中")[0].performClick()
         compose.waitUntilAtLeastOneExists(hasText("開始"), 10_000)
@@ -94,28 +97,30 @@ class DemoTests {
     @Test fun anotherDayOpensAtItsFirstProgrammeAndTodayAtWhatIsOn() {
         openTheDemo()
         compose.waitUntilAtLeastOneExists(hasText("放送中"), 10_000)
-        compose.onNodeWithText("次の日").performClick()
+        compose.onNodeWithContentDescription("次の日").performClick()
         // Nothing is on air on another day: today's list, opened at 04:00 between four and five, would pass the
         // second check alone.
         compose.waitUntilDoesNotExist(hasText("放送中"), 10_000)
         compose.waitUntilAtLeastOneExists(hasText("04:00"), 10_000)
-        compose.onNodeWithText("前の日").performClick()
+        compose.onNodeWithContentDescription("前の日").performClick()
         compose.waitUntilAtLeastOneExists(hasText("放送中"), 10_000)
     }
 
     @Test fun theDemosReservationsAndRecordingsAreListed() {
         openTheDemo()
-        compose.onNodeWithText("予約").performClick()
-        compose.waitUntilAtLeastOneExists(aDay, 10_000)
-        compose.onNodeWithText("録画").performClick()
-        compose.waitUntilAtLeastOneExists(startsWithADayAndATime, 10_000)
+        // The demo's recorder answers at a recorder's pace, a request at a time, and the lists wait their turn behind
+        // the connect's own reads: on an emulator just installed, that has gone past ten seconds.
+        destination("予約").performClick()
+        compose.waitUntilAtLeastOneExists(aDay, 30_000)
+        destination("録画").performClick()
+        compose.waitUntilAtLeastOneExists(startsWithADayAndATime, 30_000)
     }
 
     @Test fun leavingTheDemoSaysNoRecorderIsAddedAndOffersTheSearch() {
         openTheDemo()
-        // Held while the model is at work on the demo's recorder, as on iOS.
-        compose.waitUntilAtLeastOneExists(hasContentDescription("デモを終了") and isEnabled(), 20_000)
-        compose.onNodeWithContentDescription("デモを終了").performClick()
+        // The strip's 終了, held while the model is at work on the demo's recorder, as on iOS.
+        compose.waitUntilAtLeastOneExists(hasText("終了") and isEnabled(), 20_000)
+        compose.onNodeWithText("終了").performClick()
         compose.waitUntilAtLeastOneExists(hasText("レコーダーが追加されていません"), 20_000)
         compose.onNodeWithText("レコーダーを探す").performClick()
         compose.waitUntilAtLeastOneExists(hasText("サンプルデータで試す"), 10_000)

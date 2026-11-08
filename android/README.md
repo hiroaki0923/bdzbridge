@@ -17,7 +17,8 @@ to a device yet. As on iOS, a connect wakes a recorder that does not answer with
 
 - `core/` — the Swift side and the Android library around it. `Sources/AndroidBridge` holds the windows over the
   model: `App.swift` (the model, made once, on `Surroundings` of Android's own, and how a window tells Kotlin that what
-  it shows has changed), `Devices.swift`, `Guide.swift` and `Lists.swift`. A window is a plain class, since swift-java
+  it shows has changed), `Devices.swift`, `Guide.swift`, `Lists.swift` and `Strip.swift` (the strip at the top of
+  every screen, as the model chooses its line). A window is a plain class, since swift-java
   cannot hand Kotlin a class on the main actor: what the reader does goes to the model as an async call, and what the
   screen shows is one value, worded as the iOS screen words it, read again each time the window says it changed
   (`ScreenListener`, which Kotlin implements; it is told nothing more, as structs cannot go that way). swift-java
@@ -25,7 +26,10 @@ to a device yet. As on iOS, a connect wakes a recorder that does not answer with
   arm64 through swiftly, adds the generated Java to the library's sources, and packs the built libraries with Swift's
   runtime as jniLibs. `Tests/` runs the windows on the Mac against the demo's recorder.
 - `app/` — the Compose app: `Bridge.kt` opens the model, keeps what each window shows for the screens and turns the
-  windows' calls into suspending ones; `Screens.kt` draws them.
+  windows' calls into suspending ones. The screens are Material 3's, as an Android app's are: `Theme.kt` (the colours,
+  the text marked as Japanese), `App.kt` (the place to choose a recorder over the rest, and the navigation: a bar at
+  the foot of a phone, a rail down the side of anything 600 dp wide), `Guide.kt`, `Lists.kt`, `Devices.kt`, and
+  `Parts.kt` (the empty states, the marks, the strip).
 
 The model's settings are kept in `files/settings/recbridge.plist`: Foundation on Android keeps a `UserDefaults` suite
 named by the path of its file, and writes it out only when told to, which `WrittenDefaults` does at each change.

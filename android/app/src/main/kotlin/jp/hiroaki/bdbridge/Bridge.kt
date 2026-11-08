@@ -11,6 +11,7 @@ import jp.hiroaki.bdbridge.bridge.RecBridgeApp
 import jp.hiroaki.bdbridge.bridge.RecordingsWindow
 import jp.hiroaki.bdbridge.bridge.ReservationsWindow
 import jp.hiroaki.bdbridge.bridge.ScreenListener
+import jp.hiroaki.bdbridge.bridge.StripWindow
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -38,17 +39,19 @@ object RecBridge {
 
     class Windows(
         val app: RecBridgeApp, val devices: DevicesWindow, val guide: GuideWindow,
-        val reservations: ReservationsWindow, val recordings: RecordingsWindow,
+        val reservations: ReservationsWindow, val recordings: RecordingsWindow, val strip: StripWindow,
     )
 
     private val _devices = MutableStateFlow<Devices?>(null)
     private val _guide = MutableStateFlow<Guide?>(null)
     private val _reservations = MutableStateFlow<Reservations?>(null)
     private val _recordings = MutableStateFlow<Recordings?>(null)
+    private val _strip = MutableStateFlow<Strip?>(null)
     val devices: StateFlow<Devices?> = _devices
     val guide: StateFlow<Guide?> = _guide
     val reservations: StateFlow<Reservations?> = _reservations
     val recordings: StateFlow<Recordings?> = _recordings
+    val strip: StateFlow<Strip?> = _strip
 
     /** Whether the model has been asked to open in this process. */
     val isOpen: Boolean get() = opening
@@ -62,11 +65,13 @@ object RecBridge {
         val version = "${info.versionName} (${info.longVersionCode})"
         scope.launch {
             val app = call { RecBridgeApp.open(files, version, arena) }
-            val windows = Windows(app, app.devices(arena), app.guide(arena), app.reservations(arena), app.recordings(arena))
+            val windows = Windows(app, app.devices(arena), app.guide(arena), app.reservations(arena),
+                                  app.recordings(arena), app.strip(arena))
             watch({ windows.devices.observe(it) }, { Devices(call { windows.devices.read(arena) }) }, _devices)
             watch({ windows.guide.observe(it) }, { Guide(call { windows.guide.read(arena) }) }, _guide)
             watch({ windows.reservations.observe(it) }, { Reservations(call { windows.reservations.read(arena) }) }, _reservations)
             watch({ windows.recordings.observe(it) }, { Recordings(call { windows.recordings.read(arena) }) }, _recordings)
+            watch({ windows.strip.observe(it) }, { Strip(call { windows.strip.read(arena) }) }, _strip)
             opened.complete(windows)
             call<Void> { app.start() }
         }
@@ -182,7 +187,8 @@ data class NoRecorder(val kind: String, val title: String, val detail: String)
 
 data class Choice(val code: String, val label: String)
 
-data class Station(val serviceID: Long, val name: String)
+/** A station, and the logo the recorder sent for it as an image file (empty when it never had one). */
+class Station(val serviceID: Long, val name: String, val logo: ByteArray)
 
 data class Devices(
     val welcomes: Boolean, val searching: Boolean, val searched: Long, val toSearch: Long,
@@ -203,7 +209,7 @@ data class Guide(
 )
 
 data class Programme(
-    val id: String, val time: String, val length: String, val title: String, val station: String, val mark: String,
+    val id: String, val serviceID: Long, val time: String, val length: String, val title: String, val station: String, val mark: String,
     val markIsRed: Boolean, val genre: String, val summary: String, val starts: Long, val ends: Long,
 )
 
@@ -214,7 +220,8 @@ data class ProgrammeSheet(
 
 data class Reservations(
     val hasNoRecorder: Boolean, val noRecorder: NoRecorder, val isEmpty: Boolean, val emptyTitle: String,
-    val emptyDetail: String, val subtitle: String, val waiting: List<Waiting>, val sections: List<Section>,
+    val emptyDetail: String, val subtitle: String, val waiting: List<Waiting>, val waitingSays: String,
+    val sections: List<Section>,
     val line: String, val lineIsAProblem: Boolean, val loadKey: String,
 )
 
@@ -253,10 +260,10 @@ private fun Guide(it: jp.hiroaki.bdbridge.bridge.GuideScreen) = it.getSaid(arena
     Guide(
         it.shows, NoRecorder(it.getNoRecorder(arena)), said.title, said.detail, it.offers, it.heading,
         it.getBroadcastings(arena).map { choice -> Choice(choice.code, choice.label) }, it.broadcasting,
-        it.getStations(arena).map { station -> Station(station.serviceID, station.name) }, it.station,
+        it.getStations(arena).map { station -> Station(station.serviceID, station.name, station.logo) }, it.station,
         it.days.toList(), it.day.toInt(),
         it.getProgrammes(arena).map { row ->
-            Programme(row.id, row.time, row.length, row.title, row.station, row.mark, row.isMarkIsRed, row.genre,
+            Programme(row.id, row.serviceID, row.time, row.length, row.title, row.station, row.mark, row.isMarkIsRed, row.genre,
                       row.summary, row.starts, row.ends)
         },
         it.nowRequests, it.isCanRefresh, it.isDemo,
@@ -266,7 +273,7 @@ private fun Guide(it: jp.hiroaki.bdbridge.bridge.GuideScreen) = it.getSaid(arena
 private fun Reservations(it: jp.hiroaki.bdbridge.bridge.ReservationsScreen) = it.getEmpty(arena).let { empty ->
     Reservations(
         it.isHasNoRecorder, NoRecorder(it.getNoRecorder(arena)), it.isEmpty, empty.title, empty.detail, it.subtitle,
-        it.getWaiting(arena).map { row -> Waiting(row.id, row.title, row.details, row.problem) },
+        it.getWaiting(arena).map { row -> Waiting(row.id, row.title, row.details, row.problem) }, it.waitingSays,
         it.getSections(arena).map { section ->
             Section(section.title, section.getRows(arena).map { row ->
                 ReservationItem(row.id, row.time, row.length, row.isRecording, row.isConflict, row.isByTheRecorder,
@@ -290,6 +297,12 @@ private fun Recordings(it: jp.hiroaki.bdbridge.bridge.RecordingsScreen): Recordi
         it.line, it.isLineIsAProblem, it.loadKey, it.tvKey, it.outdatedKey,
     )
 }
+
+/** The strip at the top of every screen (`StripWindow`): `kind` is empty when it has nothing to say. */
+data class Strip(val kind: String, val text: String, val inFull: Boolean, val action: String, val actionEnabled: Boolean)
+
+private fun Strip(it: jp.hiroaki.bdbridge.bridge.StripLine) =
+    Strip(it.kind, it.text, it.isInFull, it.action, it.isActionEnabled)
 
 /** The sheet of a programme on the day shown, read when it is opened. */
 suspend fun programmeSheet(id: String): ProgrammeSheet? =
