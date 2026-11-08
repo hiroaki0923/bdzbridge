@@ -187,3 +187,18 @@ public enum LocalNetwork {
         "\(packed >> 24 & 0xFF).\(packed >> 16 & 0xFF).\(packed >> 8 & 0xFF).\(packed & 0xFF)"
     }
 }
+
+extension LocalNetwork {
+    /// Whether this app may reach the local network, as far as the platform's privacy for it goes: on iOS read
+    /// off a connection (`access(probing:)` and `waitForAccess`, in LocalNetworkAccess.swift, which says how).
+    public enum Access: Sendable, Equatable {
+        /// The path is there: the address can be reached, or answered, or refused the connection.
+        case allowed
+        /// Local network privacy is in the way: the reader has not answered the system's question yet, or
+        /// said no to it. Nothing documents a difference between the two, so this does not try to tell them
+        /// apart.
+        case blocked
+        /// No path for a reason that has nothing to do with permission, such as no network at all.
+        case unavailable
+    }
+}

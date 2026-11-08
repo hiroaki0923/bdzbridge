@@ -1,5 +1,6 @@
 // iOS's local network privacy, read off a connection of Apple's Network framework. Android's permission for the
-// local network is one an app there asks for and is told of in Android's own way, so none of this is built there.
+// local network is one an app there asks for and is told of in Android's own way, so none of this is built there
+// but the answer's type, `LocalNetwork.Access`, which is in LocalNetwork.swift.
 #if canImport(Network)
 import Foundation
 import Network
@@ -33,17 +34,6 @@ import Network
 /// Not for the overnight run: a background process touching the local network while the question is
 /// undecided is refused without a word, and nothing records that it was.
 extension LocalNetwork {
-    public enum Access: Sendable, Equatable {
-        /// The path is there: the address can be reached, or answered, or refused the connection.
-        case allowed
-        /// Local network privacy is in the way: the reader has not answered the system's question yet, or
-        /// said no to it. Nothing documents a difference between the two, so this does not try to tell them
-        /// apart.
-        case blocked
-        /// No path for a reason that has nothing to do with permission, such as no network at all.
-        case unavailable
-    }
-
     /// One look at the permission, for when the answer is wanted now and waiting is not an option. Aimed at a
     /// recorder's or a television's own address after it was silent, it tells one that is asleep (`.allowed`,
     /// so a magic packet is worth sending) from one the app is not allowed to reach (`.blocked`).
