@@ -70,14 +70,14 @@ public final class RecBridgeApp: Sendable {
 }
 
 extension Surroundings {
-    /// What the model reaches on Android. The settings go in a file of the app's folder: Foundation keeps none of the
-    /// shared defaults on Android, but keeps a suite named by its path. What only the iOS app has yet -- notifications, the network's watcher, the television's registration kept for good, the
+    /// What the model reaches on Android. The settings go in a file of the app's folder (`WrittenDefaults`). What only
+    /// the iOS app has yet -- notifications, the network's watcher, the television's registration kept for good, the
     /// demo's logos -- is left as the model's own defaults give it, which do nothing.
     static func android(files: String, version: String) -> Surroundings {
         let folder = URL(fileURLWithPath: files, isDirectory: true)
         let settings = folder.appendingPathComponent("settings", isDirectory: true)
         try? FileManager.default.createDirectory(at: settings, withIntermediateDirectories: true)
-        let defaults = UserDefaults(suiteName: settings.appendingPathComponent("recbridge").path) ?? .standard
+        let defaults: UserDefaults = WrittenDefaults(suiteName: settings.appendingPathComponent("recbridge").path) ?? .standard
         var android = Surroundings(defaults: defaults, folder: { folder }, transport: { _ in URLSessionTransport() },
                                    networkSignature: LocalNetwork.signature, reachesTheLAN: true,
                                    asksAboutNotifications: false)
@@ -87,6 +87,48 @@ extension Surroundings {
         android.scanPause = { try? await Task.sleep(for: $0) }
         android.appVersion = { version }
         return android
+    }
+}
+
+/// The model's settings on Android. Foundation keeps none of the shared defaults there, but keeps a suite named by
+/// the path of its file -- and writes it out only when told to (`synchronize`), posting nothing when a value changes
+/// (`didChangeNotification`). Apple's Foundation writes by itself, so the model, written for it, never tells. This one
+/// writes itself out at each change, as the model makes it. Measured on the emulator: without it nothing was written,
+/// and a second start read nothing.
+final class WrittenDefaults: UserDefaults {
+    override func set(_ value: Any?, forKey defaultName: String) {
+        super.set(value, forKey: defaultName)
+        synchronize()
+    }
+
+    override func set(_ value: Bool, forKey defaultName: String) {
+        super.set(value, forKey: defaultName)
+        synchronize()
+    }
+
+    override func set(_ value: Int, forKey defaultName: String) {
+        super.set(value, forKey: defaultName)
+        synchronize()
+    }
+
+    override func set(_ value: Double, forKey defaultName: String) {
+        super.set(value, forKey: defaultName)
+        synchronize()
+    }
+
+    override func set(_ value: Float, forKey defaultName: String) {
+        super.set(value, forKey: defaultName)
+        synchronize()
+    }
+
+    override func set(_ url: URL?, forKey defaultName: String) {
+        super.set(url, forKey: defaultName)
+        synchronize()
+    }
+
+    override func removeObject(forKey defaultName: String) {
+        super.removeObject(forKey: defaultName)
+        synchronize()
     }
 }
 
