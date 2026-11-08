@@ -126,7 +126,7 @@ struct RecordingsScreen: View {
             // With nothing that can be written to a device, it is the reader asking for another go, as the
             // strip's 再接続 is.
             .refreshable { await model.pullDownTitles() }
-            .sheet(item: $opened) { TitleSheet(title: $0) }
+            .sheet(item: $opened) { TitleSheet(title: $0, model: model) }
             .sheet(item: $openedGroup) { GroupSheet(group: $0) }
             // The recording picked for deletion is the last recorder's when its lists are let go of: see
             // `timesForgotten`. The sheets close themselves. A television's rows go with its host, and a row of
@@ -488,7 +488,7 @@ struct GroupSheet: View {
             }
             .interactiveDismissDisabled(asking)
             .safeAreaInset(edge: .bottom) { if selecting, !chosen.isEmpty { actions(chosen) } }
-            .sheet(item: $opened) { TitleSheet(title: $0) }
+            .sheet(item: $opened) { TitleSheet(title: $0, model: model) }
             .closesWithItsRecorder()
             .alert(shownTitle(shown, chosen: chosen),
                    isPresented: Binding(get: { shown != nil },
