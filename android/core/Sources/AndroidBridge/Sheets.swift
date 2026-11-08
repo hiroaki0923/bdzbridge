@@ -552,3 +552,152 @@ public final class ReservationSheetWindow: Sendable {
             done: sheet.done || letGo.happened)
     }
 }
+
+/// The recording's sheet (`TitleSheet` on iOS).
+public struct TitleSheetScreen: Sendable {
+    public var title: String
+    public var station: String
+    public var recorded: String
+    /// Empty where the length, the size, the mode, the disk or the genre is not known or not said.
+    public var length: String
+    public var size: String
+    public var quality: String
+    public var disk: String
+    public var viewing: String
+    public var genre: String
+    /// テレビで再生: 再生 (held where its own door turns it away, and while the playback's buttons are), the other
+    /// buttons held together, レコーダーの電源を入れる where offered, and what is said under them.
+    public var offersPlayback: Bool
+    public var playLabel: String
+    public var playHeld: Bool
+    public var playbackHeld: Bool
+    public var offersPower: Bool
+    public var playbackNote: String
+    public var protected: Bool
+    public var protectLabel: String
+    public var protectHeld: Bool
+    public var deleteHeld: Bool
+    /// Why the delete is held, where its own door would turn it away.
+    public var whyNotDeleted: String
+    public var summary: String
+    public var details: [String]
+    /// The recorder's line while it works -- turning it on to play takes as long as waking it -- or nothing.
+    public var line: String
+    public var problem: String
+    public var asking: Bool
+    public var hasAsked: Bool
+    public var asked: Asked
+    /// 削除する under the question is held while the device works or a run is under way.
+    public var actionHeld: Bool
+    public var done: Bool
+}
+
+public final class TitleSheetWindow: Sendable {
+    let model: AppModel
+    let sheet: TitleSheetState
+    private let letGo = LetGo()
+    private let shown: Watched<TitleSheetScreen>
+    private let follows = Follows()
+
+    @MainActor
+    init(_ sheet: TitleSheetState, model: AppModel) {
+        self.sheet = sheet
+        self.model = model
+        let letGo = self.letGo
+        shown = Watched { TitleSheetWindow.screen(sheet, model, letGo) }
+        follows.add(Task { await sheet.opened() })
+        let onTelevision = sheet.title.device == .tv
+        follows.add(onChange(of: { onTelevision ? model.tvTimesForgotten : model.timesForgotten }) { _ in
+            letGo.happened = true
+        })
+    }
+
+    public func read() async -> TitleSheetScreen { await shown.read() }
+
+    public func observe(_ listener: some ScreenListener) {
+        follows.add(shown.watch(listener))
+    }
+
+    public func closed() async {
+        follows.end()
+    }
+
+    // As on the other sheets, each press does nothing while the model holds its button back.
+
+    /// 再生, 一時停止 / 再開 or 停止: `play`, `pause` or `stop`.
+    public func play(_ operation: String) async {
+        await MainActor.run {
+            guard ["play", "pause", "stop"].contains(operation), sheet.offersPlayback, !sheet.holdsPlayback,
+                  operation != "play" || sheet.whyNotPlayed == nil else { return }
+            sheet.play(operation)
+        }
+    }
+
+    public func powerOn() async {
+        await MainActor.run {
+            guard sheet.offersPower, !sheet.holdsPlayback else { return }
+            sheet.powerOn()
+        }
+    }
+
+    public func setProtected(_ on: Bool) async {
+        await MainActor.run {
+            guard !sheet.holdsProtect, on != sheet.current.protected else { return }
+            sheet.setProtected(on)
+        }
+    }
+
+    /// この録画を削除: the question first.
+    public func delete() async {
+        await MainActor.run {
+            guard !sheet.holdsDelete, !sheet.isAsking else { return }
+            sheet.delete()
+        }
+    }
+
+    /// 削除する, under the question shown with `key`.
+    public func confirmDelete(_ key: String) async {
+        await MainActor.run {
+            guard sheet.confirmingDelete, !sheet.asking, !sheet.holdsConfirmingDelete, Self.key(sheet) == key else { return }
+            sheet.confirmDelete()
+            sheet.askClosed()
+        }
+    }
+
+    /// The question or the report shown with `key` closed, whichever button it was.
+    public func closeAsked(_ key: String) async {
+        await MainActor.run {
+            guard sheet.isAsking, Self.key(sheet) == key else { return }
+            sheet.askClosed()
+        }
+    }
+
+    @MainActor
+    static func key(_ sheet: TitleSheetState) -> String {
+        "\(sheet.confirmingDelete)|\(sheet.failure ?? "")|\(sheet.told ?? "")"
+    }
+
+    @MainActor
+    private static func screen(_ sheet: TitleSheetState, _ model: AppModel, _ letGo: LetGo) -> TitleSheetScreen {
+        let current = sheet.current
+        return TitleSheetScreen(
+            title: current.title, station: model.channelName(for: current),
+            recorded: Format.dateTime.string(from: current.start),
+            length: current.lengthKnown ? Format.duration(current.durationSec) : "",
+            size: current.sizeMB.map { Format.gigabytes(megabytes: $0, on: current.device) } ?? "",
+            quality: current.qualityName.map { Codes.qualityLabel[$0] ?? $0 } ?? "",
+            disk: model.diskShown(current) ?? "", viewing: sheet.viewing, genre: current.genre?.label ?? "",
+            offersPlayback: sheet.offersPlayback, playLabel: sheet.playLabel,
+            playHeld: sheet.whyNotPlayed != nil || sheet.holdsPlayback, playbackHeld: sheet.holdsPlayback,
+            offersPower: sheet.offersPower, playbackNote: sheet.playbackNote.asABody,
+            protected: current.protected, protectLabel: sheet.protectLabel, protectHeld: sheet.holdsProtect,
+            deleteHeld: sheet.holdsDelete, whyNotDeleted: sheet.whyNotDeleted?.asABody ?? "",
+            summary: sheet.detail?.summary ?? "", details: (sheet.detail?.details ?? []).filter { !$0.isEmpty },
+            line: model.busy ?? "", problem: model.problem(for: current.device)?.asABody ?? "",
+            asking: sheet.asking, hasAsked: sheet.isAsking,
+            asked: Asked(key: key(sheet), title: sheet.askTitle, message: sheet.askMessage,
+                         action: sheet.asksBeforeDeleting ? "削除する" : "", destructive: sheet.asksBeforeDeleting,
+                         closing: sheet.asksBeforeDeleting ? "キャンセル" : "OK"),
+            actionHeld: sheet.holdsConfirmingDelete, done: sheet.done || letGo.happened)
+    }
+}

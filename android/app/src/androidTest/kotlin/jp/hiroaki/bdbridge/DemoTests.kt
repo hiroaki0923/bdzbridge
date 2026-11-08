@@ -158,6 +158,18 @@ class DemoTests {
         compose.waitUntilDoesNotExist(hasText("予約を削除"), 10_000)
     }
 
+    @Test fun aRecordingsSheetOpensFromTheListWithItsPlaybackAndItsDelete() {
+        openTheDemo()
+        destination("録画").performClick()
+        compose.waitUntilAtLeastOneExists(startsWithADayAndATime, 30_000)
+        compose.onAllNodes(startsWithADayAndATime)[0].performClick()
+        compose.waitUntilAtLeastOneExists(hasText("この録画を削除"), 30_000)
+        compose.onNodeWithText("テレビで再生").assertExists()
+        compose.onNodeWithText("視聴状態").assertExists()
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntilDoesNotExist(hasText("この録画を削除"), 10_000)
+    }
+
     @Test fun leavingTheDemoSaysNoRecorderIsAddedAndOffersTheSearch() {
         openTheDemo()
         // The strip's 終了, held while the model is at work on the demo's recorder, as on iOS.

@@ -52,6 +52,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.Switch
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 
@@ -83,13 +90,27 @@ private fun <H : RecBridge.Sheet<*>> rememberOpened(key: Any, open: suspend () -
 
 /**
  * A bottom sheet that cannot be put away while a request of its own is out: what the request came to is said on it,
- * and a sheet that had gone would say it nowhere.
+ * and a sheet that had gone would say it nowhere. It opens at its full height, as an iOS sheet does: half open, its
+ * buttons -- 録画予約する, 予約を削除 -- were below the edge, with nothing to say that the sheet went further up.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HeldSheet(held: Boolean, close: () -> Unit, content: @Composable () -> Unit) {
+private fun HeldSheet(held: Boolean, done: Boolean, close: () -> Unit, content: @Composable () -> Unit) {
     val holding by rememberUpdatedState(held)
-    val state = rememberModalBottomSheetState(confirmValueChange = { it != SheetValue.Hidden || !holding })
+    val state = rememberModalBottomSheetState(skipPartiallyExpanded = true,
+                                              confirmValueChange = { it != SheetValue.Hidden || !holding })
+    // Closed by the sheet itself -- its reservation made, its delete gone through -- the sheet slides away first and
+    // is taken off only then, as Material has a sheet closed from code: taken off at once, its window was still
+    // there for a moment, and a tap on the screen beneath went to it.
+    LaunchedEffect(done) {
+        if (done) {
+            try {
+                state.hide()
+            } finally {
+                close()
+            }
+        }
+    }
     ModalBottomSheet(onDismissRequest = { if (!holding) close() }, sheetState = state) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp).navigationBarsPadding()) {
             content()
@@ -103,7 +124,7 @@ private fun HeldSheet(held: Boolean, close: () -> Unit, content: @Composable () 
  * its closing button. An answer with OK alone goes either way.
  */
 @Composable
-private fun AskDialog(asked: Asked, act: () -> Unit, closeAsked: () -> Unit) {
+private fun AskDialog(asked: Asked, act: () -> Unit, closeAsked: () -> Unit, actionEnabled: Boolean = true) {
     val closing = @Composable { TextButton(onClick = closeAsked) { Text(asked.closing) } }
     AlertDialog(
         onDismissRequest = closeAsked,
@@ -112,8 +133,12 @@ private fun AskDialog(asked: Asked, act: () -> Unit, closeAsked: () -> Unit) {
         text = { Text(asked.message) },
         confirmButton = {
             if (asked.action.isEmpty()) closing()
-            else TextButton(onClick = act) {
-                Text(asked.action, color = if (asked.destructive) MaterialTheme.colorScheme.error else Color.Unspecified)
+            else TextButton(onClick = act, enabled = actionEnabled) {
+                Text(asked.action, color = when {
+                    !actionEnabled -> Color.Unspecified
+                    asked.destructive -> MaterialTheme.colorScheme.error
+                    else -> Color.Unspecified
+                })
             }
         },
         dismissButton = if (asked.action.isEmpty()) null else closing,
@@ -128,11 +153,10 @@ fun ProgrammeSheetView(row: Programme, close: () -> Unit) {
     val handle = rememberOpened(row.id) { RecBridge.openProgramme(row.id) }
     val sheet = handle?.let { it.shown.collectAsState().value }
     var editing by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(sheet?.done) { if (sheet?.done == true) close() }
     val act = { work: suspend RecBridge.ProgrammeSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
     val free = sheet != null && sheet.asking.isEmpty()
 
-    HeldSheet(held = sheet?.held ?: false, close = close) {
+    HeldSheet(held = sheet?.held ?: false, done = sheet?.done ?: false, close = close) {
         Title(sheet?.title ?: row.title)
         sheet?.waking?.takeIf { it.isNotEmpty() }?.let { Working(it) }
         Value("放送", sheet?.station ?: row.station)
@@ -259,11 +283,10 @@ fun ReservationSheetView(title: String, open: suspend () -> RecBridge.Reservatio
     val scope = rememberCoroutineScope()
     val handle = rememberOpened(Unit, open)
     val sheet = handle?.let { it.shown.collectAsState().value }
-    LaunchedEffect(sheet?.done) { if (sheet?.done == true) close() }
     val act = { work: suspend RecBridge.ReservationSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
     val free = sheet != null && sheet.asking.isEmpty()
 
-    HeldSheet(held = sheet?.asking?.isNotEmpty() ?: false, close = close) {
+    HeldSheet(held = sheet?.asking?.isNotEmpty() ?: false, done = sheet?.done ?: false, close = close) {
         Title(sheet?.title ?: title)
         if (sheet == null) return@HeldSheet Working("")
         if (sheet.waking.isNotEmpty()) Working(sheet.waking)
@@ -309,6 +332,83 @@ fun ReservationSheetView(title: String, open: suspend () -> RecBridge.Reservatio
     sheet?.asked?.let { asked ->
         AskDialog(asked, act = { act { confirmDelete(asked.key) } }, closeAsked = { act { closeAsked(asked.key) } })
     }
+}
+
+/**
+ * The recording's sheet: what it is, playing it on the television, protecting it, and deleting it, as the iOS sheet
+ * lays them out. It opens at once with what the row says.
+ */
+@Composable
+fun TitleSheetView(row: RecordingItem, close: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val handle = rememberOpened(row.id) { RecBridge.openRecording(row.id) }
+    val sheet = handle?.let { it.shown.collectAsState().value }
+    val act = { work: suspend RecBridge.TitleSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
+
+    HeldSheet(held = sheet?.asking ?: false, done = sheet?.done ?: false, close = close) {
+        Title(sheet?.title ?: row.title)
+        if (sheet == null) {
+            Footnote(row.details, Modifier.padding(horizontal = 24.dp))
+            return@HeldSheet Working("")
+        }
+        if (sheet.line.isNotEmpty()) Working(sheet.line)
+        Value("放送", sheet.station)
+        Value("録画", sheet.recorded)
+        if (sheet.length.isNotEmpty()) Value("長さ", sheet.length)
+        if (sheet.size.isNotEmpty()) Value("サイズ", sheet.size)
+        if (sheet.quality.isNotEmpty()) Value("録画モード", sheet.quality)
+        if (sheet.disk.isNotEmpty()) Value("録画先", sheet.disk)
+        Value("視聴状態", sheet.viewing)
+        if (sheet.genre.isNotEmpty()) Value("ジャンル", sheet.genre)
+        if (sheet.offersPlayback) {
+            SectionHeading("テレビで再生")
+            FlowRowOfButtons {
+                OutlinedButton(onClick = { act { play("play") } }, enabled = !sheet.playHeld) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, Modifier.size(18.dp))
+                    Text(" " + sheet.playLabel)
+                }
+                OutlinedButton(onClick = { act { play("pause") } }, enabled = !sheet.playbackHeld) {
+                    Icon(Icons.Default.Pause, contentDescription = null, Modifier.size(18.dp))
+                    Text(" 一時停止 / 再開")
+                }
+                OutlinedButton(onClick = { act { play("stop") } }, enabled = !sheet.playbackHeld) {
+                    Icon(Icons.Default.Stop, contentDescription = null, Modifier.size(18.dp))
+                    Text(" 停止")
+                }
+                if (sheet.offersPower) {
+                    OutlinedButton(onClick = { act { powerOn() } }, enabled = !sheet.playbackHeld) {
+                        Icon(Icons.Default.PowerSettingsNew, contentDescription = null, Modifier.size(18.dp),
+                             tint = LocalMarks.current.onReserved)
+                        Text(" レコーダーの電源を入れる", color = LocalMarks.current.onReserved)
+                    }
+                }
+            }
+            Footnote(sheet.playbackNote, Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
+        }
+        HorizontalDivider(Modifier.padding(top = 8.dp))
+        ListItem(headlineContent = { Text(sheet.protectLabel) }, colors = clear(), modifier = Modifier.padding(horizontal = 8.dp),
+                 trailingContent = {
+                     Switch(checked = sheet.protected, enabled = !sheet.protectHeld,
+                            onCheckedChange = { on -> act { setProtected(on) } })
+                 })
+        Box(Modifier.padding(horizontal = 24.dp)) { Destructive("この録画を削除", !sheet.deleteHeld) { act { delete() } } }
+        if (sheet.whyNotDeleted.isNotEmpty()) Footnote(sheet.whyNotDeleted, Modifier.padding(horizontal = 24.dp))
+        if (sheet.summary.isNotEmpty()) Part("番組内容", sheet.summary)
+        for (text in sheet.details) Part("詳細", text)
+        if (sheet.problem.isNotEmpty()) Problem(sheet.problem)
+    }
+    sheet?.asked?.let { asked ->
+        // 削除する is held while the device works or a run is under way, as on iOS.
+        AskDialog(asked, act = { act { confirmDelete(asked.key) } }, closeAsked = { act { closeAsked(asked.key) } },
+                  actionEnabled = !sheet.actionHeld)
+    }
+}
+
+/** Buttons side by side, wrapping to the next line where the sheet is narrow. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FlowRowOfButtons(content: @Composable () -> Unit) {
+    FlowRow(Modifier.padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { content() }
 }
 
 // MARK: the sheets' rows

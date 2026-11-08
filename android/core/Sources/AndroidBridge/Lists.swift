@@ -146,8 +146,21 @@ public struct RecordingsScreen: Sendable {
     public var empty: Said
     /// `残り 120.5 GB` when the free space is known, `録画` when it is not.
     public var heading: String
-    /// `48 件`.
+    /// The recorder's line while it works, or what is shown: the disk and the genre picked, and how many.
     public var subtitle: String
+    /// The filters, as the iOS screen's menu offers them: 録画先 (only where there is more than one place), ジャンル
+    /// with how many of each, 並び順 and 視聴状態. An empty code is すべて; `filtering` when any is not its default.
+    public var destinations: [Labelled]
+    public var destination: String
+    public var genres: [Labelled]
+    public var genre: String
+    public var sorts: [Labelled]
+    public var sort: String
+    public var states: [Labelled]
+    public var state: String
+    public var filtering: Bool
+    /// More on the television's disk than the list holds, said under it.
+    public var tvNote: String
     public var rows: [RecordingRow]
     public var line: String
     public var lineIsAProblem: Bool
@@ -198,6 +211,36 @@ public final class RecordingsWindow: Sendable {
         await model.loadOutdatedTitles()
     }
 
+    /// Pulled down: the list read again from both devices, though not while a bulk job is walking it.
+    public func pullDown() async {
+        await model.pullDownTitles()
+    }
+
+    public func chooseDestination(_ code: String) async {
+        await MainActor.run { model.titleDestination = code.isEmpty ? nil : code }
+    }
+
+    public func chooseGenre(_ code: String) async {
+        await MainActor.run { model.titleGenre = Int(code) }
+    }
+
+    public func chooseSort(_ code: String) async {
+        await MainActor.run { if let sort = AppModel.TitleSort(rawValue: code) { model.titleSort = sort } }
+    }
+
+    public func chooseState(_ code: String) async {
+        await MainActor.run { model.titleState = WatchState(rawValue: code) }
+    }
+
+    /// The sheet of the recording whose row has `id` (`RecordedTitle.listKey`), while the list has it.
+    public func open(_ id: String) async -> TitleSheetWindow? {
+        await MainActor.run {
+            model.allTitles.first { $0.listKey == id }.map {
+                TitleSheetWindow(TitleSheetState(title: $0, model: model), model: model)
+            }
+        }
+    }
+
     @MainActor
     private static func screen(_ model: AppModel) -> RecordingsScreen {
         let listed = model.shownTitles
@@ -207,7 +250,26 @@ public final class RecordingsWindow: Sendable {
             isLoading: model.recordingsAreLoading, loading: Said(AppModel.loadingRecordings),
             empty: Said(model.noRecordingsSays),
             heading: model.shownFreeBytes.map { "残り \(Format.gigabytes($0, on: model.shownFreeDevice))" } ?? "録画",
-            subtitle: "\(listed.count) 件",
+            subtitle: model.busy ?? ([model.shownDestination.map(model.titleDestinationLabel),
+                                       model.titleGenre.flatMap { Codes.genreLabel[$0] }].compactMap { $0 }
+                                      + ["\(listed.count) 件"]).joined(separator: " · "),
+            destinations: model.titleDestinations.isEmpty ? []
+                : [Labelled(code: "", label: "すべて")]
+                    + model.titleDestinations.map { Labelled(code: $0.destination, label: $0.label) },
+            destination: model.shownDestination ?? "",
+            genres: [Labelled(code: "", label: "すべて \(model.titlesOnTheShownDisk.count)")]
+                + Codes.genreLabel.keys.sorted().compactMap { level in
+                    guard let count = model.titleGenreCounts[level], count > 0 else { return nil }
+                    return Labelled(code: "\(level)", label: "\(Codes.genreLabel[level] ?? "") \(count)")
+                },
+            genre: model.titleGenre.map { "\($0)" } ?? "",
+            sorts: AppModel.TitleSort.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
+            sort: model.titleSort.rawValue,
+            states: [Labelled(code: "", label: "すべて")] + WatchState.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
+            state: model.titleState?.rawValue ?? "",
+            filtering: model.shownDestination != nil || model.titleGenre != nil || model.titleState != nil
+                || model.titleSort != .newest,
+            tvNote: model.tvTitlesNote?.asABody ?? "",
             rows: listed.map { row($0, model) },
             line: model.busy ?? problem?.asABody ?? "", lineIsAProblem: model.busy == nil && problem != nil,
             loadKey: "\(model.connected && !model.offline)", tvKey: model.tvTitlesToRead,

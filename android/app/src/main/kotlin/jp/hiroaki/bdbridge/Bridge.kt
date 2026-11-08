@@ -14,6 +14,7 @@ import jp.hiroaki.bdbridge.bridge.ReservationSheetWindow
 import jp.hiroaki.bdbridge.bridge.ReservationsWindow
 import jp.hiroaki.bdbridge.bridge.ScreenListener
 import jp.hiroaki.bdbridge.bridge.StripWindow
+import jp.hiroaki.bdbridge.bridge.TitleSheetWindow
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
@@ -148,6 +149,10 @@ object RecBridge {
     suspend fun openProgramme(id: String): ProgrammeSheetHandle? =
         ask { it.guide.open(id, arena) }.orElse(null)?.let { ProgrammeSheetHandle(it) }
 
+    /** The sheet of a recording in the list, opened: nil when the list no longer has it. */
+    suspend fun openRecording(id: String): TitleSheetHandle? =
+        ask { it.recordings.open(id, arena) }.orElse(null)?.let { TitleSheetHandle(it) }
+
     /** The sheet of a reservation in the list, opened: nil when the list no longer has it. */
     suspend fun openReservation(id: String): ReservationSheetHandle? =
         ask { it.reservations.open(id, arena) }.orElse(null)?.let { ReservationSheetHandle(it) }
@@ -184,6 +189,17 @@ object RecBridge {
         suspend fun change(device: String): ReservationSheetHandle? =
             call { window.change(device, arena) }.orElse(null)?.let { ReservationSheetHandle(it) }
         suspend fun changeClosed() = call<Void> { window.changeClosed() }.let {}
+    }
+
+    class TitleSheetHandle(private val window: TitleSheetWindow) :
+        Sheet<TitleSheetScreen>({ window.observe(it) }, { TitleSheetScreen(call { window.read(arena) }) }) {
+        override suspend fun ended() = call<Void> { window.closed() }.let {}
+        suspend fun play(operation: String) = call<Void> { window.play(operation) }.let {}
+        suspend fun powerOn() = call<Void> { window.powerOn() }.let {}
+        suspend fun setProtected(on: Boolean) = call<Void> { window.setProtected(on) }.let {}
+        suspend fun delete() = call<Void> { window.delete() }.let {}
+        suspend fun confirmDelete(key: String) = call<Void> { window.confirmDelete(key) }.let {}
+        suspend fun closeAsked(key: String) = call<Void> { window.closeAsked(key) }.let {}
     }
 
     class ReservationSheetHandle(private val window: ReservationSheetWindow) :
@@ -297,8 +313,10 @@ data class Waiting(val id: String, val title: String, val details: String, val p
 data class Recordings(
     val hasNoRecorder: Boolean, val noRecorder: NoRecorder, val isLoading: Boolean, val loadingTitle: String,
     val loadingDetail: String, val emptyTitle: String, val emptyDetail: String, val heading: String,
-    val subtitle: String, val rows: List<RecordingItem>, val line: String, val lineIsAProblem: Boolean,
-    val loadKey: String, val tvKey: String, val outdatedKey: String,
+    val subtitle: String, val destinations: List<Labelled>, val destination: String, val genres: List<Labelled>,
+    val genre: String, val sorts: List<Labelled>, val sort: String, val states: List<Labelled>, val state: String,
+    val filtering: Boolean, val tvNote: String, val rows: List<RecordingItem>, val line: String,
+    val lineIsAProblem: Boolean, val loadKey: String, val tvKey: String, val outdatedKey: String,
 )
 
 data class RecordingItem(
@@ -349,7 +367,9 @@ private fun Recordings(it: jp.hiroaki.bdbridge.bridge.RecordingsScreen): Recordi
     val empty = it.getEmpty(arena)
     return Recordings(
         it.isHasNoRecorder, NoRecorder(it.getNoRecorder(arena)), it.isLoading, loading.title, loading.detail,
-        empty.title, empty.detail, it.heading, it.subtitle,
+        empty.title, empty.detail, it.heading, it.subtitle, labelled(it.getDestinations(arena)), it.destination,
+        labelled(it.getGenres(arena)), it.genre, labelled(it.getSorts(arena)), it.sort, labelled(it.getStates(arena)),
+        it.state, it.isFiltering, it.tvNote,
         it.getRows(arena).map { row ->
             RecordingItem(row.id, row.title, row.isRecording, row.isProtected, row.details, row.watched,
                           row.isUnwatched, row.genre)
@@ -441,4 +461,22 @@ private fun ReservationSheetScreen(it: jp.hiroaki.bdbridge.bridge.ReservationShe
     it.clashLine, it.overlappingHeading, it.overlapping.toList(), it.noneOverlapping, it.madeByItself, it.summary,
     it.extended, it.asking, it.isChanged, it.changeLabel, it.changeFooter, it.isButtonsHeld, it.problem,
     asked(it.isHasAsked, it.getAsked(arena)), it.isDone,
+)
+
+data class TitleSheetScreen(
+    val title: String, val station: String, val recorded: String, val length: String, val size: String,
+    val quality: String, val disk: String, val viewing: String, val genre: String, val offersPlayback: Boolean,
+    val playLabel: String, val playHeld: Boolean, val playbackHeld: Boolean, val offersPower: Boolean,
+    val playbackNote: String, val protected: Boolean, val protectLabel: String, val protectHeld: Boolean,
+    val deleteHeld: Boolean, val whyNotDeleted: String, val summary: String, val details: List<String>,
+    val line: String, val problem: String, val asking: Boolean, val asked: Asked?, val actionHeld: Boolean,
+    val done: Boolean,
+)
+
+private fun TitleSheetScreen(it: jp.hiroaki.bdbridge.bridge.TitleSheetScreen) = TitleSheetScreen(
+    it.title, it.station, it.recorded, it.length, it.size, it.quality, it.disk, it.viewing, it.genre,
+    it.isOffersPlayback, it.playLabel, it.isPlayHeld, it.isPlaybackHeld, it.isOffersPower, it.playbackNote,
+    it.isProtected, it.protectLabel, it.isProtectHeld, it.isDeleteHeld, it.whyNotDeleted, it.summary,
+    it.details.toList(), it.line, it.problem, it.isAsking, asked(it.isHasAsked, it.getAsked(arena)), it.isActionHeld,
+    it.isDone,
 )

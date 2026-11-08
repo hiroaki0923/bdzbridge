@@ -81,6 +81,10 @@ use:
 ANDROID_SERIAL=emulator-5554 ./gradlew :app:connectedDebugAndroidTest
 ```
 
+A file added to `app/RecorderKit` is sometimes not seen by the Android build, which goes on with the build
+description SwiftPM wrote before ("cannot find type" for something the Mac's build finds): deleting
+`core/.build/aarch64-unknown-linux-android28/debug/description.json` has SwiftPM write it again.
+
 The first build compiles RecorderKit for Android, which takes a minute or two. A debug APK for arm64 alone is about
 160 MB: the Swift runtime and Foundation are in it, with their symbols, and nothing is shrunk.
 

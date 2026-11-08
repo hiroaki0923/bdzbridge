@@ -190,10 +190,13 @@ final class ProgramSheetTests: XCTestCase {
         XCTAssertNil(model.reservation(for: program))
     }
 
-    /// What the recorder says a reservation would clash with is asked only where 録画予約 is the recorder's.
+    /// What the recorder says a reservation would clash with is asked only where 録画予約 is the recorder's. Of a
+    /// programme no device holds: one the recorder holds offers no 録画予約, and is asked nothing (`aProgramme` can
+    /// hand back one the demo has reserved, as it does from nine at night).
     func testTheClashesAreAskedOnlyOfTheRecorder() async throws {
         let (_, model) = try await connected()
-        let sheet = ProgramSheetState(program: try await aProgramme(model), model: model)
+        let programs = try await programmesNotReserved(model, 1)
+        let sheet = ProgramSheetState(program: try XCTUnwrap(programs.first), model: model)
         await sheet.check()
         XCTAssertEqual(sheet.conflicts, [])
         XCTAssertFalse(sheet.checking)

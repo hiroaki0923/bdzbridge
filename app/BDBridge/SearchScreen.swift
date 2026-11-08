@@ -66,7 +66,7 @@ struct SearchScreen: View {
             .task(id: search.scope) { await search.readTheTelevisionsList() }
             .sheet(item: $openedProgram) { ProgramSheet(program: $0, model: model) }
             .sheet(item: $openedReservation) { ReservationSheet(reservation: $0, model: model) }
-            .sheet(item: $openedTitle) { TitleSheet(title: $0) }
+            .sheet(item: $openedTitle) { TitleSheet(title: $0, model: model) }
         }
     }
 
