@@ -1,4 +1,5 @@
 import Foundation
+import RecBridgeModel
 import os
 
 extension Storage {

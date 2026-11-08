@@ -1,3 +1,4 @@
+import RecBridgeModel
 import SwiftUI
 
 /// What the reader should know before this app writes to their recorder: above all that a recording deleted

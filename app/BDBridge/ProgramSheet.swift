@@ -1,3 +1,4 @@
+import RecBridgeModel
 import RecorderKit
 import SwiftUI
 
@@ -338,11 +339,11 @@ struct ProgramSheet: View {
                 switch asked {
                 case .reserve(let device, let named):
                     let mode = device == .tv ? TVDriver.recordsIn : quality
+                    let disk = named.map { " · " + model.diskLabel($0) } ?? ""
+                    let confirming = device == .tv ? TVDriver.confirming : RecorderDriver.confirming(away: model.offline)
                     Text("\(Format.dateTime.string(from: program.start)) \(program.serviceName)\n"
                          + "\(Codes.qualityLabel[mode] ?? mode) · "
-                         + "\(Codes.repeatLabel[repeating] ?? repeating)"
-                         + (named.map { " · " + model.diskLabel($0) } ?? "") + "\n"
-                         + (device == .tv ? TVDriver.confirming : RecorderDriver.confirming(away: model.offline)))
+                         + "\(Codes.repeatLabel[repeating] ?? repeating)" + disk + "\n" + confirming)
                 case .cancel(let reservation):
                     Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
                          + reservation.whatDeletingDoes(fromTheList: false))

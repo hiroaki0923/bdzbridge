@@ -1,3 +1,4 @@
+import RecBridgeModel
 import SwiftUI
 
 /// The bulk job, wherever the reader happens to be looking. It is shown on the recordings screen and inside

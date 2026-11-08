@@ -1,9 +1,10 @@
+import RecBridgeModel
 import RecorderKit
 import SwiftUI
 
 @main
 struct BDBridgeApp: App {
-    @State private var model = AppModel()
+    @State private var model = AppModel(surroundings: .app)
 
     init() {
         guard !Self.hostingUnitTests else { return }

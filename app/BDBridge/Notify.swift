@@ -1,4 +1,5 @@
 import Foundation
+import RecBridgeModel
 import RecorderKit
 import UserNotifications
 

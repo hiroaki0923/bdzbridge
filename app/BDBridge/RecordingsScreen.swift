@@ -1,3 +1,4 @@
+import RecBridgeModel
 import RecorderKit
 import SwiftUI
 
@@ -155,7 +156,7 @@ struct RecordingsScreen: View {
                 }
             } message: { shown in
                 switch shown {
-                case .confirm(let title): Text(Self.deleteMessage(title))
+                case .confirm(let title): Text(AppModel.deleteMessage(title))
                 case .failed(let reason), .told(let reason): Text(reason.asABody)
                 }
             }
@@ -169,13 +170,6 @@ struct RecordingsScreen: View {
         case .told: "録画"
         case .confirm, nil: "この録画を削除しますか？"
         }
-    }
-
-    /// What is about to go, and how much of the disk it gives back. Said in full because there is no undo.
-    static func deleteMessage(_ title: RecordedTitle) -> String {
-        var lines = [title.title, Format.dateTime.string(from: title.start)]
-        if let size = Format.size(of: title) { lines.append(size) }
-        return lines.joined(separator: "\n") + "\n" + [title].deletedForGood.asABody
     }
 
     private var filtering: Bool {
@@ -446,12 +440,6 @@ struct GroupSheet: View {
         return confirmingDelete ? .bulk : nil
     }
 
-    /// The recordings ticked, of those the sheet lists. By key (`RecordedTitle.listKey`): the list can be read
-    /// again under an open sheet, and a tick on a disk since gone says nothing of a row of the next one.
-    static func chosen(among members: [RecordedTitle], _ selected: Set<String>) -> [RecordedTitle] {
-        members.filter { selected.contains($0.listKey) }
-    }
-
     private static func gigabytes(_ titles: [RecordedTitle]) -> String {
         Format.gigabytes(Gigabytes.of(titles))
     }
@@ -460,7 +448,7 @@ struct GroupSheet: View {
         // Read once here and handed to the parts that need them: each read sorts every recording and picks
         // this programme's out of them, and every tick in the selection draws the sheet again.
         let members = model.members(of: group)
-        let chosen = Self.chosen(among: members, selected)
+        let chosen = AppModel.chosenTitles(among: members, selected)
         let shown = self.shown(among: members)
         NavigationStack {
             VStack(spacing: 0) {
@@ -530,7 +518,7 @@ struct GroupSheet: View {
                 case .bulk:
                     Text("合計 \(Self.gigabytes(chosen))。保護された録画と録画中のものは削除されません。\n"
                          + chosen.deletedForGood.asABody)
-                case .one(let title): Text(RecordingsScreen.deleteMessage(title))
+                case .one(let title): Text(AppModel.deleteMessage(title))
                 case .failed(let reason), .told(let reason): Text(reason.asABody)
                 }
             }

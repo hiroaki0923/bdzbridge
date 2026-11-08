@@ -1,3 +1,4 @@
+import RecBridgeModel
 import RecorderKit
 import SwiftUI
 
@@ -79,6 +80,7 @@ struct TitleSheet: View {
                         // takes long enough to invite a second tap too. 再生 alone is held where its own door would turn
                         // it away, and says why below: 一時停止 and 停止 are about what is on the television.
                         let whyNotPlayed = model.whyNot(playing: current)
+                        let playing: String = current.watchState == .partway ? "最初から再生" : "再生"
                         Group {
                             Button {
                                 ask { await model.play(current, "play") }
@@ -86,7 +88,7 @@ struct TitleSheet: View {
                                 // The recorder cannot be told where to start: `play` begins at the beginning whatever
                                 // position is sent (docs/xsrs-api.md). A recording watched partway says so on the
                                 // button, rather than surprise a reader who expected to carry on where they left off.
-                                Label(current.watchState == .partway ? "最初から再生" : "再生", systemImage: "play.fill")
+                                Label(playing, systemImage: "play.fill")
                             }
                             .disabled(whyNotPlayed != nil)
                             Button {

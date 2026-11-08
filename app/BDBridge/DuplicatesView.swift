@@ -1,3 +1,4 @@
+import RecBridgeModel
 import RecorderKit
 import SwiftUI
 

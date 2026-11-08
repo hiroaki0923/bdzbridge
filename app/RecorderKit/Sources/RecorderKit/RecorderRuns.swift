@@ -29,6 +29,9 @@ public protocol RunDriver: AnyObject, Sendable {
     func delete(_ title: RecordedTitle, in run: Run) async -> ItemCame
     func protect(_ title: RecordedTitle, _ on: Bool, in run: Run) async -> ItemCame
     func end(_ run: Run, deleted: Int, stopped: RunStop?) async
+    /// Returns once a read of the device's list that is out has handed its list over, at once with none out: a
+    /// run looks each recording up only after it, in the list that read brought (`BulkRuns`).
+    func afterTheListRead() async
 }
 
 extension RecorderDriver: RunDriver {}
