@@ -47,6 +47,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -67,7 +68,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.intl.Locale
+import androidx.compose.ui.text.intl.LocaleList
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -84,7 +88,27 @@ fun RecBridgeTheme(content: @Composable () -> Unit) {
         dark -> darkColorScheme()
         else -> lightColorScheme()
     }
-    MaterialTheme(colorScheme = colors, content = content)
+    MaterialTheme(colorScheme = colors, typography = inJapanese(Typography()), content = content)
+}
+
+/**
+ * Every style of the app's text marked as Japanese. Android chooses the shapes of the characters Chinese and Japanese
+ * share by the language a text is in, and takes the device's when nothing says: on a device set to English or
+ * Chinese, 直 came out in its Chinese shape. Everything the app says is Japanese, whatever the device is set to.
+ */
+private fun inJapanese(typography: Typography): Typography {
+    val japanese = LocaleList(Locale("ja-JP"))
+    fun TextStyle.japanese() = copy(localeList = japanese)
+    return typography.copy(
+        displayLarge = typography.displayLarge.japanese(), displayMedium = typography.displayMedium.japanese(),
+        displaySmall = typography.displaySmall.japanese(), headlineLarge = typography.headlineLarge.japanese(),
+        headlineMedium = typography.headlineMedium.japanese(), headlineSmall = typography.headlineSmall.japanese(),
+        titleLarge = typography.titleLarge.japanese(), titleMedium = typography.titleMedium.japanese(),
+        titleSmall = typography.titleSmall.japanese(), bodyLarge = typography.bodyLarge.japanese(),
+        bodyMedium = typography.bodyMedium.japanese(), bodySmall = typography.bodySmall.japanese(),
+        labelLarge = typography.labelLarge.japanese(), labelMedium = typography.labelMedium.japanese(),
+        labelSmall = typography.labelSmall.japanese(),
+    )
 }
 
 /** The orange the iOS app marks a reservation with. */
