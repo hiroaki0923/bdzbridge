@@ -104,7 +104,7 @@ struct ProgramSheet: View {
             .task(id: sheet.checkKey) { await sheet.check() }
             .task { await sheet.opened() }
             .onChange(of: sheet.device) { sheet.deviceChanged(to: $1) }
-            .sheet(item: $sheet.editing) { ReservationSheet(reservation: $0) }
+            .sheet(item: $sheet.editing) { ReservationSheet(reservation: $0, model: model) }
             .onChange(of: model.timesForgotten) { sheet.recordersListsLetGo() }
             .onChange(of: model.usbDisk) { sheet.usbDiskChanged() }
             .onChange(of: model.tvTimesForgotten) { sheet.televisionsListsLetGo() }
