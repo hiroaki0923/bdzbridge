@@ -1,10 +1,14 @@
 #!/bin/sh
-# Builds RecorderKit's tests for Android and runs them on the one device or emulator adb sees. The package's
+# Builds the package's tests for Android and runs them on the one device or emulator adb sees. The package's
 # Android check runs this (.github/workflows/android.yml), and so can anyone with the toolchain
 # (docs/android-port-study.md).
 #
 #   scripts/android-tests.sh build <arch>    arch: aarch64 or x86_64, the device's
-#   scripts/android-tests.sh run <arch> [RecorderKitTests.<Class>[/<test>][,...]]    all of them unless named
+#   scripts/android-tests.sh run <arch> [<Target>.<Class>[/<test>][,...]]    all of them unless named
+#
+# The targets are the package's two of tests, RecorderKitTests and RecBridgeModelTests (the app's model), each
+# built as a program of its own and run in turn; named tests run in the target they name, and a target none of
+# them names is not run.
 #
 # SWIFT is the swift to build with, "swift" unless set. Xcode's cannot build for Android, so on a Mac it is
 # swiftly's: SWIFT="swiftly run swift +6.4.2". ANDROID_NDK_HOME is the NDK the Swift SDK for Android was set up
@@ -35,12 +39,19 @@ run)
     libcxx=$(ls "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/sysroot/usr/lib/"$arch"-linux-android/libc++_shared.so)
     adb shell rm -rf "$device"
     adb shell mkdir -p "$device/lib" "$device/tmp" "$device/docs"
-    adb push "$products/RecorderKitTests-test-runner" "$products/RecorderKitTests.so" "$device/"
     adb push "$resources"/android/*.so "$libcxx" "$device/lib/"
     # The vectors the tests check the package against, found by RECORDERKIT_VECTORS (Vectors.swift).
     adb push "$package/../../docs/port" "$device/docs/"
-    adb shell "cd $device && TMPDIR=$device/tmp HOME=$device RECORDERKIT_VECTORS=$device/docs/port \
-LD_LIBRARY_PATH=$device:$device/lib ./RecorderKitTests-test-runner --testing-library xctest $*"
+    for target in RecorderKitTests RecBridgeModelTests; do
+        named=""
+        if [ $# -gt 0 ]; then
+            named=$(printf '%s\n' "$*" | tr ', ' '\n\n' | grep "^$target\." | paste -sd, -) || true
+            [ -n "$named" ] || continue
+        fi
+        adb push "$products/$target-test-runner" "$products/$target.so" "$device/"
+        adb shell "cd $device && TMPDIR=$device/tmp HOME=$device RECORDERKIT_VECTORS=$device/docs/port \
+LD_LIBRARY_PATH=$device:$device/lib ./$target-test-runner --testing-library xctest $named"
+    done
     ;;
 *)
     echo "usage: $0 build|run aarch64|x86_64" >&2
