@@ -132,7 +132,7 @@ struct RecorderActivityBar: View {
         // A container that stays when the strip goes, so that the strip's own transition has somewhere to run.
         VStack(spacing: 0) { content }
             .animation(.default, value: showing)
-            .sheet(isPresented: $registeringTV) { TVRegisterSheet(host: model.tv?.host ?? "", again: true) }
+            .sheet(isPresented: $registeringTV) { TVRegisterSheet(model: model, host: model.tv?.host ?? "", again: true) }
     }
 
     @ViewBuilder

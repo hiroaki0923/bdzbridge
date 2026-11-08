@@ -94,7 +94,7 @@ struct SettingsScreen: View {
                          + "予約するときに変えても、ここは変わりません。")
                 }
 
-                TVSection(sheet: $tvSheet)
+                TVSection(model: model, sheet: $tvSheet)
 
                 Section {
                     Button("レコーダーとテレビを探す") {
@@ -215,7 +215,7 @@ struct SettingsScreen: View {
             // On the form and not on the television's section: one presenter, on a view that is still there
             // when the section turns from one form to the other as a registration is made.
             .sheet(item: $tvSheet) {
-                TVRegisterSheet(host: $0.host, connectAtOnce: $0.connectAtOnce, again: $0.again)
+                TVRegisterSheet(model: model, host: $0.host, connectAtOnce: $0.connectAtOnce, again: $0.again)
             }
             .alert("番組表を取得できませんでした",
                    isPresented: Binding(get: { guideFailure != nil }, set: { if !$0 { guideFailure = nil } })) {

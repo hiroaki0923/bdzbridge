@@ -25,12 +25,15 @@ struct TVSection: View {
     /// its rows -- and with several presenters on the one state the sheet went by itself at the first press,
     /// and again as a registration turned the section from one form to the other under it.
     @Binding var sheet: TVSheetRequest?
-    @State private var removing = false
+    /// How the link stands, the helper, and テレビを外す with its question.
+    @State private var television: TVSettingsState
     /// Whether the sheet that registers with the helper on the television is up, hung on its own button.
     @State private var registeringHelper = false
-    /// How many reservations wait for the television, read as the question goes up, for it to say and for
-    /// 外す to be held to. Nil when they could not be counted.
-    @State private var waiting: Int?
+
+    init(model: AppModel, sheet: Binding<TVSheetRequest?>) {
+        _sheet = sheet
+        _television = State(initialValue: TVSettingsState(model: model))
+    }
 
     var body: some View {
         Group {
@@ -40,54 +43,44 @@ struct TVSection: View {
                         LabeledContent("機種", value: name)
                     }
                     LabeledContent("IP アドレス", value: tv.host)
-                    LabeledContent("状態", value: state(of: tv))
+                    if let standing = television.standing {
+                        LabeledContent("状態", value: standing)
+                    }
                     NavigationLink("対応状況を調べる") { TVCapabilitiesScreen(host: tv.host) }
                     if let storage = model.tvDriver?.facts.storage {
                         LabeledContent("USB ハードディスク",
                                        value: Format.storage(mounted: storage.mounted, freeBytes: storage.freeBytes,
                                                              totalBytes: storage.totalBytes, on: .tv))
                     }
-                    if model.tvDriver?.facts.needsPairing == true {
+                    if television.offersRegistering {
                         Button("登録する") { sheet = TVSheetRequest(host: tv.host, connectAtOnce: false, again: true) }
-                    } else if !tv.session.connected {
-                        Button("再接続") { Task { await tv.connect() } }
-                            .disabled(tv.session.connecting)
+                    } else if television.offersReconnect {
+                        Button("再接続") { Task { await television.reconnect() } }
+                            .disabled(television.holdsReconnect)
                     }
-                    if model.tvHelper != nil {
-                        LabeledContent("番組表（ヘルパー）", value: model.helperRegistered ? "登録済み" : "未登録")
-                        if model.helperRegistered {
-                            Button("ヘルパーの登録を解除", role: .destructive) { model.forgetHelper() }
+                    if television.offersTheHelper {
+                        LabeledContent("番組表（ヘルパー）", value: television.helperRegistered ? "登録済み" : "未登録")
+                        if television.helperRegistered {
+                            Button("ヘルパーの登録を解除", role: .destructive) { television.forgetHelper() }
                         } else {
                             Button("ヘルパーに登録") { registeringHelper = true }
-                                .sheet(isPresented: $registeringHelper) { HelperRegisterSheet() }
+                                .sheet(isPresented: $registeringHelper) { HelperRegisterSheet(model: model) }
                         }
                     }
-                    // Not while the television works: a sending that is out may be making a reservation
-                    // that the question would say is deleted unsent.
-                    Button("テレビを外す", role: .destructive) {
-                        Task {
-                            waiting = await model.waitingForTheTelevision()
-                            removing = true
-                        }
-                    }
-                    .disabled(model.isBusy(for: .tv))
+                    Button("テレビを外す", role: .destructive) { Task { await television.remove() } }
+                        .disabled(television.holdsRemoving)
                 } header: {
                     Text("テレビ")
                 } footer: {
-                    // Why 外す left the television in place, above what went wrong with the television: both
-                    // when both stand.
-                    let lines = [model.whyTheTelevisionStays, model.problem(for: .tv)].compactMap { $0 }
-                    if !lines.isEmpty { Text(lines.joined(separator: "\n").asABody).foregroundStyle(.red).font(.callout) }
+                    if let footer = television.footer { Text(footer).foregroundStyle(.red).font(.callout) }
                 }
-                .confirmationDialog("テレビを外しますか？", isPresented: $removing, titleVisibility: .visible) {
-                    // Why it could not be taken away is said in the footer above (`whyTheTelevisionStays`).
-                    // Handed the count the message below gave: nothing is taken away over another.
-                    Button("外す", role: .destructive) {
-                        Task { await model.takeTheTelevisionAway(counted: waiting) }
-                    }
+                .confirmationDialog(TVSettingsState.removalQuestion,
+                                    isPresented: Binding(get: { television.asksToRemove },
+                                                         set: { if !$0 { television.removalClosed() } }),
+                                    titleVisibility: .visible) {
+                    Button("外す", role: .destructive) { Task { await television.confirmRemoving() } }
                 } message: {
-                    Text("この端末から、テレビのアドレスと登録を消します。テレビ側の登録済みの機器の一覧には残るので、"
-                         + "テレビの設定から消してください。" + whatGoesWithIt)
+                    Text(television.removalMessage)
                 }
             } else {
                 Section {
@@ -104,35 +97,24 @@ struct TVSection: View {
             }
         }
     }
-
-    /// What the question adds about the reservations waiting for the television: how many are deleted
-    /// unsent, and nothing with none. With no count to give it says as much without one, and not nothing:
-    /// there may be some, and 外す deletes them if they can be deleted by then.
-    private var whatGoesWithIt: String {
-        guard let waiting else { return "\nこのテレビ宛の送信待ちの予約は、送らずに削除します。" }
-        return waiting > 0 ? "\nこのテレビ宛の送信待ちの予約 \(waiting) 件は、送らずに削除します。" : ""
-    }
-
-    private func state(of tv: DeviceLink) -> String {
-        tv.session.standing(needsPairing: model.tvDriver?.facts.needsPairing == true)
-    }
-
 }
 
 /// Registering with the helper on the television, by the six-digit code its screen shows for five minutes
 /// (`AppModel.registerHelper`). The television has been added already; the helper is at its address.
 struct HelperRegisterSheet: View {
-    @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    @State private var code = ""
-    @State private var working = false
-    @State private var message: String?
+    @State private var helper: HelperRegisterState
+
+    init(model: AppModel) {
+        _helper = State(initialValue: HelperRegisterState(model: model))
+    }
 
     var body: some View {
+        @Bindable var helper = helper
         NavigationStack {
             Form {
                 Section {
-                    TextField("6 桁の番号", text: $code)
+                    TextField("6 桁の番号", text: $helper.code)
                         .keyboardType(.numberPad)
                 } footer: {
                     VStack(alignment: .leading, spacing: 8) {
@@ -143,13 +125,13 @@ struct HelperRegisterSheet: View {
                              destination: URL(string: "https://github.com/hiroaki0923/bdzbridge/blob/main/helper/README.md")!)
                     }
                 }
-                if let message {
+                if let message = helper.message {
                     Section { Text(message.asABody).foregroundStyle(.red).font(.callout) }
                 }
                 Section {
-                    Button("登録する") { start() }
-                        .disabled(working || code.count != 6 || !code.allSatisfy(\.isNumber))
-                    if working { ProgressView() }
+                    Button("登録する") { helper.press() }
+                        .disabled(helper.holdsThePress)
+                    if helper.working { ProgressView() }
                 }
             }
             .navigationTitle("テレビの番組表に登録")
@@ -159,150 +141,71 @@ struct HelperRegisterSheet: View {
                     Button("キャンセル") { dismiss() }
                 }
             }
-        }
-    }
-
-    private func start() {
-        guard !working else { return }
-        working = true
-        message = nil
-        Task {
-            let said = await model.registerHelper(code: code)
-            working = false
-            if let said {
-                message = said
-            } else {
-                dismiss()
-            }
+            .onChange(of: helper.done) { if $1 { dismiss() } }
         }
     }
 }
 
-/// Adding a television, or registering with it again: its address, and then the PIN it shows on its screen.
-///
-/// The PIN appears only when the television is on and showing something -- in standby it says nothing to look
-/// at, and once it did not appear while the television was on either -- so a television in standby is asked to be
-/// turned on first, and the PIN step says what to do when none appears.
-///
-/// Opened for a television a scan found (`connectAtOnce`), it goes straight on to テレビに接続 as it appears:
-/// the reader tapped the television, and a second tap would only stand between them and its number.
-///
-/// An address that says nothing because the system keeps the app off the local network is not said to answer
-/// nothing: the sheet says what is in the way, as the screens do for the recorder, and goes on by itself once
-/// the permission comes (`AppModel.findTV`).
+/// Adding a television, or registering with it again: its address, and then the PIN it shows on its screen
+/// (`TVRegisterState`, which says what the sheet goes by).
 struct TVRegisterSheet: View {
-    @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    @State private var host: String
-    private let connectAtOnce: Bool
-    /// Opened to register with the television already added, not to add one: テレビを登録, not テレビを追加.
-    private let again: Bool
-    @State private var askingForPIN = false
-    @State private var pin = ""
-    @State private var working = false
-    @State private var message: String?
-    /// The step under way, from a button or from the sheet's appearing, kept so that closing the sheet ends
-    /// it: a registration is not asked for, nor a number put on a panel, for a sheet that is no longer there.
-    /// A wait for the local network permission at the address ends with it (`AppModel.stopFindingTV`).
-    @State private var step: Task<Void, Never>?
-    /// Whether the step the sheet's appearing starts has been started: nothing promises that a view appears
-    /// once, and the step is not to be sent twice.
-    @State private var begun = false
+    @State private var register: TVRegisterState
 
-    init(host: String, connectAtOnce: Bool = false, again: Bool = false) {
-        _host = State(initialValue: host)
-        self.connectAtOnce = connectAtOnce
-        self.again = again
+    init(model: AppModel, host: String, connectAtOnce: Bool = false, again: Bool = false) {
+        _register = State(initialValue: TVRegisterState(model: model, host: host, connectAtOnce: connectAtOnce,
+                                                        again: again))
     }
 
     var body: some View {
+        @Bindable var register = register
         NavigationStack {
             Form {
                 Section {
                     LabeledContent("IP アドレス") {
-                        TextField("192.168.1.20", text: $host)
+                        TextField("192.168.1.20", text: $register.typedHost)
                             .multilineTextAlignment(.trailing)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.numbersAndPunctuation)
                     }
-                    // Nor while a step is under way, which may wait for the permission for as long as the reader
-                    // takes: the PIN goes to the address the field shows, which is to be the one asked.
-                    .disabled(askingForPIN || working)
+                    .disabled(register.holdsTheAddress)
                 } footer: {
                     Text("テレビと同じ Wi-Fi につないだこの端末から登録します。")
                 }
-                if askingForPIN {
+                if register.askingForPIN {
                     Section {
-                        TextField("4 桁の番号", text: $pin)
+                        TextField("4 桁の番号", text: $register.pin)
                             .keyboardType(.numberPad)
                     } footer: {
-                        // The demo's television has no panel to show its number on, so the sheet says it.
-                        Text("テレビの画面に表示された 4 桁の番号を入力してください。番号が表示されないときは、"
-                             + "テレビで放送を映してから、最初からやり直してください。"
-                             + (model.demo ? "サンプルのテレビの番号は \(DemoTV.pin) です。" : ""))
+                        Text(register.pinNote)
                     }
                 }
-                if model.tvAddressTurnedAway {
+                if register.turnedAway {
                     // In place of the address not answering: the sheet goes on by itself once it is allowed.
                     Section {
                         LocalNetworkNotice(aboutAConnect: true)
                         OpenSettingsButton()
                     }
-                } else if let message {
+                } else if let message = register.message {
                     Section { Text(message.asABody).foregroundStyle(.red).font(.callout) }
                 }
                 Section {
-                    Button(askingForPIN ? "登録する" : "テレビに接続") { start() }
-                        .disabled(working || !RecorderAddress.isUsable(tidied) || (askingForPIN && pin.count != 4))
-                    if working && !model.tvAddressTurnedAway { ProgressView() }
+                    Button(register.pressLabel) { register.press() }
+                        .disabled(register.holdsThePress)
+                    if register.showsWorking { ProgressView() }
                 }
             }
-            .navigationTitle(again ? "テレビを登録" : "テレビを追加")
+            .navigationTitle(register.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("キャンセル") { dismiss() }
                 }
             }
-            .onAppear {
-                guard connectAtOnce, !begun else { return }
-                begun = true
-                start()
-            }
-            .onDisappear {
-                step?.cancel()
-                model.stopFindingTV()
-            }
-        }
-    }
-
-    private var tidied: String { RecorderAddress.tidy(host).host }
-
-    private func start() {
-        guard !working else { return }
-        step = Task { await next() }
-    }
-
-    private func next() async {
-        // A second tap before the button is drawn disabled would send the whole of it again.
-        guard !working else { return }
-        working = true
-        defer { working = false }
-        message = nil
-        let host = tidied
-        // The steps are the package's; closing the sheet cancels the step, after which nothing is registered.
-        switch await TVDriver.register(askingForPIN: askingForPIN, pin: pin,
-                                       find: { await model.findTV(at: host) },
-                                       register: { await model.registerTV(at: host, pin: $0) },
-                                       closed: { Task.isCancelled }) {
-        case .askForThePIN: askingForPIN = true
-        case .askForThePINAgain(let saying):
-            pin = ""
-            message = saying
-        case .registered: dismiss()
-        case .say(let text): message = text
-        case .nothing: break
+            .onAppear { register.appeared() }
+            .onDisappear { register.closed() }
+            .onChange(of: register.done) { if $1 { dismiss() } }
         }
     }
 }
