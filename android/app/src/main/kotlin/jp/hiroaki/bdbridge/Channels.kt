@@ -121,8 +121,9 @@ private fun Stations(shown: Channels, handle: RecBridge.ChannelsHandle, reset: (
     val list = rememberLazyListState()
     val edge = with(LocalDensity.current) { 56.dp.toPx() }
     val dragging = remember(list) { Dragging(list) }
-    // The list as the model has it, once it has caught up with the station dropped.
-    LaunchedEffect(shown.stations) { dragging.caughtUp() }
+    // The list as the model has it, once it has caught up with the station dropped: by the stations' order, since a
+    // station's logo makes it unequal to the same station read again.
+    LaunchedEffect(shown.stations.map { it.id }) { dragging.caughtUp() }
     // Held near the top or the foot of the list, the list scrolls on by itself, a frame at a time, until let go.
     LaunchedEffect(dragging.id) {
         if (dragging.id == null) return@LaunchedEffect
@@ -133,7 +134,7 @@ private fun Stations(shown: Channels, handle: RecBridge.ChannelsHandle, reset: (
         }
     }
     // Each station's logo made once, not at each turn of the list.
-    val logos = remember(shown.stations) {
+    val logos = remember(shown.stations.map { it.id }) {
         shown.stations.filter { it.logo.isNotEmpty() }.associate { station ->
             station.id to BitmapFactory.decodeByteArray(station.logo, 0, station.logo.size)?.asImageBitmap()
         }
@@ -164,8 +165,8 @@ private fun Stations(shown: Channels, handle: RecBridge.ChannelsHandle, reset: (
                                          change.consume()
                                          dragging.drag(amount.y)
                                      },
-                                     onDragEnd = { dragging.drop()?.let { (from, to) -> scope.launch { handle.move(from, to) } } },
-                                     onDragCancel = { dragging.drop()?.let { (from, to) -> scope.launch { handle.move(from, to) } } },
+                                     onDragEnd = { dragging.drop()?.let { move -> scope.launch { dragging.moved(handle.move(move.id, move.from, move.to)) } } },
+                                     onDragCancel = { dragging.drop()?.let { move -> scope.launch { dragging.moved(handle.move(move.id, move.from, move.to)) } } },
                                  )
                              })
                     }
@@ -251,14 +252,23 @@ private class Dragging(private val list: LazyListState) {
         drag(0f)
     }
 
-    /** Let go of: where it went from and to, or nothing where it is back where it was. */
-    fun drop(): Pair<Int, Int>? {
-        val to = rows?.indexOfFirst { it.id == id } ?: -1
-        val moved = if (from >= 0 && to >= 0 && to != from) from to to else null
+    /** A station moved by the drag, from where it was picked up to where it was let go. */
+    class Move(val id: String, val from: Int, val to: Int)
+
+    /** Let go of: the move, or nothing where it is back where it was. */
+    fun drop(): Move? {
+        val held = id
+        val to = rows?.indexOfFirst { it.id == held } ?: -1
+        val move = if (held != null && from >= 0 && to >= 0 && to != from) Move(held, from, to) else null
         id = null
         offset = 0f
-        if (moved == null) rows = null
-        return moved
+        if (move == null) rows = null
+        return move
+    }
+
+    /** What the model made of the move: refused, the list goes back to the model's at once. */
+    fun moved(taken: Boolean) {
+        if (!taken && id == null) rows = null
     }
 
     /** The model's list has come in: the order the drag made is the model's now. */

@@ -46,7 +46,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -169,37 +168,21 @@ fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit) {
 }
 
 /**
- * The address and the MAC, as typed, and このアドレスに接続 or 再接続. Each field keeps what is typed as it is typed and
- * sends it on, in order; it takes the model's value when the model has set the field itself -- the address saved, or
- * the recorder found somewhere else -- which the field's count says.
+ * The address and the MAC, as typed, and このアドレスに接続 or 再接続. Each field shows what is typed as it is typed, and
+ * the model's value when the model has set the field itself -- the address saved, or the recorder found somewhere
+ * else (`RecBridge.Field`).
  */
 @Composable
 private fun RecorderFields(shown: Settings) {
-    var host by remember { mutableStateOf(shown.typedHost) }
-    var hostSeen by remember { mutableLongStateOf(shown.hostSet) }
-    LaunchedEffect(shown.hostSet) {
-        host = shown.typedHost
-        hostSeen = shown.hostSet
-    }
-    var mac by remember { mutableStateOf(shown.typedMac) }
-    var macSeen by remember { mutableLongStateOf(shown.macSet) }
-    LaunchedEffect(shown.macSet) {
-        mac = shown.typedMac
-        macSeen = shown.macSet
-    }
+    val host by RecBridge.hostField.text.collectAsState()
+    val mac by RecBridge.macField.text.collectAsState()
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(value = host, onValueChange = {
-            host = it
-            RecBridge.typeHost(it, hostSeen)
-        }, label = { Text("IP アドレス") }, placeholder = { Text("192.168.1.10") }, singleLine = true,
+        OutlinedTextField(value = host, onValueChange = { RecBridge.hostField.type(it) }, label = { Text("IP アドレス") }, placeholder = { Text("192.168.1.10") }, singleLine = true,
                           isError = shown.addressWarning,
                           supportingText = if (shown.addressNote.isNotEmpty()) ({ Text(shown.addressNote) }) else null,
                           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
                           modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = mac, onValueChange = {
-            mac = it
-            RecBridge.typeMac(it, macSeen)
-        }, label = { Text("MAC アドレス") }, placeholder = { Text("接続時に自動で記録") }, singleLine = true,
+        OutlinedTextField(value = mac, onValueChange = { RecBridge.macField.type(it) }, label = { Text("MAC アドレス") }, placeholder = { Text("接続時に自動で記録") }, singleLine = true,
                           keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None,
                                                             autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii),
                           modifier = Modifier.fillMaxWidth())

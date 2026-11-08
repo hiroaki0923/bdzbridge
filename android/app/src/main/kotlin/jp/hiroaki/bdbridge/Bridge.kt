@@ -90,6 +90,13 @@ object RecBridge {
             watch({ windows.recordings.observe(it) }, { Recordings(call { windows.recordings.read(arena) }) }, _recordings)
             watch({ windows.strip.observe(it) }, { Strip(call { windows.strip.read(arena) }) }, _strip)
             watch({ windows.settings.observe(it) }, { Settings(call { windows.settings.read(arena) }) }, _settings)
+            launch {
+                settings.collect { shown ->
+                    shown ?: return@collect
+                    hostField.follow(shown.typedHost, shown.hostSet)
+                    macField.follow(shown.typedMac, shown.macSet)
+                }
+            }
             opened.complete(windows)
             call<Void> { app.start() }
         }
@@ -138,20 +145,39 @@ object RecBridge {
     /**
      * What the reader types into the settings' fields, and the presses that go by what was typed, sent to Swift one
      * after the other in the order they were made: sent each on its own, a later keystroke could reach Swift before an
-     * earlier one, and a connect before the address it was pressed for. A keystroke carries the field's count it was
-     * typed over (`Settings.hostSet`), and Swift drops one typed over a value the model has replaced since.
+     * earlier one, and a connect before the address it was pressed for. A press answers once begun, so nothing typed
+     * after it waits for the connect.
      */
     private val typing = Channel<suspend (SettingsWindow) -> Unit>(Channel.UNLIMITED).also { operations ->
         scope.launch { for (operation in operations) operation(windows().settings) }
     }
 
-    fun typeHost(text: String, seen: Long) {
-        typing.trySend { window -> call<Void> { window.typeHost(text, seen) } }
+    /**
+     * One of the settings' fields as the reader sees it, kept here for as long as the model is, as the iOS screen keeps
+     * its fields: a screen made again -- the field scrolled away and back, the settings left and come back to -- shows
+     * what was typed, whether or not it has reached Swift yet. What is typed goes to Swift with the field's count it
+     * was typed over (`Settings.hostSet`), and Swift drops a keystroke typed over a value the model has replaced
+     * since; the field takes the model's value when that count moves.
+     */
+    class Field(private val send: (String, Long) -> Unit) {
+        private val _text = MutableStateFlow("")
+        val text: StateFlow<String> = _text
+        private var seen = -1L
+
+        fun type(value: String) {
+            _text.value = value
+            send(value, seen)
+        }
+
+        internal fun follow(value: String, set: Long) {
+            if (set == seen) return
+            seen = set
+            _text.value = value
+        }
     }
 
-    fun typeMac(text: String, seen: Long) {
-        typing.trySend { window -> call<Void> { window.typeMac(text, seen) } }
-    }
+    val hostField = Field { text, seen -> typing.trySend { window -> call<Void> { window.typeHost(text, seen) } } }
+    val macField = Field { text, seen -> typing.trySend { window -> call<Void> { window.typeMac(text, seen) } } }
 
     /** A press of the settings that goes by what was typed: sent after every keystroke made before it. */
     fun afterTyping(operation: (SettingsWindow) -> CompletableFuture<*>) {
@@ -244,7 +270,8 @@ object RecBridge {
         override suspend fun ended() = call<Void> { window.closed() }.let {}
         suspend fun choose(broadcasting: String) = call<Void> { window.choose(broadcasting) }.let {}
         suspend fun show(id: String, on: Boolean) = call<Void> { window.show(id, on) }.let {}
-        suspend fun move(from: Int, to: Int) = call<Void> { window.move(from.toLong(), to.toLong()) }.let {}
+        /** Whether it was moved: refused for a list read again since the drag began. */
+        suspend fun move(id: String, from: Int, to: Int): Boolean = call { window.move(id, from.toLong(), to.toLong()) }
         suspend fun reset() = call<Void> { window.reset() }.let {}
         suspend fun failureClosed() = call<Void> { window.failureClosed() }.let {}
     }

@@ -416,6 +416,17 @@ extension AndroidBridgeTests {
         let stale = await settings.read()
         XCTAssertEqual(stale.typedHost, "192.0.2.10:64220", "a keystroke over the model's older value was kept")
 
+        // このアドレスに接続 held back, for an address no URL can be built on, does nothing: pressed all the same, it
+        // would have ended the demo for that address.
+        await settings.typeHost("192.0.2.10/guide", seen: shown.hostSet)
+        let unusable = await until(settings.read) { $0.addressWarning }
+        XCTAssertTrue(unusable.connectHeld)
+        await settings.connect()
+        let held = await settings.read()
+        XCTAssertTrue(held.demo, "a press held back went through")
+        XCTAssertEqual(held.hostSet, unusable.hostSet)
+        await settings.typeHost("192.0.2.10:64220", seen: shown.hostSet)
+
         let other = try XCTUnwrap(shown.qualities.first { $0.code != shown.quality })
         await settings.chooseQuality(other.code)
         _ = await until(settings.read) { $0.quality == other.code }
@@ -457,13 +468,21 @@ extension AndroidBridgeTests {
         XCTAssertTrue(hidden.customised)
         _ = await until(guide.read) { shown in !shown.stations.contains { $0.name == first.name } }
 
-        await channels.move(from: 0, to: 2)
+        let movedDown = await channels.move(first.id, from: 0, to: 2)
+        XCTAssertTrue(movedDown)
         let moved = await until(channels.read) { $0.stations[2].id == first.id }
         XCTAssertEqual(moved.stations[1].id, third.id)
+        // A move for a list that has changed since -- the station is no longer where the drag began -- is refused.
+        let stale = await channels.move(first.id, from: 0, to: 1)
+        XCTAssertFalse(stale)
         let again = await app.channels()
         defer { Task { await again.closed() } }
         let reread = await until(again.read) { $0.loaded && !$0.stations.isEmpty }
         XCTAssertEqual(reread.stations.map(\.id), moved.stations.map(\.id), "the order was not kept")
+        let movedUp = await channels.move(first.id, from: 2, to: 0)
+        XCTAssertTrue(movedUp)
+        let up = await until(channels.read) { $0.stations[0].id == first.id }
+        XCTAssertEqual(up.stations.map(\.id), listed.stations.map(\.id), "moved back up, the order is the first")
 
         await channels.reset()
         let back = await until(channels.read) { !$0.customised }

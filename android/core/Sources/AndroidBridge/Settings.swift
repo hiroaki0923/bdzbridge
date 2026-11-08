@@ -61,16 +61,23 @@ public struct Fact: Sendable {
     public var value: String
 }
 
-/// What the settings' fields were last set to by the reader's typing, and how many times since the model has set each
-/// to something else itself (`SettingsScreen.hostSet`, `macSet`).
+/// How many times the model has set each of the settings' fields to something else itself, rather than taken what was
+/// typed (`SettingsScreen.hostSet`, `macSet`).
 @MainActor @Observable
 final class Typing {
     var hostSet: Int64 = 0
     var macSet: Int64 = 0
-    @ObservationIgnored var host: String?
-    @ObservationIgnored var mac: String?
 
     nonisolated init() {}
+
+    /// Does `change`, which may set the fields, and counts each it set to something else, in the same turn: a keystroke
+    /// then never comes between the setting and the count, to be kept over what the model set.
+    func counting(_ recorder: RecorderSettingsState, _ change: () -> Void) {
+        let host = recorder.typedHost, mac = recorder.typedMac
+        change()
+        if recorder.typedHost != host { hostSet += 1 }
+        if recorder.typedMac != mac { macSet += 1 }
+    }
 }
 
 /// The mode the settings hold for a new reservation, kept where the iOS screen keeps it, under its key in the model's
@@ -111,11 +118,9 @@ public final class SettingsWindow: Sendable {
         self.quality = quality
         shown = Watched { SettingsWindow.screen(model, recorder, quality, typing, version) }
         // As the iOS screen follows them: `onChange(of: model.mac, initial: true)` and `onChange(of: model.host)`.
-        recorder.macMoved()
-        follows.add(onChange(of: { model.mac }) { _ in recorder.macMoved() })
-        follows.add(onChange(of: { model.host }) { _ in recorder.hostMoved() })
-        follows.add(onChange(of: { recorder.typedHost }) { if $0 != typing.host { typing.hostSet += 1 } })
-        follows.add(onChange(of: { recorder.typedMac }) { if $0 != typing.mac { typing.macSet += 1 } })
+        typing.counting(recorder) { recorder.macMoved() }
+        follows.add(onChange(of: { model.mac }) { _ in typing.counting(recorder) { recorder.macMoved() } })
+        follows.add(onChange(of: { model.host }) { _ in typing.counting(recorder) { recorder.hostMoved() } })
     }
 
     public func read() async -> SettingsScreen { await shown.read() }
@@ -126,7 +131,7 @@ public final class SettingsWindow: Sendable {
 
     /// The settings have come on screen: an empty address field starts at the saved address.
     public func appeared() async {
-        await MainActor.run { recorder.appeared() }
+        await MainActor.run { typing.counting(recorder) { recorder.appeared() } }
     }
 
     /// What the reader typed into the address field, and into the MAC field, where the MAC is kept as it is typed:
@@ -134,40 +139,41 @@ public final class SettingsWindow: Sendable {
     /// model has replaced since, it is dropped, as the screen drops it for the model's when the count moves; kept, the
     /// screen would show the model's value and the model hold the keystroke.
     public func typeHost(_ text: String, seen: Int64) async {
-        await MainActor.run {
-            guard seen == typing.hostSet else { return }
-            typing.host = text
-            recorder.typedHost = text
-        }
+        await MainActor.run { if seen == typing.hostSet { recorder.typedHost = text } }
     }
 
     public func typeMac(_ text: String, seen: Int64) async {
-        await MainActor.run {
-            guard seen == typing.macSet else { return }
-            typing.mac = text
-            recorder.typedMac = text
-        }
+        await MainActor.run { if seen == typing.macSet { recorder.typedMac = text } }
     }
 
     // Each press does nothing while the model holds its button back, as the iOS screen's disabled button does, and is
     // begun in the turn that checks it (`pressed`): what Compose shows comes a turn after the model.
 
-    /// このアドレスに接続.
+    /// このアドレスに接続, and 再接続, which go by what was typed and so come after the keystrokes before them. Each
+    /// answers once begun, as the iOS button's task goes on by itself: the connect goes on in the model, and the
+    /// keystrokes after it are not held back behind it. The model holds a second press back meanwhile.
     public func connect() async {
-        await MainActor.run { pressed(recorder.offersConnect && !recorder.holdsConnect) { await self.recorder.connect() } }?
-            .value
+        await MainActor.run {
+            typing.counting(recorder) {
+                _ = pressed(recorder.offersConnect && !recorder.holdsConnect) { await self.recorder.connect() }
+            }
+        }
     }
 
-    /// 再接続.
     public func reconnect() async {
         await MainActor.run {
-            pressed(recorder.offersReconnect && !recorder.holdsReconnect) { await self.recorder.reconnect() }
-        }?.value
+            _ = pressed(recorder.offersReconnect && !recorder.holdsReconnect) { await self.recorder.reconnect() }
+        }
     }
 
     /// A recorder the search found, tapped.
     public func choose(_ host: String) async {
-        await MainActor.run { pressed(model.canChangeRecorder) { await self.recorder.choose(host) } }?.value
+        let choosing = await MainActor.run { () -> Task<Void, Never>? in
+            var choosing: Task<Void, Never>?
+            typing.counting(recorder) { choosing = pressed(model.canChangeRecorder) { await self.recorder.choose(host) } }
+            return choosing
+        }
+        await choosing?.value
     }
 
     /// 既定の録画モード, one the recorder records in.
@@ -228,7 +234,7 @@ public final class SettingsWindow: Sendable {
         if let refreshed = model.counts["td"]?.refreshed {
             guide.append(Fact(label: "最終更新", value: RecorderTime.parse(refreshed).map { Format.when($0) } ?? refreshed))
         }
-        let note = recorder.addressNote
+        let note = recorder.tidied.note
         let outcome = model.scanOutcome
         let scanning = model.scanBlocked ? nil : model.scanning
         return SettingsScreen(

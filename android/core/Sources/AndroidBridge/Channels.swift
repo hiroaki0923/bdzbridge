@@ -77,13 +77,17 @@ public final class ChannelsWindow: Sendable {
         }
     }
 
-    /// A station dragged from where it was, `from`, to where it is now, `to`, both as places in the list on screen.
-    public func move(from: Int64, to: Int64) async {
+    /// A station dragged from where it was, `from`, to where it is now, `to`, both as places in the list on screen;
+    /// `id` is the station's, for a move to be refused for a list read again since. Whether it was moved: refused, the
+    /// screen goes back to the list as the model has it.
+    public func move(_ id: String, from: Int64, to: Int64) async -> Bool {
         await MainActor.run {
             let count = Int64(channels.channels.count)
-            guard from != to, (0..<count).contains(from), (0..<count).contains(to) else { return }
+            guard from != to, (0..<count).contains(from), (0..<count).contains(to),
+                  channels.channels[Int(from)].id == id else { return false }
             // As a list moves its rows: put back before the row that was at the place handed on.
             channels.move(from: IndexSet(integer: Int(from)), to: Int(to > from ? to + 1 : to))
+            return true
         }
     }
 
