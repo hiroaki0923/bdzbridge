@@ -59,11 +59,14 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertGreaterThan(shown.programmes.filter { $0.starts <= now && now < $0.ends }.count, 0, "some on air now")
 
         let first = try XCTUnwrap(shown.programmes.first)
-        let sheet = await guide.programme(first.id)
-        XCTAssertEqual(sheet?.title, first.title)
-        XCTAssertEqual(sheet?.station, first.station)
-        XCTAssertTrue(sheet?.starts.hasSuffix(first.time) ?? false)
-        let nothing = await guide.programme("none")
+        let opening = await guide.open(first.id)
+        let sheet = try XCTUnwrap(opening)
+        defer { Task { await sheet.closed() } }
+        let opened = await sheet.read()
+        XCTAssertEqual(opened.title, first.title)
+        XCTAssertEqual(opened.station, first.station)
+        XCTAssertTrue(opened.starts.hasSuffix(first.time), "the sheet says the day and the time: \(opened.starts)")
+        let nothing = await guide.open("none")
         XCTAssertNil(nothing)
     }
 
@@ -158,6 +161,101 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertTrue(port.note.contains(":64220"))
         let wide = devices.typed("１９２．０．２．１０")
         XCTAssertEqual(wide.host, "192.0.2.10", "full-width digits are taken")
+    }
+}
+
+// MARK: - the sheets
+
+extension AndroidBridgeTests {
+    /// A programme of today's guide that has not begun and is not reserved: one the sheet offers to reserve.
+    @MainActor
+    private func aProgrammeToReserve(_ guide: GuideWindow) async throws -> GuideRow {
+        let shown = await until(guide.read) { $0.shows == "programmes" }
+        let now = Int64(Date().timeIntervalSince1970)
+        return try XCTUnwrap(shown.programmes.first { $0.starts > now + 3600 && $0.mark.isEmpty })
+    }
+
+    @MainActor
+    func testAProgrammeIsReservedFromItsSheetAndTheGuideMarksIt() async throws {
+        let app = await demo()
+        let guide = app.guide()
+        let row = try await aProgrammeToReserve(guide)
+        let opening = await guide.open(row.id)
+        let sheet = try XCTUnwrap(opening)
+        defer { Task { await sheet.closed() } }
+        let opened = await until(sheet.read) { $0.offer == "recorder" && !$0.reserveHeld }
+        XCTAssertEqual(opened.title, row.title)
+        XCTAssertFalse(opened.hasRecorders)
+        XCTAssertTrue(opened.qualities.contains { $0.code == opened.quality }, "the mode starts at one offered")
+        XCTAssertTrue(opened.repeats.contains { $0.code == "none" })
+
+        await sheet.reserve()
+        let asked = await until(sheet.read) { $0.hasAsked }
+        XCTAssertEqual(asked.asked.title, "この番組を録画予約しますか？")
+        XCTAssertEqual(asked.asked.action, "予約する")
+        XCTAssertTrue(asked.asked.message.contains(row.station))
+        await sheet.act()
+        let made = await until(sheet.read) { $0.done || $0.hasAsked }
+        XCTAssertTrue(made.done || !made.asked.title.contains("エラー"), "made: \(made.asked.message)")
+
+        let marked = await until(guide.read) { shown in shown.programmes.contains { $0.id == row.id && $0.mark == "予約" } }
+        XCTAssertNotNil(marked.programmes.first { $0.id == row.id })
+        let reopening = await guide.open(row.id)
+        let again = try XCTUnwrap(reopening)
+        defer { Task { await again.closed() } }
+        let reserved = await until(again.read) { $0.hasRecorders }
+        XCTAssertTrue(reserved.recorders.offersChanging)
+        XCTAssertNotEqual(reserved.offer, "recorder", "a programme the recorder holds is not offered again")
+
+        // 予約を変更する opens the reservation's own sheet over this one.
+        let changing = await again.change("recorder")
+        let editing = try XCTUnwrap(changing)
+        defer { Task { await editing.closed() } }
+        let opened2 = await until(editing.read) { !$0.quality.isEmpty }
+        XCTAssertEqual(opened2.title, row.title)
+        XCTAssertFalse(opened2.onTelevision)
+        let none = await again.change("tv")
+        XCTAssertNil(none, "the television holds nothing of it")
+    }
+
+    @MainActor
+    func testAReservationIsChangedAndDeletedFromItsSheet() async throws {
+        let app = await demo()
+        let list = app.reservations()
+        await list.load()
+        let listed = await until(list.read) { !$0.sections.isEmpty }
+        let row = try XCTUnwrap(listed.sections.flatMap(\.rows).first { !$0.recording && !$0.byTheRecorder })
+        let opening = await list.open(row.id)
+        let sheet = try XCTUnwrap(opening)
+        defer { Task { await sheet.closed() } }
+        let opened = await until(sheet.read) { !$0.quality.isEmpty && !$0.buttonsHeld }
+        XCTAssertEqual(opened.title, row.title)
+        XCTAssertFalse(opened.settled)
+        XCTAssertFalse(opened.changed, "nothing changed yet")
+        let other = try XCTUnwrap(opened.qualities.first { $0.code != opened.quality })
+
+        await sheet.chooseQuality(other.code)
+        let changed = await until(sheet.read) { $0.changed }
+        XCTAssertEqual(changed.changeLabel, "変更をレコーダーに送る")
+        await sheet.sendTheChange()
+        _ = await until(sheet.read) { $0.done || $0.hasAsked }
+        let relisted = await until(list.read) { shown in
+            shown.sections.flatMap(\.rows).contains { $0.title == row.title && $0.details.contains(other.code) }
+        }
+        let moved = try XCTUnwrap(relisted.sections.flatMap(\.rows).first { $0.title == row.title })
+
+        let reopening = await list.open(moved.id)
+        let deleting = try XCTUnwrap(reopening)
+        defer { Task { await deleting.closed() } }
+        _ = await until(deleting.read) { !$0.buttonsHeld }
+        await deleting.delete()
+        let question = await until(deleting.read) { $0.hasAsked }
+        XCTAssertEqual(question.asked.title, "この予約を削除しますか？")
+        XCTAssertEqual(question.asked.action, "削除する")
+        await deleting.confirmDelete()
+        _ = await until(deleting.read) { $0.done }
+        let gone = await until(list.read) { shown in !shown.sections.flatMap(\.rows).contains { $0.title == row.title } }
+        XCTAssertFalse(gone.sections.flatMap(\.rows).contains { $0.id == moved.id })
     }
 }
 

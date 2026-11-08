@@ -7,12 +7,15 @@ import java.util.concurrent.CompletableFuture
 import jp.hiroaki.bdbridge.bridge.AndroidBridge
 import jp.hiroaki.bdbridge.bridge.DevicesWindow
 import jp.hiroaki.bdbridge.bridge.GuideWindow
+import jp.hiroaki.bdbridge.bridge.ProgrammeSheetWindow
 import jp.hiroaki.bdbridge.bridge.RecBridgeApp
 import jp.hiroaki.bdbridge.bridge.RecordingsWindow
+import jp.hiroaki.bdbridge.bridge.ReservationSheetWindow
 import jp.hiroaki.bdbridge.bridge.ReservationsWindow
 import jp.hiroaki.bdbridge.bridge.ScreenListener
 import jp.hiroaki.bdbridge.bridge.StripWindow
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.NonCancellable
@@ -119,25 +122,79 @@ object RecBridge {
 
     /**
      * Reads what a window shows each time it says it changed, one read at a time and only the latest: told twice while
-     * a read is out, it reads once more after it.
+     * a read is out, it reads once more after it. The job handed back ends the reading, for a sheet that closes.
      */
-    private fun <T> watch(observe: (ScreenListener) -> Unit, read: suspend () -> T, into: MutableStateFlow<T?>) {
+    private fun <T> watch(observe: (ScreenListener) -> Unit, read: suspend () -> T, into: MutableStateFlow<T?>): Job {
         val changes = Channel<Unit>(Channel.CONFLATED)
         observe(object : ScreenListener {
             override fun changed() {
                 changes.trySend(Unit)
             }
         })
-        scope.launch {
+        return scope.launch {
             for (change in changes) into.value = withContext(Dispatchers.Default) { read() }
         }
+    }
+
+    /** The sheet of a programme on the day shown, opened: nil when the day no longer has it. */
+    suspend fun openProgramme(id: String): ProgrammeSheetHandle? =
+        ask { it.guide.open(id, arena) }.orElse(null)?.let { ProgrammeSheetHandle(it) }
+
+    /** The sheet of a reservation in the list, opened: nil when the list no longer has it. */
+    suspend fun openReservation(id: String): ReservationSheetHandle? =
+        ask { it.reservations.open(id, arena) }.orElse(null)?.let { ReservationSheetHandle(it) }
+
+    /** A sheet's window, read as the screens' are, until the sheet closes. */
+    abstract class Sheet<T>(observe: (ScreenListener) -> Unit, read: suspend () -> T) {
+        private val _shown = MutableStateFlow<T?>(null)
+        val shown: StateFlow<T?> = _shown
+        private val reading = watch(observe, read, _shown)
+
+        /** The sheet has closed: nothing more is read, and the window follows nothing more for it. */
+        fun close() {
+            reading.cancel()
+            scope.launch { ended() }
+        }
+
+        protected abstract suspend fun ended()
+    }
+
+    class ProgrammeSheetHandle(private val window: ProgrammeSheetWindow) :
+        Sheet<ProgrammeSheetScreen>({ window.observe(it) }, { ProgrammeSheetScreen(call { window.read(arena) }) }) {
+        override suspend fun ended() = call<Void> { window.closed() }.let {}
+        suspend fun chooseDevice(code: String) = call<Void> { window.chooseDevice(code) }.let {}
+        suspend fun chooseDisk(code: String) = call<Void> { window.chooseDisk(code) }.let {}
+        suspend fun chooseQuality(code: String) = call<Void> { window.chooseQuality(code) }.let {}
+        suspend fun chooseRepeat(code: String) = call<Void> { window.chooseRepeat(code) }.let {}
+        suspend fun reserve() = call<Void> { window.reserve() }.let {}
+        suspend fun delete(device: String) = call<Void> { window.delete(device) }.let {}
+        suspend fun sendAgain(device: String) = call<Void> { window.sendAgain(device) }.let {}
+        suspend fun deleteWaiting(device: String) = call<Void> { window.deleteWaiting(device) }.let {}
+        suspend fun act() = call<Void> { window.act() }.let {}
+        suspend fun closeAsked() = call<Void> { window.closeAsked() }.let {}
+        /** 予約を変更する: the reservation's own sheet, over this one. */
+        suspend fun change(device: String): ReservationSheetHandle? =
+            call { window.change(device, arena) }.orElse(null)?.let { ReservationSheetHandle(it) }
+        suspend fun changeClosed() = call<Void> { window.changeClosed() }.let {}
+    }
+
+    class ReservationSheetHandle(private val window: ReservationSheetWindow) :
+        Sheet<ReservationSheetScreen>({ window.observe(it) }, { ReservationSheetScreen(call { window.read(arena) }) }) {
+        override suspend fun ended() = call<Void> { window.closed() }.let {}
+        suspend fun chooseQuality(code: String) = call<Void> { window.chooseQuality(code) }.let {}
+        suspend fun chooseRepeat(code: String) = call<Void> { window.chooseRepeat(code) }.let {}
+        suspend fun chooseDisk(code: String) = call<Void> { window.chooseDisk(code) }.let {}
+        suspend fun sendTheChange() = call<Void> { window.sendTheChange() }.let {}
+        suspend fun delete() = call<Void> { window.delete() }.let {}
+        suspend fun confirmDelete() = call<Void> { window.confirmDelete() }.let {}
+        suspend fun closeAsked() = call<Void> { window.closeAsked() }.let {}
     }
 
     /**
      * A call to Swift, counted for as long as Swift is at it: a screen that stops waiting, closed or keyed anew, does
      * not stop the operation, which goes on in the model as it does on iOS, and the main queue is run until it is done.
      */
-    private suspend fun <T> call(start: () -> CompletableFuture<T>): T {
+    internal suspend fun <T> call(start: () -> CompletableFuture<T>): T {
         MainQueue.calling(true)
         try {
             val answer = start()
@@ -211,11 +268,6 @@ data class Guide(
 data class Programme(
     val id: String, val serviceID: Long, val time: String, val length: String, val title: String, val station: String, val mark: String,
     val markIsRed: Boolean, val genre: String, val summary: String, val starts: Long, val ends: Long,
-)
-
-data class ProgrammeSheet(
-    val title: String, val station: String, val starts: String, val length: String, val genre: String,
-    val summary: String, val extended: String,
 )
 
 data class Reservations(
@@ -304,8 +356,78 @@ data class Strip(val kind: String, val text: String, val inFull: Boolean, val ac
 private fun Strip(it: jp.hiroaki.bdbridge.bridge.StripLine) =
     Strip(it.kind, it.text, it.isInFull, it.action, it.isActionEnabled)
 
-/** The sheet of a programme on the day shown, read when it is opened. */
-suspend fun programmeSheet(id: String): ProgrammeSheet? =
-    RecBridge.ask { it.guide.programme(id, arena) }.orElse(null)?.let {
-        ProgrammeSheet(it.title, it.station, it.starts, it.length, it.genre, it.summary, it.extended)
-    }
+
+/** A value with its words, as a picker offers it. */
+data class Labelled(val code: String, val label: String)
+
+/** The one question or answer up at a time on a sheet. `action` is empty where there is only the closing button. */
+data class Asked(val title: String, val message: String, val action: String, val destructive: Boolean, val closing: String)
+
+data class HeldReservation(
+    val heading: String, val quality: String, val repeating: String, val disk: String, val recording: Boolean,
+    val offersChanging: Boolean, val changeHeld: Boolean, val deleteHeld: Boolean, val problem: String,
+)
+
+data class WaitingReservation(
+    val heading: String, val quality: String, val repeating: String, val disk: String, val problem: String,
+    val notYet: String, val sendAgainHeld: Boolean, val deleteHeld: Boolean,
+)
+
+data class ProgrammeSheetScreen(
+    val title: String, val station: String, val starts: String, val length: String, val genre: String,
+    val summary: String, val extended: String, val waking: String,
+    val recorders: HeldReservation?, val televisions: HeldReservation?,
+    val waitingForTheRecorder: WaitingReservation?, val waitingForTheTelevision: WaitingReservation?,
+    val asking: String, val held: Boolean, val offer: String,
+    val destinations: List<Labelled>, val destinationAlone: String, val device: String,
+    val disks: List<Labelled>, val disk: String, val diskAlone: String,
+    val qualities: List<Labelled>, val quality: String, val qualityAlone: String,
+    val repeats: List<Labelled>, val repeating: String,
+    val checking: Boolean, val checkingLine: String, val conflictsLine: String, val clashes: Boolean,
+    val conflicts: List<String>, val reserveHeld: Boolean, val problem: String, val asked: Asked?, val done: Boolean,
+)
+
+data class ReservationSheetScreen(
+    val title: String, val station: String, val starts: String, val length: String, val waking: String,
+    val onTelevision: Boolean, val settled: Boolean, val qualityValue: String, val repeatValue: String,
+    val qualities: List<Labelled>, val quality: String, val repeats: List<Labelled>, val repeating: String,
+    val disks: List<Labelled>, val disk: String, val diskAlone: String, val follows: String, val madeBy: String,
+    val size: String, val recording: Boolean, val conflict: Boolean, val clashLine: String,
+    val overlappingHeading: String, val overlapping: List<String>, val noneOverlapping: String,
+    val madeByItself: String, val summary: String, val extended: String, val asking: String, val changed: Boolean,
+    val changeLabel: String, val changeFooter: String, val buttonsHeld: Boolean, val problem: String,
+    val asked: Asked?, val done: Boolean,
+)
+
+private fun labelled(list: Array<jp.hiroaki.bdbridge.bridge.Labelled>) = list.map { Labelled(it.code, it.label) }
+
+private fun asked(present: Boolean, it: jp.hiroaki.bdbridge.bridge.Asked) =
+    if (present) Asked(it.title, it.message, it.action, it.isDestructive, it.closing) else null
+
+private fun held(present: Boolean, it: jp.hiroaki.bdbridge.bridge.HeldReservation) =
+    if (present) HeldReservation(it.heading, it.quality, it.repeating, it.disk, it.isRecording, it.isOffersChanging,
+                                 it.isChangeHeld, it.isDeleteHeld, it.problem) else null
+
+private fun waiting(present: Boolean, it: jp.hiroaki.bdbridge.bridge.WaitingReservation) =
+    if (present) WaitingReservation(it.heading, it.quality, it.repeating, it.disk, it.problem, it.notYet,
+                                    it.isSendAgainHeld, it.isDeleteHeld) else null
+
+private fun ProgrammeSheetScreen(it: jp.hiroaki.bdbridge.bridge.ProgrammeSheetScreen) = ProgrammeSheetScreen(
+    it.title, it.station, it.starts, it.length, it.genre, it.summary, it.extended, it.waking,
+    held(it.isHasRecorders, it.getRecorders(arena)), held(it.isHasTelevisions, it.getTelevisions(arena)),
+    waiting(it.isHasWaitingForTheRecorder, it.getWaitingForTheRecorder(arena)),
+    waiting(it.isHasWaitingForTheTelevision, it.getWaitingForTheTelevision(arena)),
+    it.asking, it.isHeld, it.offer, labelled(it.getDestinations(arena)), it.destinationAlone, it.device,
+    labelled(it.getDisks(arena)), it.disk, it.diskAlone, labelled(it.getQualities(arena)), it.quality, it.qualityAlone,
+    labelled(it.getRepeats(arena)), it.repeating, it.isChecking, it.checkingLine, it.conflictsLine, it.isClashes,
+    it.conflicts.toList(), it.isReserveHeld, it.problem, asked(it.isHasAsked, it.getAsked(arena)), it.isDone,
+)
+
+private fun ReservationSheetScreen(it: jp.hiroaki.bdbridge.bridge.ReservationSheetScreen) = ReservationSheetScreen(
+    it.title, it.station, it.starts, it.length, it.waking, it.isOnTelevision, it.isSettled, it.qualityValue,
+    it.repeatValue, labelled(it.getQualities(arena)), it.quality, labelled(it.getRepeats(arena)), it.repeating,
+    labelled(it.getDisks(arena)), it.disk, it.diskAlone, it.follows, it.madeBy, it.size, it.isRecording, it.isConflict,
+    it.clashLine, it.overlappingHeading, it.overlapping.toList(), it.noneOverlapping, it.madeByItself, it.summary,
+    it.extended, it.asking, it.isChanged, it.changeLabel, it.changeFooter, it.isButtonsHeld, it.problem,
+    asked(it.isHasAsked, it.getAsked(arena)), it.isDone,
+)

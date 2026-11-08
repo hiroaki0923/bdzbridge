@@ -151,12 +151,14 @@ final class Watched<Shown: Sendable>: Sendable {
         await MainActor.run { latest ?? make() }
     }
 
-    /// Tells `listener` at once, and each time what `make` read has changed, until the process ends: the screens
-    /// are the app's for as long as it runs. Observation gathers the changes of one turn of the main actor into one.
-    func watch(_ listener: some ScreenListener) {
+    /// Tells `listener` at once, and each time what `make` read has changed, until the task handed back is
+    /// cancelled: never, for a screen, which is the app's for as long as it runs; as it closes, for a sheet.
+    /// Observation gathers the changes of one turn of the main actor into one.
+    @discardableResult
+    func watch(_ listener: some ScreenListener) -> Task<Void, Never> {
         nonisolated(unsafe) let listener = listener
         let make = self.make
-        Task { @MainActor in
+        return Task { @MainActor in
             for await shown in Observations(make) {
                 latest = shown
                 listener.changed()

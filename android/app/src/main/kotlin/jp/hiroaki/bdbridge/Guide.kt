@@ -78,7 +78,8 @@ import kotlinx.coroutines.launch
 fun GuideScreen(search: () -> Unit) {
     val guide = RecBridge.guide.collectAsState().value ?: return
     val scope = rememberCoroutineScope()
-    var opened by remember { mutableStateOf<ProgrammeSheet?>(null) }
+    // The programme whose sheet is open: shown at once with what its row says.
+    var opened by remember { mutableStateOf<Programme?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
     var refreshing by remember { mutableStateOf(false) }
     opened?.let { ProgrammeSheetView(it) { opened = null } }
@@ -126,7 +127,7 @@ fun GuideScreen(search: () -> Unit) {
                         }
                     }
                 }
-                else -> Programmes(guide) { id -> scope.launch { opened = programmeSheet(id) } }
+                else -> Programmes(guide) { programme -> opened = programme }
             }
         }
     }
@@ -217,7 +218,7 @@ private fun DayBar(guide: Guide) {
  * goes back there each time 今 is asked for.
  */
 @Composable
-private fun Programmes(guide: Guide, open: (String) -> Unit) {
+private fun Programmes(guide: Guide, open: (Programme) -> Unit) {
     val now = minuteNow()
     val opening = guide.programmes.indexOfFirst { it.ends > now }.coerceAtLeast(0)
     // Made again for each list, so that a new one opens at its own place: by the programmes themselves, since the
@@ -240,7 +241,7 @@ private fun Programmes(guide: Guide, open: (String) -> Unit) {
     }
     LazyColumn(Modifier.fillMaxSize(), state = position) {
         items(guide.programmes, key = { it.id }) { programme ->
-            ProgrammeRow(programme, logos[programme.serviceID], now) { open(programme.id) }
+            ProgrammeRow(programme, logos[programme.serviceID], now) { open(programme) }
             HorizontalDivider()
         }
     }
@@ -285,37 +286,5 @@ private fun ProgrammeRow(item: Programme, logo: ImageBitmap?, now: Long, open: (
                      color = colors.onSurfaceVariant)
             }
         }
-    }
-}
-
-/** What the iOS app's programme sheet says of a programme, before its reservation part: read only here. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ProgrammeSheetView(item: ProgrammeSheet, close: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = close) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp).navigationBarsPadding()) {
-            Text(item.title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
-            Labeled("放送", item.station)
-            Labeled("開始", item.starts)
-            Labeled("長さ", item.length)
-            if (item.genre.isNotEmpty()) Labeled("ジャンル", item.genre)
-            if (item.summary.isNotEmpty()) Part("番組内容", item.summary)
-            if (item.extended.isNotEmpty()) Part("詳細", item.extended)
-        }
-    }
-}
-
-@Composable
-private fun Labeled(label: String, value: String) {
-    // On the sheet's own ground: a list item's is the screen's, which stands out on a sheet.
-    ListItem(headlineContent = { Text(label) }, trailingContent = { Text(value, style = MaterialTheme.typography.bodyLarge) },
-             colors = ListItemDefaults.colors(containerColor = Color.Transparent), modifier = Modifier.padding(horizontal = 8.dp))
-}
-
-@Composable
-private fun Part(heading: String, body: String) {
-    Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(heading, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-        Text(body, style = MaterialTheme.typography.bodyMedium)
     }
 }
