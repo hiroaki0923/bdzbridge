@@ -113,6 +113,9 @@ public struct Surroundings {
     /// The app's version and build as the store calls them, `0.2 (12)`, for what the reader copies to send
     /// (`AppModel.tvCapabilities`): the settings' in the app (`SettingsScreen.version`).
     public var appVersion: () -> String = { "?" }
+    /// What the helper on the television lists this device as among those registered with it, for the reader to
+    /// tell them apart there (`AppModel.registerHelper`): `RecBridge (iPhone)` in the app.
+    public var helperLabel = "RecBridge"
 }
 
 extension Surroundings {
