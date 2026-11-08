@@ -21,7 +21,7 @@ final class AndroidBridgeTests: XCTestCase {
 
     @MainActor
     private func demo() async -> RecBridgeApp {
-        let app = RecBridgeApp.made(files: folder.path, version: "0.1 (1)")
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
         await app.start()
         await app.devices().enterDemo()
         return app
@@ -29,9 +29,9 @@ final class AndroidBridgeTests: XCTestCase {
 
     /// Waits for what a window shows to come to `done`, reading it as the screen does.
     @MainActor
-    private func until<Shown>(_ read: () async -> Shown, _ done: (Shown) -> Bool,
+    private func until<Shown>(_ read: () async -> Shown, tries: Int = 200, _ done: (Shown) -> Bool,
                               file: StaticString = #filePath, line: UInt = #line) async -> Shown {
-        for _ in 0..<200 {
+        for _ in 0..<tries {
             let shown = await read()
             if done(shown) { return shown }
             try? await Task.sleep(for: .milliseconds(25))
@@ -148,7 +148,7 @@ final class AndroidBridgeTests: XCTestCase {
 
     @MainActor
     func testATypedAddressIsSaidAsTheIOSFieldSaysIt() {
-        let app = RecBridgeApp.made(files: folder.path, version: "0.1 (1)")
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
         let devices = app.devices()
         XCTAssertFalse(devices.typed("").usable)
         XCTAssertEqual(devices.typed("").note, "")
@@ -445,6 +445,105 @@ extension AndroidBridgeTests {
         XCTAssertGreaterThan(after.hostSet, typed.hostSet, "the model's moving the address was not said")
         XCTAssertTrue(after.facts.isEmpty)
         XCTAssertEqual(after.standing, "")
+    }
+
+    /// The demo's television, found by the search, registered from its sheet by the number the sheet says -- a wrong
+    /// one turned down, the field emptied, and a keystroke typed over the number before it dropped -- and then in the
+    /// settings: what it says of itself, and テレビを外す, which asks with what waits for it and takes it away.
+    @MainActor
+    func testTheDemosTelevisionIsRegisteredFromItsSheetAndTakenAwayFromTheSettings() async throws {
+        let app = await demo()
+        let devices = app.devices()
+        let settings = await app.settings()
+        let before = await until(settings.read) { $0.canChoose }
+        XCTAssertFalse(before.television.added)
+        XCTAssertTrue(before.television.facts.isEmpty)
+
+        await devices.search()
+        let found = await until(devices.read, tries: 800) { !$0.televisions.isEmpty && !$0.searching }
+        let television = try XCTUnwrap(found.televisions.first)
+        XCTAssertEqual(television.host, DemoTV.host)
+        XCTAssertEqual(television.name, DemoTV.model)
+        XCTAssertTrue(television.registers)
+        XCTAssertFalse(television.inUse)
+        XCTAssertFalse(found.choosing)
+
+        let sheet = await app.registerTV(host: television.host, connectAtOnce: true, again: false)
+        await sheet.appeared()
+        let asking = await until(sheet.read) { $0.askingForPIN && !$0.working }
+        XCTAssertEqual(asking.title, "テレビを追加")
+        XCTAssertEqual(asking.typedHost, DemoTV.host)
+        XCTAssertTrue(asking.addressHeld)
+        XCTAssertEqual(asking.pressLabel, "登録する")
+        XCTAssertTrue(asking.pressHeld, "an empty number could be pressed")
+        XCTAssertTrue(asking.pinNote.contains(DemoTV.pin), "the demo's number was not said")
+
+        await sheet.typePIN("0000", seen: asking.pinSet)
+        _ = await until(sheet.read) { !$0.pressHeld }
+        await sheet.press()
+        let turnedDown = await until(sheet.read) { !$0.message.isEmpty && !$0.working }
+        XCTAssertEqual(turnedDown.pin, "")
+        XCTAssertGreaterThan(turnedDown.pinSet, asking.pinSet, "the model's emptying the field was not said")
+        await sheet.typePIN("9", seen: asking.pinSet)
+        let stale = await sheet.read()
+        XCTAssertEqual(stale.pin, "", "a keystroke over the number turned down was kept")
+        XCTAssertEqual(stale.pinSet, turnedDown.pinSet)
+
+        await sheet.typePIN(DemoTV.pin, seen: turnedDown.pinSet)
+        _ = await until(sheet.read) { $0.pin == DemoTV.pin }
+        await sheet.press()
+        _ = await until(sheet.read) { $0.done }
+        await sheet.closed()
+
+        let added = await until(settings.read) { $0.television.facts.contains { $0.label == "状態" && $0.value == "接続済み" } }
+        XCTAssertTrue(added.television.added)
+        XCTAssertTrue(added.television.facts.contains { $0.label == "機種" && $0.value == DemoTV.model })
+        XCTAssertTrue(added.television.facts.contains { $0.label == "IP アドレス" && $0.value == DemoTV.host })
+        XCTAssertFalse(added.television.offersRegistering)
+        XCTAssertFalse(added.television.offersReconnect)
+        XCTAssertFalse(added.television.offersTheHelper, "the demo's television was offered a helper")
+        XCTAssertEqual(added.televisions.first?.inUse, true)
+        XCTAssertEqual(added.televisions.first?.registers, false, "a found television could be tapped with one added")
+
+        await settings.removeTV()
+        let asked = await until(settings.read) { $0.television.asksToRemove }
+        XCTAssertEqual(asked.television.removalQuestion, TVSettingsState.removalQuestion)
+        XCTAssertTrue(asked.television.removalMessage.hasPrefix("この端末から、テレビのアドレスと登録を消します。"))
+        await settings.removalClosed()
+        let kept = await until(settings.read) { !$0.television.asksToRemove }
+        XCTAssertTrue(kept.television.added, "closing the question took the television away")
+        await settings.confirmRemovingTV()
+        let still = await settings.read()
+        XCTAssertTrue(still.television.added, "外す went through with no question up")
+        await settings.removeTV()
+        _ = await until(settings.read) { $0.television.asksToRemove }
+        await settings.confirmRemovingTV()
+        let removed = await until(settings.read) { !$0.television.added }
+        XCTAssertFalse(removed.television.asksToRemove)
+        XCTAssertTrue(removed.demo)
+    }
+
+    /// The television's registration and the helper's token are kept in files of the folder that never leaves the
+    /// device: read back as written, gone once removed, and a file that does not read as one is none.
+    func testTheRegistrationIsKeptInTheFolderThatStaysOnTheDevice() throws {
+        let kept = folder.appendingPathComponent("kept")
+        let credentials = KeptTVCredentials(folder: kept)
+        XCTAssertNil(credentials.load())
+        let registration = TVCredentials(clientID: "BDBridge:kept", cookie: "cookie", cookieReceived: Date(),
+                                         cookieMaxAge: 1_209_600)
+        credentials.save(registration)
+        XCTAssertEqual(KeptTVCredentials(folder: kept).load(), registration, "not read back as written")
+        credentials.remove()
+        XCTAssertNil(credentials.load())
+        try Data("not a registration".utf8).write(to: credentials.file)
+        XCTAssertNil(credentials.load(), "a file that is no registration read as one")
+
+        let token = KeptTVHelperToken(folder: kept)
+        XCTAssertNil(token.load())
+        token.save("token")
+        XCTAssertEqual(KeptTVHelperToken(folder: kept).load(), "token")
+        token.remove()
+        XCTAssertNil(token.load())
     }
 
     /// A station hidden, moved and put back, as the guide then shows them; kept in the cache, so that the list read

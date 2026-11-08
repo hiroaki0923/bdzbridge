@@ -6,7 +6,9 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.isOff
 import androidx.compose.ui.test.isOn
@@ -19,6 +21,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -196,6 +199,39 @@ class DemoTests {
         InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.waitUntilDoesNotExist(isToggleable(), 10_000)
         compose.onNodeWithText("チャンネルの表示と並び順").assertExists()
+    }
+
+    /**
+     * The demo's television, found by the settings' search, tapped, and registered by the number its sheet says; then
+     * listed in the settings' part for it, and taken away again after the question.
+     */
+    @Test fun theDemosTelevisionIsFoundRegisteredAndTakenAwayInTheSettings() {
+        openTheDemo()
+        destination("設定").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("機種"), 30_000)
+        val settings = compose.onNode(hasScrollToNodeAction())
+        settings.performScrollToNode(hasText("アドレスを入力して追加"))
+        settings.performScrollToNode(hasText("レコーダーとテレビを探す"))
+        compose.onNode(hasText("レコーダーとテレビを探す") and hasClickAction()).performClick()
+        // Once the search has ended, which it says: before that a recorder found after the television puts its row
+        // above the television's, and a tap on the television's row as it moves goes nowhere.
+        compose.waitUntilAtLeastOneExists(hasText("テレビが 1 台見つかりました", substring = true), 60_000)
+        settings.performScrollToNode(hasText("KJ-SAMPLE"))
+        compose.onNode(hasText("KJ-SAMPLE") and hasClickAction()).performClick()
+        compose.waitUntilAtLeastOneExists(hasText("4 桁の番号"), 30_000)
+        compose.onNode(hasText("4 桁の番号") and hasSetTextAction()).performTextInput("1234")
+        // The sheet's button, and not the found television's row beneath it, which says 登録する too.
+        val register = hasText("登録する") and hasClickAction() and !hasText("KJ-SAMPLE")
+        compose.waitUntilAtLeastOneExists(register and isEnabled(), 10_000)
+        compose.onNode(register).performClick()
+        compose.waitUntilDoesNotExist(hasText("4 桁の番号"), 30_000)
+
+        settings.performScrollToNode(hasText("テレビを外す"))
+        compose.onNode(hasText("テレビを外す") and hasClickAction()).performClick()
+        compose.waitUntilAtLeastOneExists(hasText("テレビを外しますか？"), 10_000)
+        compose.onNode(hasText("外す") and hasClickAction()).performClick()
+        compose.waitUntilDoesNotExist(hasText("テレビを外す"), 10_000)
+        settings.performScrollToNode(hasText("アドレスを入力して追加"))
     }
 
     @Test fun leavingTheDemoSaysNoRecorderIsAddedAndOffersTheSearch() {

@@ -14,6 +14,7 @@ public struct StripLine: Sendable {
     /// other device, the last thing a cut would leave.
     public var inFull: Bool
     /// What its button does -- `close` (the line stays until it is closed), `leaveDemo`, `reconnect`,
+    /// `registerTV` (the sheet that registers with the television again, `RecBridgeApp.registerTVAgain`),
     /// `reconnectTV` -- or nothing; and whether it may be pressed now.
     public var action: String
     public var actionEnabled: Bool
@@ -71,8 +72,8 @@ public final class StripWindow: Sendable {
         // Not while a bulk job runs, when a connect is only owed until it ends.
         case .recorderGaveUp:
             return line("recorderGaveUp", "レコーダーの応答がありません", action: "reconnect", enabled: !model.jobRunning)
-        // Registering again comes with the television's screens.
-        case .tvNeedsPairing: return line("tvNeedsPairing", "テレビの登録が必要です")
+        // It answers, so it is there; nothing can be asked of it until the app is registered with it again.
+        case .tvNeedsPairing: return line("tvNeedsPairing", "テレビの登録が必要です", action: "registerTV")
         case .tvGaveUp: return line("tvGaveUp", "テレビの応答がありません", action: "reconnectTV")
         case .tvDiskAway: return line("tvDiskAway", TVDriver.diskNotFound)
         }

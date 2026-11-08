@@ -4,10 +4,9 @@ import RecBridgeModel
 import RecorderKit
 
 /// The settings, as the iOS app's settings screen has them, of what Android has yet: the recorder -- what it says of
-/// itself, how the link stands, its address and MAC --, the mode a new reservation starts at, the search and the
-/// recorders it found, the guide kept on the phone, the demo, and the app. The television's section, the televisions
-/// the search found and the guide's source come with the television's screens; the notifications and the Shortcuts
-/// action are the iOS app's own.
+/// itself, how the link stands, its address and MAC --, the mode a new reservation starts at, the television, the
+/// search and the recorders and televisions it found, the guide kept on the phone and where it is fetched from, the
+/// demo, and the app. The notifications and the Shortcuts action are the iOS app's own.
 public struct SettingsScreen: Sendable {
     /// What the recorder says of itself once connected: 機種, 名前, ファームウェア, 番組表, and its disks.
     public var facts: [Fact]
@@ -30,6 +29,8 @@ public struct SettingsScreen: Sendable {
     /// 既定の録画モード.
     public var qualities: [Labelled]
     public var quality: String
+    /// The television's part.
+    public var television: TelevisionPart
     /// レコーダーとテレビを探す, whether it is held, and how far the search has got (`searched` of `toSearch`, both 0
     /// when none runs); what it came to, `outcomeFailed` in red, with the line and the causes under it.
     public var searchHeld: Bool
@@ -40,9 +41,17 @@ public struct SettingsScreen: Sendable {
     public var outcomeNote: String
     public var causes: [String]
     public var recorders: [FoundRecorder]
+    public var televisions: [FoundTelevision]
     /// Whether the recorder in play may be changed now (`AppModel.canChangeRecorder`): what the rows and the demo wait
     /// for.
     public var canChoose: Bool
+    /// 番組表の取得元: a choice where both a recorder and a registered helper could give the guide, said alone where the
+    /// television gives it with no choice to make (`guideSourceAlone`), and nothing otherwise; what the helper's last
+    /// fetch said.
+    public var guideSources: [Labelled]
+    public var guideSource: String
+    public var guideSourceAlone: String
+    public var helperProblem: String
     /// 保存されている番組表: each broadcasting type's stations and programmes, and when the guide was last fetched.
     public var guide: [Fact]
     public var refreshHeld: Bool
@@ -104,6 +113,7 @@ final class ChosenQuality {
 public final class SettingsWindow: Sendable {
     let model: AppModel
     let recorder: RecorderSettingsState
+    let television: TVSettingsState
     private let quality: ChosenQuality
     private let typing = Typing()
     private let shown: Watched<SettingsScreen>
@@ -113,10 +123,12 @@ public final class SettingsWindow: Sendable {
     init(_ model: AppModel, quality: ChosenQuality, version: String) {
         self.model = model
         let recorder = RecorderSettingsState(model: model)
+        let television = TVSettingsState(model: model)
         let typing = typing
         self.recorder = recorder
+        self.television = television
         self.quality = quality
-        shown = Watched { SettingsWindow.screen(model, recorder, quality, typing, version) }
+        shown = Watched { SettingsWindow.screen(model, recorder, television, quality, typing, version) }
         // As the iOS screen follows them: `onChange(of: model.mac, initial: true)` and `onChange(of: model.host)`.
         typing.counting(recorder) { recorder.macMoved() }
         follows.add(onChange(of: { model.mac }) { _ in typing.counting(recorder) { recorder.macMoved() } })
@@ -181,6 +193,47 @@ public final class SettingsWindow: Sendable {
         await MainActor.run { quality.choose(code) }
     }
 
+    /// 再接続, for the television.
+    public func reconnectTV() async {
+        await MainActor.run {
+            _ = pressed(television.offersReconnect && !television.holdsReconnect) { await self.television.reconnect() }
+        }
+    }
+
+    /// ヘルパーの登録を解除.
+    public func forgetHelper() async {
+        await MainActor.run { if television.helperRegistered { television.forgetHelper() } }
+    }
+
+    /// テレビを外す: the question, once what waits for the television is counted.
+    public func removeTV() async {
+        await MainActor.run { pressed(!television.holdsRemoving) { await self.television.remove() } }?.value
+    }
+
+    /// 外す, under the question, and the question closed without it.
+    public func confirmRemovingTV() async {
+        await MainActor.run { pressed(television.asksToRemove) { await self.television.confirmRemoving() } }?.value
+    }
+
+    public func removalClosed() async {
+        await MainActor.run { television.removalClosed() }
+    }
+
+    /// 番組表の取得元, `recorder` or `tv`, where there is a choice.
+    public func chooseGuideSource(_ code: String) async {
+        let choosing = await MainActor.run { () -> Task<Void, Never>? in
+            guard model.guideSourceIsChoosable, let choice = GuideSourceChoice(rawValue: code) else { return nil }
+            return Task.immediate { await self.model.setGuideSourcePreference(choice) }
+        }
+        await choosing?.value
+    }
+
+    /// 対応状況を調べる: what the television added says it speaks, as text to copy (`AppModel.tvCapabilities`).
+    public func tvCapabilities() async -> String {
+        guard let host = await MainActor.run(body: { model.tv?.host }) else { return "" }
+        return await model.tvCapabilities(at: host)
+    }
+
     /// レコーダーとテレビを探す.
     public func search() async {
         await MainActor.run { if !(model.scanHoldsTheButton || model.busy != nil) { model.scanForDevices() } }
@@ -213,8 +266,8 @@ public final class SettingsWindow: Sendable {
     }
 
     @MainActor
-    private static func screen(_ model: AppModel, _ recorder: RecorderSettingsState, _ quality: ChosenQuality,
-                               _ typing: Typing, _ version: String) -> SettingsScreen {
+    private static func screen(_ model: AppModel, _ recorder: RecorderSettingsState, _ television: TVSettingsState,
+                               _ quality: ChosenQuality, _ typing: Typing, _ version: String) -> SettingsScreen {
         var facts: [Fact] = []
         if let info = model.info {
             facts.append(Fact(label: "機種", value: info.product))
@@ -244,13 +297,19 @@ public final class SettingsWindow: Sendable {
             offersConnect: recorder.offersConnect, connectHeld: recorder.holdsConnect,
             offersReconnect: recorder.offersReconnect, reconnectHeld: recorder.holdsReconnect,
             qualities: RecorderDriver.recordsIn.map { Labelled(code: $0, label: Codes.qualityLabel[$0] ?? $0) },
-            quality: quality.code,
+            quality: quality.code, television: TelevisionPart(model, television),
             searchHeld: model.scanHoldsTheButton || model.busy != nil,
             searched: Int64(scanning?.done ?? 0), toSearch: Int64(scanning?.total ?? 0),
             outcome: outcome?.text ?? "", outcomeFailed: outcome?.failed ?? false,
             outcomeNote: outcome?.noRecorderBeside ?? "", causes: outcome?.causes ?? [],
             recorders: model.found.map { FoundRecorder($0, inUse: model.inUse($0)) },
-            canChoose: model.canChangeRecorder,
+            televisions: FoundTelevision.all(model), canChoose: model.canChangeRecorder,
+            guideSources: model.guideSourceIsChoosable
+                ? [Labelled(code: GuideSourceChoice.recorder.rawValue, label: "レコーダー"),
+                   Labelled(code: GuideSourceChoice.tv.rawValue, label: "テレビ")] : [],
+            guideSource: model.guideSourcePreference.rawValue,
+            guideSourceAlone: !model.guideSourceIsChoosable && model.guideSource == .tv ? "テレビ" : "",
+            helperProblem: model.helperProblem?.asABody ?? "",
             guide: guide, refreshHeld: !model.canRefreshGuideByHand, demo: model.demo, version: version,
             busy: model.busy ?? "", problem: model.problem(for: .recorder)?.asABody ?? "",
             phoneProblem: model.phoneProblem?.asABody ?? "")

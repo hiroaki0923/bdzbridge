@@ -153,6 +153,9 @@ fun StripBar() {
     val scope = rememberCoroutineScope()
     // The last line shown, kept while the strip slides away, so that it does not empty itself as it goes.
     var last by remember { mutableStateOf<Strip?>(null) }
+    // 登録's sheet, which registers with the television added again.
+    var registering by remember { mutableStateOf<TVSheetRequest?>(null) }
+    registering?.let { request -> TVRegisterSheetView(request) { registering = null } }
     if (strip != null && strip.kind.isNotEmpty()) last = strip
     AnimatedVisibility(visible = strip != null && strip.kind.isNotEmpty()) {
         val line = last ?: return@AnimatedVisibility
@@ -176,6 +179,9 @@ fun StripBar() {
                                                   enabled = line.actionEnabled) { Text("終了") }
                         "reconnect" -> TextButton(onClick = { scope.launch { RecBridge.act { it.strip.reconnect() } } },
                                                   enabled = line.actionEnabled) { Text("再接続") }
+                        "registerTV" -> TextButton(onClick = {
+                            registering = TVSheetRequest("", connectAtOnce = false, again = true)
+                        }) { Text("登録") }
                         "reconnectTV" -> TextButton(onClick = { scope.launch { RecBridge.act { it.strip.reconnectTV() } } },
                                                     enabled = line.actionEnabled) { Text("再接続") }
                     }

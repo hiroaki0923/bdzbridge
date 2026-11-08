@@ -95,7 +95,7 @@ fun <H : RecBridge.Sheet<*>> rememberOpened(key: Any, open: suspend () -> H?): H
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HeldSheet(held: Boolean, done: Boolean, close: () -> Unit, content: @Composable () -> Unit) {
+internal fun HeldSheet(held: Boolean, done: Boolean, close: () -> Unit, content: @Composable () -> Unit) {
     val holding by rememberUpdatedState(held)
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true,
                                               confirmValueChange = { it != SheetValue.Hidden || !holding })
@@ -414,7 +414,7 @@ private fun FlowRowOfButtons(content: @Composable () -> Unit) {
 // MARK: the sheets' rows
 
 @Composable
-private fun Title(text: String) {
+internal fun Title(text: String) {
     Text(text, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
 }
 
@@ -461,7 +461,7 @@ private fun Pick(label: String, options: List<Labelled>, chosen: String, enabled
 
 /** A request of the sheet's own under way, or the sheet being read. */
 @Composable
-private fun Working(line: String) {
+internal fun Working(line: String) {
     Row(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -470,7 +470,7 @@ private fun Working(line: String) {
 }
 
 @Composable
-private fun Problem(text: String) {
+internal fun Problem(text: String) {
     Text(text, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
          modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
 }

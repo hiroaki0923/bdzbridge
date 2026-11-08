@@ -8,6 +8,7 @@ import jp.hiroaki.bdbridge.bridge.AndroidBridge
 import jp.hiroaki.bdbridge.bridge.ChannelsWindow
 import jp.hiroaki.bdbridge.bridge.DevicesWindow
 import jp.hiroaki.bdbridge.bridge.GuideWindow
+import jp.hiroaki.bdbridge.bridge.HelperRegisterWindow
 import jp.hiroaki.bdbridge.bridge.ProgrammeSheetWindow
 import jp.hiroaki.bdbridge.bridge.RecBridgeApp
 import jp.hiroaki.bdbridge.bridge.RecordingsWindow
@@ -16,6 +17,7 @@ import jp.hiroaki.bdbridge.bridge.ReservationsWindow
 import jp.hiroaki.bdbridge.bridge.ScreenListener
 import jp.hiroaki.bdbridge.bridge.SettingsWindow
 import jp.hiroaki.bdbridge.bridge.StripWindow
+import jp.hiroaki.bdbridge.bridge.TVRegisterWindow
 import jp.hiroaki.bdbridge.bridge.TitleSheetWindow
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
@@ -73,15 +75,20 @@ object RecBridge {
     /** Whether the model has been asked to open in this process. */
     val isOpen: Boolean get() = opening
 
-    /** Opens the model the first time it is asked, with the app's folder, and starts it. */
+    /**
+     * Opens the model the first time it is asked, with the app's folder and the folder of its that never leaves the
+     * device -- no backup and no move to another device takes it -- where the television's registration is kept, and
+     * starts it.
+     */
     fun open(context: Context) {
         if (opening) return
         opening = true
         val files = context.filesDir.absolutePath
+        val kept = context.noBackupFilesDir.absolutePath
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
         val version = "${info.versionName} (${info.longVersionCode})"
         scope.launch {
-            val app = call { RecBridgeApp.open(files, version, arena) }
+            val app = call { RecBridgeApp.open(files, kept, version, arena) }
             val windows = Windows(app, app.devices(arena), app.guide(arena), app.reservations(arena),
                                   app.recordings(arena), app.strip(arena), call { app.settings(arena) })
             watch({ windows.devices.observe(it) }, { Devices(call { windows.devices.read(arena) }) }, _devices)
@@ -185,6 +192,24 @@ object RecBridge {
     }
 
     /**
+     * The recordings screen has come on or gone, told in the order it happened: while it is on, Swift waits for a
+     * television's list that may still be coming, and a quick leave and return told the other way round would leave
+     * it waiting for a screen that has gone, or not waiting for one that is there.
+     */
+    fun recordingsShown(on: Boolean) {
+        recordingsSightings.trySend(on)
+    }
+
+    private val recordingsSightings = Channel<Boolean>(Channel.UNLIMITED).also { changes ->
+        scope.launch {
+            for (on in changes) {
+                val recordings = windows().recordings
+                call<Void> { recordings.shown(on) }
+            }
+        }
+    }
+
+    /**
      * Reads what a window shows each time it says it changed, one read at a time and only the latest: told twice while
      * a read is out, it reads once more after it. The job handed back ends the reading, for a sheet that closes.
      */
@@ -214,6 +239,22 @@ object RecBridge {
 
     /** Which stations the guide shows and in what order, opened at the broadcasting type the guide is on. */
     suspend fun openChannels(): ChannelsHandle = ChannelsHandle(ask { it.app.channels(arena) })
+
+    /**
+     * The sheet that adds a television at `host` -- a television a search found, going straight on to it, or an
+     * address to type -- or registers with the one added again.
+     */
+    suspend fun openTVRegister(host: String, connectAtOnce: Boolean, again: Boolean): TVRegisterHandle =
+        TVRegisterHandle(ask { it.app.registerTV(host, connectAtOnce, again, arena) })
+
+    /** The same sheet, registering with the television added again: the strip's 登録 and the settings' 登録する. */
+    suspend fun openTVRegisterAgain(): TVRegisterHandle = TVRegisterHandle(ask { it.app.registerTVAgain(arena) })
+
+    /** The sheet that registers with the helper on the television added. */
+    suspend fun openHelperRegister(): HelperRegisterHandle = HelperRegisterHandle(ask { it.app.registerHelper(arena) })
+
+    /** 対応状況を調べる: what the television added says it speaks, as text to copy. */
+    suspend fun tvCapabilities(): String = ask { it.settings.tvCapabilities() }
 
     /** ご利用上の注意, as the model words it. */
     suspend fun disclaimer(): Disclaimer = windows().settings.disclaimer(arena).let { text ->
@@ -274,6 +315,42 @@ object RecBridge {
         suspend fun move(id: String, from: Int, to: Int): Boolean = call { window.move(id, from.toLong(), to.toLong()) }
         suspend fun reset() = call<Void> { window.reset() }.let {}
         suspend fun failureClosed() = call<Void> { window.failureClosed() }.let {}
+    }
+
+    /**
+     * The television's sheet. What is typed and pressed goes to Swift one after the other in the order it was done, as
+     * the settings' fields do: a press after the keystrokes it was pressed over. The PIN field takes the model's value
+     * when the model has emptied it -- a PIN turned down -- and Swift drops what was typed over the value before.
+     */
+    class TVRegisterHandle(private val window: TVRegisterWindow) :
+        Sheet<TVRegisterScreen>({ window.observe(it) }, { TVRegisterScreen(call { window.read(arena) }) }) {
+        private val inTurn = Channel<suspend () -> Unit>(Channel.UNLIMITED).also { operations ->
+            scope.launch { for (operation in operations) operation() }
+        }
+        val pinField = Field { text, seen -> inTurn.trySend { call<Void> { window.typePIN(text, seen) } } }
+        private val following = scope.launch {
+            shown.collect { it?.let { screen -> pinField.follow(screen.pin, screen.pinSet) } }
+        }
+
+        override suspend fun ended() {
+            following.cancel()
+            call<Void> { window.closed() }
+        }
+        fun appeared() = inTurn.trySend { call<Void> { window.appeared() } }.let {}
+        fun typeHost(text: String) = inTurn.trySend { call<Void> { window.typeHost(text) } }.let {}
+        fun press() = inTurn.trySend { call<Void> { window.press() } }.let {}
+    }
+
+    /** The helper's sheet, its keystrokes and its press in the order they were made. */
+    class HelperRegisterHandle(private val window: HelperRegisterWindow) :
+        Sheet<HelperRegisterScreen>({ window.observe(it) }, { HelperRegisterScreen(call { window.read(arena) }) }) {
+        private val inTurn = Channel<suspend () -> Unit>(Channel.UNLIMITED).also { operations ->
+            scope.launch { for (operation in operations) operation() }
+        }
+
+        override suspend fun ended() = call<Void> { window.closed() }.let {}
+        fun typeCode(text: String) = inTurn.trySend { call<Void> { window.typeCode(text) } }.let {}
+        fun press() = inTurn.trySend { call<Void> { window.press() } }.let {}
     }
 
     class ReservationSheetHandle(private val window: ReservationSheetWindow) :
@@ -348,11 +425,17 @@ class Station(val serviceID: Long, val name: String, val logo: ByteArray)
 data class Devices(
     val welcomes: Boolean, val searching: Boolean, val searched: Long, val toSearch: Long,
     val outcome: String, val outcomeFailed: Boolean, val outcomeNote: String, val causes: List<String>,
-    val busy: String, val problem: String, val recorders: List<FoundRecorder>,
-    val canChoose: Boolean, val demo: Boolean, val chosenAnswered: Boolean,
+    val busy: String, val problem: String, val recorders: List<FoundRecorder>, val televisions: List<FoundTelevision>,
+    val choosing: Boolean, val canChoose: Boolean, val demo: Boolean, val chosenAnswered: Boolean,
 )
 
 data class FoundRecorder(val host: String, val name: String, val details: String, val inUse: Boolean)
+
+/** A television a search found: `registers` while no television is added, when a tap registers it. */
+data class FoundTelevision(val host: String, val name: String, val inUse: Boolean, val registers: Boolean)
+
+private fun televisions(list: Array<jp.hiroaki.bdbridge.bridge.FoundTelevision>) =
+    list.map { FoundTelevision(it.host, it.name, it.isInUse, it.isRegisters) }
 
 data class Typed(val host: String, val usable: Boolean, val note: String, val warning: Boolean)
 
@@ -405,7 +488,7 @@ private fun Devices(it: jp.hiroaki.bdbridge.bridge.DevicesScreen) = Devices(
     it.isWelcomes, it.isSearching, it.searched, it.toSearch, it.outcome, it.isOutcomeFailed, it.outcomeNote,
     it.causes.toList(), it.busy, it.problem,
     it.getRecorders(arena).map { found -> FoundRecorder(found.host, found.name, found.details, found.isInUse) },
-    it.isCanChoose, it.isDemo, it.isChosenAnswered,
+    televisions(it.getTelevisions(arena)), it.isChoosing, it.isCanChoose, it.isDemo, it.isChosenAnswered,
 )
 
 private fun Guide(it: jp.hiroaki.bdbridge.bridge.GuideScreen) = it.getSaid(arena).let { said ->
@@ -563,22 +646,55 @@ data class Settings(
     val facts: List<Fact>, val standing: String, val typedHost: String, val hostSet: Long, val typedMac: String,
     val macSet: Long, val addressNote: String, val addressWarning: Boolean, val offersConnect: Boolean,
     val connectHeld: Boolean, val offersReconnect: Boolean, val reconnectHeld: Boolean, val qualities: List<Labelled>,
-    val quality: String, val searchHeld: Boolean, val searched: Long, val toSearch: Long, val outcome: String,
-    val outcomeFailed: Boolean, val outcomeNote: String, val causes: List<String>, val recorders: List<FoundRecorder>,
-    val canChoose: Boolean, val guide: List<Fact>, val refreshHeld: Boolean, val demo: Boolean, val version: String,
-    val busy: String, val problem: String, val phoneProblem: String,
+    val quality: String, val television: TelevisionPart, val searchHeld: Boolean, val searched: Long,
+    val toSearch: Long, val outcome: String, val outcomeFailed: Boolean, val outcomeNote: String,
+    val causes: List<String>, val recorders: List<FoundRecorder>, val televisions: List<FoundTelevision>,
+    val canChoose: Boolean, val guideSources: List<Labelled>, val guideSource: String, val guideSourceAlone: String,
+    val helperProblem: String, val guide: List<Fact>, val refreshHeld: Boolean, val demo: Boolean,
+    val version: String, val busy: String, val problem: String, val phoneProblem: String,
 )
+
+/** The television's part of the settings (`TelevisionPart`): with one added, or the way to add one. */
+data class TelevisionPart(
+    val added: Boolean, val facts: List<Fact>, val offersRegistering: Boolean, val offersReconnect: Boolean,
+    val reconnectHeld: Boolean, val offersTheHelper: Boolean, val helperRegistered: Boolean, val removeHeld: Boolean,
+    val asksToRemove: Boolean, val removalQuestion: String, val removalMessage: String, val footer: String,
+)
+
+private fun TelevisionPart(it: jp.hiroaki.bdbridge.bridge.TelevisionPart) = TelevisionPart(
+    it.isAdded, facts(it.getFacts(arena)), it.isOffersRegistering, it.isOffersReconnect, it.isReconnectHeld,
+    it.isOffersTheHelper, it.isHelperRegistered, it.isRemoveHeld, it.isAsksToRemove, it.removalQuestion,
+    it.removalMessage, it.footer,
+)
+
+/** The television's sheet (`TVRegisterWindow`): `pinSet` moves when the model has set the PIN field itself. */
+data class TVRegisterScreen(
+    val title: String, val typedHost: String, val addressHeld: Boolean, val askingForPIN: Boolean, val pin: String,
+    val pinSet: Long, val pinNote: String, val turnedAway: String, val message: String, val pressLabel: String,
+    val pressHeld: Boolean, val working: Boolean, val done: Boolean,
+)
+
+private fun TVRegisterScreen(it: jp.hiroaki.bdbridge.bridge.TVRegisterScreen) = TVRegisterScreen(
+    it.title, it.typedHost, it.isAddressHeld, it.isAskingForPIN, it.pin, it.pinSet, it.pinNote, it.turnedAway,
+    it.message, it.pressLabel, it.isPressHeld, it.isWorking, it.isDone,
+)
+
+data class HelperRegisterScreen(val pressHeld: Boolean, val working: Boolean, val message: String, val done: Boolean)
+
+private fun HelperRegisterScreen(it: jp.hiroaki.bdbridge.bridge.HelperRegisterScreen) =
+    HelperRegisterScreen(it.isPressHeld, it.isWorking, it.message, it.isDone)
 
 private fun facts(list: Array<jp.hiroaki.bdbridge.bridge.Fact>) = list.map { Fact(it.label, it.value) }
 
 private fun Settings(it: jp.hiroaki.bdbridge.bridge.SettingsScreen) = Settings(
     facts(it.getFacts(arena)), it.standing, it.typedHost, it.hostSet, it.typedMac, it.macSet, it.addressNote,
     it.isAddressWarning, it.isOffersConnect, it.isConnectHeld, it.isOffersReconnect, it.isReconnectHeld,
-    labelled(it.getQualities(arena)), it.quality, it.isSearchHeld, it.searched, it.toSearch, it.outcome,
-    it.isOutcomeFailed, it.outcomeNote, it.causes.toList(),
+    labelled(it.getQualities(arena)), it.quality, TelevisionPart(it.getTelevision(arena)), it.isSearchHeld,
+    it.searched, it.toSearch, it.outcome, it.isOutcomeFailed, it.outcomeNote, it.causes.toList(),
     it.getRecorders(arena).map { found -> FoundRecorder(found.host, found.name, found.details, found.isInUse) },
-    it.isCanChoose, facts(it.getGuide(arena)), it.isRefreshHeld, it.isDemo, it.version, it.busy, it.problem,
-    it.phoneProblem,
+    televisions(it.getTelevisions(arena)), it.isCanChoose, labelled(it.getGuideSources(arena)), it.guideSource,
+    it.guideSourceAlone, it.helperProblem, facts(it.getGuide(arena)), it.isRefreshHeld, it.isDemo, it.version,
+    it.busy, it.problem, it.phoneProblem,
 )
 
 data class Disclaimer(val title: String, val opening: String, val sections: List<Fact>, val link: String, val url: String)
