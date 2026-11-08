@@ -1,44 +1,33 @@
 package jp.hiroaki.bdbridge
 
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.lifecycle.viewmodel.compose.viewModel
-import jp.hiroaki.bdbridge.bridge.AndroidBridge
 
 class MainActivity : ComponentActivity() {
-    // Swift's main queue, which nothing else runs on Android, run from the main thread while the app is on screen:
-    // much of RecorderKit runs on Swift's main actor (core/Sources/AndroidBridge/MainQueue.swift). Each run takes
-    // what has come since the last and returns at once; one comes every frame or so.
-    private val mainThread = Handler(Looper.getMainLooper())
-    private val mainQueue = object : Runnable {
-        override fun run() {
-            AndroidBridge.runWhatWaitsOnTheMainQueue()
-            mainThread.postDelayed(this, 16)
-        }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        RecBridge.open(applicationContext)
+        enableEdgeToEdge()
+        setContent { RecBridgeTheme { App() } }
     }
 
+    // The model is told when the app comes into sight and goes out of it, as the iOS app tells it its scene's. Not
+    // when the activity is only made again for a change of its configuration -- turned, or switched to dark --
+    // which the app does not leave: the model would take it for a return, and connect again.
     override fun onStart() {
         super.onStart()
-        mainThread.post(mainQueue)
+        if (madeAgain) madeAgain = false else RecBridge.onScreen(true)
     }
 
     override fun onStop() {
-        mainThread.removeCallbacks(mainQueue)
+        if (isChangingConfigurations) madeAgain = true else RecBridge.onScreen(false)
         super.onStop()
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        setContent {
-            RecBridgeTheme {
-                val state: AppState = viewModel()
-                if (state.recorder == null) DevicesScreen(state) else RecorderScreen(state)
-            }
-        }
+    private companion object {
+        /** Set as the activity stops for a change of its configuration, for the one made after it. */
+        var madeAgain = false
     }
 }
