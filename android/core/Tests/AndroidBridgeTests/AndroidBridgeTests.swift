@@ -218,19 +218,31 @@ extension AndroidBridgeTests {
         XCTAssertNil(none, "the television holds nothing of it")
     }
 
+    /// A reservation of the demo's whose sheet offers the change, opened: one neither recording nor over, which the
+    /// list still shows for a while after it ends. The demo's reservations are at times of the day, so which those are
+    /// depends on the hour.
+    @MainActor
+    private func aReservationToChange(_ list: ReservationsWindow) async throws -> (ReservationRow, ReservationSheetWindow) {
+        await list.load()
+        let listed = await until(list.read) { !$0.sections.isEmpty }
+        for row in listed.sections.flatMap(\.rows) where !row.recording && !row.byTheRecorder {
+            let opening = await list.open(row.id)
+            let sheet = try XCTUnwrap(opening)
+            if await !sheet.read().settled { return (row, sheet) }
+            await sheet.closed()
+        }
+        XCTFail("the demo has no reservation to change")
+        throw StillWaiting()
+    }
+
     @MainActor
     func testAReservationIsChangedAndDeletedFromItsSheet() async throws {
         let app = await demo()
         let list = app.reservations()
-        await list.load()
-        let listed = await until(list.read) { !$0.sections.isEmpty }
-        let row = try XCTUnwrap(listed.sections.flatMap(\.rows).first { !$0.recording && !$0.byTheRecorder })
-        let opening = await list.open(row.id)
-        let sheet = try XCTUnwrap(opening)
+        let (row, sheet) = try await aReservationToChange(list)
         defer { Task { await sheet.closed() } }
         let opened = await until(sheet.read) { !$0.quality.isEmpty && !$0.buttonsHeld }
         XCTAssertEqual(opened.title, row.title)
-        XCTAssertFalse(opened.settled)
         XCTAssertFalse(opened.changed, "nothing changed yet")
         let other = try XCTUnwrap(opened.qualities.first { $0.code != opened.quality })
 
@@ -269,11 +281,7 @@ extension AndroidBridgeTests {
     func testASecondPressWhileARequestIsOutSendsNothing() async throws {
         let app = await demo()
         let list = app.reservations()
-        await list.load()
-        let listed = await until(list.read) { !$0.sections.isEmpty }
-        let row = try XCTUnwrap(listed.sections.flatMap(\.rows).first { !$0.recording && !$0.byTheRecorder })
-        let opening = await list.open(row.id)
-        let sheet = try XCTUnwrap(opening)
+        let (_, sheet) = try await aReservationToChange(list)
         defer { Task { await sheet.closed() } }
         let opened = await until(sheet.read) { !$0.quality.isEmpty && !$0.buttonsHeld }
         let other = try XCTUnwrap(opened.qualities.first { $0.code != opened.quality })
@@ -363,6 +371,8 @@ extension AndroidBridgeTests {
         XCTAssertEqual(after.rows.count, listed.rows.count - 1)
     }
 }
+
+struct StillWaiting: Error {}
 
 final class Counting: ScreenListener, @unchecked Sendable {
     private let lock = NSLock()
