@@ -189,13 +189,13 @@ struct RecordingsScreen: View {
 
     @ViewBuilder
     private var content: some View {
-        if !model.connected, !model.tvHasSomethingToShow {
+        if model.recordingsHaveNoRecorder {
             NoRecorderView(icon: "play.rectangle", welcoming: $welcoming)
-        } else if model.recorderBusy != nil && model.allTitles.isEmpty {
+        } else if model.recordingsAreLoading {
             ContentUnavailableView {
-                Label("読み込み中", systemImage: "play.rectangle")
+                Label(AppModel.loadingRecordings.title, systemImage: "play.rectangle")
             } description: {
-                Text("レコーダーから録画一覧を取得しています")
+                Text(AppModel.loadingRecordings.detail ?? "")
             }
         } else if duplicating {
             DuplicatesView { opened = $0 }
@@ -232,14 +232,15 @@ struct RecordingsScreen: View {
     /// is on its way.
     @ViewBuilder
     private var noTitles: some View {
-        if model.tvTitlesStillComing {
+        let says = model.noRecordingsSays
+        if let detail = says.detail {
             ContentUnavailableView {
-                Label("読み込み中", systemImage: "play.rectangle")
+                Label(says.title, systemImage: "play.rectangle")
             } description: {
-                Text(TVDriver.titlesComingLine.asABody)
+                Text(detail)
             }
         } else {
-            ContentUnavailableView("録画された番組はありません", systemImage: "play.rectangle")
+            ContentUnavailableView(says.title, systemImage: "play.rectangle")
         }
     }
 

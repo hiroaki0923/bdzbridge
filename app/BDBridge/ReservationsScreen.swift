@@ -64,15 +64,15 @@ struct ReservationsScreen: View {
             Group {
                 // Away from home there is still something to show: what the recorder said last time, and
                 // the television, and above all the queue, which is in use exactly then.
-                if !model.connected, model.allReservations.isEmpty, model.pending.isEmpty {
+                if model.reservationsHaveNoRecorder {
                     NoRecorderView(icon: "clock", welcoming: $welcoming)
                 } else {
                     // The empty state sits on top of the list rather than in its place, so that pulling
                     // down still reloads: a plain placeholder has nothing to pull.
                     list.overlay {
-                        if model.shownReservations.isEmpty, model.pending.isEmpty {
-                            ContentUnavailableView("予約はありません", systemImage: "clock",
-                                                   description: Text("番組表から番組を選んで予約できます"))
+                        if model.reservationsAreEmpty {
+                            ContentUnavailableView(AppModel.noReservations.title, systemImage: "clock",
+                                                   description: Text(AppModel.noReservations.detail ?? ""))
                         }
                     }
                 }
