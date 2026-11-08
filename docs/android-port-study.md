@@ -421,11 +421,13 @@ Foundation の RunLoop は、メインのスレッドで回ると、メインの
 | `@MainActor @Observable` のクラスをそのまま出す | コンパイルできない。swift-java は同期の呼び口を作り、main actor の外から呼ぶことになる。async の関数だけは通る |
 | 前に main actor でない窓口を置く（操作は async で main actor に渡る） | 動く。`Observations` でも `withObservationTracking` でも、変化 1 回につき 1 回、Kotlin の listener に届いた。届くのは Android のメインスレッド |
 | listener の引数 | 数（`Int64`）、文字、真偽値は届く。`Int` は swift-java の作るコードがコンパイルできない。構造体の一覧は、アプリのクラスを探せず落ちた（`NoClassDefFoundError`） |
-| Foundation の `UserDefaults` | `.standard` と名前で指定したものは、値が残らなかった（HOME と XDG をアプリのフォルダーに向け、フォルダーを作っても同じ。アプリの bundle identifier が取れない）。置き場所をファイルの場所（絶対パス）で指定した `UserDefaults(suiteName:)` は、次の起動でも値が読めた。Application Support の場所は、XDG を向ければ取れる |
+| Foundation の `UserDefaults` | `.standard` と名前で指定したものは、値が残らなかった（HOME と XDG をアプリのフォルダーに向け、フォルダーを作っても同じ。アプリの bundle identifier が取れない）。置き場所をファイルの場所（絶対パス）で指定した `UserDefaults(suiteName:)` は、次の起動でも値が読めた。ただし、ファイルに書くのは `synchronize()` を呼んだときだけで、値を変えても変化の知らせ（`didChangeNotification`）は出ない（手順 3 で窓口を作るときに分かった）。Application Support の場所は、XDG を向ければ取れる |
 
 分かった形: モデルは iOS のまま `@MainActor @Observable` にし、前に画面ごとの窓口を置く。窓口は「何が変わったか」だけを
 知らせ、値は Kotlin が async で読む（Kotlin から呼んだ結果なら、構造体の一覧も届く）。設定は、モデルが今も
-`Surroundings` から受け取る `UserDefaults` のままでよく、Android はファイルの場所で指定したものを渡す。
+`Surroundings` から受け取る `UserDefaults` のままでよく、Android はファイルの場所で指定したものを渡す。Apple の
+Foundation は自分で書き出すので、モデルは `synchronize()` を呼ばない。Android が渡すものは、値が変わるたびに
+自分で書き出す（`WrittenDefaults`、`android/core/Sources/AndroidBridge/App.swift`）。
 
 ## 決めたこと: B（2026-11-08）
 
@@ -462,13 +464,18 @@ Wi-Fi の端末での測定と、Skip の試しも済みました（上）。B �
    - シートと画面の規則も、テスト付きでモデルに移しました。番組のシートと予約のシートの状態の移り変わり
      （`ProgramSheetState`、`ReservationSheetState`）、検索（`SearchState`）、局の並べ替え（`ChannelsState`）、
      空の画面で何を言うか（`AppModelEmptyScreens.swift`）です。SwiftUI の画面はそれを並べて結ぶだけになり、
-     Android の画面も同じ型を使えます。残りは、Kotlin から見る窓口です。
+     Android の画面も同じ型を使えます。
 3. 画面を Compose で書く。
-
-3 の入口として、読むだけのアプリの骨組みを先に作りました（`android/README.md`）。レコーダーにアドレス、探索、
-デモのどれかでつなぎ、番組表（放送日ごと、放送中の番組から開く、番組のシート）、予約、録画を読みます。
-エミュレーターから本物のレコーダーも読めました。デモを画面からたどるテストが 4 件あります。骨組みの
-`AppState.kt` は、2 のパッケージができたら、それを映すだけのものに置き換えます。
+   - 3 の入口として、読むだけのアプリの骨組みを先に作りました（`android/README.md`）。エミュレーターから本物の
+     レコーダーも読めました。
+   - その骨組みを、iOS と同じモデルの上に載せ替えました。Android のアプリは、iOS のアプリと同じように
+     `AppModel` を 1 つ持ち、画面ごとの窓口（`android/core/Sources/AndroidBridge`）を通して見ます。窓口は
+     `Observations` でモデルを見て、変わったことだけを Kotlin に知らせます。Kotlin はそのたびに、iOS の画面と同じ
+     言葉にした値を読みます。モデルには手を入れていません。今あるのは、つなぐ画面（探索、アドレス、デモ）、
+     番組表（放送と局と日の選択、今、番組表の更新、空のときの文）、予約と録画の一覧（読むだけ）です。
+     デモを画面からたどるテストが 4 件、窓口のテストが Mac で 6 件あります。
+   - 次は、番組のシートと予約のシートを `ProgramSheetState` と `ReservationSheetState` の上に置き、予約の
+     書き込みを入れます。そのあとは録画、設定、テレビの順です。
 
 ## 確かめていないこと
 
