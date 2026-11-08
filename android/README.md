@@ -16,9 +16,12 @@ sends again what waits for it, and a reservation's, which changes and deletes it
 protects and deletes it. What each sheet holds, offers, holds back and says is the model's own state of it
 (`ProgramSheetState`, `ReservationSheetState`, `TitleSheetState`), as on iOS. Its settings have the recorder (what it
 says of itself, how the link stands, its address and MAC, このアドレスに接続 and 再接続), the mode a new reservation starts
-at, the search, which stations the guide shows and in what order, the guide kept on the device, the demo and ご利用上の
-注意, over the model's states of them (`RecorderSettingsState`, `ChannelsState`); the television's part comes with the
-television's screens. As on iOS, a
+at, the television (what it says of itself, 対応状況を調べる, 登録する or 再接続, the helper on it, テレビを外す), the search
+and the recorders and televisions it found, which stations the guide shows and in what order, the guide kept on the
+device and which device it is fetched from, the demo and ご利用上の注意, over the model's states of them
+(`RecorderSettingsState`, `TVSettingsState`, `ChannelsState`). A television is added from a search, the settings or the
+strip's 登録 on a sheet over the model's state of it (`TVRegisterState`), and the helper on it on another
+(`HelperRegisterState`). As on iOS, a
 connect wakes a recorder that does not answer with a magic packet when its MAC is known.
 
 ## Layout
@@ -27,7 +30,9 @@ connect wakes a recorder that does not answer with a magic packet when its MAC i
   model: `App.swift` (the model, made once, on `Surroundings` of Android's own, and how a window tells Kotlin that what
   it shows has changed), `Devices.swift`, `Guide.swift`, `Lists.swift`, `Strip.swift` (the strip at the top of
   every screen, as the model chooses its line), `Settings.swift` (the settings, whose fields keep what is typed and
-  take the model's value when the model sets them itself), `Channels.swift` (the stations' page) and `Sheets.swift`
+  take the model's value when the model sets them itself), `Television.swift` (the television's sheets, its part of
+  the settings and the televisions a search found), `Kept.swift` (where the television's registration and the
+  helper's token are kept), `Channels.swift` (the stations' page) and `Sheets.swift`
   (the sheets, a window made as a sheet opens and
   ended as it closes, doing for the sheet what the iOS sheet does with `onChange` and `task(id:)`). A window is a plain class, since swift-java
   cannot hand Kotlin a class on the main actor: what the reader does goes to the model as an async call, and what the
@@ -41,11 +46,15 @@ connect wakes a recorder that does not answer with a magic packet when its MAC i
   the text marked as Japanese), `App.kt` (the place to choose a recorder over the rest, and the navigation: a bar at
   the foot of a phone, a rail down the side of anything 600 dp wide), `Guide.kt`, `Lists.kt`, `Devices.kt`, `Sheets.kt`
   (the sheets, which open at once with what the row says and fill in as their window is read), `Settings.kt` (the
-  settings and ご利用上の注意), `Channels.kt` (the stations' page, a station dragged by its handle to another place),
+  settings and ご利用上の注意), `Television.kt` (the television's sheets, the televisions a search found, and the
+  television's 対応状況), `Channels.kt` (the stations' page, a station dragged by its handle to another place),
   and `Parts.kt` (the empty states, the marks, the strip, what a search found).
 
 The model's settings are kept in `files/settings/recbridge.plist`: Foundation on Android keeps a `UserDefaults` suite
-named by the path of its file, and writes it out only when told to, which `WrittenDefaults` does at each change.
+named by the path of its file, and writes it out only when told to, which `WrittenDefaults` does at each change. The
+television's registration and the helper's token are kept apart from them, in `no_backup/` (`Context.getNoBackupFilesDir`),
+which Android's backup rules always leave out, to the cloud and to another device alike: as on iOS, they stay on the
+device, and a device the app comes to some other way registers again.
 
 ## What has to be in place
 
