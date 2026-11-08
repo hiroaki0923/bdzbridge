@@ -54,7 +54,7 @@ struct RootView: View {
             GuideScreen()
                 .tabItem { Label("番組表", systemImage: "squareshape.split.3x3") }
                 .tag("guide")
-            SearchScreen()
+            SearchScreen(model: model)
                 .tabItem { Label("検索", systemImage: "magnifyingglass") }
                 .tag("search")
             ReservationsScreen()

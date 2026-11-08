@@ -169,7 +169,7 @@ struct SettingsScreen: View {
 
                 Section {
                     NavigationLink("チャンネルの表示と並び順") {
-                        ChannelsScreen(broadcasting: model.broadcasting)
+                        ChannelsScreen(broadcasting: model.broadcasting, model: model)
                     }
                 } footer: {
                     Text("番組表に出す局と、その並び順を放送ごとに選べます。この端末の番組表だけが変わり、"
