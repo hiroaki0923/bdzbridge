@@ -56,6 +56,14 @@ object RecBridge {
     val recordings: StateFlow<Recordings?> = _recordings
     val strip: StateFlow<Strip?> = _strip
 
+    /**
+     * Runs `work` where nothing a screen does cancels it: for what has to finish whatever becomes of the screen that
+     * asked, as a sheet's window opened for a sheet already closed is closed in turn.
+     */
+    fun launch(work: suspend () -> Unit) {
+        scope.launch { work() }
+    }
+
     /** Whether the model has been asked to open in this process. */
     val isOpen: Boolean get() = opening
 
@@ -170,8 +178,8 @@ object RecBridge {
         suspend fun delete(device: String) = call<Void> { window.delete(device) }.let {}
         suspend fun sendAgain(device: String) = call<Void> { window.sendAgain(device) }.let {}
         suspend fun deleteWaiting(device: String) = call<Void> { window.deleteWaiting(device) }.let {}
-        suspend fun act() = call<Void> { window.act() }.let {}
-        suspend fun closeAsked() = call<Void> { window.closeAsked() }.let {}
+        suspend fun act(key: String) = call<Void> { window.act(key) }.let {}
+        suspend fun closeAsked(key: String) = call<Void> { window.closeAsked(key) }.let {}
         /** 予約を変更する: the reservation's own sheet, over this one. */
         suspend fun change(device: String): ReservationSheetHandle? =
             call { window.change(device, arena) }.orElse(null)?.let { ReservationSheetHandle(it) }
@@ -186,8 +194,8 @@ object RecBridge {
         suspend fun chooseDisk(code: String) = call<Void> { window.chooseDisk(code) }.let {}
         suspend fun sendTheChange() = call<Void> { window.sendTheChange() }.let {}
         suspend fun delete() = call<Void> { window.delete() }.let {}
-        suspend fun confirmDelete() = call<Void> { window.confirmDelete() }.let {}
-        suspend fun closeAsked() = call<Void> { window.closeAsked() }.let {}
+        suspend fun confirmDelete(key: String) = call<Void> { window.confirmDelete(key) }.let {}
+        suspend fun closeAsked(key: String) = call<Void> { window.closeAsked(key) }.let {}
     }
 
     /**
@@ -360,8 +368,11 @@ private fun Strip(it: jp.hiroaki.bdbridge.bridge.StripLine) =
 /** A value with its words, as a picker offers it. */
 data class Labelled(val code: String, val label: String)
 
-/** The one question or answer up at a time on a sheet. `action` is empty where there is only the closing button. */
-data class Asked(val title: String, val message: String, val action: String, val destructive: Boolean, val closing: String)
+/**
+ * The one question or answer up at a time on a sheet. `action` is empty where there is only the closing button; `key`
+ * goes back with a press, which does nothing once another question has taken this one's place.
+ */
+data class Asked(val key: String, val title: String, val message: String, val action: String, val destructive: Boolean, val closing: String)
 
 data class HeldReservation(
     val heading: String, val quality: String, val repeating: String, val disk: String, val recording: Boolean,
@@ -402,7 +413,7 @@ data class ReservationSheetScreen(
 private fun labelled(list: Array<jp.hiroaki.bdbridge.bridge.Labelled>) = list.map { Labelled(it.code, it.label) }
 
 private fun asked(present: Boolean, it: jp.hiroaki.bdbridge.bridge.Asked) =
-    if (present) Asked(it.title, it.message, it.action, it.isDestructive, it.closing) else null
+    if (present) Asked(it.key, it.title, it.message, it.action, it.isDestructive, it.closing) else null
 
 private fun held(present: Boolean, it: jp.hiroaki.bdbridge.bridge.HeldReservation) =
     if (present) HeldReservation(it.heading, it.quality, it.repeating, it.disk, it.isRecording, it.isOffersChanging,

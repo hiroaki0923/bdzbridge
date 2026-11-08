@@ -17,8 +17,11 @@ public struct Labelled: Sendable {
 }
 
 /// The one question or answer up at a time: its title and what it says, the button that does something (`action`,
-/// red when `destructive`, none when empty) and the one that closes.
+/// red when `destructive`, none when empty) and the one that closes. `key` tells this question from the next: a press
+/// is for the one it was shown with, and does nothing once another has taken its place, as an iOS alert's button
+/// acts on the value it was presented with.
 public struct Asked: Sendable {
+    public var key: String
     public var title: String
     public var message: String
     public var action: String
@@ -154,18 +157,28 @@ public struct ReservationSheetScreen: Sendable {
     public var done: Bool
 }
 
-/// What a sheet's window keeps going while its sheet is open, ended as it closes.
-@MainActor
-final class Follows {
+/// What a sheet's window keeps going while its sheet is open, ended as it closes: a task added after the end is
+/// ended at once, whichever thread adds it.
+final class Follows: @unchecked Sendable {
+    private let lock = NSLock()
     private var tasks: [Task<Void, Never>] = []
+    private var ended = false
 
-    nonisolated init() {}
-
-    func add(_ task: Task<Void, Never>) { tasks.append(task) }
+    func add(_ task: Task<Void, Never>) {
+        let late = lock.withLock { () -> Bool in
+            if !ended { tasks.append(task) }
+            return ended
+        }
+        if late { task.cancel() }
+    }
 
     func end() {
-        tasks.forEach { $0.cancel() }
-        tasks = []
+        let running = lock.withLock { () -> [Task<Void, Never>] in
+            ended = true
+            defer { tasks = [] }
+            return tasks
+        }
+        running.forEach { $0.cancel() }
     }
 }
 
@@ -227,51 +240,63 @@ public final class ProgrammeSheetWindow: Sendable {
     public func read() async -> ProgrammeSheetScreen { await shown.read() }
 
     public func observe(_ listener: some ScreenListener) {
-        let watching = shown.watch(listener)
-        Task { @MainActor in follows.add(watching) }
+        follows.add(shown.watch(listener))
     }
 
     /// The sheet has closed: nothing more is followed for it.
     public func closed() async {
-        await MainActor.run { follows.end() }
+        follows.end()
     }
+
+    // Each press does nothing while the model holds its button back, as the iOS sheet's disabled button does: what
+    // Compose shows comes a turn after the model, and a second tap could otherwise send a write twice. The sheet is
+    // held whole while a request of its own is out (`holdsTheSheet`, `.disabled(sheet.asking != nil)` on iOS).
 
     /// 予約先, `recorder` or `tv`.
     public func chooseDevice(_ code: String) async {
-        await MainActor.run { sheet.choose(DeviceSlot(rawValue: code)) }
+        await MainActor.run { if !sheet.holdsTheSheet { sheet.choose(DeviceSlot(rawValue: code)) } }
     }
 
     public func chooseDisk(_ destination: String) async {
-        await MainActor.run { sheet.chosenDisk = destination }
+        await MainActor.run { if !sheet.holdsTheSheet { sheet.chosenDisk = destination } }
     }
 
     public func chooseQuality(_ code: String) async {
-        await MainActor.run { sheet.quality = code }
+        await MainActor.run { if !sheet.holdsTheSheet { sheet.quality = code } }
     }
 
     public func chooseRepeat(_ code: String) async {
-        await MainActor.run { sheet.repeating = code }
+        await MainActor.run { if !sheet.holdsTheSheet { sheet.repeating = code } }
     }
 
     /// 録画予約する, for the device it is offered for.
     public func reserve() async {
         await MainActor.run {
-            if sheet.device == .recorder { sheet.reserveOnTheRecorder() }
-            if sheet.device == .tv { sheet.reserveOnTheTelevision() }
+            guard !sheet.holdsTheSheet, sheet.ask == nil else { return }
+            if sheet.offersAReservation(on: .recorder), !sheet.holdsReservingOnTheRecorder { sheet.reserveOnTheRecorder() }
+            else if sheet.offersAReservation(on: .tv), !sheet.holdsReservingOnTheTelevision { sheet.reserveOnTheTelevision() }
         }
     }
 
     /// 予約を削除, for the reservation the device (`recorder` or `tv`) holds of the programme.
     public func delete(_ code: String) async {
         await MainActor.run {
-            if let reservation = code == "tv" ? sheet.televisions : sheet.reservation { sheet.delete(reservation) }
+            guard !sheet.holdsTheSheet, sheet.ask == nil else { return }
+            if code == "tv", let reservation = sheet.televisions, !sheet.holdsDeletingTheTelevisions {
+                sheet.delete(reservation)
+            } else if code == "recorder", let reservation = sheet.reservation, !sheet.holdsTheRecordersButtons {
+                sheet.delete(reservation)
+            }
         }
     }
 
     /// 予約を変更する: the reservation's own sheet, for the reservation the device holds of the programme.
     public func change(_ code: String) async -> ReservationSheetWindow? {
         await MainActor.run {
-            guard let reservation = code == "tv" ? sheet.televisions : sheet.reservation else { return nil }
+            guard !sheet.holdsTheSheet,
+                  let reservation = code == "tv" ? sheet.televisions : sheet.reservation,
+                  sheet.offersChanging(reservation),
+                  !(code == "tv" ? sheet.holdsChangingTheTelevisions : sheet.holdsTheRecordersButtons) else { return nil }
             sheet.change(reservation)
             return ReservationSheetWindow(ReservationSheetState(reservation: reservation, model: model), model: model)
         }
@@ -282,37 +307,44 @@ public final class ProgrammeSheetWindow: Sendable {
         await MainActor.run { sheet.editing = nil }
     }
 
-    /// もう一度送る, for the row waiting for the device.
+    /// もう一度送る, for the row waiting for the device: offered only for a row the device refused.
     public func sendAgain(_ code: String) async {
         await MainActor.run {
-            if let waiting = sheet.waiting(on: DeviceSlot(rawValue: code)) { sheet.sendAgain(waiting) }
+            guard !sheet.holdsTheSheet, sheet.ask == nil, let waiting = sheet.waiting(on: DeviceSlot(rawValue: code)),
+                  waiting.problem != nil, !sheet.holdsSendingAgain(waiting) else { return }
+            sheet.sendAgain(waiting)
         }
     }
 
     /// 送信待ちの予約を削除, for the row waiting for the device.
     public func deleteWaiting(_ code: String) async {
         await MainActor.run {
-            if let waiting = sheet.waiting(on: DeviceSlot(rawValue: code)) { sheet.deleteWaiting(waiting) }
+            guard !sheet.holdsTheSheet, sheet.ask == nil, let waiting = sheet.waiting(on: DeviceSlot(rawValue: code)),
+                  !sheet.holdsDeletingWaiting(waiting) else { return }
+            sheet.deleteWaiting(waiting)
         }
     }
 
-    /// The question's or the answer's button that does something.
-    public func act() async {
+    /// The button of the question or answer shown with `key` that does something.
+    public func act(_ key: String) async {
         await MainActor.run {
-            guard let asked = sheet.ask else { return }
+            guard let asked = sheet.ask, Self.key(asked) == key else { return }
             sheet.act(on: asked)
             sheet.askClosed()
         }
     }
 
-    /// The question's or the answer's button that closes, or the question put away.
-    public func closeAsked() async {
+    /// The button of the question or answer shown with `key` that closes it.
+    public func closeAsked(_ key: String) async {
         await MainActor.run {
-            guard let asked = sheet.ask else { return }
+            guard let asked = sheet.ask, Self.key(asked) == key else { return }
             sheet.close(asked)
             sheet.askClosed()
         }
     }
+
+    /// What tells one question or answer from another: all of it, as it is described.
+    static func key(_ asked: ProgramSheetState.Ask) -> String { String(describing: asked) }
 
     @MainActor
     private static func screen(_ sheet: ProgramSheetState, _ model: AppModel) -> ProgrammeSheetScreen {
@@ -351,7 +383,8 @@ public final class ProgrammeSheetWindow: Sendable {
         let conflicts = sheet.conflicts
         let asked = sheet.ask.map { asked in
             let action = sheet.actionLabel(for: asked)
-            return Asked(title: sheet.askTitle, message: sheet.message(for: asked), action: action?.label ?? "",
+            return Asked(key: Self.key(asked), title: sheet.askTitle, message: sheet.message(for: asked),
+                         action: action?.label ?? "",
                          destructive: action?.destructive ?? false, closing: sheet.closingLabel(for: asked))
         }
         return ProgrammeSheetScreen(
@@ -376,14 +409,16 @@ public final class ProgrammeSheetWindow: Sendable {
             qualityAlone: offer == .tv ? Codes.qualityLabel[TVDriver.recordsIn] ?? TVDriver.recordsIn : "",
             repeats: labelled(offer == .tv ? sheet.televisionRepeatOptions : sheet.repeatOptions, Codes.repeatLabel),
             repeating: sheet.repeating,
-            checking: sheet.checking, checkingLine: ProgramSheetState.checkingLine,
-            conflictsLine: conflicts.map { $0.isEmpty ? RecorderDriver.noClashes : ProgramSheetState.clashes($0.count) } ?? "",
-            clashes: !(conflicts?.isEmpty ?? true),
-            conflicts: (conflicts ?? []).map { "\(Format.dateTime.string(from: $0.start)) \($0.title)" },
+            // Under the recorder's 録画予約 only, as on iOS: the television is asked nothing of what it would clash with.
+            checking: offer == .recorder && sheet.checking, checkingLine: ProgramSheetState.checkingLine,
+            conflictsLine: offer == .recorder
+                ? conflicts.map { $0.isEmpty ? RecorderDriver.noClashes : ProgramSheetState.clashes($0.count) } ?? "" : "",
+            clashes: offer == .recorder && !(conflicts?.isEmpty ?? true),
+            conflicts: offer == .recorder ? (conflicts ?? []).map { "\(Format.dateTime.string(from: $0.start)) \($0.title)" } : [],
             reserveHeld: offer == .tv ? sheet.holdsReservingOnTheTelevision : sheet.holdsReservingOnTheRecorder,
             problem: model.problem(for: .recorder)?.asABody ?? "",
             hasAsked: asked != nil,
-            asked: asked ?? Asked(title: "", message: "", action: "", destructive: false, closing: ""),
+            asked: asked ?? Asked(key: "", title: "", message: "", action: "", destructive: false, closing: ""),
             done: sheet.done)
     }
 }
@@ -420,47 +455,64 @@ public final class ReservationSheetWindow: Sendable {
     public func read() async -> ReservationSheetScreen { await shown.read() }
 
     public func observe(_ listener: some ScreenListener) {
-        let watching = shown.watch(listener)
-        Task { @MainActor in follows.add(watching) }
+        follows.add(shown.watch(listener))
     }
 
     public func closed() async {
-        await MainActor.run { follows.end() }
+        follows.end()
     }
 
+    // As on the programme's sheet, each press does nothing while the model holds its button back.
+
     public func chooseQuality(_ code: String) async {
-        await MainActor.run { sheet.quality = code }
+        await MainActor.run { if sheet.asking == nil { sheet.quality = code } }
     }
 
     public func chooseRepeat(_ code: String) async {
-        await MainActor.run { sheet.repeating = code }
+        await MainActor.run { if sheet.asking == nil { sheet.repeating = code } }
     }
 
     public func chooseDisk(_ destination: String) async {
-        await MainActor.run { sheet.pick(disk: destination) }
+        await MainActor.run { if sheet.asking == nil { sheet.pick(disk: destination) } }
     }
 
     /// 変更を〈機器〉に送る.
     public func sendTheChange() async {
-        await MainActor.run { sheet.sendTheChange() }
+        await MainActor.run {
+            guard sheet.asking == nil, !sheet.isAsking, sheet.changed, !sheet.holdsItsButtons else { return }
+            sheet.sendTheChange()
+        }
     }
 
     /// 予約を削除: the question first.
     public func delete() async {
-        await MainActor.run { sheet.delete() }
+        await MainActor.run {
+            guard sheet.asking == nil, !sheet.isAsking, !sheet.holdsItsButtons else { return }
+            sheet.delete()
+        }
     }
 
-    /// 削除する, under the question.
-    public func confirmDelete() async {
+    /// 削除する, under the question shown with `key`.
+    public func confirmDelete(_ key: String) async {
         await MainActor.run {
+            guard sheet.confirming, sheet.asking == nil, Self.key(sheet) == key else { return }
             sheet.confirmDelete()
             sheet.askClosed()
         }
     }
 
-    /// The question or the report closed, whichever button it was.
-    public func closeAsked() async {
-        await MainActor.run { sheet.askClosed() }
+    /// The question or the report shown with `key` closed, whichever button it was.
+    public func closeAsked(_ key: String) async {
+        await MainActor.run {
+            guard sheet.isAsking, Self.key(sheet) == key else { return }
+            sheet.askClosed()
+        }
+    }
+
+    /// What tells the question or report up from the next.
+    @MainActor
+    static func key(_ sheet: ReservationSheetState) -> String {
+        "\(sheet.confirming)|\(sheet.failure ?? "")|\(sheet.said ?? "")"
     }
 
     @MainActor
@@ -494,7 +546,7 @@ public final class ReservationSheetWindow: Sendable {
             changeFooter: sheet.changeFooter, buttonsHeld: sheet.holdsItsButtons,
             problem: model.problem(for: reservation.device)?.asABody ?? "",
             hasAsked: sheet.isAsking,
-            asked: Asked(title: sheet.askTitle, message: sheet.askMessage,
+            asked: Asked(key: key(sheet), title: sheet.askTitle, message: sheet.askMessage,
                          action: sheet.asksBeforeDeleting ? "削除する" : "", destructive: sheet.asksBeforeDeleting,
                          closing: sheet.asksBeforeDeleting ? "キャンセル" : "OK"),
             done: sheet.done || letGo.happened)

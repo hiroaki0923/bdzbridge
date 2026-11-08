@@ -194,7 +194,7 @@ extension AndroidBridgeTests {
         XCTAssertEqual(asked.asked.title, "この番組を録画予約しますか？")
         XCTAssertEqual(asked.asked.action, "予約する")
         XCTAssertTrue(asked.asked.message.contains(row.station))
-        await sheet.act()
+        await sheet.act(asked.asked.key)
         let made = await until(sheet.read) { $0.done || $0.hasAsked }
         XCTAssertTrue(made.done || !made.asked.title.contains("エラー"), "made: \(made.asked.message)")
 
@@ -252,10 +252,40 @@ extension AndroidBridgeTests {
         let question = await until(deleting.read) { $0.hasAsked }
         XCTAssertEqual(question.asked.title, "この予約を削除しますか？")
         XCTAssertEqual(question.asked.action, "削除する")
-        await deleting.confirmDelete()
+        await deleting.confirmDelete("not the question shown")
+        let stillAsked = await deleting.read()
+        XCTAssertTrue(stillAsked.hasAsked, "a press for another question does nothing")
+        await deleting.confirmDelete(question.asked.key)
         _ = await until(deleting.read) { $0.done }
         let gone = await until(list.read) { shown in !shown.sections.flatMap(\.rows).contains { $0.title == row.title } }
         XCTAssertFalse(gone.sections.flatMap(\.rows).contains { $0.id == moved.id })
+    }
+}
+
+extension AndroidBridgeTests {
+    /// A second press while the first one's request is out does nothing: what Compose shows comes a turn after the
+    /// model, and the model's own hold is what the window goes by.
+    @MainActor
+    func testASecondPressWhileARequestIsOutSendsNothing() async throws {
+        let app = await demo()
+        let list = app.reservations()
+        await list.load()
+        let listed = await until(list.read) { !$0.sections.isEmpty }
+        let row = try XCTUnwrap(listed.sections.flatMap(\.rows).first { !$0.recording && !$0.byTheRecorder })
+        let opening = await list.open(row.id)
+        let sheet = try XCTUnwrap(opening)
+        defer { Task { await sheet.closed() } }
+        let opened = await until(sheet.read) { !$0.quality.isEmpty && !$0.buttonsHeld }
+        let other = try XCTUnwrap(opened.qualities.first { $0.code != opened.quality })
+        await sheet.chooseQuality(other.code)
+        _ = await until(sheet.read) { $0.changed }
+        await sheet.sendTheChange()
+        let sending = await sheet.read()
+        XCTAssertFalse(sending.asking.isEmpty, "the change is out")
+        await sheet.delete()
+        let after = await sheet.read()
+        XCTAssertFalse(after.hasAsked, "no question to delete while the change is out")
+        _ = await until(sheet.read) { $0.done || $0.hasAsked }
     }
 }
 

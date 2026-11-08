@@ -52,11 +52,34 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 
 // The programme's sheet and the reservation's, as the iOS sheets lay them out: what each holds, offers, holds back
 // and says, and what each press does, are the model's, through the sheets' windows (core/.../Sheets.swift). A sheet
 // opens at once with what the row it was opened from already says, and the rest comes in as its window is read.
+
+/**
+ * A sheet's window, opened as the sheet comes up and closed as it goes. The opening runs where the sheet going does
+ * not cancel it, and a window that comes back for a sheet already gone is closed at once: left open, it would go on
+ * following the model, and asking the recorder, for nobody.
+ */
+@Composable
+private fun <H : RecBridge.Sheet<*>> rememberOpened(key: Any, open: suspend () -> H?): H? {
+    var handle by remember(key) { mutableStateOf<H?>(null) }
+    DisposableEffect(key) {
+        var gone = false
+        RecBridge.launch {
+            val opened = open()
+            if (gone) opened?.close() else handle = opened
+        }
+        onDispose {
+            gone = true
+            handle?.close()
+        }
+    }
+    return handle
+}
 
 /**
  * A bottom sheet that cannot be put away while a request of its own is out: what the request came to is said on it,
@@ -74,12 +97,17 @@ private fun HeldSheet(held: Boolean, close: () -> Unit, content: @Composable () 
     }
 }
 
-/** The one question or answer up at a time: the button that does something, if any, and the one that closes. */
+/**
+ * The one question or answer up at a time: the button that does something, if any, and the one that closes. A
+ * question is answered by its buttons, as an iOS alert is, and not put away by a touch beside it; the back key is
+ * its closing button. An answer with OK alone goes either way.
+ */
 @Composable
 private fun AskDialog(asked: Asked, act: () -> Unit, closeAsked: () -> Unit) {
     val closing = @Composable { TextButton(onClick = closeAsked) { Text(asked.closing) } }
     AlertDialog(
         onDismissRequest = closeAsked,
+        properties = DialogProperties(dismissOnClickOutside = asked.action.isEmpty()),
         title = { Text(asked.title) },
         text = { Text(asked.message) },
         confirmButton = {
@@ -97,12 +125,7 @@ private fun AskDialog(asked: Asked, act: () -> Unit, closeAsked: () -> Unit) {
 @Composable
 fun ProgrammeSheetView(row: Programme, close: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var handle by remember { mutableStateOf<RecBridge.ProgrammeSheetHandle?>(null) }
-    LaunchedEffect(row.id) { handle = RecBridge.openProgramme(row.id) }
-    DisposableEffect(handle) {
-        val opened = handle
-        onDispose { opened?.close() }
-    }
+    val handle = rememberOpened(row.id) { RecBridge.openProgramme(row.id) }
     val sheet = handle?.let { it.shown.collectAsState().value }
     var editing by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(sheet?.done) { if (sheet?.done == true) close() }
@@ -138,7 +161,7 @@ fun ProgrammeSheetView(row: Programme, close: () -> Unit) {
         sheet?.extended?.takeIf { it.isNotEmpty() }?.let { Part("詳細", it) }
         sheet?.problem?.takeIf { it.isNotEmpty() }?.let { Problem(it) }
     }
-    sheet?.asked?.let { asked -> AskDialog(asked, act = { act { act() } }, closeAsked = { act { closeAsked() } }) }
+    sheet?.asked?.let { asked -> AskDialog(asked, act = { act { act(asked.key) } }, closeAsked = { act { closeAsked(asked.key) } }) }
     editing?.let { device ->
         val opened = handle ?: return@let
         ReservationSheetView(row.title, open = { opened.change(device) }, close = {
@@ -172,7 +195,7 @@ private fun Offer(sheet: ProgrammeSheetScreen, free: Boolean,
     if (sheet.qualities.isNotEmpty()) Pick("録画モード", sheet.qualities, sheet.quality, free) { act { chooseQuality(it) } }
     else Value("録画モード", sheet.qualityAlone)
     Pick("毎回録画", sheet.repeats, sheet.repeating, free) { act { chooseRepeat(it) } }
-    Clashes(sheet)
+    if (sheet.offer == "recorder") Clashes(sheet)
     Button(onClick = { act { reserve() } }, enabled = free && !sheet.reserveHeld,
            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) { Text("録画予約する") }
 }
@@ -234,12 +257,7 @@ private fun WaitingSection(waiting: WaitingReservation, enabled: Boolean, sendAg
 @Composable
 fun ReservationSheetView(title: String, open: suspend () -> RecBridge.ReservationSheetHandle?, close: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var handle by remember { mutableStateOf<RecBridge.ReservationSheetHandle?>(null) }
-    LaunchedEffect(Unit) { handle = open() }
-    DisposableEffect(handle) {
-        val opened = handle
-        onDispose { opened?.close() }
-    }
+    val handle = rememberOpened(Unit, open)
     val sheet = handle?.let { it.shown.collectAsState().value }
     LaunchedEffect(sheet?.done) { if (sheet?.done == true) close() }
     val act = { work: suspend RecBridge.ReservationSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
@@ -288,7 +306,9 @@ fun ReservationSheetView(title: String, open: suspend () -> RecBridge.Reservatio
         Box(Modifier.padding(horizontal = 24.dp)) { Destructive("予約を削除", free && !sheet.buttonsHeld) { act { delete() } } }
         if (sheet.problem.isNotEmpty()) Problem(sheet.problem)
     }
-    sheet?.asked?.let { asked -> AskDialog(asked, act = { act { confirmDelete() } }, closeAsked = { act { closeAsked() } }) }
+    sheet?.asked?.let { asked ->
+        AskDialog(asked, act = { act { confirmDelete(asked.key) } }, closeAsked = { act { closeAsked(asked.key) } })
+    }
 }
 
 // MARK: the sheets' rows
