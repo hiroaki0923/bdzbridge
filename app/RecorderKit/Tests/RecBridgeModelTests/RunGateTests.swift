@@ -556,7 +556,10 @@ final class RunGateTests: XCTestCase {
     /// heard the recorder busy with somebody else -- the check's ask waiting its turn behind the first delete --
     /// has deleted one and reads nothing: the read makes no check of its own, and would go straight behind that
     /// one, to a recorder that has not said which it is. And a run of two stopped before its second recording
-    /// after a look at the network that met silence reads nothing either, of a recorder known to be away.
+    /// after a look at the network that met silence reads nothing either, of a recorder known to be away. Which
+    /// of two sentences that run stops on is a matter of which comes first, its question whether to go on or the
+    /// look giving the recorder up -- the silence the question met, or the recorder not connected -- as it would
+    /// be at home: seen on Android's emulator under the whole suite's load, where the look comes first.
     func testTheFreeSpaceIsNotReadAfterARunTheRecorderStopped() async throws {
         let (bench, recorder, model, idle) = try await settled()
 
@@ -597,7 +600,8 @@ final class RunGateTests: XCTestCase {
         try await untilTheRunEnds(model)
         XCTAssertTrue(model.gaveUp, "the look at the network was meant to lose the recorder")
         XCTAssertEqual(model.job?.changed, [idle[1].id])
-        XCTAssertEqual(model.job?.stopped, .said(Said.noAnswer))
+        let away: [RunStop?] = [.said(Said.noAnswer), .said(Said.notConnected)]
+        XCTAssertTrue(away.contains(model.job?.stopped), "the run stopped on \(String(describing: model.job?.stopped))")
         expectEqual(await recorder.asked(Ask.freeSpace, since: before), 0,
                     "the free space was asked of a recorder known to be away")
     }
