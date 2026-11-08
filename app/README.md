@@ -1,10 +1,12 @@
 # The iOS app
 
 - `RecorderKit/` — the recorder-facing Swift package: protocols, decoders, the HTTP client and the guide
-  cache. No UI, and testable from the command line. See its own README.
+  cache. No UI, and testable from the command line. See its own README. Its second target, `RecBridgeModel`
+  (`RecorderKit/Sources/RecBridgeModel`), is the app's model below, which the app imports: public as far as the
+  app uses it, with what only an iPhone has handed in (`Surroundings`).
 - `BDBridge/` — the app itself: SwiftUI, five tabs, no server in the middle. What the screens share is
-  `AppModel`: its state and its start in `AppModel.swift`, and what it does in extensions beside it, one file
-  to a concern (`AppModelSession`, `AppModelSetup`, `AppModelGuide`, `AppModelReservations`,
+  `AppModel`, in `RecBridgeModel`: its state and its start in `AppModel.swift`, and what it does in extensions
+  beside it, one file to a concern (`AppModelSession`, `AppModelSetup`, `AppModelGuide`, `AppModelReservations`,
   `AppModelRecorderRules`, `AppModelRecordings`, `AppModelTV`). The connection to each device -- when it is
   asked, woken, made sure of, looked for at another address and given up on -- is RecorderKit's `DeviceLink`
   with the device's driver (`RecorderDriver`, `TVDriver`); what the link tells the app is told to a host of
@@ -84,7 +86,9 @@
   `BDBridgeApp.swift`). What
   the app knows of the recorder and of the link to it -- described, unreachable, given up on, being woken -- is
   `SessionState`, which changes only by what happened to it; the screens read it through `AppModel`.
-- `BDBridgeTests/` — unit tests of `AppModel`, run inside the app with no recorder and no network (below).
+- `BDBridgeTests/` — the few tests that need the app itself: the Keychain's, the guide grid's and the app's
+  own (`TheAppsOwnTests`). The model's unit tests are the package's (`RecorderKit/Tests/RecBridgeModelTests`,
+  below).
 - `BDBridgeUITests/` — the demo's UI tests (`DemoModeTests`, below) and the App Store screenshots, which skip
   themselves unless `BDBRIDGE_SHOTS` is set.
 - `project.yml` — the Xcode project is generated from this by XcodeGen, and committed (see below).
@@ -120,7 +124,7 @@ in `docs/privacy.md`.
 ## Screenshots for the store
 
 `scripts/screenshots/capture.sh <simulator udid>` takes them, on the same demo the tutorial offers
-(RecorderKit's `DemoRecorder` and `DemoLineUp`, turned on in the app by `BDBridge/DemoData.swift` or with
+(RecorderKit's `DemoRecorder` and `DemoLineUp`, turned on in the app by `DemoData`, the model's, or with
 `-demoData 1`). No recorder, no real programmes, nobody's recordings. See `scripts/screenshots/README.md`.
 
 ## The demo
@@ -173,9 +177,10 @@ demo's guide deletes what waited for one (`DemoLineUp.seed`). `DemoTelevisionTes
 
 ## The model's tests
 
-`BDBridgeTests` tries `AppModel` as the app makes it at launch with a recorder saved, without a phone, a
-recorder or the network. The model takes what it reaches beyond itself as one value,
-`BDBridge/Surroundings.swift`: the defaults it keeps the address and the screens' choices in, the folder its
+`RecBridgeModelTests`, in the package, tries `AppModel` as the app makes it at launch with a recorder saved,
+without a phone, a simulator, a recorder or the network: `swift test` runs it on a Mac, and the package's
+Android check on an emulator. The model takes what it reaches beyond itself as one value, `Surroundings`
+(`RecorderKit/Sources/RecBridgeModel/Surroundings.swift`): the defaults it keeps the address and the screens' choices in, the folder its
 databases go in, how a request reaches the recorder, which network it takes itself to be on, and whether it may
 put anything on the LAN by itself -- the magic packet, the look at the local network permission, the search for
 a recorder the router has moved, the watch on the network -- or ask about notifications, and how long the
@@ -541,10 +546,16 @@ handed in (`BackgroundWork.refresh`, `sendWaiting(client:store:mac:told:nextRun:
 `RecorderDriver.refreshWithNoScreen` and `sendWithNoScreen`). The task's registration, its handler and its
 expiry are behind those entries, and equally out of reach.
 
-The tests run inside the app, which is how they reach its types, so the app leaves out its own start while
-it hosts them (`BDBridgeApp.hostingUnitTests`, from XCTest's `XCTestConfigurationFilePath`): that start would
-connect to whatever recorder the simulator last saved, and the overnight task would be registered. The UI
-tests launch the app as a process of its own, without the variable, and it starts as it does for anybody.
+```
+cd app/RecorderKit
+swift test --filter RecBridgeModelTests
+```
+
+The few that need the app itself are in `BDBridgeTests` (the Keychain's, the guide grid's and
+`TheAppsOwnTests`), which run inside the app, so the app leaves out its own start while it hosts them
+(`BDBridgeApp.hostingUnitTests`, from XCTest's `XCTestConfigurationFilePath`): that start would connect to
+whatever recorder the simulator last saved, and the overnight task would be registered. The UI tests launch the
+app as a process of its own, without the variable, and it starts as it does for anybody.
 
 ```
 cd app
@@ -552,7 +563,7 @@ xcodebuild test -project BDBridge.xcodeproj -scheme BDBridge \
   -destination 'platform=iOS Simulator,id=<simulator udid>' -only-testing:BDBridgeTests
 ```
 
-The test bundle does not link RecorderKit itself. It uses the copy linked into the app it is loaded into
+The test bundle does not link RecorderKit or the model itself. It uses the copy linked into the app it is loaded into
 (`TEST_HOST` and `BUNDLE_LOADER`, which XcodeGen sets from the dependency). A second copy in the bundle would
 put two of every RecorderKit type in the process, and the model would not take a `RecorderError` thrown by a
 test's recorder for its own.
@@ -741,9 +752,9 @@ Two scripts, each documented in its own header, and nothing about Apple's websit
 - `ci_scripts/ci_post_clone.sh` is what Xcode Cloud needs, and it has to sit at the root of the repository:
   it installs XcodeGen, regenerates the project from `project.yml` so a cloud build matches the definition,
   and writes `Signing.local.xcconfig` from the workflow's `DEVELOPMENT_TEAM` and `CI_BUILD_NUMBER`.
-- `ci_scripts/ci_pre_xcodebuild.sh` runs RecorderKit's `swift test` before an archive, and a failure fails
-  the build, so nothing goes to TestFlight that the package's tests would have stopped. The app's unit tests
-  and the demo's UI tests need a simulator; a Test action in the workflow, which is set up in App Store
+- `ci_scripts/ci_pre_xcodebuild.sh` runs the package's `swift test`, RecorderKit's tests and the model's,
+  before an archive, and a failure fails the build, so nothing goes to TestFlight that the package's tests would
+  have stopped. The app's own few tests and the demo's UI tests need a simulator; a Test action in the workflow, which is set up in App Store
   Connect, runs both through the scheme.
 
 `ITSAppUsesNonExemptEncryption` in `project.yml` is what keeps every upload from stopping to ask about
