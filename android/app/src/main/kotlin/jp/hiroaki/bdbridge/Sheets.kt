@@ -95,10 +95,22 @@ private fun <H : RecBridge.Sheet<*>> rememberOpened(key: Any, open: suspend () -
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HeldSheet(held: Boolean, close: () -> Unit, content: @Composable () -> Unit) {
+private fun HeldSheet(held: Boolean, done: Boolean, close: () -> Unit, content: @Composable () -> Unit) {
     val holding by rememberUpdatedState(held)
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true,
                                               confirmValueChange = { it != SheetValue.Hidden || !holding })
+    // Closed by the sheet itself -- its reservation made, its delete gone through -- the sheet slides away first and
+    // is taken off only then, as Material has a sheet closed from code: taken off at once, its window was still
+    // there for a moment, and a tap on the screen beneath went to it.
+    LaunchedEffect(done) {
+        if (done) {
+            try {
+                state.hide()
+            } finally {
+                close()
+            }
+        }
+    }
     ModalBottomSheet(onDismissRequest = { if (!holding) close() }, sheetState = state) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp).navigationBarsPadding()) {
             content()
@@ -140,12 +152,11 @@ fun ProgrammeSheetView(row: Programme, close: () -> Unit) {
     val scope = rememberCoroutineScope()
     val handle = rememberOpened(row.id) { RecBridge.openProgramme(row.id) }
     val sheet = handle?.let { it.shown.collectAsState().value }
-    LaunchedEffect(sheet?.done) { if (sheet?.done == true) close() }
     var editing by remember { mutableStateOf<String?>(null) }
     val act = { work: suspend RecBridge.ProgrammeSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
     val free = sheet != null && sheet.asking.isEmpty()
 
-    HeldSheet(held = sheet?.held ?: false, close = close) {
+    HeldSheet(held = sheet?.held ?: false, done = sheet?.done ?: false, close = close) {
         Title(sheet?.title ?: row.title)
         sheet?.waking?.takeIf { it.isNotEmpty() }?.let { Working(it) }
         Value("放送", sheet?.station ?: row.station)
@@ -272,11 +283,10 @@ fun ReservationSheetView(title: String, open: suspend () -> RecBridge.Reservatio
     val scope = rememberCoroutineScope()
     val handle = rememberOpened(Unit, open)
     val sheet = handle?.let { it.shown.collectAsState().value }
-    LaunchedEffect(sheet?.done) { if (sheet?.done == true) close() }
     val act = { work: suspend RecBridge.ReservationSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
     val free = sheet != null && sheet.asking.isEmpty()
 
-    HeldSheet(held = sheet?.asking?.isNotEmpty() ?: false, close = close) {
+    HeldSheet(held = sheet?.asking?.isNotEmpty() ?: false, done = sheet?.done ?: false, close = close) {
         Title(sheet?.title ?: title)
         if (sheet == null) return@HeldSheet Working("")
         if (sheet.waking.isNotEmpty()) Working(sheet.waking)
@@ -333,10 +343,9 @@ fun TitleSheetView(row: RecordingItem, close: () -> Unit) {
     val scope = rememberCoroutineScope()
     val handle = rememberOpened(row.id) { RecBridge.openRecording(row.id) }
     val sheet = handle?.let { it.shown.collectAsState().value }
-    LaunchedEffect(sheet?.done) { if (sheet?.done == true) close() }
     val act = { work: suspend RecBridge.TitleSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
 
-    HeldSheet(held = sheet?.asking ?: false, close = close) {
+    HeldSheet(held = sheet?.asking ?: false, done = sheet?.done ?: false, close = close) {
         Title(sheet?.title ?: row.title)
         if (sheet == null) {
             Footnote(row.details, Modifier.padding(horizontal = 24.dp))
