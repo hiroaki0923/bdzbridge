@@ -83,13 +83,15 @@ private fun <H : RecBridge.Sheet<*>> rememberOpened(key: Any, open: suspend () -
 
 /**
  * A bottom sheet that cannot be put away while a request of its own is out: what the request came to is said on it,
- * and a sheet that had gone would say it nowhere.
+ * and a sheet that had gone would say it nowhere. It opens at its full height, as an iOS sheet does: half open, its
+ * buttons -- 録画予約する, 予約を削除 -- were below the edge, with nothing to say that the sheet went further up.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HeldSheet(held: Boolean, close: () -> Unit, content: @Composable () -> Unit) {
     val holding by rememberUpdatedState(held)
-    val state = rememberModalBottomSheetState(confirmValueChange = { it != SheetValue.Hidden || !holding })
+    val state = rememberModalBottomSheetState(skipPartiallyExpanded = true,
+                                              confirmValueChange = { it != SheetValue.Hidden || !holding })
     ModalBottomSheet(onDismissRequest = { if (!holding) close() }, sheetState = state) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp).navigationBarsPadding()) {
             content()
