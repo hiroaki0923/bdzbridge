@@ -34,6 +34,8 @@ targets:
     dependencies:
       - package: RecorderKit
         product: RecorderKit
+      - package: RecorderKit
+        product: RecBridgeModel
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: jp.hiroaki.bdbridge

@@ -1,4 +1,5 @@
 import AppIntents
+import RecBridgeModel
 import RecorderKit
 
 /// The Shortcuts action that sends the reservations waiting on this phone, to the recorder and to the

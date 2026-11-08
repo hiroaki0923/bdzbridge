@@ -1,5 +1,6 @@
 import BackgroundTasks
 import Foundation
+import RecBridgeModel
 import os
 import RecorderKit
 

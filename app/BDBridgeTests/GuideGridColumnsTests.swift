@@ -1,3 +1,4 @@
+import RecBridgeModel
 import XCTest
 @testable import BDBridge
 
