@@ -13,14 +13,21 @@ class MainActivity : ComponentActivity() {
         setContent { RecBridgeTheme { App() } }
     }
 
-    // The model is told when the app comes into sight and goes out of it, as the iOS app tells it its scene's.
+    // The model is told when the app comes into sight and goes out of it, as the iOS app tells it its scene's. Not
+    // when the activity is only made again for a change of its configuration -- turned, or switched to dark --
+    // which the app does not leave: the model would take it for a return, and connect again.
     override fun onStart() {
         super.onStart()
-        RecBridge.onScreen(true)
+        if (madeAgain) madeAgain = false else RecBridge.onScreen(true)
     }
 
     override fun onStop() {
-        RecBridge.onScreen(false)
+        if (isChangingConfigurations) madeAgain = true else RecBridge.onScreen(false)
         super.onStop()
+    }
+
+    private companion object {
+        /** Set as the activity stops for a change of its configuration, for the one made after it. */
+        var madeAgain = false
     }
 }

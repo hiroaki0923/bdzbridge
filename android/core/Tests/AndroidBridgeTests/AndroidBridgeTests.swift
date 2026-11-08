@@ -133,6 +133,8 @@ final class AndroidBridgeTests: XCTestCase {
         let inDemo = await devices.read()
         XCTAssertTrue(inDemo.demo)
         XCTAssertFalse(inDemo.welcomes)
+        // The demo is left only while the model is free to change the recorder, as the button waits on iOS.
+        _ = await until(devices.read) { $0.canChoose }
         await devices.leaveDemo()
         let after = await until(devices.read) { !$0.demo }
         XCTAssertTrue(after.welcomes, "nothing was set up before the demo")

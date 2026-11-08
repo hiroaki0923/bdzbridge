@@ -275,7 +275,11 @@ fun RecorderScreen(devices: Devices, search: () -> Unit) {
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             TabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("番組表") })
+                // The guide's tab, tapped while it is showing, goes back to what is on now, as on iOS.
+                Tab(selected = tab == 0, text = { Text("番組表") }, onClick = {
+                    if (tab == 0) scope.launch { RecBridge.act { it.guide.goToNow() } }
+                    tab = 0
+                })
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("予約") })
                 Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("録画") })
             }
@@ -383,6 +387,8 @@ private fun GuideTab(search: () -> Unit) {
         when (guide.shows) {
             "noRecorder" -> NoRecorderView(guide.noRecorder, search)
             "fetching" -> Unavailable(guide.title, guide.detail) { CircularProgressIndicator() }
+            // `arrange`, the stations' settings for a type with every station hidden, comes with that screen: until
+            // it does, nothing on Android hides a station.
             "empty" -> Unavailable(guide.title, guide.detail) {
                 if (guide.offers == "everyStation") {
                     TextButton(onClick = { scope.launch { RecBridge.act { it.guide.chooseStation(-1) } } }) {
@@ -523,6 +529,7 @@ private fun Line(line: String, problem: Boolean) {
 private fun ReservationsTab(search: () -> Unit) {
     val shown = RecBridge.reservations.collectAsState().value ?: return
     LaunchedEffect(shown.loadKey) { RecBridge.act { it.reservations.load() } }
+    LaunchedEffect(Unit) { RecBridge.act { it.reservations.loadTV() } }
     if (shown.hasNoRecorder) return NoRecorderView(shown.noRecorder, search)
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f)) {
@@ -581,6 +588,8 @@ private fun ReservationRowView(item: ReservationItem) {
 private fun RecordingsTab(search: () -> Unit) {
     val shown = RecBridge.recordings.collectAsState().value ?: return
     LaunchedEffect(shown.loadKey) { RecBridge.act { it.recordings.load() } }
+    LaunchedEffect(shown.tvKey) { RecBridge.act { it.recordings.loadTV() } }
+    LaunchedEffect(shown.outdatedKey) { RecBridge.act { it.recordings.loadOutdated() } }
     when {
         shown.hasNoRecorder -> return NoRecorderView(shown.noRecorder, search)
         shown.isLoading -> return Unavailable(shown.loadingTitle, shown.loadingDetail)

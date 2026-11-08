@@ -77,7 +77,8 @@ extension Surroundings {
         let folder = URL(fileURLWithPath: files, isDirectory: true)
         let settings = folder.appendingPathComponent("settings", isDirectory: true)
         try? FileManager.default.createDirectory(at: settings, withIntermediateDirectories: true)
-        let defaults: UserDefaults = WrittenDefaults(suiteName: settings.appendingPathComponent("recbridge").path) ?? .standard
+        // A suite is refused only by the name of the global domain, which a path is not.
+        let defaults = WrittenDefaults(suiteName: settings.appendingPathComponent("recbridge").path)!
         var android = Surroundings(defaults: defaults, folder: { folder }, transport: { _ in URLSessionTransport() },
                                    networkSignature: LocalNetwork.signature, reachesTheLAN: true,
                                    asksAboutNotifications: false)
@@ -132,11 +133,10 @@ final class WrittenDefaults: UserDefaults {
     }
 }
 
-/// What a window shows, kept as the model last made it and told to Kotlin each time it changes: `make` is read on
-/// the main actor, where the model is, through Observation, as SwiftUI reads a view's body, so a change to anything
-/// it read makes it again. It is made of the model's own values, which are cheap to take; the words are put to them
-/// off the main actor, as the screen reads them (`read`), since on Android the main actor runs on the thread that
-/// draws.
+/// What a window shows, kept as the model last made it and told to Kotlin each time it changes. It is made on the main
+/// actor, where the model is, through Observation, as SwiftUI reads a view's body: a change to anything `make` read
+/// makes it again, the words and all, as the iOS screen's body words them. On Android the main actor runs on the
+/// thread that draws, so what a screen shows is kept to what it needs.
 final class Watched<Shown: Sendable>: Sendable {
     private let make: @MainActor @Sendable () -> Shown
     @MainActor private var latest: Shown?

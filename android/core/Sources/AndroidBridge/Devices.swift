@@ -4,7 +4,8 @@ import RecBridgeModel
 import RecorderKit
 
 /// The screen where a recorder is chosen, as the iOS app's tutorial chooses one: レコーダーとテレビを探す, a recorder
-/// the search found, an address typed, or the demo. The televisions the search found are listed and not yet added.
+/// the search found, an address typed, or the demo. The televisions the search finds come with the television's
+/// screens.
 public struct DevicesScreen: Sendable {
     /// Whether no recorder or television has been set up: the app opens on this screen then.
     public var welcomes: Bool
@@ -21,7 +22,6 @@ public struct DevicesScreen: Sendable {
     public var busy: String
     public var problem: String
     public var recorders: [FoundRecorder]
-    public var televisions: [FoundTelevision]
     /// Whether the recorder in play may be changed now (`AppModel.canChangeRecorder`): what the rows, the address
     /// and the demo wait for.
     public var canChoose: Bool
@@ -35,14 +35,8 @@ public struct FoundRecorder: Sendable {
     public var host: String
     /// The product, as the row's first line.
     public var name: String
-    /// `192.168.0.10 · BDZ-FBT4100 · 番組表あり`.
+    /// `192.0.2.10 · BDZ-FBT4100 · 番組表あり`.
     public var details: String
-    public var inUse: Bool
-}
-
-public struct FoundTelevision: Sendable {
-    public var host: String
-    public var name: String
     public var inUse: Bool
 }
 
@@ -97,9 +91,9 @@ public final class DevicesWindow: Sendable {
             return model.timesAttached
         }
         await model.adopt(host: host)
-        let answered = await model.timesAttached > before
-        let blocked = await model.connectBlocked
-        if !answered, !blocked { await MainActor.run { choosing.chosenAt = nil } }
+        await MainActor.run {
+            if model.timesAttached == before, !model.connectBlocked { choosing.chosenAt = nil }
+        }
     }
 
     /// The screen has closed: a choice still out is no longer this screen's to close for.
@@ -150,10 +144,6 @@ public final class DevicesWindow: Sendable {
                               details: "\(found.host) · \(found.friendlyName)"
                                   + (found.epgCapable ? " · 番組表あり" : " · 番組表なし"),
                               inUse: model.inUse(found))
-            },
-            televisions: model.foundTelevisions.map { found in
-                FoundTelevision(host: found.host, name: found.model.isEmpty ? "テレビ" : found.model,
-                                inUse: model.inUse(found))
             },
             canChoose: model.canChangeRecorder, demo: model.demo,
             chosenAnswered: choosing.chosenAt.map { model.timesAttached > $0 } ?? false)

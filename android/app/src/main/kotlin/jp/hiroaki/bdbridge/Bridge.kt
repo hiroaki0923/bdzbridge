@@ -14,6 +14,7 @@ import jp.hiroaki.bdbridge.bridge.ScreenListener
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -91,12 +92,23 @@ object RecBridge {
         Typed(it.host, it.isUsable, it.note, it.isWarning)
     }
 
+    /**
+     * The app has come into sight or gone out of it. The model is told in the order it happened, one change after the
+     * other, as the iOS app tells it its scene's: told together, a quick leave and return could reach it the other
+     * way round, and leave it thinking the app away while it is on screen.
+     */
     fun onScreen(shown: Boolean) {
         MainQueue.onScreen(shown)
+        sightings.trySend(shown)
+    }
+
+    private val sightings = Channel<Boolean>(Channel.UNLIMITED).also { changes ->
         scope.launch {
-            val app = windows().app
-            call<Void> { app.activeChanged(shown) }
-            if (shown) call<Void> { app.returnedToForeground() } else call<Void> { app.wentToBackground() }
+            for (shown in changes) {
+                val app = windows().app
+                call<Void> { app.activeChanged(shown) }
+                if (shown) call<Void> { app.returnedToForeground() } else call<Void> { app.wentToBackground() }
+            }
         }
     }
 
@@ -116,10 +128,15 @@ object RecBridge {
         }
     }
 
+    /**
+     * A call to Swift, counted for as long as Swift is at it: a screen that stops waiting, closed or keyed anew, does
+     * not stop the operation, which goes on in the model as it does on iOS, and the main queue is run until it is done.
+     */
     private suspend fun <T> call(start: () -> CompletableFuture<T>): T {
         MainQueue.calling(true)
         try {
-            return start().await()
+            val answer = start()
+            return withContext(NonCancellable) { answer.await() }
         } finally {
             MainQueue.calling(false)
         }
@@ -170,13 +187,11 @@ data class Station(val serviceID: Long, val name: String)
 data class Devices(
     val welcomes: Boolean, val searching: Boolean, val searched: Long, val toSearch: Long,
     val outcome: String, val outcomeFailed: Boolean, val outcomeNote: String, val causes: List<String>,
-    val busy: String, val problem: String, val recorders: List<FoundRecorder>, val televisions: List<FoundTelevision>,
+    val busy: String, val problem: String, val recorders: List<FoundRecorder>,
     val canChoose: Boolean, val demo: Boolean, val chosenAnswered: Boolean,
 )
 
 data class FoundRecorder(val host: String, val name: String, val details: String, val inUse: Boolean)
-
-data class FoundTelevision(val host: String, val name: String, val inUse: Boolean)
 
 data class Typed(val host: String, val usable: Boolean, val note: String, val warning: Boolean)
 
@@ -216,7 +231,7 @@ data class Recordings(
     val hasNoRecorder: Boolean, val noRecorder: NoRecorder, val isLoading: Boolean, val loadingTitle: String,
     val loadingDetail: String, val emptyTitle: String, val emptyDetail: String, val heading: String,
     val subtitle: String, val rows: List<RecordingItem>, val line: String, val lineIsAProblem: Boolean,
-    val loadKey: String,
+    val loadKey: String, val tvKey: String, val outdatedKey: String,
 )
 
 data class RecordingItem(
@@ -231,7 +246,6 @@ private fun Devices(it: jp.hiroaki.bdbridge.bridge.DevicesScreen) = Devices(
     it.isWelcomes, it.isSearching, it.searched, it.toSearch, it.outcome, it.isOutcomeFailed, it.outcomeNote,
     it.causes.toList(), it.busy, it.problem,
     it.getRecorders(arena).map { found -> FoundRecorder(found.host, found.name, found.details, found.isInUse) },
-    it.getTelevisions(arena).map { found -> FoundTelevision(found.host, found.name, found.isInUse) },
     it.isCanChoose, it.isDemo, it.isChosenAnswered,
 )
 
@@ -273,7 +287,7 @@ private fun Recordings(it: jp.hiroaki.bdbridge.bridge.RecordingsScreen): Recordi
             RecordingItem(row.id, row.title, row.isRecording, row.isProtected, row.details, row.watched,
                           row.isUnwatched, row.genre)
         },
-        it.line, it.isLineIsAProblem, it.loadKey,
+        it.line, it.isLineIsAProblem, it.loadKey, it.tvKey, it.outdatedKey,
     )
 }
 

@@ -21,8 +21,8 @@ public struct ReservationsScreen: Sendable {
     /// The recorder's line while it works, or what went wrong, in red.
     public var line: String
     public var lineIsAProblem: Bool
-    /// What to read again by: when it changes, the screen loads the list (`load`), as the iOS screen does each
-    /// time the app connects.
+    /// What the recorder's list is read again by: when it changes, the screen loads it (`load`), as the iOS screen
+    /// does each time the app connects. The television's is read once each time the screen appears (`loadTV`).
     public var loadKey: String
 }
 
@@ -65,10 +65,15 @@ public final class ReservationsWindow: Sendable {
     public func read() async -> ReservationsScreen { await shown.read() }
     public func observe(_ listener: some ScreenListener) { shown.watch(listener) }
 
-    /// The queue on this device, and the recorder's list, then the television's.
+    /// The queue on this device, then the recorder's list.
     public func load() async {
         await model.loadPending()
         await model.loadReservations()
+    }
+
+    /// The television's list, apart from the recorder's: keyed with it, the recorder would be made sure of, and
+    /// woken, whenever the television's state moved (`ReservationsScreen`).
+    public func loadTV() async {
         await model.loadReservations(of: .tv)
     }
 
@@ -134,7 +139,14 @@ public struct RecordingsScreen: Sendable {
     public var rows: [RecordingRow]
     public var line: String
     public var lineIsAProblem: Bool
+    /// What each list is read again by, as on the iOS screen: the recorder's (`load`) each time the app connects,
+    /// the television's (`loadTV`) each time it is attached, and the recorder's afresh (`loadOutdated`) when the
+    /// disk in the USB slot is no longer the one the list was read from. What becomes of the television is no
+    /// reason to ask the recorder again. The wait for a television's list that may still be coming
+    /// (`AppModel.waitForTVTitles`), which ends with the screen's task, comes with the television's screens.
     public var loadKey: String
+    public var tvKey: String
+    public var outdatedKey: String
 }
 
 public struct RecordingRow: Sendable {
@@ -162,10 +174,16 @@ public final class RecordingsWindow: Sendable {
     public func read() async -> RecordingsScreen { await shown.read() }
     public func observe(_ listener: some ScreenListener) { shown.watch(listener) }
 
-    /// The recorder's list, then the television's.
     public func load() async {
         await model.loadTitles()
+    }
+
+    public func loadTV() async {
         await model.loadTVTitles()
+    }
+
+    public func loadOutdated() async {
+        await model.loadOutdatedTitles()
     }
 
     @MainActor
@@ -180,7 +198,8 @@ public final class RecordingsWindow: Sendable {
             subtitle: "\(listed.count) 件",
             rows: listed.map { row($0, model) },
             line: model.busy ?? problem?.asABody ?? "", lineIsAProblem: model.busy == nil && problem != nil,
-            loadKey: "\(model.connected && !model.offline)-\(model.tvTitlesToRead)")
+            loadKey: "\(model.connected && !model.offline)", tvKey: model.tvTitlesToRead,
+            outdatedKey: "\(model.titlesOutOfStep)")
     }
 
     @MainActor

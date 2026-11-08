@@ -95,6 +95,9 @@ class DemoTests {
         openTheDemo()
         compose.waitUntilAtLeastOneExists(hasText("放送中"), 10_000)
         compose.onNodeWithText("次の日").performClick()
+        // Nothing is on air on another day: today's list, opened at 04:00 between four and five, would pass the
+        // second check alone.
+        compose.waitUntilDoesNotExist(hasText("放送中"), 10_000)
         compose.waitUntilAtLeastOneExists(hasText("04:00"), 10_000)
         compose.onNodeWithText("前の日").performClick()
         compose.waitUntilAtLeastOneExists(hasText("放送中"), 10_000)
