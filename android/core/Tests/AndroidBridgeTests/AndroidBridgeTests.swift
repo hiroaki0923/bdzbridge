@@ -289,6 +289,73 @@ extension AndroidBridgeTests {
     }
 }
 
+// MARK: - the recordings
+
+extension AndroidBridgeTests {
+    @MainActor
+    func testTheRecordingsAreNarrowedAndSortedByTheMenu() async throws {
+        let app = await demo()
+        let recordings = app.recordings()
+        await recordings.load()
+        let all = await until(recordings.read) { !$0.rows.isEmpty }
+        XCTAssertFalse(all.filtering)
+        XCTAssertEqual(all.genre, "")
+        XCTAssertTrue(all.genres.first?.label.hasPrefix("すべて") ?? false)
+        XCTAssertEqual(Set(all.sorts.map(\.code)), Set(AppModel.TitleSort.allCases.map(\.rawValue)))
+        let genre = try XCTUnwrap(all.genres.dropFirst().first)
+
+        await recordings.chooseGenre(genre.code)
+        let narrowed = await until(recordings.read) { $0.genre == genre.code }
+        XCTAssertTrue(narrowed.filtering)
+        XCTAssertLessThan(narrowed.rows.count, all.rows.count, "a genre narrowed nothing")
+        XCTAssertTrue(narrowed.subtitle.contains("\(narrowed.rows.count) 件"))
+
+        await recordings.chooseGenre("")
+        await recordings.chooseState("unwatched")
+        let unwatched = await until(recordings.read) { $0.state == "unwatched" }
+        XCTAssertTrue(unwatched.rows.allSatisfy(\.unwatched))
+        await recordings.chooseState("")
+        _ = await until(recordings.read) { !$0.filtering }
+    }
+
+    /// A recording's sheet protects it, says why it then cannot be deleted, and, unprotected, deletes it after asking
+    /// and closes. Writes only to the demo's invented recorder.
+    @MainActor
+    func testARecordingIsProtectedAndDeletedFromItsSheet() async throws {
+        let app = await demo()
+        let recordings = app.recordings()
+        await recordings.load()
+        let listed = await until(recordings.read) { !$0.rows.isEmpty }
+        let row = try XCTUnwrap(listed.rows.first { !$0.recording && !$0.protected })
+        let opening = await recordings.open(row.id)
+        let sheet = try XCTUnwrap(opening)
+        defer { Task { await sheet.closed() } }
+        let opened = await until(sheet.read) { !$0.deleteHeld }
+        XCTAssertEqual(opened.title, row.title)
+        XCTAssertTrue(opened.offersPlayback)
+        XCTAssertEqual(opened.protectLabel, "保護（自動削除の対象外にする）")
+
+        await sheet.setProtected(true)
+        let protected = await until(sheet.read) { $0.protected && !$0.asking }
+        XCTAssertEqual(protected.whyNotDeleted, RecorderDriver.protectedCannotBeDeleted.asABody)
+        XCTAssertTrue(protected.deleteHeld)
+        await sheet.delete()
+        let refused = await sheet.read()
+        XCTAssertFalse(refused.hasAsked, "a protected recording was asked to be deleted")
+
+        await sheet.setProtected(false)
+        let unprotected = await until(sheet.read) { !$0.protected && !$0.asking && !$0.deleteHeld }
+        XCTAssertEqual(unprotected.whyNotDeleted, "")
+        await sheet.delete()
+        let question = await until(sheet.read) { $0.hasAsked }
+        XCTAssertEqual(question.asked.title, "この録画を削除しますか？")
+        await sheet.confirmDelete(question.asked.key)
+        _ = await until(sheet.read) { $0.done }
+        let after = await until(recordings.read) { shown in !shown.rows.contains { $0.id == row.id } }
+        XCTAssertEqual(after.rows.count, listed.rows.count - 1)
+    }
+}
+
 final class Counting: ScreenListener, @unchecked Sendable {
     private let lock = NSLock()
     private var told = 0

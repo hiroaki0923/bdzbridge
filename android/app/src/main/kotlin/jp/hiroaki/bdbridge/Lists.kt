@@ -37,6 +37,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.FilterAlt
+import androidx.compose.material.icons.outlined.FilterAlt
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 // The reservations and the recordings as the iOS lists show them, for reading: their sheets, their sorting and
 // narrowing, and pulling down come with the screens' own steps.
@@ -126,28 +136,49 @@ private fun WaitingRow(item: Waiting) {
     HorizontalDivider()
 }
 
-/** The recordings, newest first, with the free space in the top app bar. */
+/**
+ * The recordings, with the free space in the top app bar and the iOS screen's menu beside it: 録画先, ジャンル, 並び順
+ * and 視聴状態. Pulled down, the list is read again from both devices.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecordingsScreen(search: () -> Unit) {
     val shown = RecBridge.recordings.collectAsState().value ?: return
+    val scope = rememberCoroutineScope()
     LaunchedEffect(shown.loadKey) { RecBridge.act { it.recordings.load() } }
     LaunchedEffect(shown.tvKey) { RecBridge.act { it.recordings.loadTV() } }
     LaunchedEffect(shown.outdatedKey) { RecBridge.act { it.recordings.loadOutdated() } }
+    var opened by remember { mutableStateOf<RecordingItem?>(null) }
+    opened?.let { row -> TitleSheetView(row) { opened = null } }
+    var pulling by remember { mutableStateOf(false) }
     Scaffold(topBar = {
         Column {
             TopAppBar(title = { TitleWithSubtitle(shown.heading, if (shown.hasNoRecorder || shown.isLoading) "" else shown.subtitle) },
-                      actions = { AppMenu(search) })
+                      actions = {
+                          if (!shown.hasNoRecorder) Filters(shown)
+                          AppMenu(search)
+                      })
             StripBar()
         }
-    }, bottomBar = { Line(shown.line, shown.lineIsAProblem) }) { padding ->
+    }, bottomBar = {
+        Column {
+            if (shown.tvNote.isNotEmpty() && !shown.hasNoRecorder) Line(shown.tvNote, false)
+            Line(shown.line, shown.lineIsAProblem)
+        }
+    }) { padding ->
         Box(Modifier.padding(padding)) {
             when {
                 shown.hasNoRecorder -> NoRecorderView(Icons.Outlined.VideoLibrary, shown.noRecorder, search)
                 shown.isLoading -> Unavailable(Icons.Outlined.VideoLibrary, shown.loadingTitle, shown.loadingDetail)
-                else -> {
+                else -> PullToRefreshBox(isRefreshing = pulling, onRefresh = {
+                    pulling = true
+                    scope.launch {
+                        RecBridge.act { it.recordings.pullDown() }
+                        pulling = false
+                    }
+                }, modifier = Modifier.fillMaxSize()) {
                     LazyColumn(Modifier.fillMaxSize()) {
-                        items(shown.rows, key = { it.id }) { row -> RecordingRow(row) }
+                        items(shown.rows, key = { it.id }) { row -> RecordingRow(row) { opened = row } }
                     }
                     if (shown.rows.isEmpty()) Unavailable(Icons.Outlined.VideoLibrary, shown.emptyTitle, shown.emptyDetail)
                 }
@@ -156,9 +187,47 @@ fun RecordingsScreen(search: () -> Unit) {
     }
 }
 
+/** The menu of what the recordings are narrowed and sorted by, its icon filled while any is not its default. */
+@Composable
+private fun Filters(shown: Recordings) {
+    val scope = rememberCoroutineScope()
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(if (shown.filtering) Icons.Filled.FilterAlt else Icons.Outlined.FilterAlt,
+                 contentDescription = if (shown.destinations.isEmpty()) "ジャンル・並び順・視聴状態で絞り込む"
+                                      else "録画先・ジャンル・並び順・視聴状態で絞り込む")
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            val group = @Composable { heading: String, options: List<Labelled>, chosen: String, pick: suspend (String) -> Unit ->
+                Text(heading, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                for (option in options) {
+                    DropdownMenuItem(text = { Text(option.label) }, onClick = {
+                        open = false
+                        scope.launch { pick(option.code) }
+                    }, leadingIcon = {
+                        if (option.code == chosen) Icon(Icons.Default.Check, contentDescription = null)
+                        else Spacer(Modifier.size(24.dp))
+                    })
+                }
+            }
+            if (shown.destinations.isNotEmpty()) {
+                group("録画先", shown.destinations, shown.destination) { code -> RecBridge.act { it.recordings.chooseDestination(code) } }
+                HorizontalDivider()
+            }
+            group("ジャンル", shown.genres, shown.genre) { code -> RecBridge.act { it.recordings.chooseGenre(code) } }
+            HorizontalDivider()
+            group("並び順", shown.sorts, shown.sort) { code -> RecBridge.act { it.recordings.chooseSort(code) } }
+            HorizontalDivider()
+            group("視聴状態", shown.states, shown.state) { code -> RecBridge.act { it.recordings.chooseState(code) } }
+        }
+    }
+}
+
 /** One recording, as the iOS row says it: the lock and 録画中 before the title, then when, where and how, then whether it was watched. */
 @Composable
-private fun RecordingRow(item: RecordingItem) {
+private fun RecordingRow(item: RecordingItem, open: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     ListItem(
         headlineContent = {
@@ -177,6 +246,7 @@ private fun RecordingRow(item: RecordingItem) {
                 }
             }
         },
+        modifier = Modifier.clickable(onClick = open),
     )
     HorizontalDivider()
 }

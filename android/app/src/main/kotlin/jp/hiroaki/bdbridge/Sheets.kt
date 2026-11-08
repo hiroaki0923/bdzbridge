@@ -52,6 +52,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.Switch
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 
@@ -311,6 +318,83 @@ fun ReservationSheetView(title: String, open: suspend () -> RecBridge.Reservatio
     sheet?.asked?.let { asked ->
         AskDialog(asked, act = { act { confirmDelete(asked.key) } }, closeAsked = { act { closeAsked(asked.key) } })
     }
+}
+
+/**
+ * The recording's sheet: what it is, playing it on the television, protecting it, and deleting it, as the iOS sheet
+ * lays them out. It opens at once with what the row says.
+ */
+@Composable
+fun TitleSheetView(row: RecordingItem, close: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val handle = rememberOpened(row.id) { RecBridge.openRecording(row.id) }
+    val sheet = handle?.let { it.shown.collectAsState().value }
+    LaunchedEffect(sheet?.done) { if (sheet?.done == true) close() }
+    val act = { work: suspend RecBridge.TitleSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
+
+    HeldSheet(held = sheet?.asking ?: false, close = close) {
+        Title(sheet?.title ?: row.title)
+        if (sheet == null) {
+            Footnote(row.details, Modifier.padding(horizontal = 24.dp))
+            return@HeldSheet Working("")
+        }
+        if (sheet.line.isNotEmpty()) Working(sheet.line)
+        Value("放送", sheet.station)
+        Value("録画", sheet.recorded)
+        if (sheet.length.isNotEmpty()) Value("長さ", sheet.length)
+        if (sheet.size.isNotEmpty()) Value("サイズ", sheet.size)
+        if (sheet.quality.isNotEmpty()) Value("録画モード", sheet.quality)
+        if (sheet.disk.isNotEmpty()) Value("録画先", sheet.disk)
+        Value("視聴状態", sheet.viewing)
+        if (sheet.genre.isNotEmpty()) Value("ジャンル", sheet.genre)
+        if (sheet.offersPlayback) {
+            SectionHeading("テレビで再生")
+            FlowRowOfButtons {
+                OutlinedButton(onClick = { act { play("play") } }, enabled = !sheet.playHeld) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, Modifier.size(18.dp))
+                    Text(" " + sheet.playLabel)
+                }
+                OutlinedButton(onClick = { act { play("pause") } }, enabled = !sheet.playbackHeld) {
+                    Icon(Icons.Default.Pause, contentDescription = null, Modifier.size(18.dp))
+                    Text(" 一時停止 / 再開")
+                }
+                OutlinedButton(onClick = { act { play("stop") } }, enabled = !sheet.playbackHeld) {
+                    Icon(Icons.Default.Stop, contentDescription = null, Modifier.size(18.dp))
+                    Text(" 停止")
+                }
+                if (sheet.offersPower) {
+                    OutlinedButton(onClick = { act { powerOn() } }, enabled = !sheet.playbackHeld) {
+                        Icon(Icons.Default.PowerSettingsNew, contentDescription = null, Modifier.size(18.dp),
+                             tint = LocalMarks.current.onReserved)
+                        Text(" レコーダーの電源を入れる", color = LocalMarks.current.onReserved)
+                    }
+                }
+            }
+            Footnote(sheet.playbackNote, Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
+        }
+        HorizontalDivider(Modifier.padding(top = 8.dp))
+        ListItem(headlineContent = { Text(sheet.protectLabel) }, colors = clear(), modifier = Modifier.padding(horizontal = 8.dp),
+                 trailingContent = {
+                     Switch(checked = sheet.protected, enabled = !sheet.protectHeld,
+                            onCheckedChange = { on -> act { setProtected(on) } })
+                 })
+        Box(Modifier.padding(horizontal = 24.dp)) { Destructive("この録画を削除", !sheet.deleteHeld) { act { delete() } } }
+        if (sheet.whyNotDeleted.isNotEmpty()) Footnote(sheet.whyNotDeleted, Modifier.padding(horizontal = 24.dp))
+        if (sheet.summary.isNotEmpty()) Part("番組内容", sheet.summary)
+        for (text in sheet.details) Part("詳細", text)
+        if (sheet.problem.isNotEmpty()) Problem(sheet.problem)
+    }
+    sheet?.asked?.let { asked ->
+        AskDialog(asked, act = { if (!sheet.actionHeld) act { confirmDelete(asked.key) } },
+                  closeAsked = { act { closeAsked(asked.key) } })
+    }
+}
+
+/** Buttons side by side, wrapping to the next line where the sheet is narrow. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FlowRowOfButtons(content: @Composable () -> Unit) {
+    FlowRow(Modifier.padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { content() }
 }
 
 // MARK: the sheets' rows
