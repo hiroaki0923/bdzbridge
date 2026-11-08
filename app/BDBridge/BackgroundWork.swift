@@ -3,87 +3,13 @@ import Foundation
 import os
 import RecorderKit
 
-/// Where the guide cache lives, so the screens and the background run open the same file.
-enum Storage {
-    /// The demo keeps its invented programmes in a database of its own, so that trying it leaves nothing
-    /// behind in the cache of a real recorder -- and so that leaving it is a matter of deleting one file.
-    static func guidePath(demo: Bool = DemoData.on) throws -> String {
-        guidePath(demo: demo, in: try directory())
-    }
-
-    /// The same in a folder given, which for everything but the unit tests is `directory()`: see
-    /// `Surroundings.folder`.
-    static func guidePath(demo: Bool, in folder: URL) -> String {
-        folder.appendingPathComponent(demo ? "guide-demo.sqlite3" : "guide.sqlite3").path
-    }
-
-    static func removeDemoGuide(in folder: URL) {
-        let path = guidePath(demo: true, in: folder)
-        // SQLite leaves a write-ahead log and a shared-memory file beside the database
-        for suffix in ["", "-wal", "-shm"] {
-            try? FileManager.default.removeItem(atPath: path + suffix)
-        }
-    }
-
-    /// A folder of their own under Application Support, left out of the phone's backups: the guide is some
-    /// 28 MB that the recorder hands over again every night. The mark is on the folder rather than on the
-    /// files because SQLite deletes its write-ahead log and shared-memory file and makes them again, and a
-    /// new file does not carry the mark the old one had. The reader's channel settings and the reservations
-    /// waiting to be sent are in the same database, so a restore to another phone brings back neither: the
-    /// settings take a minute to make again, and a waiting reservation belongs to the phone it was made on.
-    ///
-    /// Made once per process, on the first ask: the overnight run and the screens can both ask at once, and
-    /// the databases an earlier build kept in Application Support itself are moved in before either opens them.
-    static func directory() throws -> URL {
-        try folder.withLock { folder in
-            if let folder { return folder }
-            let made = try makeFolder()
-            folder = made
-            return made
-        }
-    }
-
-    private static let folder = OSAllocatedUnfairLock<URL?>(initialState: nil)
-
-    private static func makeFolder() throws -> URL {
-        let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                                  appropriateFor: nil, create: true)
-        var folder = support.appendingPathComponent("Guide", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        // Not a reason to go without the guide: a folder that could not be marked is backed up, as before.
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try? folder.setResourceValues(values)
-        for name in ["guide.sqlite3", "guide-demo.sqlite3"] {
-            try moveIn(name, from: support, to: folder)
-        }
-        return folder
-    }
-
-    /// Moves a database an earlier build kept in Application Support, with the log and the shared-memory file
-    /// beside it: the three together are the database, and the log can hold transactions the database file
-    /// does not have yet. The log goes first. Should the database then fail to move, the error is thrown and
-    /// nothing is opened -- SQLite would read a log without its database as a database, with most of its pages
-    /// missing -- and the next ask moves the database to the log that went ahead of it.
-    private static func moveIn(_ name: String, from old: URL, to new: URL) throws {
-        let manager = FileManager.default
-        guard manager.fileExists(atPath: old.appendingPathComponent(name).path),
-              !manager.fileExists(atPath: new.appendingPathComponent(name).path) else { return }
-        for suffix in ["-wal", "-shm", ""] {
-            let from = old.appendingPathComponent(name + suffix)
-            guard manager.fileExists(atPath: from.path) else { continue }
-            try manager.moveItem(at: from, to: new.appendingPathComponent(name + suffix))
-        }
-    }
-}
-
 /// The overnight guide refresh.
 ///
 /// The recorder rebuilds its own guide and logo files in the small hours, so this asks for them after that and
 /// the reader wakes up to a guide that is current for the whole eight days, without the app or the LAN. iOS
 /// decides whether to run it at all: it will not while the app is force-quit, while Background App Refresh is
 /// switched off, or in Low Power Mode. Nothing breaks when a night is missed.
-enum BackgroundWork {
+extension BackgroundWork {
     static let refreshIdentifier = "jp.hiroaki.bdbridge.guideRefresh"
 
     /// Must be called before launching finishes.
@@ -140,12 +66,6 @@ enum BackgroundWork {
         try? BGTaskScheduler.shared.submit(request)
     }
 
-    /// The next 02:00 in the recorder's own time zone (`GuideRefresh.nextNightlyRun`). The box rebuilds its guide
-    /// files around 00:49.
-    static func nextNightlyRun(after now: Date = Date()) -> Date {
-        GuideRefresh.nextNightlyRun(after: now)
-    }
-
     /// The work itself, with no screen behind it -- the television's part beside the recorder's. The
     /// television's runs whether or not a recorder is saved, so a home with a television alone has one too.
     /// Both are awaited before the task is completed, unless its time runs out first: the handler then
@@ -184,15 +104,6 @@ enum BackgroundWork {
         return await refresh(client: RecorderClient(host: host), store: store,
                              mac: UserDefaults.standard.string(forKey: DefaultsKey.recorderMac), telling: .system,
                              told: KeptOnce.recorder(in: .standard).reading, nextRun: nextNightlyRun())
-    }
-
-    /// Whether a television is saved beside the recorder, for what runs with no screen and so has no model to
-    /// ask: read from what the screens saved, as the recorder's address is. With one saved, what became of the
-    /// recorder's queue says which device it went to (`Notify.queueFlushed`, `SendWaitingIntent.saying`), and
-    /// the television's part tells nothing of a television taken away while it was out. The defaults are handed
-    /// in for a test of the reading; a run reads the app's own.
-    static func televisionSaved(in defaults: UserDefaults = .standard) -> Bool {
-        !(defaults.string(forKey: DefaultsKey.tvHost) ?? "").isEmpty
     }
 
     /// The television's part of a run with no screen, from what the screens saved: its address and MAC in the
@@ -246,109 +157,6 @@ enum BackgroundWork {
         return run.sending
     }
 
-    /// The same with its surroundings handed in, which is what the tests give it: the run, the queue read
-    /// after it, and what that tells against what was told before (`ToldOnce.after`), which `told` reads, with
-    /// the television named as the screens name it. What it tells and what is told from then on are handed to
-    /// `tell`, which is where the entry posts and keeps them, and handed back. All of that is done inside the
-    /// queue's turn, the round's or one of its own (`TVDriver.sendWithNoScreen(_:store:knownAs:now:then:)`):
-    /// what the screens send or forget in the turn comes wholly before it or wholly after it; a registration
-    /// also forgets at once, outside the turn, which can fall inside a telling, and once more in the turn,
-    /// which then comes after that telling and takes away only what is kept under a registration before it:
-    /// what is kept carries the registration it was learnt under (`ToldOnce.registration`).
-    static func sendToTheTelevision(client: ScalarClient, store: GuideStore, mac: String?,
-                                    told reading: @escaping @Sendable () -> ToldOnce, nextRun: Date,
-                                    now: Date = Date(),
-                                    tell: @escaping @Sendable (NoScreenSending, NoScreenNotices, ToldOnce) async
-                                        -> Void)
-        async -> (sending: NoScreenSending, notices: NoScreenNotices, told: ToldOnce) {
-        let (sending, told) = await TVDriver.sendWithNoScreen(client, store: store, knownAs: mac,
-                                                              now: now) { sending, registration, refusedBefore in
-            let waiting = try? await store.pendingReservations()
-            let (notices, after) = reading().after(sending, waiting: waiting, before: nextRun, now: now,
-                                                   naming: DeviceSlot.tv.label, registration: registration,
-                                                   refusedForTheCookieBefore: refusedBefore)
-            await tell(sending, notices, after)
-            return (notices: notices, after: after)
-        }
-        return (sending, told.notices, told.after)
-    }
-
-    /// How a run with no screen tells the reader what it did, and what it keeps for the screens to show.
-    /// Handed in, so that the run can be tried without the notifications and the settings of whatever it is
-    /// tried on (`refresh`).
-    struct Telling: Sendable {
-        /// The queue was not sent, because the recorder that answered is not the one it was made for. Asked
-        /// only when the run has that to tell (`NightFound.heldBack`): with a next run handed in, not when it
-        /// was the stop told last.
-        var heldBack: @Sendable () async -> Void
-        /// What became of the queue, from a night whose cache is still its recorder's: of every round while it
-        /// still has its time, and only of a round with news once that is up. Whether there is anything to say
-        /// of it is asked again where it is posted (`Notify.queueFlushed`).
-        var flushed: @Sendable (PendingQueue.Outcome) async -> Void
-        /// The internal disk's free space, with its label while a USB disk beside it takes recordings.
-        var freeSpace: @Sendable (_ freeBytes: Int, _ totalBytes: Int, _ naming: String?) async -> Void
-        /// The USB disk's, when it takes recordings.
-        var usbSpace: @Sendable (RecorderDisk) async -> Void
-        /// What is told once (`NightFound.told`): the notice of reservations that have not reached the recorder
-        /// in time, whether the last such notice is taken away, and what has been told, to keep for the next
-        /// run. Nothing, unless said: a run handed no next run tells none of it.
-        var kept: @Sendable (_ notYet: String?, _ withdraws: Bool, _ told: ToldOnce) async -> Void = { _, _, _ in }
-        /// A guide was fetched, at this time.
-        var fetched: @Sendable (Date) -> Void
-
-        /// Notifications, and the time the settings show.
-        static let system = Telling(
-            heldBack: { await Notify.queueHeldBack() },
-            flushed: { await Notify.queueFlushed($0) },
-            freeSpace: { await Notify.lowSpace(freeBytes: $0, totalBytes: $1, naming: $2) },
-            usbSpace: { await Notify.lowSpace(on: $0) },
-            kept: { notYet, withdraws, told in
-                await Notify.recorder(notYet: notYet, withdraws: withdraws)
-                KeptOnce.recorder(in: .standard).keep(told)
-            },
-            fetched: {
-                UserDefaults.standard.set(RecorderTime.format($0), forKey: DefaultsKey.lastBackgroundRefresh)
-            })
-    }
-
-    /// The same with its surroundings handed in, which is what the tests give it. They hand it no MAC, for
-    /// the reason they hand `sendWaiting` none.
-    ///
-    /// The run and its order are the driver's (`RecorderDriver.refreshWithNoScreen`): the packet is handed to
-    /// it, and each thing it hands over is told here as it comes. What to tell, and what to keep back -- once
-    /// the task's time is up, once the cache is another recorder's -- is the driver's as well. `told` and
-    /// `nextRun` are handed on to it for what is told once; with no next run, as a test that does not look at
-    /// that hands none, nothing of it is done and nothing comes to `Telling.kept`.
-    static func refresh(client: RecorderClient, store: GuideStore, mac: String?, telling: Telling,
-                        told: @escaping @Sendable () -> ToldOnce = { ToldOnce() }, nextRun: Date? = nil) async -> Bool {
-        await RecorderDriver.refreshWithNoScreen(client, store: store, told: told, nextRun: nextRun,
-                                                 sendPacket: packet(for: client, mac: mac)) { found in
-            switch found {
-            case .heldBack: await telling.heldBack()
-            case .queue(let outcome): await telling.flushed(outcome)
-            case .told(let notYet, let withdraws, let kept): await telling.kept(notYet, withdraws, kept)
-            case .freeSpace(let free, let total, let naming): await telling.freeSpace(free, total, naming)
-            case .usbSpace(let disk): await telling.usbSpace(disk)
-            case .fetched(let at): telling.fetched(at)
-            }
-        }
-    }
-
-    /// What sending the queue with nothing on screen came to, for the Shortcuts action to say.
-    enum Sending: Equatable {
-        case demo
-        case noRecorder
-        /// Nothing the recorder could be sent: the queue is empty, or holds only what it refused before, or
-        /// what has finished. The recorder was not asked.
-        case nothingWaiting
-        /// Nobody answered at the address, or a recorder did that could not be told from the one the queue and
-        /// the cache are of (`TheOneKnown.cannotBeTold`). Nothing was sent.
-        case unreachable
-        /// A recorder answered, and not the one the queue and the cache are of. Nothing was sent to it.
-        case anotherRecorder
-        case sent(PendingQueue.Outcome)
-    }
-
     /// Sends what is waiting in the queue, for the Shortcuts action (`SendWaitingIntent`), which an automation
     /// runs as the phone joins the home Wi-Fi. The reader hears the outcome the way the overnight run tells it:
     /// what became of a round, when it has news (`Notify.queueFlushed`); that another recorder answered, when
@@ -377,47 +185,20 @@ enum BackgroundWork {
         }
         return sending
     }
+}
 
-    /// The same with its surroundings handed in, which is what the tests give it. They hand it no MAC: the
-    /// packet goes out from here (`packet`) and not through `Surroundings`, so one handed in is sent on
-    /// whatever network the tests are run on.
-    ///
-    /// The sending and its order are the driver's (`RecorderDriver.sendWithNoScreen`), which reads the queue
-    /// before anything goes on the network; what it came to is said here as the action's own `Sending`.
-    static func sendWaiting(client: RecorderClient, store: GuideStore, mac: String?,
-                            now: Date = Date()) async -> Sending {
-        await sendWaiting(client: client, store: store, mac: mac, told: { ToldOnce() }, nextRun: nil, now: now,
-                          tell: { _, _ in }).sending
-    }
-
-    /// The same, handing back with the sending what it has to tell once (`NoScreenTold`), against what was told
-    /// before, which `told` reads, and for the reservations that start before `nextRun`: whether another
-    /// recorder answering is news, the notice of reservations that have not reached the recorder in time and
-    /// its withdrawal, and what to keep. The two are handed to `tell` inside the queue's turn, which is where the
-    /// entry posts and keeps them; whether there is anything to tell is the driver's
-    /// (`RecorderDriver.sendWithNoScreen`).
-    static func sendWaiting(client: RecorderClient, store: GuideStore, mac: String?,
-                            told: @escaping @Sendable () -> ToldOnce, nextRun: Date?, now: Date = Date(),
-                            tell: @escaping @Sendable (NoScreenSending, NoScreenTold) async -> Void) async
-        -> (sending: Sending, news: NoScreenTold) {
-        let (came, news) = await RecorderDriver.sendWithNoScreen(client, store: store, told: told, nextRun: nextRun,
-                                                                 now: now, sendPacket: packet(for: client, mac: mac),
-                                                                 tell: tell)
-        let sending: Sending = switch came {
-        case .nothingWaiting: .nothingWaiting
-        case .unreachable: .unreachable
-        case .anotherAnswered: .anotherRecorder
-        case .sent(let outcome): .sent(outcome)
-        }
-        return (sending, news)
-    }
-
-    /// The magic packet for the recorder the client asks, to the MAC the app wrote down the last time it
-    /// reached it, and whether one went out: without a MAC there is nothing to send and nothing to wait for.
-    /// It goes before the first probe (`RecorderDriver.reachWithNoScreen`), which saves five seconds the
-    /// Shortcuts action can ill afford: how long the system lets it run in the background is not published.
-    private static func packet(for client: RecorderClient, mac: String?) -> @Sendable () -> Bool {
-        let host = client.host
-        return { mac.map { WakeOnLan.wake($0, addresses: WakeOnLan.addresses(forRecorderAt: host)) > 0 } ?? false }
-    }
+extension BackgroundWork.Telling {
+    /// Notifications, and the time the settings show.
+    static let system = BackgroundWork.Telling(
+        heldBack: { await Notify.queueHeldBack() },
+        flushed: { await Notify.queueFlushed($0) },
+        freeSpace: { await Notify.lowSpace(freeBytes: $0, totalBytes: $1, naming: $2) },
+        usbSpace: { await Notify.lowSpace(on: $0) },
+        kept: { notYet, withdraws, told in
+            await Notify.recorder(notYet: notYet, withdraws: withdraws)
+            KeptOnce.recorder(in: .standard).keep(told)
+        },
+        fetched: {
+            UserDefaults.standard.set(RecorderTime.format($0), forKey: DefaultsKey.lastBackgroundRefresh)
+        })
 }

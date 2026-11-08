@@ -78,7 +78,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         try await store.queue(waiting("夜の番組", startingIn: 122, programme: 4323))
         await recorder.beBusy(with: Self.create)
         let sending = await BackgroundWork.sendWaiting(client: aClient(of: recorder), store: store, mac: nil)
-        XCTAssertEqual(SendWaitingIntent.saying(sending, televisionSaved: true),
+        XCTAssertEqual(BackgroundWork.saying(sending, televisionSaved: true),
                        Said.deferred("夜の番組", naming: named) + "。")
     }
 
@@ -1238,10 +1238,10 @@ final class QueueWithATelevisionTests: XCTestCase {
         let nothing = "送信待ちの予約はありません。"
         let notAnswering = "テレビが応答しないため送っていません。次にテレビにつながったときに送ります。"
         for sending in [recorders, .nothingWaiting, .unreachable, .anotherRecorder, .noRecorder, .demo] {
-            XCTAssertEqual(SendWaitingIntent.saying(sending, beside: nil, televisionSaved: false),
-                           SendWaitingIntent.saying(sending, televisionSaved: false), "\(sending)")
+            XCTAssertEqual(BackgroundWork.saying(sending, beside: nil, televisionSaved: false),
+                           BackgroundWork.saying(sending, televisionSaved: false), "\(sending)")
         }
-        XCTAssertEqual(SendWaitingIntent.saying(recorders, beside: nil, televisionSaved: false),
+        XCTAssertEqual(BackgroundWork.saying(recorders, beside: nil, televisionSaved: false),
                        Said.sent("朝の番組") + "。")
         let cases: [(String, BackgroundWork.Sending, NoScreenSending, String)] = [
             ("nothing anywhere", .nothingWaiting, .nothingWaiting, nothing),
@@ -1267,9 +1267,9 @@ final class QueueWithATelevisionTests: XCTestCase {
             ("a television alone, nothing waiting", .noRecorder, .nothingWaiting, nothing),
         ]
         for (name, recorders, television, said) in cases {
-            XCTAssertEqual(SendWaitingIntent.saying(recorders, beside: television, televisionSaved: true), said, name)
+            XCTAssertEqual(BackgroundWork.saying(recorders, beside: television, televisionSaved: true), said, name)
         }
-        XCTAssertEqual(SendWaitingIntent.saying(.demo, beside: nil, televisionSaved: true), "サンプルデータの表示中は送りません。")
+        XCTAssertEqual(BackgroundWork.saying(.demo, beside: nil, televisionSaved: true), "サンプルデータの表示中は送りません。")
     }
 
     /// The screens and a run with no screen sending at once -- the app open as the action runs on arriving
@@ -1975,7 +1975,7 @@ final class QueueWithATelevisionTests: XCTestCase {
             return XCTFail("the run was meant to open a round: \(ran.sending)")
         }
         XCTAssertEqual(round.stopped, .needsPairing, "the sending handed back is not the round as it came")
-        let answer = SendWaitingIntent.saying(.nothingWaiting, beside: ran.sending, televisionSaved: true)
+        let answer = BackgroundWork.saying(.nothingWaiting, beside: ran.sending, televisionSaved: true)
         XCTAssertTrue(answer.contains(TVDriver.says(.registration)),
                       "the action's answer does not say why the reservation still waits: \(answer)")
         XCTAssertNil(kept.value, "what a run told of the registration before is kept after the registration")

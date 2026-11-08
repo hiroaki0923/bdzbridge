@@ -5,7 +5,7 @@ import XCTest
 
 /// The recorder's two runs with no screen, each asked for as the app's own entries ask for it, with its
 /// surroundings handed in -- the overnight run (`BackgroundWork.refresh`) and the Shortcuts action
-/// (`BackgroundWork.sendWaiting`, and what it says, `SendWaitingIntent.saying`): what a run asks of the recorder
+/// (`BackgroundWork.sendWaiting`, and what it says, `BackgroundWork.saying`): what a run asks of the recorder
 /// and in which order, what it tells and what it leaves untold, and what being cancelled, silence part-way,
 /// nobody at the address and a recorder the cache is not of each come to.
 ///
@@ -880,7 +880,7 @@ final class NoScreenGateTests: XCTestCase {
         meta.putBack()
         XCTAssertEqual(unread.sending, .unreachable)
         XCTAssertEqual(unread.heard, [Ask.description], "something was sent with the cache's owner out of reach")
-        XCTAssertEqual(SendWaitingIntent.saying(unread.sending), notReached)
+        XCTAssertEqual(BackgroundWork.saying(unread.sending), notReached)
         expectEqual(try await rows(in: store), ["朝の番組"], "the queue is not as it was")
 
         let sent = await action(on: recorder, store).sending
@@ -897,8 +897,8 @@ final class NoScreenGateTests: XCTestCase {
             (nothingToSay, nothing, nothing),
         ]
         for (sending, alone, withATelevision) in words {
-            XCTAssertEqual(SendWaitingIntent.saying(sending), alone, "\(sending)")
-            XCTAssertEqual(SendWaitingIntent.saying(sending, televisionSaved: true), withATelevision, "\(sending)")
+            XCTAssertEqual(BackgroundWork.saying(sending), alone, "\(sending)")
+            XCTAssertEqual(BackgroundWork.saying(sending, televisionSaved: true), withATelevision, "\(sending)")
         }
     }
 
@@ -916,15 +916,15 @@ final class NoScreenGateTests: XCTestCase {
         try await store.queue(waiting("朝の番組", startingIn: 120, programme: 4321))
         await recorder.goQuiet(on: Ask.create)
         var came = await action(on: recorder, store)
-        XCTAssertEqual(SendWaitingIntent.saying(came.sending), Said.heldAfterSilence, "silence at the create")
+        XCTAssertEqual(BackgroundWork.saying(came.sending), Said.heldAfterSilence, "silence at the create")
         let held = "朝の番組: " + Said.heldAfterSilence
 
         try await store.queue(waiting("昼の番組", startingIn: 150, programme: 4322))
         came = await action(on: recorder, store)
         XCTAssertEqual(came.heard, [Ask.description, Ask.reservations, Ask.create])
-        XCTAssertEqual(SendWaitingIntent.saying(came.sending), Said.sent("昼の番組") + "。" + Self.stillHeld(1) + "。",
+        XCTAssertEqual(BackgroundWork.saying(came.sending), Said.sent("昼の番組") + "。" + Self.stillHeld(1) + "。",
                        "the reservation held before was not said to be held still")
-        XCTAssertEqual(SendWaitingIntent.saying(came.sending, televisionSaved: true),
+        XCTAssertEqual(BackgroundWork.saying(came.sending, televisionSaved: true),
                        Said.sent("昼の番組", naming: "レコーダー") + "。" + Self.stillHeld(1) + "。",
                        "with a television saved")
         expectEqual(try await rows(in: store), [held])
@@ -971,7 +971,7 @@ final class NoScreenGateTests: XCTestCase {
         await recorder.goQuiet(on: Ask.reservations)
         let came = await action(on: recorder, store)
         XCTAssertEqual(came.heard, [Ask.description, Ask.reservations])
-        XCTAssertEqual(SendWaitingIntent.saying(came.sending),
+        XCTAssertEqual(BackgroundWork.saying(came.sending),
                        Said.expired("終わった番組") + "。" + cutShort + "。" + Self.stillHeld(1) + "。",
                        "the action's answer")
         expectEqual(try await rows(in: store), asTheyWere)
@@ -1005,14 +1005,14 @@ final class NoScreenGateTests: XCTestCase {
         await recorder.goQuiet(on: Ask.reservations)
         var came = await action(on: recorder, store)
         XCTAssertEqual(came.heard, [Ask.description, Ask.reservations])
-        XCTAssertEqual(SendWaitingIntent.saying(came.sending), left, "silence at the read that opens the round")
+        XCTAssertEqual(BackgroundWork.saying(came.sending), left, "silence at the read that opens the round")
         expectEqual(try await rows(in: store), ["朝の番組"], "the row is not as it was")
 
         await recorder.goQuiet(on: Ask.create)
         came = await action(on: recorder, store)
         XCTAssertEqual(came.heard, [Ask.description, Ask.reservations, Ask.create])
-        XCTAssertEqual(SendWaitingIntent.saying(came.sending), Said.heldAfterSilence, "silence at the create")
-        XCTAssertEqual(SendWaitingIntent.saying(came.sending, televisionSaved: true), Said.heldAfterSilence,
+        XCTAssertEqual(BackgroundWork.saying(came.sending), Said.heldAfterSilence, "silence at the create")
+        XCTAssertEqual(BackgroundWork.saying(came.sending, televisionSaved: true), Said.heldAfterSilence,
                        "silence at the create, with a television saved")
         expectEqual(try await rows(in: store), ["朝の番組: " + Said.heldAfterSilence])
 
@@ -1022,9 +1022,9 @@ final class NoScreenGateTests: XCTestCase {
         await recorder.answer(Ask.create, with: .silence, after: 1)
         came = await action(on: recorder, store)
         XCTAssertEqual(came.heard, [Ask.description, Ask.reservations, Ask.create, Ask.create])
-        XCTAssertEqual(SendWaitingIntent.saying(came.sending), Said.sent("昼の番組") + "。" + Said.heldAfterSilence,
+        XCTAssertEqual(BackgroundWork.saying(came.sending), Said.sent("昼の番組") + "。" + Said.heldAfterSilence,
                        "silence at a create, after a reservation that went")
-        XCTAssertEqual(SendWaitingIntent.saying(came.sending, televisionSaved: true),
+        XCTAssertEqual(BackgroundWork.saying(came.sending, televisionSaved: true),
                        Said.sent("昼の番組", naming: "レコーダー") + "。" + Said.heldAfterSilence)
         expectEqual(try await rows(in: store),
                     ["朝の番組: " + Said.heldAfterSilence, "夜の番組: " + Said.heldAfterSilence])
