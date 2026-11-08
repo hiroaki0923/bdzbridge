@@ -97,15 +97,14 @@ public final class RecBridgeApp: Sendable {
     /// or an address to type -- or registers with the one added again (`again`).
     public func registerTV(host: String, connectAtOnce: Bool, again: Bool) async -> TVRegisterWindow {
         await MainActor.run {
-            TVRegisterWindow(TVRegisterState(model: model, host: host, connectAtOnce: connectAtOnce, again: again),
-                             model: model)
+            TVRegisterWindow(TVRegisterState(model: model, host: host, connectAtOnce: connectAtOnce, again: again))
         }
     }
 
     /// The same sheet, registering with the television added again: the strip's 登録 and the settings' 登録する.
     public func registerTVAgain() async -> TVRegisterWindow {
         await MainActor.run {
-            TVRegisterWindow(TVRegisterState(model: model, host: model.tv?.host ?? "", again: true), model: model)
+            TVRegisterWindow(TVRegisterState(model: model, host: model.tv?.host ?? "", again: true))
         }
     }
 

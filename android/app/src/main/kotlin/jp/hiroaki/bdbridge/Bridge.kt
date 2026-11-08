@@ -319,8 +319,10 @@ object RecBridge {
 
     /**
      * The television's sheet. What is typed and pressed goes to Swift one after the other in the order it was done, as
-     * the settings' fields do: a press after the keystrokes it was pressed over. The PIN field takes the model's value
-     * when the model has emptied it -- a PIN turned down -- and Swift drops what was typed over the value before.
+     * the settings' fields do: a press after the keystrokes it was pressed over, and the sheet's closing after them
+     * all, so that no press reaches Swift after the sheet has gone -- a step begun then would go on to the
+     * registration, and put a number on the television's panel for nobody. The PIN field takes the model's value when
+     * the model has emptied it -- a PIN turned down -- and Swift drops what was typed over the value before.
      */
     class TVRegisterHandle(private val window: TVRegisterWindow) :
         Sheet<TVRegisterScreen>({ window.observe(it) }, { TVRegisterScreen(call { window.read(arena) }) }) {
@@ -334,21 +336,25 @@ object RecBridge {
 
         override suspend fun ended() {
             following.cancel()
-            call<Void> { window.closed() }
+            inTurn.send { call<Void> { window.closed() } }
+            inTurn.close()
         }
         fun appeared() = inTurn.trySend { call<Void> { window.appeared() } }.let {}
         fun typeHost(text: String) = inTurn.trySend { call<Void> { window.typeHost(text) } }.let {}
         fun press() = inTurn.trySend { call<Void> { window.press() } }.let {}
     }
 
-    /** The helper's sheet, its keystrokes and its press in the order they were made. */
+    /** The helper's sheet, its keystrokes, its press and its closing in the order they were made. */
     class HelperRegisterHandle(private val window: HelperRegisterWindow) :
         Sheet<HelperRegisterScreen>({ window.observe(it) }, { HelperRegisterScreen(call { window.read(arena) }) }) {
         private val inTurn = Channel<suspend () -> Unit>(Channel.UNLIMITED).also { operations ->
             scope.launch { for (operation in operations) operation() }
         }
 
-        override suspend fun ended() = call<Void> { window.closed() }.let {}
+        override suspend fun ended() {
+            inTurn.send { call<Void> { window.closed() } }
+            inTurn.close()
+        }
         fun typeCode(text: String) = inTurn.trySend { call<Void> { window.typeCode(text) } }.let {}
         fun press() = inTurn.trySend { call<Void> { window.press() } }.let {}
     }

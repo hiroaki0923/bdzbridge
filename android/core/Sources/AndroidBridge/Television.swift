@@ -35,7 +35,9 @@ public struct TVRegisterScreen: Sendable {
 /// A field of a sheet's state as typed on Android, beside the state, for one the state may set itself while the reader
 /// types: how many times it has. The state's value is looked at as each keystroke comes and as the screen is made, and
 /// one that is not what was last typed is the state's own: counted then, in the turn it is seen, so that a keystroke
-/// typed over the value before it is dropped, as the screen drops it for the state's when the count moves.
+/// typed over the value before it is dropped, as the screen drops it for the state's when the count moves. The
+/// settings count their fields around the calls that set them (`Typing`); the PIN is emptied inside the state's own
+/// step, which no call of the window's wraps, so it is counted as it is seen.
 @MainActor
 final class SetByTheState {
     private var last: String
@@ -63,15 +65,13 @@ final class SetByTheState {
 }
 
 public final class TVRegisterWindow: Sendable {
-    let model: AppModel
     let register: TVRegisterState
     private let pin: SetByTheState
     private let shown: Watched<TVRegisterScreen>
     private let follows = Follows()
 
     @MainActor
-    init(_ register: TVRegisterState, model: AppModel) {
-        self.model = model
+    init(_ register: TVRegisterState) {
         self.register = register
         let pin = SetByTheState(register.pin)
         self.pin = pin
@@ -86,9 +86,9 @@ public final class TVRegisterWindow: Sendable {
         await MainActor.run { register.appeared() }
     }
 
-    /// What the reader typed into the address field. The state never sets it itself.
+    /// What the reader typed into the address field, while it is not held. The state never sets it itself.
     public func typeHost(_ text: String) async {
-        await MainActor.run { register.typedHost = text }
+        await MainActor.run { if !register.holdsTheAddress { register.typedHost = text } }
     }
 
     /// What the reader typed into the PIN field, over the count `seen` (`TVRegisterScreen.pinSet`).

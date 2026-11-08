@@ -7,7 +7,8 @@ import RecorderKit
 // do: the client id lets anything on the LAN get a cookie from the television without a PIN, and the token lets it read
 // the television's guide. The folder is the app's alone, opens once the device has been unlocked after a start, as the
 // rest of an app's own storage does, and goes when the app is uninstalled; a device the app comes to some other way
-// registers again, with the PIN once.
+// registers again, with the PIN once. The manifest's `allowBackup="false"` is not enough for that: for an app aimed at
+// Android 12 or later, some makers' devices still move its data to another device with it off.
 
 /// The television's registration, in `<kept>/television.json`. A file that cannot be read, or that does not read as a
 /// registration, is no registration, and stays until a registration writes over it.

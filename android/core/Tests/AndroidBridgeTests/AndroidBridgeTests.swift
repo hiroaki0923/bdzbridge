@@ -477,6 +477,9 @@ extension AndroidBridgeTests {
         XCTAssertEqual(asking.pressLabel, "登録する")
         XCTAssertTrue(asking.pressHeld, "an empty number could be pressed")
         XCTAssertTrue(asking.pinNote.contains(DemoTV.pin), "the demo's number was not said")
+        await sheet.typeHost("192.0.2.99")
+        let held = await sheet.read()
+        XCTAssertEqual(held.typedHost, DemoTV.host, "the address changed with the PIN asked for")
 
         await sheet.typePIN("0000", seen: asking.pinSet)
         _ = await until(sheet.read) { !$0.pressHeld }
