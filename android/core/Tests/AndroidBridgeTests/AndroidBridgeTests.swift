@@ -21,7 +21,7 @@ final class AndroidBridgeTests: XCTestCase {
 
     @MainActor
     private func demo() async -> RecBridgeApp {
-        let app = RecBridgeApp(model: AppModel(surroundings: .android(files: folder.path, version: "0.1 (1)")))
+        let app = RecBridgeApp.made(files: folder.path, version: "0.1 (1)")
         await app.start()
         await app.devices().enterDemo()
         return app
@@ -148,7 +148,7 @@ final class AndroidBridgeTests: XCTestCase {
 
     @MainActor
     func testATypedAddressIsSaidAsTheIOSFieldSaysIt() {
-        let app = RecBridgeApp(model: AppModel(surroundings: .android(files: folder.path, version: "0.1 (1)")))
+        let app = RecBridgeApp.made(files: folder.path, version: "0.1 (1)")
         let devices = app.devices()
         XCTAssertFalse(devices.typed("").usable)
         XCTAssertEqual(devices.typed("").note, "")
@@ -218,19 +218,31 @@ extension AndroidBridgeTests {
         XCTAssertNil(none, "the television holds nothing of it")
     }
 
+    /// A reservation of the demo's whose sheet offers the change, opened: one neither recording nor over, which the
+    /// list still shows for a while after it ends. The demo's reservations are at times of the day, so which those are
+    /// depends on the hour.
+    @MainActor
+    private func aReservationToChange(_ list: ReservationsWindow) async throws -> (ReservationRow, ReservationSheetWindow) {
+        await list.load()
+        let listed = await until(list.read) { !$0.sections.isEmpty }
+        for row in listed.sections.flatMap(\.rows) where !row.recording && !row.byTheRecorder {
+            let opening = await list.open(row.id)
+            let sheet = try XCTUnwrap(opening)
+            if await !sheet.read().settled { return (row, sheet) }
+            await sheet.closed()
+        }
+        XCTFail("the demo has no reservation to change")
+        throw StillWaiting()
+    }
+
     @MainActor
     func testAReservationIsChangedAndDeletedFromItsSheet() async throws {
         let app = await demo()
         let list = app.reservations()
-        await list.load()
-        let listed = await until(list.read) { !$0.sections.isEmpty }
-        let row = try XCTUnwrap(listed.sections.flatMap(\.rows).first { !$0.recording && !$0.byTheRecorder })
-        let opening = await list.open(row.id)
-        let sheet = try XCTUnwrap(opening)
+        let (row, sheet) = try await aReservationToChange(list)
         defer { Task { await sheet.closed() } }
         let opened = await until(sheet.read) { !$0.quality.isEmpty && !$0.buttonsHeld }
         XCTAssertEqual(opened.title, row.title)
-        XCTAssertFalse(opened.settled)
         XCTAssertFalse(opened.changed, "nothing changed yet")
         let other = try XCTUnwrap(opened.qualities.first { $0.code != opened.quality })
 
@@ -269,11 +281,7 @@ extension AndroidBridgeTests {
     func testASecondPressWhileARequestIsOutSendsNothing() async throws {
         let app = await demo()
         let list = app.reservations()
-        await list.load()
-        let listed = await until(list.read) { !$0.sections.isEmpty }
-        let row = try XCTUnwrap(listed.sections.flatMap(\.rows).first { !$0.recording && !$0.byTheRecorder })
-        let opening = await list.open(row.id)
-        let sheet = try XCTUnwrap(opening)
+        let (_, sheet) = try await aReservationToChange(list)
         defer { Task { await sheet.closed() } }
         let opened = await until(sheet.read) { !$0.quality.isEmpty && !$0.buttonsHeld }
         let other = try XCTUnwrap(opened.qualities.first { $0.code != opened.quality })
@@ -364,6 +372,8 @@ extension AndroidBridgeTests {
     }
 }
 
+struct StillWaiting: Error {}
+
 final class Counting: ScreenListener, @unchecked Sendable {
     private let lock = NSLock()
     private var told = 0
@@ -371,4 +381,119 @@ final class Counting: ScreenListener, @unchecked Sendable {
     var count: Int { lock.withLock { told } }
 
     func changed() { lock.withLock { told += 1 } }
+}
+
+// MARK: - the settings
+
+extension AndroidBridgeTests {
+    /// The settings say the demo's recorder and the guide kept, take what is typed as the reader's and what the model
+    /// sets as its own, keep the mode chosen, and end the demo, the fields following.
+    @MainActor
+    func testTheSettingsSayTheRecorderAndFollowTheFields() async throws {
+        let app = await demo()
+        let settings = await app.settings()
+        await settings.appeared()
+        let shown = await until(settings.read) { !$0.facts.isEmpty && $0.canChoose && $0.typedHost == DemoRecorder.host }
+        XCTAssertTrue(shown.demo)
+        XCTAssertEqual(shown.facts.first?.label, "機種")
+        XCTAssertFalse(shown.standing.isEmpty)
+        XCTAssertFalse(shown.offersConnect)
+        XCTAssertFalse(shown.offersReconnect)
+        XCTAssertEqual(shown.version, "0.1 (1)")
+        XCTAssertTrue(shown.guide.contains { $0.label == Codes.broadcastingLabel["td"] && $0.value.hasSuffix(" 番組") })
+        XCTAssertGreaterThan(shown.hostSet, 0, "the address the field started at was not said to be the model's")
+
+        // Typed, the address is offered the connect and said back, and is not taken for the model's own setting.
+        await settings.typeHost("192.0.2.10:64220", seen: shown.hostSet)
+        let typed = await until(settings.read) { $0.offersConnect }
+        XCTAssertEqual(typed.typedHost, "192.0.2.10:64220")
+        XCTAssertEqual(typed.hostSet, shown.hostSet, "what was typed was taken for the model's")
+        XCTAssertTrue(typed.addressNote.contains("「:64220」"))
+        XCTAssertFalse(typed.addressWarning)
+        XCTAssertFalse(typed.connectHeld)
+        // A keystroke typed over a value the model has replaced since is dropped.
+        await settings.typeHost("192.0.2.1", seen: shown.hostSet - 1)
+        let stale = await settings.read()
+        XCTAssertEqual(stale.typedHost, "192.0.2.10:64220", "a keystroke over the model's older value was kept")
+
+        // このアドレスに接続 held back, for an address no URL can be built on, does nothing: pressed all the same, it
+        // would have ended the demo for that address.
+        await settings.typeHost("192.0.2.10/guide", seen: shown.hostSet)
+        let unusable = await until(settings.read) { $0.addressWarning }
+        XCTAssertTrue(unusable.connectHeld)
+        await settings.connect()
+        let held = await settings.read()
+        XCTAssertTrue(held.demo, "a press held back went through")
+        XCTAssertEqual(held.hostSet, unusable.hostSet)
+        await settings.typeHost("192.0.2.10:64220", seen: shown.hostSet)
+
+        let other = try XCTUnwrap(shown.qualities.first { $0.code != shown.quality })
+        await settings.chooseQuality(other.code)
+        _ = await until(settings.read) { $0.quality == other.code }
+        XCTAssertEqual(DefaultQuality.current(in: app.quality.defaults), other.code, "the mode chosen was not kept")
+        await settings.chooseQuality("not a mode")
+        let kept = await settings.read()
+        XCTAssertEqual(kept.quality, other.code)
+
+        let disclaimer = settings.disclaimer()
+        XCTAssertEqual(disclaimer.title, Disclaimer.title)
+        XCTAssertEqual(disclaimer.sections.map(\.label), Disclaimer.sections.map(\.heading))
+
+        // Nothing was set up before the demo, so ending it leaves no address, which the field follows.
+        await settings.leaveDemo()
+        let after = await until(settings.read) { !$0.demo && $0.typedHost.isEmpty }
+        XCTAssertGreaterThan(after.hostSet, typed.hostSet, "the model's moving the address was not said")
+        XCTAssertTrue(after.facts.isEmpty)
+        XCTAssertEqual(after.standing, "")
+    }
+
+    /// A station hidden, moved and put back, as the guide then shows them; kept in the cache, so that the list read
+    /// again has them as they were left.
+    @MainActor
+    func testTheStationsAreHiddenMovedAndPutBack() async throws {
+        let app = await demo()
+        let guide = app.guide()
+        _ = await until(guide.read) { $0.shows == "programmes" }
+        let channels = await app.channels()
+        defer { Task { await channels.closed() } }
+        let listed = await until(channels.read) { $0.loaded && $0.stations.count >= 3 }
+        XCTAssertEqual(listed.broadcasting, "td")
+        XCTAssertFalse(listed.customised)
+        XCTAssertEqual(listed.footer, ChannelsState.footer)
+        XCTAssertTrue(listed.types.contains { $0.code == "bs" })
+        let first = listed.stations[0], third = listed.stations[2]
+
+        await channels.show(first.id, false)
+        let hidden = await until(channels.read) { !$0.stations[0].shown }
+        XCTAssertTrue(hidden.customised)
+        _ = await until(guide.read) { shown in !shown.stations.contains { $0.name == first.name } }
+
+        let movedDown = await channels.move(first.id, from: 0, to: 2)
+        XCTAssertTrue(movedDown)
+        let moved = await until(channels.read) { $0.stations[2].id == first.id }
+        XCTAssertEqual(moved.stations[1].id, third.id)
+        // A move for a list that has changed since -- the station is no longer where the drag began -- is refused.
+        let stale = await channels.move(first.id, from: 0, to: 1)
+        XCTAssertFalse(stale)
+        let again = await app.channels()
+        defer { Task { await again.closed() } }
+        let reread = await until(again.read) { $0.loaded && !$0.stations.isEmpty }
+        XCTAssertEqual(reread.stations.map(\.id), moved.stations.map(\.id), "the order was not kept")
+        let movedUp = await channels.move(first.id, from: 2, to: 0)
+        XCTAssertTrue(movedUp)
+        let up = await until(channels.read) { $0.stations[0].id == first.id }
+        XCTAssertEqual(up.stations.map(\.id), listed.stations.map(\.id), "moved back up, the order is the first")
+
+        await channels.reset()
+        let back = await until(channels.read) { !$0.customised }
+        XCTAssertEqual(back.stations.map(\.id), listed.stations.map(\.id))
+        XCTAssertTrue(back.stations.allSatisfy(\.shown))
+
+        await channels.choose("bs")
+        let bs = await until(channels.read) { $0.broadcasting == "bs" && $0.stations.first?.id.hasPrefix("bs") == true }
+        XCTAssertFalse(bs.stations.isEmpty)
+        await channels.choose("none of them")
+        let still = await channels.read()
+        XCTAssertEqual(still.broadcasting, "bs")
+    }
 }

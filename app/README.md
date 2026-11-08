@@ -9,8 +9,9 @@
   beside it, one file to a concern (`AppModelSession`, `AppModelSetup`, `AppModelGuide`, `AppModelReservations`,
   `AppModelRecorderRules`, `AppModelRecordings`, `AppModelTV`). The screens' own rules are the model's as well,
   where tests hold them: a programme's, a reservation's and a recording's sheet as the reader works them
-  (`ProgramSheetState`, `ReservationSheetState`, `TitleSheetState`), the search (`SearchState`), the channels' screen (`ChannelsState`), and what an empty
-  screen says (`AppModelEmptyScreens.swift`); the SwiftUI views lay them out and hand them the reader's presses. The connection to each device -- when it is
+  (`ProgramSheetState`, `ReservationSheetState`, `TitleSheetState`), the search (`SearchState`), the channels' screen (`ChannelsState`), the recorder's part of
+  the settings (`RecorderSettingsState`), and what an empty screen says (`AppModelEmptyScreens.swift`), with the
+  disclaimer's words (`Disclaimer`); the SwiftUI views lay them out and hand them the reader's presses. The connection to each device -- when it is
   asked, woken, made sure of, looked for at another address and given up on -- is RecorderKit's `DeviceLink`
   with the device's driver (`RecorderDriver`, `TVDriver`); what the link tells the app is told to a host of
   the device's own (`LinkHost`), and what it reaches on the network is the model's to give it

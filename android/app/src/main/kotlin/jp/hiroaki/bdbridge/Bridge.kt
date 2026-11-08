@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.CompletableFuture
 import jp.hiroaki.bdbridge.bridge.AndroidBridge
+import jp.hiroaki.bdbridge.bridge.ChannelsWindow
 import jp.hiroaki.bdbridge.bridge.DevicesWindow
 import jp.hiroaki.bdbridge.bridge.GuideWindow
 import jp.hiroaki.bdbridge.bridge.ProgrammeSheetWindow
@@ -13,6 +14,7 @@ import jp.hiroaki.bdbridge.bridge.RecordingsWindow
 import jp.hiroaki.bdbridge.bridge.ReservationSheetWindow
 import jp.hiroaki.bdbridge.bridge.ReservationsWindow
 import jp.hiroaki.bdbridge.bridge.ScreenListener
+import jp.hiroaki.bdbridge.bridge.SettingsWindow
 import jp.hiroaki.bdbridge.bridge.StripWindow
 import jp.hiroaki.bdbridge.bridge.TitleSheetWindow
 import kotlinx.coroutines.CompletableDeferred
@@ -44,6 +46,7 @@ object RecBridge {
     class Windows(
         val app: RecBridgeApp, val devices: DevicesWindow, val guide: GuideWindow,
         val reservations: ReservationsWindow, val recordings: RecordingsWindow, val strip: StripWindow,
+        val settings: SettingsWindow,
     )
 
     private val _devices = MutableStateFlow<Devices?>(null)
@@ -51,11 +54,13 @@ object RecBridge {
     private val _reservations = MutableStateFlow<Reservations?>(null)
     private val _recordings = MutableStateFlow<Recordings?>(null)
     private val _strip = MutableStateFlow<Strip?>(null)
+    private val _settings = MutableStateFlow<Settings?>(null)
     val devices: StateFlow<Devices?> = _devices
     val guide: StateFlow<Guide?> = _guide
     val reservations: StateFlow<Reservations?> = _reservations
     val recordings: StateFlow<Recordings?> = _recordings
     val strip: StateFlow<Strip?> = _strip
+    val settings: StateFlow<Settings?> = _settings
 
     /**
      * Runs `work` where nothing a screen does cancels it: for what has to finish whatever becomes of the screen that
@@ -78,12 +83,20 @@ object RecBridge {
         scope.launch {
             val app = call { RecBridgeApp.open(files, version, arena) }
             val windows = Windows(app, app.devices(arena), app.guide(arena), app.reservations(arena),
-                                  app.recordings(arena), app.strip(arena))
+                                  app.recordings(arena), app.strip(arena), call { app.settings(arena) })
             watch({ windows.devices.observe(it) }, { Devices(call { windows.devices.read(arena) }) }, _devices)
             watch({ windows.guide.observe(it) }, { Guide(call { windows.guide.read(arena) }) }, _guide)
             watch({ windows.reservations.observe(it) }, { Reservations(call { windows.reservations.read(arena) }) }, _reservations)
             watch({ windows.recordings.observe(it) }, { Recordings(call { windows.recordings.read(arena) }) }, _recordings)
             watch({ windows.strip.observe(it) }, { Strip(call { windows.strip.read(arena) }) }, _strip)
+            watch({ windows.settings.observe(it) }, { Settings(call { windows.settings.read(arena) }) }, _settings)
+            launch {
+                settings.collect { shown ->
+                    shown ?: return@collect
+                    hostField.follow(shown.typedHost, shown.hostSet)
+                    macField.follow(shown.typedMac, shown.macSet)
+                }
+            }
             opened.complete(windows)
             call<Void> { app.start() }
         }
@@ -130,6 +143,48 @@ object RecBridge {
     }
 
     /**
+     * What the reader types into the settings' fields, and the presses that go by what was typed, sent to Swift one
+     * after the other in the order they were made: sent each on its own, a later keystroke could reach Swift before an
+     * earlier one, and a connect before the address it was pressed for. A press answers once begun, so nothing typed
+     * after it waits for the connect.
+     */
+    private val typing = Channel<suspend (SettingsWindow) -> Unit>(Channel.UNLIMITED).also { operations ->
+        scope.launch { for (operation in operations) operation(windows().settings) }
+    }
+
+    /**
+     * One of the settings' fields as the reader sees it, kept here for as long as the model is, as the iOS screen keeps
+     * its fields: a screen made again -- the field scrolled away and back, the settings left and come back to -- shows
+     * what was typed, whether or not it has reached Swift yet. What is typed goes to Swift with the field's count it
+     * was typed over (`Settings.hostSet`), and Swift drops a keystroke typed over a value the model has replaced
+     * since; the field takes the model's value when that count moves.
+     */
+    class Field(private val send: (String, Long) -> Unit) {
+        private val _text = MutableStateFlow("")
+        val text: StateFlow<String> = _text
+        private var seen = -1L
+
+        fun type(value: String) {
+            _text.value = value
+            send(value, seen)
+        }
+
+        internal fun follow(value: String, set: Long) {
+            if (set == seen) return
+            seen = set
+            _text.value = value
+        }
+    }
+
+    val hostField = Field { text, seen -> typing.trySend { window -> call<Void> { window.typeHost(text, seen) } } }
+    val macField = Field { text, seen -> typing.trySend { window -> call<Void> { window.typeMac(text, seen) } } }
+
+    /** A press of the settings that goes by what was typed: sent after every keystroke made before it. */
+    fun afterTyping(operation: (SettingsWindow) -> CompletableFuture<*>) {
+        typing.trySend { window -> call<Any?> { operation(window).thenApply { it } } }
+    }
+
+    /**
      * Reads what a window shows each time it says it changed, one read at a time and only the latest: told twice while
      * a read is out, it reads once more after it. The job handed back ends the reading, for a sheet that closes.
      */
@@ -156,6 +211,14 @@ object RecBridge {
     /** The sheet of a reservation in the list, opened: nil when the list no longer has it. */
     suspend fun openReservation(id: String): ReservationSheetHandle? =
         ask { it.reservations.open(id, arena) }.orElse(null)?.let { ReservationSheetHandle(it) }
+
+    /** Which stations the guide shows and in what order, opened at the broadcasting type the guide is on. */
+    suspend fun openChannels(): ChannelsHandle = ChannelsHandle(ask { it.app.channels(arena) })
+
+    /** ご利用上の注意, as the model words it. */
+    suspend fun disclaimer(): Disclaimer = windows().settings.disclaimer(arena).let { text ->
+        Disclaimer(text.title, text.opening, text.getSections(arena).map { Fact(it.label, it.value) }, text.link, text.url)
+    }
 
     /** A sheet's window, read as the screens' are, until the sheet closes. */
     abstract class Sheet<T>(observe: (ScreenListener) -> Unit, read: suspend () -> T) {
@@ -200,6 +263,17 @@ object RecBridge {
         suspend fun delete() = call<Void> { window.delete() }.let {}
         suspend fun confirmDelete(key: String) = call<Void> { window.confirmDelete(key) }.let {}
         suspend fun closeAsked(key: String) = call<Void> { window.closeAsked(key) }.let {}
+    }
+
+    class ChannelsHandle(private val window: ChannelsWindow) :
+        Sheet<Channels>({ window.observe(it) }, { Channels(call { window.read(arena) }) }) {
+        override suspend fun ended() = call<Void> { window.closed() }.let {}
+        suspend fun choose(broadcasting: String) = call<Void> { window.choose(broadcasting) }.let {}
+        suspend fun show(id: String, on: Boolean) = call<Void> { window.show(id, on) }.let {}
+        /** Whether it was moved: refused for a list read again since the drag began. */
+        suspend fun move(id: String, from: Int, to: Int): Boolean = call { window.move(id, from.toLong(), to.toLong()) }
+        suspend fun reset() = call<Void> { window.reset() }.let {}
+        suspend fun failureClosed() = call<Void> { window.failureClosed() }.let {}
     }
 
     class ReservationSheetHandle(private val window: ReservationSheetWindow) :
@@ -480,3 +554,49 @@ private fun TitleSheetScreen(it: jp.hiroaki.bdbridge.bridge.TitleSheetScreen) = 
     it.details.toList(), it.line, it.problem, it.isAsking, asked(it.isHasAsked, it.getAsked(arena)), it.isActionHeld,
     it.isDone,
 )
+
+/** A label and what is said beside it. */
+data class Fact(val label: String, val value: String)
+
+/** The settings (`SettingsWindow`): the fields' `hostSet` and `macSet` move when the model sets them itself. */
+data class Settings(
+    val facts: List<Fact>, val standing: String, val typedHost: String, val hostSet: Long, val typedMac: String,
+    val macSet: Long, val addressNote: String, val addressWarning: Boolean, val offersConnect: Boolean,
+    val connectHeld: Boolean, val offersReconnect: Boolean, val reconnectHeld: Boolean, val qualities: List<Labelled>,
+    val quality: String, val searchHeld: Boolean, val searched: Long, val toSearch: Long, val outcome: String,
+    val outcomeFailed: Boolean, val outcomeNote: String, val causes: List<String>, val recorders: List<FoundRecorder>,
+    val canChoose: Boolean, val guide: List<Fact>, val refreshHeld: Boolean, val demo: Boolean, val version: String,
+    val busy: String, val problem: String, val phoneProblem: String,
+)
+
+private fun facts(list: Array<jp.hiroaki.bdbridge.bridge.Fact>) = list.map { Fact(it.label, it.value) }
+
+private fun Settings(it: jp.hiroaki.bdbridge.bridge.SettingsScreen) = Settings(
+    facts(it.getFacts(arena)), it.standing, it.typedHost, it.hostSet, it.typedMac, it.macSet, it.addressNote,
+    it.isAddressWarning, it.isOffersConnect, it.isConnectHeld, it.isOffersReconnect, it.isReconnectHeld,
+    labelled(it.getQualities(arena)), it.quality, it.isSearchHeld, it.searched, it.toSearch, it.outcome,
+    it.isOutcomeFailed, it.outcomeNote, it.causes.toList(),
+    it.getRecorders(arena).map { found -> FoundRecorder(found.host, found.name, found.details, found.isInUse) },
+    it.isCanChoose, facts(it.getGuide(arena)), it.isRefreshHeld, it.isDemo, it.version, it.busy, it.problem,
+    it.phoneProblem,
+)
+
+data class Disclaimer(val title: String, val opening: String, val sections: List<Fact>, val link: String, val url: String)
+
+/** Which stations the guide shows and in what order (`ChannelsWindow`). */
+data class Channels(
+    val types: List<Labelled>, val broadcasting: String, val stations: List<ArrangedStation>, val loaded: Boolean,
+    val emptyTitle: String, val emptyDetail: String, val customised: Boolean, val footer: String,
+    val resetQuestion: String, val failure: String,
+)
+
+/** A station of the list, with the logo the recorder sent for it as an image file (empty when it never had one). */
+class ArrangedStation(val id: String, val name: String, val logo: ByteArray, val shown: Boolean)
+
+private fun Channels(it: jp.hiroaki.bdbridge.bridge.ChannelsScreen) = it.getEmpty(arena).let { empty ->
+    Channels(
+        labelled(it.getTypes(arena)), it.broadcasting,
+        it.getStations(arena).map { station -> ArrangedStation(station.id, station.name, station.logo, station.isShown) },
+        it.isLoaded, empty.title, empty.detail, it.isCustomised, it.footer, it.resetQuestion, it.failure,
+    )
+}

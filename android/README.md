@@ -12,8 +12,13 @@ address, or to the demo's invented recorder -- and shows the guide as the iOS gu
 every station or one, a broadcast day, opening at what is on now, 今 and 番組表を更新, and what an empty guide says),
 the reservations and the recordings as lists, and the two sheets that write: a programme's, which reserves it on the
 recorder or the television (where it goes, the disk, the mode, the repeat, what it would clash with) and deletes or
-sends again what waits for it, and a reservation's, which changes and deletes it. What each sheet holds, offers, holds
-back and says is the model's own state of it (`ProgramSheetState`, `ReservationSheetState`), as on iOS. As on iOS, a
+sends again what waits for it, and a reservation's, which changes and deletes it; and a recording's, which plays,
+protects and deletes it. What each sheet holds, offers, holds back and says is the model's own state of it
+(`ProgramSheetState`, `ReservationSheetState`, `TitleSheetState`), as on iOS. Its settings have the recorder (what it
+says of itself, how the link stands, its address and MAC, このアドレスに接続 and 再接続), the mode a new reservation starts
+at, the search, which stations the guide shows and in what order, the guide kept on the device, the demo and ご利用上の
+注意, over the model's states of them (`RecorderSettingsState`, `ChannelsState`); the television's part comes with the
+television's screens. As on iOS, a
 connect wakes a recorder that does not answer with a magic packet when its MAC is known.
 
 ## Layout
@@ -21,7 +26,9 @@ connect wakes a recorder that does not answer with a magic packet when its MAC i
 - `core/` — the Swift side and the Android library around it. `Sources/AndroidBridge` holds the windows over the
   model: `App.swift` (the model, made once, on `Surroundings` of Android's own, and how a window tells Kotlin that what
   it shows has changed), `Devices.swift`, `Guide.swift`, `Lists.swift`, `Strip.swift` (the strip at the top of
-  every screen, as the model chooses its line) and `Sheets.swift` (the two sheets, a window made as a sheet opens and
+  every screen, as the model chooses its line), `Settings.swift` (the settings, whose fields keep what is typed and
+  take the model's value when the model sets them itself), `Channels.swift` (the stations' page) and `Sheets.swift`
+  (the sheets, a window made as a sheet opens and
   ended as it closes, doing for the sheet what the iOS sheet does with `onChange` and `task(id:)`). A window is a plain class, since swift-java
   cannot hand Kotlin a class on the main actor: what the reader does goes to the model as an async call, and what the
   screen shows is one value, worded as the iOS screen words it, read again each time the window says it changed
@@ -33,8 +40,9 @@ connect wakes a recorder that does not answer with a magic packet when its MAC i
   windows' calls into suspending ones. The screens are Material 3's, as an Android app's are: `Theme.kt` (the colours,
   the text marked as Japanese), `App.kt` (the place to choose a recorder over the rest, and the navigation: a bar at
   the foot of a phone, a rail down the side of anything 600 dp wide), `Guide.kt`, `Lists.kt`, `Devices.kt`, `Sheets.kt`
-  (the sheets, which open at once with what the row says and fill in as their window is read), and `Parts.kt` (the
-  empty states, the marks, the strip).
+  (the sheets, which open at once with what the row says and fill in as their window is read), `Settings.kt` (the
+  settings and ご利用上の注意), `Channels.kt` (the stations' page, a station dragged by its handle to another place),
+  and `Parts.kt` (the empty states, the marks, the strip, what a search found).
 
 The model's settings are kept in `files/settings/recbridge.plist`: Foundation on Android keeps a `UserDefaults` suite
 named by the path of its file, and writes it out only when told to, which `WrittenDefaults` does at each change.

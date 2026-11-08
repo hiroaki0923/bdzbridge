@@ -63,7 +63,7 @@ struct RootView: View {
             RecordingsScreen()
                 .tabItem { Label("録画", systemImage: "play.rectangle") }
                 .tag("recordings")
-            SettingsScreen()
+            SettingsScreen(model: model)
                 .tabItem { Label("設定", systemImage: "slider.horizontal.3") }
                 .tag("settings")
         }

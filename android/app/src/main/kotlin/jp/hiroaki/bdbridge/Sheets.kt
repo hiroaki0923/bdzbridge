@@ -72,7 +72,7 @@ import kotlinx.coroutines.launch
  * following the model, and asking the recorder, for nobody.
  */
 @Composable
-private fun <H : RecBridge.Sheet<*>> rememberOpened(key: Any, open: suspend () -> H?): H? {
+fun <H : RecBridge.Sheet<*>> rememberOpened(key: Any, open: suspend () -> H?): H? {
     var handle by remember(key) { mutableStateOf<H?>(null) }
     DisposableEffect(key) {
         var gone = false

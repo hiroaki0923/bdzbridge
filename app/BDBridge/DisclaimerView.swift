@@ -1,10 +1,7 @@
 import RecBridgeModel
 import SwiftUI
 
-/// What the reader should know before this app writes to their recorder: above all that a recording deleted
-/// here is gone from the recorder, which has no undo.
-///
-/// The same words are in `docs/disclaimer.md`, which is where the store links to. Change both.
+/// What the reader should know before this app writes to their recorder (`Disclaimer`), laid out.
 struct DisclaimerView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -12,39 +9,16 @@ struct DisclaimerView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    Text("RecBridge は、ソニー製ブルーレイディスクレコーダー（BDZ シリーズ）を家庭内ネットワーク"
-                         + "越しに操作する、個人が作った非公式のアプリです。ソニーグループとは関係がなく、"
-                         + "同社の公式アプリではありません。")
+                    Text(Disclaimer.opening)
 
-                    section("操作はレコーダーやテレビの本体に届きます",
-                            "録画予約、予約の変更と削除、録画の削除と保護、おまかせ・まる録の条件の追加と削除は、"
-                            + "いずれもレコーダー本体に対する操作です。テレビへの録画予約、その予約の変更と削除、テレビの"
-                            + "録画の削除と保護も、テレビ本体に対する操作です。アプリの中だけの話ではありません。\n\n"
-                            + "とくに録画の削除は取り消せません。レコーダーの録画もテレビの録画も、削除すると元に戻せません。"
-                            + "まとめての削除や重複の削除では、消す対象をよく確かめてから実行してください。")
-
-                    section("表示は「その時点で読み取った内容」です",
-                            "番組表はこの端末に保存したものを表示しています。予約一覧や録画一覧も、最後にレコーダーやテレビから"
-                            + "読み取った内容です。レコーダーやテレビの本体、ほかのアプリで操作されたことは、次に読み直すまで"
-                            + "反映されません。\n\n"
-                            + "予約が入ったか、録画が成功したかは、最終的にレコーダーやテレビの本体でご確認ください。")
-
-                    section("動作を保証するものではありません",
-                            "BDZ-FBT4100 で開発・確認しています。同じ系列の機種でも、機種や本体ソフトウェアの版に"
-                            + "よっては、一部またはすべての機能が動作しないことがあります。\n\n"
-                            + "録画の失敗、録画内容の消失、予約の取りこぼしなど、本アプリの利用によって生じた損害に"
-                            + "ついて、作者は責任を負いかねます。ご自身の環境でご判断のうえ、ご利用ください。")
-
-                    section("ソースコード",
-                            "本アプリのソースコードは公開しており、MIT ライセンス（無保証）で提供しています。")
-                    Link("github.com/hiroaki0923/bdzbridge",
-                         destination: URL(string: "https://github.com/hiroaki0923/bdzbridge")!)
+                    ForEach(Disclaimer.sections, id: \.heading) { section($0.heading, $0.body) }
+                    Link(Disclaimer.sourceLink, destination: URL(string: Disclaimer.sourceURL)!)
                         .font(.callout)
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .navigationTitle("ご利用上の注意")
+            .navigationTitle(Disclaimer.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseButton() }
         }
