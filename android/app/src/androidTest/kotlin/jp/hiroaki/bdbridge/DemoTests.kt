@@ -142,7 +142,9 @@ class DemoTests {
         compose.onNodeWithText("録画予約する").performClick()
         compose.waitUntilAtLeastOneExists(hasText("この番組を録画予約しますか？"), 10_000)
         compose.onNodeWithText("予約する").performClick()
-        compose.waitUntilDoesNotExist(hasText("録画予約する"), 30_000)
+        // The sheet itself gone, not only its button: 録画予約する goes as the reservation is made, while the sheet still
+        // slides away, and a tap then goes to the sheet going.
+        compose.waitUntilDoesNotExist(hasText("長さ"), 30_000)
 
         compose.onAllNodesWithText("04:00")[0].performClick()
         compose.waitUntilAtLeastOneExists(hasText("予約を削除") and isEnabled(), 30_000)
