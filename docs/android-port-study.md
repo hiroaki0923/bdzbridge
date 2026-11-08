@@ -421,11 +421,11 @@ Foundation の RunLoop は、メインのスレッドで回ると、メインの
 | `@MainActor @Observable` のクラスをそのまま出す | コンパイルできない。swift-java は同期の呼び口を作り、main actor の外から呼ぶことになる。async の関数だけは通る |
 | 前に main actor でない窓口を置く（操作は async で main actor に渡る） | 動く。`Observations` でも `withObservationTracking` でも、変化 1 回につき 1 回、Kotlin の listener に届いた。届くのは Android のメインスレッド |
 | listener の引数 | 数（`Int64`）、文字、真偽値は届く。`Int` は swift-java の作るコードがコンパイルできない。構造体の一覧は、アプリのクラスを探せず落ちた（`NoClassDefFoundError`） |
-| Foundation の `UserDefaults` | 値が残らなかった（HOME と XDG をアプリのフォルダーに向けても同じ）。Application Support の場所は、XDG を向ければ取れる |
+| Foundation の `UserDefaults` | `.standard` と名前で指定したものは、値が残らなかった（HOME と XDG をアプリのフォルダーに向け、フォルダーを作っても同じ。アプリの bundle identifier が取れない）。置き場所をファイルの場所（絶対パス）で指定した `UserDefaults(suiteName:)` は、次の起動でも値が読めた。Application Support の場所は、XDG を向ければ取れる |
 
 分かった形: モデルは iOS のまま `@MainActor @Observable` にし、前に画面ごとの窓口を置く。窓口は「何が変わったか」だけを
-知らせ、値は Kotlin が async で読む（Kotlin から呼んだ結果なら、構造体の一覧も届く）。設定の置き場所には、Android 用の
-差し込み口が要る。
+知らせ、値は Kotlin が async で読む（Kotlin から呼んだ結果なら、構造体の一覧も届く）。設定は、モデルが今も
+`Surroundings` から受け取る `UserDefaults` のままでよく、Android はファイルの場所で指定したものを渡す。
 
 ## 決めたこと: B（2026-11-08）
 
