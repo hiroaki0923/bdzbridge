@@ -2,6 +2,7 @@ package jp.hiroaki.bdbridge
 
 import android.content.Context
 import android.view.KeyEvent
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -86,8 +87,16 @@ class DemoTests {
         compose.waitUntilAtLeastOneExists(hasText("サンプルデータを表示しています"), 30_000)
     }
 
-    /** A destination of the navigation, which is the only selectable node with its label: a row's mark is not. */
-    private fun destination(label: String) = compose.onNode(hasText(label) and isSelectable())
+    /**
+     * A destination of the navigation, which is the only tab with its label: a row's mark is not selectable, and the
+     * search's chip of the same name is not a tab.
+     */
+    private fun destination(label: String) =
+        compose.onNode(hasText(label) and isSelectable() and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab))
+
+    /** One of the search's three chips. */
+    private fun scope(label: String) =
+        compose.onNode(hasText(label) and isSelectable() and !SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab))
 
     @Test fun theDemosGuideOpensAtWhatIsOnAndAProgrammeSaysWhatItIs() {
         openTheDemo()
@@ -122,6 +131,42 @@ class DemoTests {
         compose.waitUntilAtLeastOneExists(aDay, 30_000)
         destination("録画").performClick()
         compose.waitUntilAtLeastOneExists(startsWithADayAndATime, 30_000)
+    }
+
+    /** How many the guide's search found, over the results: `番組表 12 件`, `番組表 300 件以上`. */
+    private val howManyProgrammes = SemanticsMatcher("how many programmes were found") { node ->
+        node.config.getOrNull(SemanticsProperties.Text).orEmpty().any { Regex("^番組表 \\d+ 件").containsMatchIn(it.text) }
+    }
+
+    /**
+     * The search finds programmes of the guide by a word typed, each with the day it is on, and opens one's sheet;
+     * turned to the recordings, it finds one by its title and opens that one's.
+     */
+    @Test fun theSearchFindsAProgrammeAndARecording() {
+        openTheDemo()
+        destination("検索").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("番組表を検索"), 10_000)
+        compose.onNode(hasSetTextAction()).performTextInput("ニュース")
+        compose.waitUntilAtLeastOneExists(howManyProgrammes, 30_000)
+        val found = hasText("ニュース", substring = true) and hasClickAction() and !hasSetTextAction()
+        compose.waitUntilAtLeastOneExists(found and aDay, 10_000)
+        compose.onAllNodes(found and aDay)[0].performClick()
+        compose.waitUntilAtLeastOneExists(hasText("開始"), 10_000)
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntilDoesNotExist(hasText("開始"), 10_000)
+
+        compose.onNodeWithContentDescription("消去").performClick()
+        scope("録画").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("録画を検索"), 10_000)
+        // The recordings are read as the scope is turned to; one of them is looked for by its own title.
+        compose.waitUntil(30_000) { RecBridge.recordings.value?.rows?.isNotEmpty() == true }
+        val title = RecBridge.recordings.value!!.rows.first().title
+        compose.onNode(hasSetTextAction()).performTextInput(title)
+        compose.waitUntilAtLeastOneExists(startsWithADayAndATime, 30_000)
+        compose.onAllNodes(startsWithADayAndATime)[0].performClick()
+        compose.waitUntilAtLeastOneExists(hasText("この録画を削除"), 30_000)
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntilDoesNotExist(hasText("この録画を削除"), 10_000)
     }
 
     /** A reservation's first line: `21:00 · 54分`. */

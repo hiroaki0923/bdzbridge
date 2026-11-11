@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
@@ -62,9 +64,10 @@ fun App() {
     if (choosing ?: shown.welcomes) DevicesScreen(shown, close) else RecorderScreen { choosing = true }
 }
 
-/** The screens the navigation goes between, as the iOS app's tabs. 検索 comes with its screen. */
+/** The screens the navigation goes between, as the iOS app's tabs. */
 enum class Destination(val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
     Guide("番組表", Icons.Outlined.GridView, Icons.Filled.GridView),
+    Search("検索", Icons.Outlined.Search, Icons.Filled.Search),
     Reservations("予約", Icons.Outlined.Schedule, Icons.Filled.Schedule),
     Recordings("録画", Icons.Outlined.VideoLibrary, Icons.Filled.VideoLibrary),
     Settings("設定", Icons.Outlined.Settings, Icons.Filled.Settings),
@@ -104,6 +107,7 @@ private fun Destinations(search: () -> Unit, open: (Page) -> Unit) {
     val screen = @Composable {
         when (destination) {
             Destination.Guide -> GuideScreen(search) { open(Page.Channels) }
+            Destination.Search -> SearchScreen()
             Destination.Reservations -> ReservationsScreen(search)
             Destination.Recordings -> RecordingsScreen(search)
             Destination.Settings -> SettingsScreen({ open(Page.Channels) }, { open(Page.Disclaimer) }) { open(Page.Capabilities) }

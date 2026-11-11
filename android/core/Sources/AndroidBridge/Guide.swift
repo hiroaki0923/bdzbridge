@@ -151,7 +151,7 @@ public final class GuideWindow: Sendable {
     }
 
     @MainActor
-    private static func row(_ program: GuideProgramRow, _ model: AppModel) -> GuideRow {
+    static func row(_ program: GuideProgramRow, _ model: AppModel) -> GuideRow {
         var mark = "", red = false
         if let reservation = model.reservation(for: program) {
             mark = reservation.recording ? "録画中" : "予約"

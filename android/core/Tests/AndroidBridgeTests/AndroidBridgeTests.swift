@@ -130,6 +130,83 @@ final class AndroidBridgeTests: XCTestCase {
     }
 
     @MainActor
+    func testTheSearchFindsProgrammesReservationsAndRecordings() async throws {
+        let app = await demo()
+        let today = await until(app.guide().read) { $0.shows == "programmes" }
+        let search = await app.search()
+        let blank = await search.read()
+        XCTAssertEqual(blank.shows, "scopeExplained", "the scopes are on the screen from the start")
+        XCTAssertEqual(blank.said.title, "番組表を検索")
+        XCTAssertEqual(blank.scopes.map(\.label), ["番組表", "予約", "録画"])
+        XCTAssertEqual(blank.prompt, "番組名・出演者・番組内容")
+
+        // A programme still to come, looked for by its own title.
+        let coming = try XCTUnwrap(today.programmes.last)
+        await search.shown(true)
+        await search.type(coming.title)
+        let found = await until(search.read) { $0.shows == "results" }
+        XCTAssertTrue(found.countLine.hasPrefix("番組表 "), found.countLine)
+        XCTAssertTrue(found.programmes.contains { $0.row.title == coming.title })
+        XCTAssertTrue(found.programmes.allSatisfy { $0.day.contains("(") }, "each says its day")
+        XCTAssertTrue(found.reservations.isEmpty && found.recordings.isEmpty, "only the scope's rows")
+        let hit = try XCTUnwrap(found.programmes.first)
+        XCTAssertTrue(found.logos.contains { $0.key == hit.logo } || found.logos.isEmpty)
+        let opening = await search.openProgramme(hit.row.id)
+        let sheet = try XCTUnwrap(opening)
+        let opened = await sheet.read()
+        XCTAssertEqual(opened.title, hit.row.title)
+        await sheet.closed()
+
+        // The recordings: read as the scope is turned to, and narrowed by the words in the box.
+        await search.type("")
+        await search.chooseScope("recordings")
+        let explained = await until(search.read) { $0.scope == "recordings" }
+        XCTAssertEqual(explained.shows, "scopeExplained")
+        XCTAssertEqual(explained.said.title, "録画を検索")
+        let titles = await until(app.recordings().read) { !$0.rows.isEmpty }
+        let recording = try XCTUnwrap(titles.rows.first)
+        await search.type(recording.title)
+        let recorded = await until(search.read) { $0.shows == "results" && !$0.recordings.isEmpty }
+        XCTAssertTrue(recorded.recordings.contains { $0.id == recording.id })
+        XCTAssertTrue(recorded.countLine.hasPrefix("録画 "), recorded.countLine)
+        let openingTitle = await search.openRecording(recording.id)
+        let titleSheet = try XCTUnwrap(openingTitle)
+        await titleSheet.closed()
+
+        // The reservations the same way.
+        await search.type("")
+        await search.chooseScope("reservations")
+        let listed = await until(app.reservations().read) { !$0.sections.isEmpty }
+        let reservation = try XCTUnwrap(listed.sections.first?.rows.first)
+        await search.type(reservation.title)
+        let reserved = await until(search.read) { $0.shows == "results" && !$0.reservations.isEmpty }
+        let foundReservation = try XCTUnwrap(reserved.reservations.first { $0.id == reservation.id })
+        XCTAssertTrue(foundReservation.time.contains("(") && foundReservation.time.hasSuffix(reservation.time),
+                      "found away from the days' headings, it says its day: \(foundReservation.time)")
+        let openingReservation = await search.openReservation(reservation.id)
+        let reservationSheet = try XCTUnwrap(openingReservation)
+        await reservationSheet.closed()
+
+        // Words nothing has.
+        await search.type("どこにもない言葉")
+        let nothing = await until(search.read) { $0.shows == "nothingFound" }
+        XCTAssertTrue(nothing.said.detail.contains("どこにもない言葉"))
+        XCTAssertEqual(nothing.countLine, "")
+
+        // With the screen gone the guide is searched no more: the words wait for it to come back.
+        await search.chooseScope("guide")
+        _ = await until(search.read) { $0.shows == "nothingFound" || $0.shows == "waiting" }
+        await search.shown(false)
+        await search.type(coming.title)
+        try await Task.sleep(for: .milliseconds(600))
+        let away = await search.read()
+        XCTAssertEqual(away.shows, "waiting")
+        await search.shown(true)
+        _ = await until(search.read) { $0.shows == "results" }
+        await search.shown(false)
+    }
+
+    @MainActor
     func testLeavingTheDemoGoesBackToNoRecorder() async throws {
         let app = await demo()
         let devices = app.devices()

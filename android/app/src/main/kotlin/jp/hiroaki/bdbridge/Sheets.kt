@@ -148,9 +148,11 @@ private fun AskDialog(asked: Asked, act: () -> Unit, closeAsked: () -> Unit, act
 /** The programme's sheet: what it is, the reservations of it, and 録画予約 where it is offered. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProgrammeSheetView(row: Programme, close: () -> Unit) {
+fun ProgrammeSheetView(row: Programme, starts: String = row.time,
+                       open: suspend () -> RecBridge.ProgrammeSheetHandle? = { RecBridge.openProgramme(row.id) },
+                       close: () -> Unit) {
     val scope = rememberCoroutineScope()
-    val handle = rememberOpened(row.id) { RecBridge.openProgramme(row.id) }
+    val handle = rememberOpened(row.id, open)
     val sheet = handle?.let { it.shown.collectAsState().value }
     var editing by remember { mutableStateOf<String?>(null) }
     val act = { work: suspend RecBridge.ProgrammeSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
@@ -160,7 +162,7 @@ fun ProgrammeSheetView(row: Programme, close: () -> Unit) {
         Title(sheet?.title ?: row.title)
         sheet?.waking?.takeIf { it.isNotEmpty() }?.let { Working(it) }
         Value("放送", sheet?.station ?: row.station)
-        Value("開始", sheet?.starts ?: row.time)
+        Value("開始", sheet?.starts ?: starts)
         Value("長さ", sheet?.length ?: row.length)
         (sheet?.genre ?: row.genre).takeIf { it.isNotEmpty() }?.let { Value("ジャンル", it) }
         if (sheet == null) {
@@ -339,9 +341,10 @@ fun ReservationSheetView(title: String, open: suspend () -> RecBridge.Reservatio
  * lays them out. It opens at once with what the row says.
  */
 @Composable
-fun TitleSheetView(row: RecordingItem, close: () -> Unit) {
+fun TitleSheetView(row: RecordingItem, open: suspend () -> RecBridge.TitleSheetHandle? = { RecBridge.openRecording(row.id) },
+                   close: () -> Unit) {
     val scope = rememberCoroutineScope()
-    val handle = rememberOpened(row.id) { RecBridge.openRecording(row.id) }
+    val handle = rememberOpened(row.id, open)
     val sheet = handle?.let { it.shown.collectAsState().value }
     val act = { work: suspend RecBridge.TitleSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
 

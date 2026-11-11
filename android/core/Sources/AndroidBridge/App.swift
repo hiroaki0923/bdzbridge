@@ -83,6 +83,9 @@ public final class RecBridgeApp: Sendable {
     public func reservations() -> ReservationsWindow { ReservationsWindow(model) }
     public func recordings() -> RecordingsWindow { RecordingsWindow(model) }
     public func strip() -> StripWindow { StripWindow(model) }
+    public func search() async -> SearchWindow {
+        await MainActor.run { SearchWindow(model) }
+    }
     public func settings() async -> SettingsWindow {
         await MainActor.run { SettingsWindow(model, quality: quality, version: version) }
     }
