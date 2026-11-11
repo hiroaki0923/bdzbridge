@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -63,21 +64,37 @@ import kotlinx.coroutines.launch
 // field follows, each button offers and holds back, and each press does, are the model's.
 
 /**
- * The settings: the recorder, the mode a new reservation starts at, the search, the stations, the guide kept on this
- * device, the demo and the app. Sections in the iOS screen's order, a heading over each that has one there.
+ * The settings: the recorder, the mode a new reservation starts at, the television, the search, the stations, the
+ * guide kept on this device, the demo and the app. Sections in the iOS screen's order, a heading over each that has one
+ * there. The television's sheet is this screen's, whether its part asked for it or a television the search found.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit) {
+fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit, checkTV: () -> Unit) {
     val shown = RecBridge.settings.collectAsState().value
         ?: return Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { RecBridge.act { it.settings.appeared() } }
     var guideFailure by remember { mutableStateOf<String?>(null) }
+    var tvSheet by remember { mutableStateOf<TVSheetRequest?>(null) }
+    var helperSheet by remember { mutableStateOf<Long?>(null) }
     guideFailure?.let { said ->
         AlertDialog(onDismissRequest = { guideFailure = null },
                     confirmButton = { TextButton(onClick = { guideFailure = null }) { Text("OK") } },
                     title = { Text("番組表を取得できませんでした") }, text = { Text(said) })
+    }
+    tvSheet?.let { request -> TVRegisterSheetView(request) { tvSheet = null } }
+    helperSheet?.let { key -> HelperRegisterSheetView(key) { helperSheet = null } }
+    if (shown.television.asksToRemove) {
+        val close = { scope.launch { RecBridge.act { it.settings.removalClosed() } } }
+        AlertDialog(onDismissRequest = { close() },
+                    title = { Text(shown.television.removalQuestion) }, text = { Text(shown.television.removalMessage) },
+                    confirmButton = {
+                        TextButton(onClick = { scope.launch { RecBridge.act { it.settings.confirmRemovingTV() } } }) {
+                            Text("外す", color = MaterialTheme.colorScheme.error)
+                        }
+                    },
+                    dismissButton = { TextButton(onClick = { close() }) { Text("キャンセル") } })
     }
     Scaffold(topBar = { TopAppBar(title = { Text("設定") }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -93,6 +110,8 @@ fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit) {
                          + "予約するときに変えても、ここは変わりません。", Modifier.padding(horizontal = 16.dp))
             }
 
+            television(shown, check = checkTV, register = { tvSheet = it }, registerHelper = { helperSheet = it })
+
             item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
             item {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -105,9 +124,19 @@ fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit) {
                         }
                     }
                     if (shown.outcome.isNotEmpty()) SearchOutcome(shown.outcome, shown.outcomeFailed, shown.outcomeNote, shown.causes)
+                    // In the demo the search finds the invented recorder and television alone, and nothing real.
+                    Footnote(if (shown.demo) "サンプルデータの表示中は、架空のレコーダーとテレビだけが見つかります。"
+                                             + "実際の機器を探すときは、先にサンプルを終了してください。"
+                             else "同じ Wi-Fi 上のレコーダーとテレビを探します。レコーダーを選ぶとそのレコーダーに切り替わり、"
+                                  + "テレビを選ぶとテレビの登録を始めます。")
                     if (shown.recorders.isNotEmpty()) {
                         FoundRecordersCard(shown.recorders, shown.canChoose) { host ->
                             scope.launch { RecBridge.act { it.settings.choose(host) } }
+                        }
+                    }
+                    if (shown.televisions.isNotEmpty()) {
+                        FoundTelevisionsCard(shown.televisions, enabled = true) { host ->
+                            tvSheet = TVSheetRequest(host, connectAtOnce = true, again = false)
                         }
                     }
                 }
@@ -125,6 +154,8 @@ fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit) {
             }
 
             item { Heading("保存されている番組表") }
+            if (shown.guideSources.isNotEmpty()) item { GuideSourceItem(shown) }
+            else if (shown.guideSourceAlone.isNotEmpty()) item { FactItem(Fact("番組表の取得元", shown.guideSourceAlone)) }
             items(shown.guide) { FactItem(it) }
             item {
                 OutlinedButton(onClick = {
@@ -135,6 +166,14 @@ fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit) {
                 }, enabled = !shown.refreshHeld, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text("番組表を更新")
                 }
+            }
+            if (shown.guideSources.isNotEmpty()) item {
+                Footnote("テレビの番組表は、番組名などが半角で表示されます。予約、局の設定、ロゴはどちらを選んでも変わりません。"
+                         + (if (shown.helperProblem.isNotEmpty()) "\n" + shown.helperProblem else ""),
+                         Modifier.padding(horizontal = 16.dp))
+            } else if (shown.helperProblem.isNotEmpty()) item {
+                Text(shown.helperProblem, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
+                     modifier = Modifier.padding(horizontal = 16.dp))
             }
 
             item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
@@ -196,6 +235,95 @@ private fun RecorderFields(shown: Settings) {
             }
         }
         Footnote("MAC アドレスは、スリープ中のレコーダーを起動するために使います。接続時に自動で記録されるので、通常は入力不要です。")
+    }
+}
+
+/**
+ * The television's part: with one added, what it says of itself, 対応状況を調べる, what brings it back, the helper, and
+ * テレビを外す, which asks first; with none, the way to add one by its address.
+ */
+private fun LazyListScope.television(shown: Settings, check: () -> Unit, register: (TVSheetRequest) -> Unit,
+                                     registerHelper: (Long) -> Unit) {
+    val part = shown.television
+    item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
+    item { Heading("テレビ") }
+    if (!part.added) {
+        item {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { register(TVSheetRequest("", connectAtOnce = false, again = false)) }) {
+                    Text("アドレスを入力して追加")
+                }
+                Footnote(if (shown.demo) "サンプルデータでは、架空のテレビを追加して試せます。"
+                                         + "サンプルを終了すると、架空のテレビも消えます。"
+                         else "テレビは、「レコーダーとテレビを探す」で探せます。見つからないときは、テレビの IP アドレスを"
+                              + "入力して追加できます。登録のときに、テレビの画面に表示される 4 桁の番号を入力します。")
+            }
+        }
+        return
+    }
+    items(part.facts) { FactItem(it) }
+    item {
+        ListItem(headlineContent = { Text("対応状況を調べる") },
+                 trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+                 modifier = Modifier.clickable(onClick = check))
+    }
+    if (part.offersTheHelper) item {
+        FactItem(Fact("番組表（ヘルパー）", if (part.helperRegistered) "登録済み" else "未登録"))
+    }
+    item {
+        val scope = rememberCoroutineScope()
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (part.offersRegistering) {
+                FilledTonalButton(onClick = { register(TVSheetRequest("", connectAtOnce = false, again = true)) }) {
+                    Text("登録する")
+                }
+            } else if (part.offersReconnect) {
+                FilledTonalButton(onClick = { scope.launch { RecBridge.act { it.settings.reconnectTV() } } },
+                                  enabled = !part.reconnectHeld) { Text("再接続") }
+            }
+            if (part.offersTheHelper) {
+                if (part.helperRegistered) {
+                    OutlinedButton(onClick = { scope.launch { RecBridge.act { it.settings.forgetHelper() } } },
+                                   colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                        Text("ヘルパーの登録を解除")
+                    }
+                } else {
+                    OutlinedButton(onClick = { registerHelper(System.nanoTime()) }) { Text("ヘルパーに登録") }
+                }
+            }
+            OutlinedButton(onClick = { scope.launch { RecBridge.act { it.settings.removeTV() } } }, enabled = !part.removeHeld,
+                           colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                Text("テレビを外す")
+            }
+            // Why 外す left the television in place, above what went wrong with the television: both when both stand.
+            if (part.footer.isNotEmpty()) {
+                Text(part.footer, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
+
+/** 番組表の取得元, where both a recorder and a registered helper could give the guide, chosen from a menu under it. */
+@Composable
+private fun GuideSourceItem(shown: Settings) {
+    val scope = rememberCoroutineScope()
+    var open by remember { mutableStateOf(false) }
+    Box {
+        ListItem(headlineContent = { Text("番組表の取得元") },
+                 supportingContent = { Text(shown.guideSources.firstOrNull { it.code == shown.guideSource }?.label ?: "") },
+                 trailingContent = { Icon(Icons.Default.ArrowDropDown, contentDescription = null) },
+                 modifier = Modifier.clickable { open = true })
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            for (source in shown.guideSources) {
+                DropdownMenuItem(text = { Text(source.label) }, onClick = {
+                    open = false
+                    scope.launch { RecBridge.act { it.settings.chooseGuideSource(source.code) } }
+                }, leadingIcon = {
+                    if (source.code == shown.guideSource) Icon(Icons.Default.Check, contentDescription = null)
+                    else Box(Modifier.size(24.dp))
+                })
+            }
+        }
     }
 }
 

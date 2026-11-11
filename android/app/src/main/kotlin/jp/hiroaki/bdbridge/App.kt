@@ -70,8 +70,8 @@ enum class Destination(val label: String, val icon: ImageVector, val selectedIco
     Settings("設定", Icons.Outlined.Settings, Icons.Filled.Settings),
 }
 
-/** A page over the destinations, with the way back: the stations' settings, and ご利用上の注意. */
-enum class Page { Channels, Disclaimer }
+/** A page over the destinations, with the way back: the stations' settings, ご利用上の注意, and the television's 対応状況. */
+enum class Page { Channels, Disclaimer, Capabilities }
 
 /**
  * The destinations, with Material's navigation for the width: a bar along the foot of a phone, a rail down the side
@@ -86,6 +86,7 @@ fun RecorderScreen(search: () -> Unit) {
         when (page) {
             Page.Channels -> ChannelsPage { page = null }
             Page.Disclaimer -> DisclaimerPage { page = null }
+            Page.Capabilities -> CapabilitiesPage { page = null }
             null -> {}
         }
     }
@@ -105,7 +106,7 @@ private fun Destinations(search: () -> Unit, open: (Page) -> Unit) {
             Destination.Guide -> GuideScreen(search) { open(Page.Channels) }
             Destination.Reservations -> ReservationsScreen(search)
             Destination.Recordings -> RecordingsScreen(search)
-            Destination.Settings -> SettingsScreen({ open(Page.Channels) }) { open(Page.Disclaimer) }
+            Destination.Settings -> SettingsScreen({ open(Page.Channels) }, { open(Page.Disclaimer) }) { open(Page.Capabilities) }
         }
     }
     if (LocalConfiguration.current.screenWidthDp >= 600) {

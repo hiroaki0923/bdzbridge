@@ -4,8 +4,7 @@ import RecBridgeModel
 import RecorderKit
 
 /// The screen where a recorder is chosen, as the iOS app's tutorial chooses one: レコーダーとテレビを探す, a recorder
-/// the search found, an address typed, or the demo. The televisions the search finds come with the television's
-/// screens.
+/// the search found, an address typed, or the demo; and a television the search found, registered over it.
 public struct DevicesScreen: Sendable {
     /// Whether no recorder or television has been set up: the app opens on this screen then.
     public var welcomes: Bool
@@ -22,6 +21,11 @@ public struct DevicesScreen: Sendable {
     public var busy: String
     public var problem: String
     public var recorders: [FoundRecorder]
+    /// The televisions the search found, which wait while a recorder chosen here is being connected to (`choosing`):
+    /// its answer closes the screen, which would take a television's registration with it, its number left on the
+    /// panel for nobody.
+    public var televisions: [FoundTelevision]
+    public var choosing: Bool
     /// Whether the recorder in play may be changed now (`AppModel.canChangeRecorder`): what the rows, the address
     /// and the demo wait for.
     public var canChoose: Bool
@@ -139,6 +143,7 @@ public final class DevicesWindow: Sendable {
             outcomeNote: outcome?.noRecorderBeside ?? "", causes: outcome?.causes ?? [],
             busy: model.busy ?? "", problem: model.problem(for: .recorder)?.asABody ?? "",
             recorders: model.found.map { FoundRecorder($0, inUse: model.inUse($0)) },
+            televisions: FoundTelevision.all(model), choosing: choosing.chosenAt != nil,
             canChoose: model.canChangeRecorder, demo: model.demo,
             chosenAnswered: choosing.chosenAt.map { model.timesAttached > $0 } ?? false)
     }

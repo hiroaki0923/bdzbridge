@@ -42,8 +42,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
 /**
- * Where a recorder is chosen, as the iOS app's tutorial chooses one: the search, an address, or the demo. A screen of
- * its own over the others, closed with × -- or put off with あとで設定 while nothing is set up.
+ * Where a recorder is chosen, as the iOS app's tutorial chooses one: the search, an address, or the demo; and where a
+ * television the search found is registered, the search going on behind its sheet. A screen of its own over the
+ * others, closed with × -- or put off with あとで設定 while nothing is set up.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,7 +53,9 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
     var typing by rememberSaveable { mutableStateOf(false) }
     var address by rememberSaveable { mutableStateOf("") }
     var typed by remember { mutableStateOf(Typed("", false, "", false)) }
+    var tvSheet by remember { mutableStateOf<TVSheetRequest?>(null) }
     LaunchedEffect(address) { typed = RecBridge.typed(address) }
+    tvSheet?.let { request -> TVRegisterSheetView(request) { tvSheet = null } }
     BackHandler(onBack = close)
     Scaffold(topBar = {
         TopAppBar(
@@ -99,6 +102,11 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
                     scope.launch { RecBridge.act { it.devices.choose(host) } }
                 }
             }
+            if (shown.televisions.isNotEmpty()) item {
+                FoundTelevisionsCard(shown.televisions, enabled = !shown.choosing) { host ->
+                    tvSheet = TVSheetRequest(host, connectAtOnce = true, again = false)
+                }
+            }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (typing) {
@@ -114,7 +122,8 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
                     } else {
                         OutlinedButton(onClick = { typing = true }, modifier = Modifier.fillMaxWidth()) { Text("IP アドレスを直接入力") }
                     }
-                    Footnote("見つからない場合は、レコーダーの設定画面で確認できる IP アドレスを直接入力できます。")
+                    Footnote("見つからない場合は、レコーダーの設定画面で確認できる IP アドレスを直接入力できます。"
+                             + "テレビは、あとで設定の「テレビ」からアドレスを入力して追加できます。")
                 }
             }
             item {

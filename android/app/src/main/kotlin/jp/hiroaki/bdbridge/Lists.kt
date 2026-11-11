@@ -27,6 +27,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -146,6 +147,11 @@ fun RecordingsScreen(search: () -> Unit) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(shown.loadKey) { RecBridge.act { it.recordings.load() } }
     LaunchedEffect(shown.tvKey) { RecBridge.act { it.recordings.loadTV() } }
+    // While the screen is on, Swift waits for a television's list that may still be coming.
+    DisposableEffect(Unit) {
+        RecBridge.recordingsShown(true)
+        onDispose { RecBridge.recordingsShown(false) }
+    }
     LaunchedEffect(shown.outdatedKey) { RecBridge.act { it.recordings.loadOutdated() } }
     var opened by remember { mutableStateOf<RecordingItem?>(null) }
     opened?.let { row -> TitleSheetView(row) { opened = null } }

@@ -34,21 +34,22 @@ public final class RecBridgeApp: Sendable {
 
     /// The app's model, made the first time and the same one after that: one model for the process, since each
     /// has its own link to the recorder, which answers one request at a time. `files` is the app's own folder, where
-    /// the settings and the guide are kept; `version` is what the app's version is called (`0.1 (1)`).
-    public static func open(files: String, version: String) async -> RecBridgeApp {
+    /// the settings and the guide are kept; `kept`, the folder of its that never leaves the device, where the
+    /// television's registration is (`KeptTVCredentials`); `version` is what the app's version is called (`0.1 (1)`).
+    public static func open(files: String, kept: String, version: String) async -> RecBridgeApp {
         await MainActor.run {
             if let opened { return opened }
-            let app = made(files: files, version: version)
+            let app = made(files: files, kept: kept, version: version)
             opened = app
             return app
         }
     }
 
-    /// A model on `files`: what `open` makes once for the process, and each test for itself.
+    /// A model on `files` and `kept`: what `open` makes once for the process, and each test for itself.
     @MainActor
-    static func made(files: String, version: String) -> RecBridgeApp {
+    static func made(files: String, kept: String, version: String) -> RecBridgeApp {
         let defaults = WrittenDefaults.android(files: files)
-        let model = AppModel(surroundings: .android(files: files, defaults: defaults, version: version))
+        let model = AppModel(surroundings: .android(files: files, kept: kept, defaults: defaults, version: version))
         return RecBridgeApp(model: model, quality: ChosenQuality(defaults), version: version)
     }
 
@@ -91,14 +92,36 @@ public final class RecBridgeApp: Sendable {
     public func channels() async -> ChannelsWindow {
         await MainActor.run { ChannelsWindow(ChannelsState(broadcasting: model.broadcasting, model: model)) }
     }
+
+    /// The sheet that adds a television at `host` -- one a search found, going straight on to it (`connectAtOnce`),
+    /// or an address to type -- or registers with the one added again (`again`).
+    public func registerTV(host: String, connectAtOnce: Bool, again: Bool) async -> TVRegisterWindow {
+        await MainActor.run {
+            TVRegisterWindow(TVRegisterState(model: model, host: host, connectAtOnce: connectAtOnce, again: again))
+        }
+    }
+
+    /// The same sheet, registering with the television added again: the strip's 登録 and the settings' 登録する.
+    public func registerTVAgain() async -> TVRegisterWindow {
+        await MainActor.run {
+            TVRegisterWindow(TVRegisterState(model: model, host: model.tv?.host ?? "", again: true))
+        }
+    }
+
+    /// The sheet that registers with the helper on the television added.
+    public func registerHelper() async -> HelperRegisterWindow {
+        await MainActor.run { HelperRegisterWindow(HelperRegisterState(model: model)) }
+    }
 }
 
 extension Surroundings {
-    /// What the model reaches on Android. The settings go in a file of the app's folder (`WrittenDefaults`). What only
-    /// the iOS app has yet -- notifications, the network's watcher, the television's registration kept for good, the
-    /// demo's logos -- is left as the model's own defaults give it, which do nothing.
-    static func android(files: String, defaults: WrittenDefaults, version: String) -> Surroundings {
+    /// What the model reaches on Android. The settings go in a file of the app's folder (`WrittenDefaults`), the
+    /// television's registration and the helper's token in the folder that never leaves the device (`Kept.swift`).
+    /// What only the iOS app has yet -- notifications, the network's watcher, the demo's logos -- is left as the
+    /// model's own defaults give it, which do nothing.
+    static func android(files: String, kept: String, defaults: WrittenDefaults, version: String) -> Surroundings {
         let folder = URL(fileURLWithPath: files, isDirectory: true)
+        let keptFolder = URL(fileURLWithPath: kept, isDirectory: true)
         var android = Surroundings(defaults: defaults, folder: { folder }, transport: { _ in URLSessionTransport() },
                                    networkSignature: LocalNetwork.signature, reachesTheLAN: true,
                                    asksAboutNotifications: false)
@@ -107,6 +130,9 @@ extension Surroundings {
         android.scanTransport = { URLSessionTransport.withoutCookies() }
         android.scanPause = { try? await Task.sleep(for: $0) }
         android.appVersion = { version }
+        android.tvCredentials = KeptTVCredentials(folder: keptFolder)
+        android.tvHelperTokens = KeptTVHelperToken(folder: keptFolder)
+        android.helperLabel = "RecBridge (Android)"
         return android
     }
 }

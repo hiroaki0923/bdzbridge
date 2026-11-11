@@ -37,6 +37,7 @@ extension Surroundings {
         }
         app.demoLogo = DemoData.logo
         app.appVersion = { SettingsScreen.version }
+        app.helperLabel = "RecBridge (iPhone)"
         return app
     }
 }

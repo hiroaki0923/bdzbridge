@@ -12,9 +12,6 @@ public enum GuideSourceChoice: String, Sendable {
 /// The registration with the helper, which types are behind, the fetch and what is said of it are the package's
 /// (`TVHelperGuide`); what the last fetch said is kept here.
 extension AppModel {
-    /// What the helper lists this phone as.
-    static let helperLabel = "RecBridge (iPhone)"
-
     /// The reader's choice where both devices could give the guide: unset is the recorder.
     public var guideSourcePreference: GuideSourceChoice {
         GuideSourceChoice(rawValue: defaults.string(forKey: DefaultsKey.guideSource) ?? "") ?? .recorder
@@ -48,7 +45,7 @@ extension AppModel {
     /// settings.
     public func registerHelper(code: String) async -> String? {
         guard let tvHelper else { return TVDriver.notConnected }
-        if let why = await tvHelper.register(code: code, label: Self.helperLabel) { return why }
+        if let why = await tvHelper.register(code: code, label: surroundings.helperLabel) { return why }
         helperProblem = nil
         if host.isEmpty { await adoptGuideSource() }
         return nil

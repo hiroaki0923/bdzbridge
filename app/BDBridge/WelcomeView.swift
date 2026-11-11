@@ -145,7 +145,7 @@ struct WelcomeView: View {
             // this one is not its going: the search goes on behind the television's.
             .onDisappear { model.stopScanning() }
             .sheet(item: $tvSheet) {
-                TVRegisterSheet(host: $0.host, connectAtOnce: $0.connectAtOnce, again: $0.again)
+                TVRegisterSheet(model: model, host: $0.host, connectAtOnce: $0.connectAtOnce, again: $0.again)
             }
             .onChange(of: model.timesAttached) {
                 if let chosenAt, model.timesAttached > chosenAt { dismiss() }
