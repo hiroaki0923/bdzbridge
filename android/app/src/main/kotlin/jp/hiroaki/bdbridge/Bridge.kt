@@ -7,8 +7,11 @@ import java.util.concurrent.CompletableFuture
 import jp.hiroaki.bdbridge.bridge.AndroidBridge
 import jp.hiroaki.bdbridge.bridge.ChannelsWindow
 import jp.hiroaki.bdbridge.bridge.DevicesWindow
+import jp.hiroaki.bdbridge.bridge.DuplicatesWindow
+import jp.hiroaki.bdbridge.bridge.GroupWindow
 import jp.hiroaki.bdbridge.bridge.GuideWindow
 import jp.hiroaki.bdbridge.bridge.HelperRegisterWindow
+import jp.hiroaki.bdbridge.bridge.JobWindow
 import jp.hiroaki.bdbridge.bridge.ProgrammeSheetWindow
 import jp.hiroaki.bdbridge.bridge.RecBridgeApp
 import jp.hiroaki.bdbridge.bridge.RecordingsWindow
@@ -54,7 +57,7 @@ object RecBridge {
     class Windows(
         val app: RecBridgeApp, val devices: DevicesWindow, val guide: GuideWindow,
         val reservations: ReservationsWindow, val recordings: RecordingsWindow, val strip: StripWindow,
-        val settings: SettingsWindow, val search: SearchWindow,
+        val settings: SettingsWindow, val search: SearchWindow, val job: JobWindow, val duplicates: DuplicatesWindow,
     )
 
     private val _devices = MutableStateFlow<Devices?>(null)
@@ -64,6 +67,8 @@ object RecBridge {
     private val _strip = MutableStateFlow<Strip?>(null)
     private val _settings = MutableStateFlow<Settings?>(null)
     private val _search = MutableStateFlow<Search?>(null)
+    private val _job = MutableStateFlow<JobBar?>(null)
+    private val _duplicates = MutableStateFlow<Duplicates?>(null)
     val devices: StateFlow<Devices?> = _devices
     val guide: StateFlow<Guide?> = _guide
     val reservations: StateFlow<Reservations?> = _reservations
@@ -71,6 +76,8 @@ object RecBridge {
     val strip: StateFlow<Strip?> = _strip
     val settings: StateFlow<Settings?> = _settings
     val search: StateFlow<Search?> = _search
+    val job: StateFlow<JobBar?> = _job
+    val duplicates: StateFlow<Duplicates?> = _duplicates
 
     /**
      * Runs `work` where nothing a screen does cancels it: for what has to finish whatever becomes of the screen that
@@ -98,8 +105,8 @@ object RecBridge {
         scope.launch {
             val app = call { RecBridgeApp.open(files, kept, version, arena) }
             val windows = Windows(app, app.devices(arena), app.guide(arena), call { app.reservations(arena) },
-                                  app.recordings(arena), app.strip(arena), call { app.settings(arena) },
-                                  call { app.search(arena) })
+                                  call { app.recordings(arena) }, app.strip(arena), call { app.settings(arena) },
+                                  call { app.search(arena) }, app.job(arena), call { app.duplicates(arena) })
             watch({ windows.devices.observe(it) }, { Devices(call { windows.devices.read(arena) }) }, _devices)
             watch({ windows.guide.observe(it) }, { Guide(call { windows.guide.read(arena) }) }, _guide)
             watch({ windows.reservations.observe(it) }, { Reservations(call { windows.reservations.read(arena) }) }, _reservations)
@@ -107,6 +114,8 @@ object RecBridge {
             watch({ windows.strip.observe(it) }, { Strip(call { windows.strip.read(arena) }) }, _strip)
             watch({ windows.settings.observe(it) }, { Settings(call { windows.settings.read(arena) }) }, _settings)
             watch({ windows.search.observe(it) }, { Search(call { windows.search.read(arena) }) }, _search)
+            watch({ windows.job.observe(it) }, { JobBar(call { windows.job.read(arena) }) }, _job)
+            watch({ windows.duplicates.observe(it) }, { Duplicates(call { windows.duplicates.read(arena) }) }, _duplicates)
             // The box starts with what the model has in it; nothing but the reader changes it after that.
             launch { searchField.follow(search.filterNotNull().first().query, 0) }
             launch {
@@ -272,6 +281,14 @@ object RecBridge {
     suspend fun openRecording(id: String): TitleSheetHandle? =
         ask { it.recordings.open(id, arena) }.orElse(null)?.let { TitleSheetHandle(it) }
 
+    /** The page of a programme in まとめ, opened: nil when the list no longer has it. */
+    suspend fun openGroup(id: String): GroupHandle? =
+        ask { it.recordings.openGroup(id, arena) }.orElse(null)?.let { GroupHandle(it) }
+
+    /** The sheet of a copy among the duplicates, opened: nil when no set has it any more. */
+    suspend fun openCopy(id: String): TitleSheetHandle? =
+        ask { it.duplicates.open(id, arena) }.orElse(null)?.let { TitleSheetHandle(it) }
+
     /** The sheet of a reservation in the list, opened: nil when the list no longer has it. */
     suspend fun openReservation(id: String): ReservationSheetHandle? =
         ask { it.reservations.open(id, arena) }.orElse(null)?.let { ReservationSheetHandle(it) }
@@ -353,6 +370,26 @@ object RecBridge {
         suspend fun delete() = call<Void> { window.delete() }.let {}
         suspend fun confirmDelete(key: String) = call<Void> { window.confirmDelete(key) }.let {}
         suspend fun closeAsked(key: String) = call<Void> { window.closeAsked(key) }.let {}
+    }
+
+    /** A programme's page: its recordings, the selection, and what is asked of them. */
+    class GroupHandle(private val window: GroupWindow) :
+        Sheet<Group>({ window.observe(it) }, { Group(call { window.read(arena) }) }) {
+        override suspend fun ended() = call<Void> { window.closed() }.let {}
+        suspend fun toggleSelecting() = call<Void> { window.toggleSelecting() }.let {}
+        suspend fun toggle(id: String) = call<Void> { window.toggle(id) }.let {}
+        suspend fun selectWhatCanBeDeleted() = call<Void> { window.selectWhatCanBeDeleted() }.let {}
+        suspend fun selectNothing() = call<Void> { window.selectNothing() }.let {}
+        suspend fun deleteChosen() = call<Void> { window.deleteChosen() }.let {}
+        suspend fun protect(on: Boolean) = call<Void> { window.protect(on) }.let {}
+        suspend fun protectAll(on: Boolean) = call<Void> { window.protectAll(on) }.let {}
+        suspend fun delete(id: String) = call<Void> { window.delete(id) }.let {}
+        suspend fun unprotect(id: String) = call<Void> { window.unprotect(id) }.let {}
+        suspend fun act(key: String) = call<Void> { window.act(key) }.let {}
+        suspend fun closeAsked(key: String) = call<Void> { window.closeAsked(key) }.let {}
+        /** The sheet of one of the programme's recordings, over the page. */
+        suspend fun open(id: String): TitleSheetHandle? =
+            call { window.open(id, arena) }.orElse(null)?.let { TitleSheetHandle(it) }
     }
 
     class ChannelsHandle(private val window: ChannelsWindow) :
@@ -448,8 +485,9 @@ private object MainQueue {
     private var running = false
     private val runner = object : Runnable {
         override fun run() {
-            AndroidBridge.runWhatWaitsOnTheMainQueue()
-            if (shown || calls > 0) mainThread.postDelayed(this, 16) else running = false
+            // What it answers: a step of a bulk job is in hand, to be finished though the app has left the screen.
+            val held = AndroidBridge.runWhatWaitsOnTheMainQueue()
+            if (shown || calls > 0 || held) mainThread.postDelayed(this, 16) else running = false
         }
     }
 
@@ -532,19 +570,90 @@ data class Waiting(
     val held: Boolean,
 )
 
+/**
+ * The recordings (`RecordingsWindow`): 一覧 (`rows`), まとめ (`groups`) or 重複, which has a window of its own
+ * (`Duplicates`); the menu's filters; and the one question or answer up at a time, its button held with `actionHeld`.
+ */
 data class Recordings(
-    val hasNoRecorder: Boolean, val noRecorder: NoRecorder, val isLoading: Boolean, val loadingTitle: String,
+    val modes: List<Labelled>, val mode: String, val hasNoRecorder: Boolean, val noRecorder: NoRecorder, val isLoading: Boolean, val loadingTitle: String,
     val loadingDetail: String, val emptyTitle: String, val emptyDetail: String, val heading: String,
     val subtitle: String, val destinations: List<Labelled>, val destination: String, val genres: List<Labelled>,
     val genre: String, val sorts: List<Labelled>, val sort: String, val states: List<Labelled>, val state: String,
-    val filtering: Boolean, val tvNote: String, val rows: List<RecordingItem>, val line: String,
+    val filtering: Boolean, val tvNote: String, val rows: List<RecordingItem>, val groups: List<GroupItem>,
+    val asked: Asked?, val actionHeld: Boolean, val line: String,
     val lineIsAProblem: Boolean, val loadKey: String, val tvKey: String, val outdatedKey: String,
 )
 
+/**
+ * A recording's row. `resume` is how far one watched partway was watched, in hundredths, and -1 for any other; `swipe`
+ * what the row offers under a swipe (`delete`, `unprotect` or nothing), held with `held`.
+ */
 data class RecordingItem(
-    val id: String, val title: String, val recording: Boolean, val protected: Boolean, val details: String,
-    val watched: String, val unwatched: Boolean, val genre: String,
+    val id: String, val title: String, val recording: Boolean = false, val protected: Boolean = false,
+    val details: String = "", val watched: String = "", val unwatched: Boolean = false, val resume: Long = -1,
+    val genre: String = "", val swipe: String = "", val held: Boolean = false,
 )
+
+/** A programme's row in まとめ. */
+data class GroupItem(
+    val id: String, val name: String, val count: String, val size: String, val unwatched: String,
+    val locked: String, val span: String,
+)
+
+/** The bulk job's bar (`JobWindow`): `progress` in hundredths. */
+data class JobBar(
+    val hasJob: Boolean, val finished: Boolean, val line: String, val stopping: String, val progress: Long,
+    val note: String, val why: String, val passedOver: List<String>,
+)
+
+private fun JobBar(it: jp.hiroaki.bdbridge.bridge.JobBar) =
+    JobBar(it.isHasJob, it.isFinished, it.line, it.stopping, it.progress, it.note, it.why, it.passedOver.toList())
+
+/** A programme's page (`GroupWindow`). */
+data class Group(
+    val name: String, val selecting: Boolean, val selectLabel: String, val selectHeld: Boolean,
+    val protectAllHeld: Boolean, val rows: List<GroupMember>, val count: String, val offersActions: Boolean,
+    val deleteLabel: String, val actionsHeld: Boolean, val asked: Asked?, val actionHeld: Boolean,
+    val asking: Boolean, val done: Boolean,
+)
+
+data class GroupMember(val row: RecordingItem, val selected: Boolean, val wouldBeDeleted: Boolean)
+
+private fun Group(it: jp.hiroaki.bdbridge.bridge.GroupScreen) = Group(
+    it.name, it.isSelecting, it.selectLabel, it.isSelectHeld, it.isProtectAllHeld,
+    it.getRows(arena).map { member -> GroupMember(RecordingItem(member.getRow(arena)), member.isSelected, member.isWouldBeDeleted) },
+    it.count, it.isOffersActions, it.deleteLabel, it.isActionsHeld, asked(it.isHasAsked, it.getAsked(arena)),
+    it.isActionHeld, it.isAsking, it.isDone,
+)
+
+/** The recordings that look like copies of one broadcast (`DuplicatesWindow`). */
+data class Duplicates(
+    val hasSets: Boolean, val promptTitle: String, val promptDetail: String, val scanLabel: String,
+    val scanHeld: Boolean, val explanation: String, val unread: String, val scanAgainHeld: Boolean,
+    val sets: List<CopySet>, val deleteLabel: String, val deleteHeld: Boolean, val asked: Asked?,
+    val actionHeld: Boolean,
+)
+
+data class CopySet(val id: String, val title: String, val details: String, val copies: List<Copy>)
+
+data class Copy(
+    val id: String, val keeping: Boolean, val mark: String, val deletable: Boolean, val tickHeld: Boolean,
+    val tickLabel: String, val reason: String, val protected: Boolean, val recorded: String, val details: String,
+)
+
+private fun Duplicates(it: jp.hiroaki.bdbridge.bridge.DuplicatesScreen) = it.getPrompt(arena).let { prompt ->
+    Duplicates(
+        it.isHasSets, prompt.title, prompt.detail, it.scanLabel, it.isScanHeld, it.explanation, it.unread,
+        it.isScanAgainHeld,
+        it.getSets(arena).map { set ->
+            CopySet(set.id, set.title, set.details, set.getCopies(arena).map { copy ->
+                Copy(copy.id, copy.isKeeping, copy.mark, copy.isDeletable, copy.isTickHeld, copy.tickLabel, copy.reason,
+                     copy.isProtected, copy.recorded, copy.details)
+            })
+        },
+        it.deleteLabel, it.isDeleteHeld, asked(it.isHasAsked, it.getAsked(arena)), it.isActionHeld,
+    )
+}
 
 private fun Programme(row: jp.hiroaki.bdbridge.bridge.GuideRow) =
     Programme(row.id, row.serviceID, row.time, row.length, row.title, row.station, row.mark, row.isMarkIsRed, row.genre,
@@ -556,7 +665,7 @@ private fun ReservationItem(row: jp.hiroaki.bdbridge.bridge.ReservationRow) =
 
 private fun RecordingItem(row: jp.hiroaki.bdbridge.bridge.RecordingRow) =
     RecordingItem(row.id, row.title, row.isRecording, row.isProtected, row.details, row.watched, row.isUnwatched,
-                  row.genre)
+                  row.resume, row.genre, row.swipe, row.isHeld)
 
 /**
  * The search (`SearchWindow`): what is said in place of the results, or what was found in the scope picked. A
@@ -628,11 +737,16 @@ private fun Recordings(it: jp.hiroaki.bdbridge.bridge.RecordingsScreen): Recordi
     val loading = it.getLoading(arena)
     val empty = it.getEmpty(arena)
     return Recordings(
+        labelled(it.getModes(arena)), it.mode,
         it.isHasNoRecorder, NoRecorder(it.getNoRecorder(arena)), it.isLoading, loading.title, loading.detail,
         empty.title, empty.detail, it.heading, it.subtitle, labelled(it.getDestinations(arena)), it.destination,
         labelled(it.getGenres(arena)), it.genre, labelled(it.getSorts(arena)), it.sort, labelled(it.getStates(arena)),
         it.state, it.isFiltering, it.tvNote,
         it.getRows(arena).map { row -> RecordingItem(row) },
+        it.getGroups(arena).map { group ->
+            GroupItem(group.id, group.name, group.count, group.size, group.unwatched, group.locked, group.span)
+        },
+        asked(it.isHasAsked, it.getAsked(arena)), it.isActionHeld,
         it.line, it.isLineIsAProblem, it.loadKey, it.tvKey, it.outdatedKey,
     )
 }

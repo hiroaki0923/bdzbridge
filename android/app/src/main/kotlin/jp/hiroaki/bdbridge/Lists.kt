@@ -10,16 +10,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -36,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Spacer
@@ -49,8 +55,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 
-// The reservations and the recordings as the iOS lists show them, for reading: their sheets, their sorting and
-// narrowing, and pulling down come with the screens' own steps.
+// The reservations and the recordings as the iOS lists show them, over the model's states of the two screens.
 
 /**
  * The reservations, the ones waiting on this device first, then under headings that stay as the list scrolls: the
@@ -223,8 +228,10 @@ private fun WaitingRow(item: Waiting) {
 }
 
 /**
- * The recordings, with the free space in the top app bar and the iOS screen's menu beside it: 録画先, ジャンル, 並び順
- * and 視聴状態. Pulled down, the list is read again from both devices.
+ * The recordings, with the free space in the top app bar, the three views of them before it -- 一覧, まとめ and 重複 --
+ * and the iOS screen's menu after it: 録画先, ジャンル, 並び順 and 視聴状態. Pulled down, the list is read again from
+ * both devices. A row swiped to the left asks to delete it, or takes the protection off a protected one. A programme
+ * of まとめ opens its page over the screen. What is asked, held and said is the model's (`RecordingsState`).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -241,42 +248,94 @@ fun RecordingsScreen(search: () -> Unit) {
     LaunchedEffect(shown.outdatedKey) { RecBridge.act { it.recordings.loadOutdated() } }
     var opened by remember { mutableStateOf<RecordingItem?>(null) }
     opened?.let { row -> TitleSheetView(row) { opened = null } }
+    // A copy among the duplicates, whose sheet is opened from its set.
+    var openedCopy by remember { mutableStateOf<RecordingItem?>(null) }
+    openedCopy?.let { row -> TitleSheetView(row, open = { RecBridge.openCopy(row.id) }) { openedCopy = null } }
+    var group by remember { mutableStateOf<GroupItem?>(null) }
+    shown.asked?.let { asked ->
+        AskDialog(asked, act = { scope.launch { RecBridge.act { it.recordings.act(asked.key) } } },
+                  closeAsked = { scope.launch { RecBridge.act { it.recordings.closeAsked(asked.key) } } },
+                  actionEnabled = !shown.actionHeld)
+    }
     var pulling by remember { mutableStateOf(false) }
-    Scaffold(topBar = {
-        Column {
-            TopAppBar(title = { TitleWithSubtitle(shown.heading, if (shown.hasNoRecorder || shown.isLoading) "" else shown.subtitle) },
-                      actions = { Filters(shown) })
-            StripBar()
-        }
-    }, bottomBar = {
-        Column {
-            // Under a list that is drawn, as on iOS: not while it is being read, nor with no recorder.
-            if (shown.tvNote.isNotEmpty() && !shown.hasNoRecorder && !shown.isLoading) Line(shown.tvNote, false)
-            Line(shown.line, shown.lineIsAProblem)
-        }
-    }) { padding ->
-        Box(Modifier.padding(padding)) {
-            when {
-                shown.hasNoRecorder -> NoRecorderView(Icons.Outlined.VideoLibrary, shown.noRecorder, search)
-                shown.isLoading -> Unavailable(Icons.Outlined.VideoLibrary, shown.loadingTitle, shown.loadingDetail)
-                else -> PullToRefreshBox(isRefreshing = pulling, onRefresh = {
-                    pulling = true
-                    scope.launch {
-                        try {
-                            RecBridge.act { it.recordings.pullDown() }
-                        } finally {
-                            pulling = false
+    val pulled = @Composable { content: @Composable () -> Unit ->
+        PullToRefreshBox(isRefreshing = pulling, onRefresh = {
+            pulling = true
+            scope.launch {
+                try {
+                    RecBridge.act { it.recordings.pullDown() }
+                } finally {
+                    pulling = false
+                }
+            }
+        }, modifier = Modifier.fillMaxSize()) { content() }
+    }
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(modifier = if (group != null) Modifier.clearAndSetSemantics {} else Modifier, topBar = {
+            Column {
+                TopAppBar(title = { TitleWithSubtitle(shown.heading, if (shown.hasNoRecorder || shown.isLoading) "" else shown.subtitle) },
+                          navigationIcon = { Views(shown) }, actions = { Filters(shown) })
+                StripBar()
+                JobBarView()
+            }
+        }, bottomBar = {
+            // Under a list that is drawn, as on iOS: not while it is being read, with no recorder, or over the
+            // duplicates.
+            if (shown.tvNote.isNotEmpty() && !shown.hasNoRecorder && !shown.isLoading && shown.mode != "dups") Line(shown.tvNote, false)
+        }) { padding ->
+            Box(Modifier.padding(padding)) {
+                // The empty state is the list's one item, so that an empty list can be pulled down as well.
+                val empty = @Composable { Unavailable(Icons.Outlined.VideoLibrary, shown.emptyTitle, shown.emptyDetail) }
+                when {
+                    shown.hasNoRecorder -> NoRecorderView(Icons.Outlined.VideoLibrary, shown.noRecorder, search)
+                    shown.isLoading -> Unavailable(Icons.Outlined.VideoLibrary, shown.loadingTitle, shown.loadingDetail)
+                    shown.mode == "dups" -> DuplicatesView { openedCopy = it }
+                    shown.mode == "groups" -> pulled {
+                        LazyColumn(Modifier.fillMaxSize()) {
+                            if (shown.groups.isEmpty()) item { Box(Modifier.fillParentMaxSize()) { empty() } }
+                            items(shown.groups, key = { it.id }) { programme -> GroupRowView(programme) { group = programme } }
                         }
                     }
-                }, modifier = Modifier.fillMaxSize()) {
-                    // The empty state is the list's one item, so that an empty list can be pulled down as well.
-                    LazyColumn(Modifier.fillMaxSize()) {
-                        if (shown.rows.isEmpty()) {
-                            item { Box(Modifier.fillParentMaxSize()) { Unavailable(Icons.Outlined.VideoLibrary, shown.emptyTitle, shown.emptyDetail) } }
+                    else -> pulled {
+                        LazyColumn(Modifier.fillMaxSize()) {
+                            if (shown.rows.isEmpty()) item { Box(Modifier.fillParentMaxSize()) { empty() } }
+                            items(shown.rows, key = { it.id }) { row ->
+                                RecordingSwipes(row, delete = { scope.launch { RecBridge.act { it.recordings.delete(row.id) } } },
+                                                unprotect = { scope.launch { RecBridge.act { it.recordings.unprotect(row.id) } } }) {
+                                    RecordingRow(row) { opened = row }
+                                }
+                            }
                         }
-                        items(shown.rows, key = { it.id }) { row -> RecordingRow(row) { opened = row } }
                     }
                 }
+            }
+        }
+        group?.let { programme -> GroupPage(programme) { group = null } }
+    }
+}
+
+/** 一覧, まとめ and 重複: the menu of the three views, under the icon of the one that is on. */
+@Composable
+private fun Views(shown: Recordings) {
+    val scope = rememberCoroutineScope()
+    var open by remember { mutableStateOf(false) }
+    val icon = { mode: String ->
+        when (mode) {
+            "groups" -> Icons.Outlined.Layers
+            "dups" -> Icons.Outlined.ContentCopy
+            else -> Icons.AutoMirrored.Filled.List
+        }
+    }
+    Box {
+        IconButton(onClick = { open = true }) { Icon(icon(shown.mode), contentDescription = "表示を変える") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            for (mode in shown.modes) {
+                DropdownMenuItem(text = { Text(mode.label) }, leadingIcon = { Icon(icon(mode.code), contentDescription = null) },
+                                 trailingIcon = { if (mode.code == shown.mode) Icon(Icons.Default.Check, contentDescription = null) },
+                                 onClick = {
+                                     open = false
+                                     scope.launch { RecBridge.act { it.recordings.chooseMode(mode.code) } }
+                                 })
             }
         }
     }
@@ -328,8 +387,10 @@ internal fun RecordingRow(item: RecordingItem, open: () -> Unit) {
         supportingContent = {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(item.details)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(item.watched, color = if (item.unwatched) colors.primary else colors.onSurfaceVariant)
+                    // How far one watched partway was watched, as the iOS row's bar.
+                    if (item.resume >= 0) LinearProgressIndicator(progress = { item.resume / 100f }, modifier = Modifier.width(60.dp))
                     if (item.genre.isNotEmpty()) Text(item.genre)
                 }
             }

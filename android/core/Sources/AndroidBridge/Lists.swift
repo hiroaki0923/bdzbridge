@@ -2,8 +2,8 @@ import Foundation
 import RecBridgeModel
 import RecorderKit
 
-// The reservations' and the recordings' screens as the iOS app lists them, for reading: their sheets, their
-// sorting and narrowing, and pulling down come with the screens' own steps.
+// The reservations' and the recordings' screens as the iOS app lists them, over the model's states of them
+// (`ReservationsState`, `RecordingsState`).
 
 /// The reservations' screen (`ReservationsScreen`).
 public struct ReservationsScreen: Sendable {
@@ -245,8 +245,12 @@ public final class ReservationsWindow: Sendable {
     }
 }
 
-/// The recordings' screen (`RecordingsScreen`), the list of every recording on every disk, newest first.
+/// The recordings' screen (`RecordingsScreen`): every recording on every disk, newest first, or the same recordings
+/// gathered into programmes; the ones recorded more than once have a window of their own (`DuplicatesWindow`).
 public struct RecordingsScreen: Sendable {
+    /// 一覧, まとめ and 重複, and the one on (`RecordingsState.Mode`).
+    public var modes: [Labelled]
+    public var mode: String
     public var hasNoRecorder: Bool
     public var noRecorder: NoRecorder
     /// Being read, with none read yet: what is said in place of the list.
@@ -272,6 +276,13 @@ public struct RecordingsScreen: Sendable {
     /// More on the television's disk than the list holds, said under it.
     public var tvNote: String
     public var rows: [RecordingRow]
+    /// The programmes, while まとめ is on.
+    public var groups: [GroupRow]
+    /// The question a row's delete asks, or what a delete or 保護解除 came to: one at a time (`hasAsked`), its
+    /// button held while the row's device works (`actionHeld`).
+    public var hasAsked: Bool
+    public var asked: Asked
+    public var actionHeld: Bool
     public var line: String
     public var lineIsAProblem: Bool
     /// What each list is read again by, as on the iOS screen: the recorder's (`load`) each time the app connects,
@@ -294,17 +305,44 @@ public struct RecordingRow: Sendable {
     /// `未視聴`, `視聴済み`, `途中まで`, and `unwatched` for the first, which is in the accent colour.
     public var watched: String
     public var unwatched: Bool
+    /// How far a recording watched partway was watched, in hundredths; -1 for any other, which has no bar.
+    public var resume: Int64
     public var genre: String
+    /// What the row offers under a swipe (`AppModel.swipe(for:)`): `delete`, `unprotect`, or nothing; held while the
+    /// row's device works or a run is under way.
+    public var swipe: String
+    public var held: Bool
+}
+
+/// A programme's row in まとめ: its name, how many recordings and how big, how many are new or protected where any
+/// are, and from when to when they run.
+public struct GroupRow: Sendable {
+    public var id: String
+    public var name: String
+    public var count: String
+    public var size: String
+    public var unwatched: String
+    public var locked: String
+    public var span: String
 }
 
 public final class RecordingsWindow: Sendable {
     let model: AppModel
+    let state: RecordingsState
+    private let mode: ShownMode
     private let shown: Watched<RecordingsScreen>
     private let wait = TaskByID()
 
-    init(_ model: AppModel) {
+    @MainActor
+    init(_ model: AppModel, mode: ShownMode) {
         self.model = model
-        shown = Watched { RecordingsWindow.screen(model) }
+        self.mode = mode
+        let state = RecordingsState(model: model)
+        self.state = state
+        shown = Watched { RecordingsWindow.screen(state, mode.mode, model) }
+        // As the iOS screen follows them with `onChange`, for as long as the app runs: the screen is the app's.
+        _ = onChange(of: { model.timesForgotten }) { _ in state.recordersListsLetGo() }
+        _ = onChange(of: { model.tvTimesForgotten }) { _ in state.televisionsListsLetGo() }
     }
 
     /// The screen has come on, or gone: told in the order it happened. While it is on, the window waits for a
@@ -352,6 +390,65 @@ public final class RecordingsWindow: Sendable {
         await MainActor.run { model.titleState = WatchState(rawValue: code) }
     }
 
+    /// 一覧, まとめ or 重複, kept as the iOS screen keeps it.
+    public func chooseMode(_ code: String) async {
+        await MainActor.run { if let chosen = RecordingsState.Mode(rawValue: code) { mode.choose(chosen) } }
+    }
+
+    // A swipe does nothing while the model holds its button back, as the iOS row's disabled button does.
+
+    /// 削除 on the recording whose row has `id`, asked first.
+    public func delete(_ id: String) async {
+        await MainActor.run {
+            guard let title = model.allTitles.first(where: { $0.listKey == id }), model.swipe(for: title) == .delete,
+                  !state.holds(title) else { return }
+            state.delete(title)
+        }
+    }
+
+    /// 保護解除 on the protected recording whose row has `id`.
+    public func unprotect(_ id: String) async {
+        await MainActor.run {
+            guard let title = model.allTitles.first(where: { $0.listKey == id }), model.swipe(for: title) == .unprotect,
+                  !state.holds(title) else { return }
+            state.unprotect(title)
+        }
+    }
+
+    /// The button of the question shown with `key` that does something, and the question closed with it, in the
+    /// order the iOS alert takes them.
+    public func act(_ key: String) async {
+        await MainActor.run {
+            guard let asked = state.ask, Self.key(asked) == key, !state.holdsTheAction(for: asked) else { return }
+            state.act(on: asked)
+            state.askClosed()
+        }
+    }
+
+    /// The question or the answer shown with `key` closed.
+    public func closeAsked(_ key: String) async {
+        await MainActor.run {
+            guard let asked = state.ask, Self.key(asked) == key else { return }
+            state.askClosed()
+        }
+    }
+
+    static func key(_ asked: RecordingsState.Ask) -> String {
+        switch asked {
+        case .confirm(let title): "confirm-\(title.listKey)"
+        case .failed(let said): "failed-\(said)"
+        case .told(let said): "told-\(said)"
+        }
+    }
+
+    /// The page of the programme whose row has `id`, while まとめ has it: a window of its own, ended as the page
+    /// closes (`GroupWindow.closed`).
+    public func openGroup(_ id: String) async -> GroupWindow? {
+        await MainActor.run {
+            model.titleGroups.first { $0.id == id }.map { GroupWindow(GroupSheetState(group: $0, model: model), model: model) }
+        }
+    }
+
     /// The sheet of the recording whose row has `id` (`RecordedTitle.listKey`), while the list has it.
     public func open(_ id: String) async -> TitleSheetWindow? {
         await MainActor.run {
@@ -362,17 +459,24 @@ public final class RecordingsWindow: Sendable {
     }
 
     @MainActor
-    private static func screen(_ model: AppModel) -> RecordingsScreen {
-        let listed = model.shownTitles
+    private static func screen(_ state: RecordingsState, _ mode: RecordingsState.Mode, _ model: AppModel) -> RecordingsScreen {
+        // Only what the view that is on shows: each read filters and sorts every recording, and まとめ groups them.
+        let listed = mode == .list ? model.shownTitles : []
+        let groups = mode == .groups ? model.titleGroups : []
         let problem = model.problem(for: .recorder) ?? model.problem(for: .tv)
+        let asked = state.ask.map { asked in
+            let action = state.actionLabel(for: asked)
+            return Asked(key: key(asked), title: state.askTitle, message: state.message(for: asked),
+                         action: action?.label ?? "", destructive: action?.destructive ?? false,
+                         closing: state.closingLabel(for: asked))
+        }
         return RecordingsScreen(
+            modes: RecordingsState.Mode.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
+            mode: mode.rawValue,
             hasNoRecorder: model.recordingsHaveNoRecorder, noRecorder: NoRecorder(model),
             isLoading: model.recordingsAreLoading, loading: Said(AppModel.loadingRecordings),
             empty: Said(model.noRecordingsSays),
-            heading: model.shownFreeBytes.map { "残り \(Format.gigabytes($0, on: model.shownFreeDevice))" } ?? "録画",
-            subtitle: model.busy ?? ([model.shownDestination.map(model.titleDestinationLabel),
-                                       model.titleGenre.flatMap { Codes.genreLabel[$0] }].compactMap { $0 }
-                                      + ["\(listed.count) 件"]).joined(separator: " · "),
+            heading: state.heading, subtitle: state.subtitle(in: mode),
             destinations: model.titleDestinations.isEmpty ? []
                 : [Labelled(code: "", label: "すべて")]
                     + model.titleDestinations.map { Labelled(code: $0.destination, label: $0.label) },
@@ -387,17 +491,27 @@ public final class RecordingsWindow: Sendable {
             sort: model.titleSort.rawValue,
             states: [Labelled(code: "", label: "すべて")] + WatchState.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
             state: model.titleState?.rawValue ?? "",
-            filtering: model.shownDestination != nil || model.titleGenre != nil || model.titleState != nil
-                || model.titleSort != .newest,
+            filtering: state.filtering,
             tvNote: model.tvTitlesNote?.asABody ?? "",
             rows: listed.map { row($0, model) },
+            groups: groups.map {
+                GroupRow(id: $0.id, name: $0.name, count: $0.countSaid, size: $0.sizeSaid, unwatched: $0.newSaid ?? "",
+                         locked: $0.protectedSaid ?? "", span: $0.span)
+            },
+            hasAsked: asked != nil,
+            asked: asked ?? Asked(key: "", title: "", message: "", action: "", destructive: false, closing: ""),
+            actionHeld: state.ask.map(state.holdsTheAction) ?? false,
             line: model.busy ?? problem?.asABody ?? "", lineIsAProblem: model.busy == nil && problem != nil,
             loadKey: "\(model.connected && !model.offline)", tvKey: model.tvTitlesToRead,
             outdatedKey: "\(model.titlesOutOfStep)")
     }
 
+    /// A recording's row. On a programme's page what it offers under a swipe and when that is held are the page's
+    /// to say (`swipe`, `held`); elsewhere the model's.
     @MainActor
-    static func row(_ title: RecordedTitle, _ model: AppModel) -> RecordingRow {
+    static func row(_ title: RecordedTitle, _ model: AppModel, swipe: AppModel.TitleSwipe?? = nil,
+                    held: Bool? = nil) -> RecordingRow {
+        let offered = swipe ?? model.swipe(for: title)
         var parts = [Format.dateTime.string(from: title.start)]
         if let disk = model.diskShown(title) { parts.append(disk) }
         let channel = model.channelName(for: title)
@@ -407,6 +521,10 @@ public final class RecordingsWindow: Sendable {
         if let quality = title.qualityName { parts.append(quality) }
         return RecordingRow(id: title.listKey, title: title.title, recording: title.recording, protected: title.protected,
                             details: parts.joined(separator: " · "), watched: title.watchState.label,
-                            unwatched: title.watchState == .unwatched, genre: title.genre?.label ?? "")
+                            unwatched: title.watchState == .unwatched,
+                            resume: title.watchState == .partway ? Int64((title.resumeFraction * 100).rounded()) : -1,
+                            genre: title.genre?.label ?? "",
+                            swipe: offered == .delete ? "delete" : offered == .unprotect ? "unprotect" : "",
+                            held: held ?? !model.canAlter(title))
     }
 }

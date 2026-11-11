@@ -121,7 +121,7 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertTrue(listed.sections.allSatisfy { $0.title.contains("(") && !$0.rows.isEmpty })
         XCTAssertTrue(listed.sections.flatMap(\.rows).allSatisfy { $0.time.count == 5 && !$0.title.isEmpty })
 
-        let recordings = app.recordings()
+        let recordings = await app.recordings()
         await recordings.load()
         let titles = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
         XCTAssertFalse(titles.hasNoRecorder)
@@ -162,7 +162,7 @@ final class AndroidBridgeTests: XCTestCase {
         let explained = await until(search.read) { $0.scope == "recordings" }
         XCTAssertEqual(explained.shows, "scopeExplained")
         XCTAssertEqual(explained.said.title, "録画を検索")
-        let titles = await until(app.recordings().read) { !$0.rows.isEmpty }
+        let titles = await until(await app.recordings().read) { !$0.rows.isEmpty }
         let recording = try XCTUnwrap(titles.rows.first)
         await search.type(recording.title)
         let recorded = await until(search.read) { $0.shows == "results" && !$0.recordings.isEmpty }
@@ -298,6 +298,201 @@ final class AndroidBridgeTests: XCTestCase {
         let sent = await until(list.read) { $0.waiting.isEmpty && $0.line.isEmpty }
         XCTAssertFalse(sent.hasAsked, "a row made said something: \(sent.asked.message)")
         XCTAssertNotNil(app.model.reservation(for: queued))
+    }
+
+    /// The recordings' three views, kept as picked; what a row offers under a swipe; a delete asked first and gone
+    /// with its question's own key; and 保護解除 from a protected row. Writes only to the demo's recorder.
+    @MainActor
+    func testTheRecordingsViewsAndARowsSwipe() async throws {
+        let app = await demo()
+        let recordings = await app.recordings()
+        await recordings.load()
+        let listed = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
+        XCTAssertEqual(listed.modes.map(\.label), ["一覧", "まとめ", "重複"])
+        XCTAssertEqual(listed.mode, "list")
+        XCTAssertTrue(listed.groups.isEmpty, "the programmes were worked out with the list on")
+        XCTAssertFalse(listed.hasAsked)
+        XCTAssertTrue(listed.rows.contains { $0.swipe == "delete" && !$0.protected })
+        let protected = try XCTUnwrap(listed.rows.first { $0.protected && !$0.recording }, "the demo has no protected recording")
+        XCTAssertEqual(protected.swipe, "unprotect")
+        XCTAssertTrue(listed.rows.filter(\.recording).allSatisfy { $0.swipe.isEmpty }, "a recording being recorded offers a swipe")
+        let partway = try XCTUnwrap(listed.rows.first { $0.resume >= 0 }, "the demo has no recording watched partway")
+        XCTAssertTrue((1...99).contains(partway.resume), "\(partway.resume)")
+        XCTAssertTrue(listed.rows.filter { $0.watched != partway.watched }.allSatisfy { $0.resume == -1 })
+
+        await recordings.chooseMode("groups")
+        let grouped = await until(recordings.read) { $0.mode == "groups" }
+        XCTAssertTrue(grouped.rows.isEmpty)
+        XCTAssertFalse(grouped.groups.isEmpty)
+        XCTAssertEqual(grouped.subtitle, "\(grouped.groups.count) 番組")
+        XCTAssertTrue(grouped.groups.allSatisfy { $0.count.hasSuffix(" 件") && $0.size.hasSuffix(" GB") && $0.span.contains(" 〜 ") })
+        // Kept where the next start of the app reads it.
+        let again = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
+        let kept = await again.recordings().read()
+        XCTAssertEqual(kept.mode, "groups")
+        await recordings.chooseMode("list")
+        _ = await until(recordings.read) { $0.mode == "list" && !$0.rows.isEmpty }
+
+        let going = try XCTUnwrap(listed.rows.first { $0.swipe == "delete" && !$0.held })
+        await recordings.delete(going.id)
+        let asking = await until(recordings.read) { $0.hasAsked }
+        XCTAssertEqual(asking.asked.title, "この録画を削除しますか？")
+        XCTAssertTrue(asking.asked.message.hasPrefix(going.title))
+        XCTAssertEqual(asking.asked.action, "削除する")
+        XCTAssertFalse(asking.actionHeld)
+        await recordings.act("another question")
+        await recordings.closeAsked(asking.asked.key)
+        let left = await until(recordings.read) { !$0.hasAsked }
+        XCTAssertTrue(left.rows.contains { $0.id == going.id }, "キャンセル deleted it")
+        await recordings.delete(going.id)
+        let asked = await until(recordings.read) { $0.hasAsked }
+        await recordings.act(asked.asked.key)
+        let gone = await until(recordings.read) { shown in !shown.rows.contains { $0.id == going.id } && shown.line.isEmpty }
+        XCTAssertFalse(gone.hasAsked, "a delete that went through said something: \(gone.asked.message)")
+
+        // 保護解除 on a row that offers the delete does nothing; on the protected one it takes the protection off.
+        await recordings.unprotect(try XCTUnwrap(gone.rows.first { $0.swipe == "delete" }).id)
+        await recordings.unprotect(protected.id)
+        let unprotected = await until(recordings.read) { shown in shown.rows.contains { $0.id == protected.id && !$0.protected } }
+        XCTAssertEqual(unprotected.rows.first { $0.id == protected.id }?.swipe, "delete")
+    }
+
+    /// A programme's page: the selection, a run over what is ticked with the job's bar following it, a row's own
+    /// delete, and the bulk delete asked first. Writes only to the demo's recorder.
+    @MainActor
+    func testAProgrammesPageSelectsAndRunsOverItsRecordings() async throws {
+        let app = await demo()
+        let recordings = await app.recordings()
+        await recordings.load()
+        _ = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
+        let programme = try XCTUnwrap(app.model.titleGroups.max { $0.count < $1.count })
+        XCTAssertGreaterThan(programme.count, 2, "the demo has no programme with three recordings")
+        let opening = await recordings.openGroup(programme.id)
+        let page = try XCTUnwrap(opening)
+        let nothing = await recordings.openGroup("none")
+        XCTAssertNil(nothing)
+        let job = app.job()
+        let idle = await job.read()
+        XCTAssertFalse(idle.hasJob)
+
+        let first = await page.read()
+        XCTAssertEqual(first.name, programme.name)
+        XCTAssertEqual(first.rows.count, programme.count)
+        XCTAssertFalse(first.selecting)
+        XCTAssertEqual(first.selectLabel, "選択")
+        XCTAssertFalse(first.offersActions)
+        XCTAssertFalse(first.done)
+
+        // Picking: a row ticked, then every row a delete would take.
+        await page.toggle(first.rows[0].row.id)
+        let notPicking = await page.read()
+        XCTAssertFalse(notPicking.rows[0].selected, "a row was ticked with the selection off")
+        await page.toggleSelecting()
+        await page.toggle(first.rows[0].row.id)
+        let ticked = await until(page.read) { $0.rows[0].selected }
+        XCTAssertEqual(ticked.selectLabel, "完了")
+        XCTAssertEqual(ticked.count, "1 件")
+        XCTAssertTrue(ticked.offersActions)
+        XCTAssertTrue(ticked.deleteLabel.hasPrefix("選択した 1 件を削除（"), ticked.deleteLabel)
+        XCTAssertTrue(ticked.rows.allSatisfy { $0.row.swipe.isEmpty }, "a row offers its swipe while picking")
+        await page.selectWhatCanBeDeleted()
+        let all = await until(page.read) { $0.rows.filter(\.selected).count > 1 }
+        XCTAssertEqual(Set(all.rows.filter(\.selected).map(\.row.id)), Set(all.rows.filter(\.wouldBeDeleted).map(\.row.id)))
+        await page.selectNothing()
+        _ = await until(page.read) { !$0.offersActions }
+
+        // 保護する over one row: the run begins, the selection ends, and the bar says what it came to.
+        let unprotected = try XCTUnwrap(first.rows.first { !$0.row.protected && !$0.row.recording })
+        await page.toggle(unprotected.row.id)
+        _ = await until(page.read) { $0.offersActions && !$0.actionsHeld }
+        await page.protect(true)
+        let ended = await until(job.read) { $0.hasJob && $0.finished }
+        XCTAssertFalse(ended.line.isEmpty)
+        XCTAssertEqual(ended.note, "")
+        let after = await until(page.read) { shown in shown.rows.contains { $0.row.id == unprotected.row.id && $0.row.protected } }
+        XCTAssertFalse(after.selecting, "the run began and the selection stayed")
+        await job.clear()
+        _ = await until(job.read) { !$0.hasJob }
+
+        // A row's own delete from its swipe, asked first.
+        let going = try XCTUnwrap(after.rows.first { $0.row.swipe == "delete" })
+        _ = await until(page.read) { shown in shown.rows.contains { $0.row.id == going.row.id && !$0.row.held } }
+        await page.delete(going.row.id)
+        let one = await until(page.read) { $0.hasAsked }
+        XCTAssertEqual(one.asked.title, "この録画を削除しますか？")
+        await page.act(one.asked.key)
+        let fewer = await until(page.read) { shown in !shown.rows.contains { $0.row.id == going.row.id } && !shown.asking }
+        XCTAssertFalse(fewer.hasAsked, "a delete that went through said something: \(fewer.asked.message)")
+
+        // The bulk delete of one ticked row: asked with how many, and the run takes it.
+        let last = try XCTUnwrap(fewer.rows.first { $0.wouldBeDeleted })
+        await page.toggleSelecting()
+        await page.toggle(last.row.id)
+        _ = await until(page.read) { $0.offersActions && !$0.actionsHeld }
+        await page.deleteChosen()
+        let bulk = await until(page.read) { $0.hasAsked }
+        XCTAssertEqual(bulk.asked.title, "選択した 1 件を削除しますか？")
+        XCTAssertEqual(bulk.asked.action, "1 件を削除する")
+        XCTAssertTrue(bulk.asked.destructive)
+        await page.act(bulk.asked.key)
+        _ = await until(job.read) { $0.hasJob && $0.finished }
+        let least = await until(page.read) { shown in !shown.rows.contains { $0.row.id == last.row.id } }
+        XCTAssertFalse(least.selecting)
+        await job.clear()
+        await page.closed()
+    }
+
+    /// The duplicates: the scan offered, the set it finds with the copy to go ticked, a tick taken off and put back,
+    /// and the delete of what is ticked asked first. Writes only to the demo's recorder.
+    @MainActor
+    func testTheDuplicatesAreScannedTickedAndDeleted() async throws {
+        let app = await demo()
+        let recordings = await app.recordings()
+        await recordings.load()
+        _ = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
+        let duplicates = await app.duplicates()
+        let before = await until(duplicates.read) { !$0.scanHeld }
+        XCTAssertFalse(before.hasSets)
+        XCTAssertEqual(before.prompt.title, "重複した録画を探す")
+        XCTAssertEqual(before.scanLabel, "検出を開始")
+        XCTAssertFalse(before.hasAsked)
+
+        await duplicates.scan()
+        let found = await until(duplicates.read, tries: 800) { $0.hasSets && !$0.scanAgainHeld }
+        let set = try XCTUnwrap(found.sets.first)
+        XCTAssertTrue(set.details.hasPrefix("\(set.copies.count) 本 · "), set.details)
+        XCTAssertTrue(set.copies.contains { $0.keeping && $0.mark == "残す" }, "no copy of the set is kept")
+        let going = try XCTUnwrap(set.copies.first { !$0.keeping }, "the scan ticked no copy")
+        XCTAssertEqual(going.mark, "削除")
+        XCTAssertTrue(going.deletable && !going.tickHeld)
+        XCTAssertTrue(going.tickLabel.hasSuffix("の録画を削除する対象に選ぶ"))
+        XCTAssertTrue(found.deleteLabel.hasPrefix("選択した "), found.deleteLabel)
+        await app.job().clear()
+
+        await duplicates.toggle(going.id)
+        let unticked = await until(duplicates.read) { shown in shown.sets.first?.copies.first { $0.id == going.id }?.keeping == true }
+        XCTAssertEqual(unticked.sets.first?.copies.first { $0.id == going.id }?.mark, "残す")
+        await duplicates.toggle(going.id)
+        _ = await until(duplicates.read) { shown in shown.sets.first?.copies.first { $0.id == going.id }?.keeping == false }
+
+        let opening = await duplicates.open(going.id)
+        let sheet = try XCTUnwrap(opening)
+        await sheet.closed()
+
+        await duplicates.delete()
+        let asking = await until(duplicates.read) { $0.hasAsked }
+        XCTAssertTrue(asking.asked.title.hasPrefix("重複した "), asking.asked.title)
+        XCTAssertTrue(asking.asked.action.hasSuffix(" 件を削除する"), asking.asked.action)
+        XCTAssertEqual(asking.asked.closing, "キャンセル")
+        await duplicates.act("another question")
+        let still = await duplicates.read()
+        XCTAssertTrue(still.hasAsked)
+        await duplicates.act(asking.asked.key)
+        _ = await until(app.job().read, tries: 800) { $0.hasJob && $0.finished }
+        let after = await until(recordings.read) { shown in !shown.rows.contains { $0.id.hasSuffix(going.id) } }
+        XCTAssertFalse(after.rows.isEmpty)
+        let closed = await duplicates.read()
+        XCTAssertFalse(closed.hasAsked)
     }
 
     @MainActor
@@ -475,7 +670,7 @@ extension AndroidBridgeTests {
     @MainActor
     func testTheRecordingsAreNarrowedAndSortedByTheMenu() async throws {
         let app = await demo()
-        let recordings = app.recordings()
+        let recordings = await app.recordings()
         await recordings.load()
         let all = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
         XCTAssertFalse(all.filtering)
@@ -511,7 +706,7 @@ extension AndroidBridgeTests {
     @MainActor
     func testARecordingIsProtectedAndDeletedFromItsSheet() async throws {
         let app = await demo()
-        let recordings = app.recordings()
+        let recordings = await app.recordings()
         await recordings.load()
         let listed = await until(recordings.read) { !$0.rows.isEmpty }
         let row = try XCTUnwrap(listed.rows.first { !$0.recording && !$0.protected })
