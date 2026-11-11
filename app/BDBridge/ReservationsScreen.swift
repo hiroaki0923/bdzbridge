@@ -7,56 +7,13 @@ import SwiftUI
 /// which device holds it while there are two to tell apart.
 struct ReservationsScreen: View {
     @Environment(AppModel.self) private var model
-    /// The row swiped, by its key in the list rather than by value: the reservation itself is read back out
-    /// of the model when the dialog asks, so a delete can only ever be sent for a row the list still holds.
-    /// By its key and not its id, which each device numbers for itself: a television's row is found by no
-    /// id among the recorder's, and an id the two share would find the recorder's row for the television's.
-    /// The device that holds it is kept with the key: the row is let go of when that device's lists are, and
-    /// not when the other's are.
-    @State private var removing: Picked?
-    /// The same for a reservation waiting to be sent, read back out of the queue.
-    @State private var removingPending: String?
-    @State private var failure: String?
-    /// What a waiting reservation sent again came to, where its row does not say it, or what a sending made
-    /// of one the reader was deleting: said once, in the alert.
-    @State private var said: String?
+    /// What is swiped and asked on this screen, and what it says over its list: the model's (`ReservationsState`).
+    @State private var state: ReservationsState
     @State private var opened: Reservation?
     @State private var welcoming = false
 
-    private struct Picked {
-        var listKey: String
-        var device: DeviceSlot
-    }
-
-    /// One alert does every job, because two on the same view is not something SwiftUI promises to honour.
-    /// A failure wins: it is the answer to what was just asked. So is what a waiting reservation sent again
-    /// came to.
-    private enum Shown {
-        case confirm(Reservation)
-        case confirmPending(PendingReservation)
-        case failed(String)
-        case said(String)
-    }
-
-    private var shown: Shown? {
-        if let failure { return .failed(failure) }
-        if let said { return .said(said) }
-        if let removing, let reservation = model.reservation(listKey: removing.listKey) {
-            return .confirm(reservation)
-        }
-        if let id = removingPending, let waiting = model.pending.first(where: { $0.id == id }) {
-            return .confirmPending(waiting)
-        }
-        return nil
-    }
-
-    private var alertTitle: String {
-        switch shown {
-        case .failed: "エラー"
-        case .said: "送信待ちの予約"
-        case .confirmPending: "送信待ちの予約を削除しますか？"
-        case .confirm, nil: "この予約を削除しますか？"
-        }
+    init(model: AppModel) {
+        _state = State(initialValue: ReservationsState(model: model))
     }
 
     var body: some View {
@@ -83,7 +40,7 @@ struct ReservationsScreen: View {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 0) {
                         Text("予約").font(.subheadline.weight(.semibold))
-                        Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        Text(state.subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -101,9 +58,8 @@ struct ReservationsScreen: View {
                             }
                         }
                     } label: {
-                        Image(systemName: model.reservationSort == .time && model.reservationKind == .all
-                              ? "line.3.horizontal.decrease.circle"
-                              : "line.3.horizontal.decrease.circle.fill")
+                        Image(systemName: state.narrowedOrSorted ? "line.3.horizontal.decrease.circle.fill"
+                                                                  : "line.3.horizontal.decrease.circle")
                     }
                     .accessibilityLabel("並び順を変更")
                 }
@@ -140,40 +96,19 @@ struct ReservationsScreen: View {
             // `timesForgotten`. The sheet closes itself. Not a waiting reservation picked for deletion, which
             // is the reader's and no recorder's. A television's row goes the same way with the television's
             // lists (`tvTimesForgotten`), and neither device's going lets go of a row of the other's.
-            .onChange(of: model.timesForgotten) { if removing?.device == .recorder { removing = nil } }
-            .onChange(of: model.tvTimesForgotten) { if removing?.device == .tv { removing = nil } }
+            .onChange(of: model.timesForgotten) { state.recordersListsLetGo() }
+            .onChange(of: model.tvTimesForgotten) { state.televisionsListsLetGo() }
             // `presenting:` hands the reservation to the buttons. Reading it from the state instead would
             // come up empty: SwiftUI closes the dialog first, and closing it is what clears the state.
-            .alert(alertTitle,
-                   isPresented: Binding(get: { shown != nil }, set: { if !$0 { closeAlert() } }),
-                   presenting: shown) { shown in
-                switch shown {
-                case .confirm(let reservation):
-                    Button("削除する", role: .destructive) {
-                        Task {
-                            if case .notDone(let why) = await model.cancel(reservation) { failure = why }
-                        }
-                    }
-                    Button("キャンセル", role: .cancel) {}
-                case .confirmPending(let waiting):
-                    Button("削除する", role: .destructive) {
-                        Task { if let instead = await model.deleteWaiting(waiting) { said = instead } }
-                    }
-                    Button("キャンセル", role: .cancel) {}
-                case .failed, .said:
-                    Button("OK", role: .cancel) {}
+            .alert(state.askTitle,
+                   isPresented: Binding(get: { state.ask != nil }, set: { if !$0 { state.askClosed() } }),
+                   presenting: state.ask) { asked in
+                if let action = state.actionLabel(for: asked) {
+                    Button(action.label, role: action.destructive ? .destructive : nil) { state.act(on: asked) }
                 }
-            } message: { shown in
-                switch shown {
-                case .confirm(let reservation):
-                    Text("\(Format.dateTime.string(from: reservation.start)) \(reservation.title)\n"
-                         + reservation.whatDeletingDoes(fromTheList: true))
-                case .confirmPending(let waiting):
-                    Text("\(Format.dateTime.string(from: waiting.request.start)) \(waiting.request.title)\n"
-                         + waiting.whatDeletingDoes)
-                case .failed(let reason), .said(let reason):
-                    Text(reason.asABody)
-                }
+                Button(state.closingLabel(for: asked), role: .cancel) {}
+            } message: { asked in
+                Text(state.message(for: asked))
             }
             // whatever goes wrong here has to be visible on this screen, not only on the others: the
             // recorder's line, and the television's when the recorder has nothing to say
@@ -197,75 +132,37 @@ struct ReservationsScreen: View {
         .welcomesHere($welcoming)
     }
 
-    /// Lets go of whatever the alert was up for, as it closes.
-    private func closeAlert() {
-        (removing, removingPending, failure, said) = (nil, nil, nil, nil)
-    }
-
-    private var subtitle: String {
-        let shown = model.shownReservations
-        let recording = shown.filter(\.recording).count
-        let clashing = shown.filter(\.conflict).count
-        var parts: [String] = []
-        if model.reservationKind != .all { parts.append(model.reservationKind.label) }
-        parts.append("\(shown.count) 件")
-        if recording > 0 { parts.append("録画中 \(recording)") }
-        if clashing > 0 { parts.append("重複 \(clashing)") }
-        return parts.joined(separator: " · ")
-    }
-
     private var list: some View {
         List {
-            ForEach([DeviceSlot.recorder, .tv], id: \.self) { device in
-                if let since = model.staleSince(for: device),
-                   model.shownReservations.contains(where: { $0.device == device }) {
-                    // A device that cannot be asked leaves its last list up, and what is on screen says how old
-                    // that is -- above its rows only, so not while the kind shown leaves them out. The words
-                    // turn over once a minute and never say less than one: a count of seconds would stand still
-                    // until the next turn. On the list's own ground, as a heading is: in a row's white it reads
-                    // as a row to tap.
-                    TimelineView(.periodic(from: .now, by: 60)) { context in
-                        let read = Self.ago(min(since, context.date.addingTimeInterval(-60)))
-                        Text("\(device.label)の予約は\(read)に読んだものです")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                    .listRowBackground(Color.clear)
+            ForEach(state.stale) { stale in
+                // How old the last list of a device that cannot be asked is, above its rows. The words turn
+                // over once a minute. On the list's own ground, as a heading is: in a row's white it reads as a
+                // row to tap.
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    Text(state.staleLine(stale, at: context.date))
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
+                .listRowBackground(Color.clear)
             }
             if !model.pending.isEmpty {
                 Section {
                     ForEach(model.pending) { waiting in
-                        // Held back while the device it waits for works, as that device's reservations below
-                        // are: a sending that is out may have this row in hand. Never by the other device's
-                        // work.
-                        let heldBack = model.isBusy(for: waiting.target)
+                        let heldBack = state.holds(waiting)
                         PendingRowView(waiting: waiting, device: model.deviceSaid(for: waiting),
                                        disk: model.diskShown(waiting))
-                            // 削除, as on the reservations below it, and asked first like every other delete.
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button("削除") { removingPending = waiting.id }.tint(.red).disabled(heldBack)
+                                Button("削除") { state.deleteWaiting(waiting) }.tint(.red).disabled(heldBack)
                             }
-                            // A refused one is not sent again by itself, since the answer would be the same;
-                            // the reader is the one who knows when whatever it names has changed. What it
-                            // came to is said here where the row does not say it, whichever device it waits
-                            // for; what the sending sent is said on the strip as well.
-                            // Nothing to say is not kept: it would take down what another row's sending
-                            // put up meanwhile -- a recorder's can be out for as long as a waking takes,
-                            // and a television's row sent after it is answered first -- before it was read.
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                                if waiting.problem != nil {
-                                    Button("もう一度送る") {
-                                        Task {
-                                            if let more = await model.sendAgain(waiting)?.besideItsRow { said = more }
-                                        }
-                                    }
-                                    .tint(.blue)
-                                    .disabled(heldBack)
+                                if state.offersSendingAgain(waiting) {
+                                    Button("もう一度送る") { state.sendAgain(waiting) }
+                                        .tint(.blue)
+                                        .disabled(heldBack)
                                 }
                             }
                     }
                 } header: {
-                    Text("送信待ち \(model.pending.count) 件")
+                    Text(state.waitingHeading)
                 } footer: {
                     Text(model.whatWaitsSays)
                 }
@@ -285,27 +182,15 @@ struct ReservationsScreen: View {
                         // Red without `role: .destructive`, which would animate the row away before there
                         // is an answer (see `titleSwipe`). A full swipe is off as well: this one asks first.
                         .swipeActions(allowsFullSwipe: false) {
-                            // A row stays listed until its delete has read the list again, the recorder's
-                            // as a television's, and a second delete sent meanwhile would be answered as if the
-                            // first had failed: held while the row's own device works.
-                            Button("削除") {
-                                removing = Picked(listKey: reservation.listKey, device: reservation.device)
-                            }
-                            .tint(.red)
-                            .disabled(model.isBusy(for: reservation.device))
+                            Button("削除") { state.delete(reservation) }
+                                .tint(.red)
+                                .disabled(state.holdsDeleting(reservation))
                         }
                     }
                 }
             }
         }
         .listStyle(.insetGrouped)
-    }
-
-    /// How long ago, in numbers and in Japanese (5 分前, and hours and days as they come): the words are part
-    /// of a Japanese sentence wherever the phone is set to, and 昨日 for a list read a day ago would say less
-    /// than the count does.
-    private static func ago(_ date: Date) -> String {
-        date.formatted(.relative(presentation: .numeric).locale(Locale(identifier: "ja_JP")))
     }
 }
 
