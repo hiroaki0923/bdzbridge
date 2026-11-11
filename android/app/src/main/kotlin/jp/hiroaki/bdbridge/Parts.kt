@@ -1,6 +1,7 @@
 package jp.hiroaki.bdbridge
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,12 +25,16 @@ import androidx.compose.material.icons.outlined.WifiOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,11 +45,15 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -213,6 +222,51 @@ fun minuteNow(): Long {
         }
     }
     return now
+}
+
+/** What a row's swipe does: its word, on its ground, and whether it does anything now. */
+class SwipeAction(val label: String, val container: Color, val content: Color, val enabled: Boolean, val act: () -> Unit)
+
+/**
+ * A row with what a swipe either way asks for, as an iOS row's swipe actions: `toTheRight` under a swipe to the
+ * right, `toTheLeft` under one to the left. The row never goes with the swipe -- it comes back, and what was asked
+ * for is asked first or answered by the device, the row going when the list is read again -- and a swipe does nothing
+ * while its action is held. The same actions are offered by name to a screen reader.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SwipeActions(toTheRight: SwipeAction?, toTheLeft: SwipeAction?, content: @Composable () -> Unit) {
+    // The state keeps the first lambda it was made with: what the row offers now is read through these.
+    val right by rememberUpdatedState(toTheRight)
+    val left by rememberUpdatedState(toTheLeft)
+    val state = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
+        when (value) {
+            SwipeToDismissBoxValue.StartToEnd -> right?.takeIf { it.enabled }?.act?.invoke()
+            SwipeToDismissBoxValue.EndToStart -> left?.takeIf { it.enabled }?.act?.invoke()
+            SwipeToDismissBoxValue.Settled -> {}
+        }
+        false
+    })
+    val named = listOfNotNull(toTheRight, toTheLeft).filter { it.enabled }.map { action ->
+        CustomAccessibilityAction(action.label) {
+            action.act()
+            true
+        }
+    }
+    SwipeToDismissBox(
+        state = state, enableDismissFromStartToEnd = toTheRight != null, enableDismissFromEndToStart = toTheLeft != null,
+        modifier = Modifier.semantics { customActions = named },
+        backgroundContent = {
+            val toRight = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+            val action = (if (toRight) toTheRight else toTheLeft) ?: return@SwipeToDismissBox
+            val (container, onContainer) = if (action.enabled) action.container to action.content
+                                           else MaterialTheme.colorScheme.surfaceContainerHighest to MaterialTheme.colorScheme.onSurfaceVariant
+            Box(Modifier.fillMaxSize().background(container).padding(horizontal = 20.dp),
+                contentAlignment = if (toRight) Alignment.CenterStart else Alignment.CenterEnd) {
+                Text(action.label, color = onContainer, style = MaterialTheme.typography.labelLarge)
+            }
+        },
+    ) { Column { content() } }
 }
 
 @Composable

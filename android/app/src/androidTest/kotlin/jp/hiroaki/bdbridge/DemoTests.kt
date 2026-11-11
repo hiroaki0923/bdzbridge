@@ -23,6 +23,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -211,6 +213,31 @@ class DemoTests {
         compose.onNodeWithText("登録元").assertExists()
         InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.waitUntilDoesNotExist(hasText("予約を削除"), 10_000)
+    }
+
+    /**
+     * The reservations' menu sorts the list by station and back by day; a row swiped to the left is asked about before
+     * anything is deleted, and キャンセル leaves it where it was.
+     */
+    @Test fun theReservationsAreSortedByTheMenuAndASwipeAsksBeforeDeleting() {
+        openTheDemo()
+        destination("予約").performClick()
+        compose.waitUntilAtLeastOneExists(aDay, 30_000)
+        compose.onNodeWithContentDescription("並び順を変更").performClick()
+        compose.onNodeWithText("局").performClick()
+        compose.waitUntilDoesNotExist(aDay, 10_000)
+        compose.onNodeWithContentDescription("並び順を変更").performClick()
+        compose.onNodeWithText("日時").performClick()
+        compose.waitUntilAtLeastOneExists(aDay, 10_000)
+
+        // A swipe does nothing while the recorder works: its line is waited out first.
+        compose.waitUntil(30_000) { RecBridge.reservations.value?.line?.isEmpty() == true }
+        val rows = RecBridge.reservations.value!!.sections.sumOf { it.rows.size }
+        compose.onAllNodes(aTimeAndALength)[0].performTouchInput { swipeLeft() }
+        compose.waitUntilAtLeastOneExists(hasText("この予約を削除しますか？"), 10_000)
+        compose.onNodeWithText("キャンセル").performClick()
+        compose.waitUntilDoesNotExist(hasText("この予約を削除しますか？"), 10_000)
+        assert(RecBridge.reservations.value!!.sections.sumOf { it.rows.size } == rows) { "キャンセル deleted a reservation" }
     }
 
     @Test fun aRecordingsSheetOpensFromTheListWithItsPlaybackAndItsDelete() {

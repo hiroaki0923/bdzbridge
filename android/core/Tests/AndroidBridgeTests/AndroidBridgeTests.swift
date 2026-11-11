@@ -112,7 +112,7 @@ final class AndroidBridgeTests: XCTestCase {
     @MainActor
     func testTheDemosReservationsAndRecordingsAreListed() async throws {
         let app = await demo()
-        let reservations = app.reservations()
+        let reservations = await app.reservations()
         await reservations.load()
         let listed = await until(reservations.read) { !$0.sections.isEmpty }
         XCTAssertFalse(listed.hasNoRecorder)
@@ -176,7 +176,7 @@ final class AndroidBridgeTests: XCTestCase {
         // The reservations the same way.
         await search.type("")
         await search.chooseScope("reservations")
-        let listed = await until(app.reservations().read) { !$0.sections.isEmpty }
+        let listed = await until(await app.reservations().read) { !$0.sections.isEmpty }
         let reservation = try XCTUnwrap(listed.sections.first?.rows.first)
         await search.type(reservation.title)
         let reserved = await until(search.read) { $0.shows == "results" && !$0.reservations.isEmpty }
@@ -206,6 +206,97 @@ final class AndroidBridgeTests: XCTestCase {
         await search.shown(true)
         _ = await until(search.read) { $0.shows == "results" }
         await search.shown(false)
+    }
+
+    /// The reservations' menu narrows and sorts the list; a row's delete is asked first and goes by the question it
+    /// was shown with; a waiting row a device refused is offered to be sent again, and its delete is asked in its own
+    /// words. Writes only to the demo's recorder and the demo's queue.
+    @MainActor
+    func testTheReservationsAreNarrowedSortedAndDeletedAfterAQuestion() async throws {
+        let app = await demo()
+        _ = await until(app.guide().read) { $0.shows == "programmes" }
+        let list = await app.reservations()
+        await list.load()
+        let listed = await until(list.read) { !$0.sections.isEmpty && $0.line.isEmpty }
+        XCTAssertEqual(listed.kinds.map(\.label), ["すべて", "通常の予約", "おまかせ"])
+        XCTAssertEqual(listed.sorts.map(\.label), ["日時", "ジャンル", "局"])
+        XCTAssertEqual(listed.kind, "all")
+        XCTAssertEqual(listed.sort, "time")
+        XCTAssertFalse(listed.filtering)
+        XCTAssertFalse(listed.hasAsked)
+        XCTAssertEqual(listed.staleKey, "", "the list of a recorder that answers was said to be old")
+        let nothingOld = await list.stale()
+        XCTAssertEqual(nothingOld, "")
+
+        await list.chooseKind("automatic")
+        let automatic = await until(list.read) { $0.kind == "automatic" }
+        XCTAssertTrue(automatic.filtering)
+        XCTAssertTrue(automatic.subtitle.hasPrefix("おまかせ · "), automatic.subtitle)
+        XCTAssertTrue(automatic.sections.flatMap(\.rows).allSatisfy(\.byTheRecorder))
+        await list.chooseKind("all")
+        await list.chooseSort("channel")
+        let byStation = await until(list.read) { $0.sort == "channel" && $0.kind == "all" }
+        XCTAssertTrue(byStation.filtering)
+        XCTAssertFalse(byStation.sections.contains { $0.title.contains("(") }, "the headings are stations, not days")
+        await list.chooseSort("time")
+
+        // Two programmes still to come that nothing is set to record: one reserved, to delete from the list, and
+        // one put in the queue as a device had refused it.
+        let now = Date()
+        let free = app.model.programs.filter {
+            $0.start > now.addingTimeInterval(3600) && app.model.reservation(for: $0) == nil
+        }
+        let (reserving, queued) = (try XCTUnwrap(free.first), try XCTUnwrap(free.dropFirst().first))
+        _ = await app.model.reserve(reserving, on: .recorder, quality: "DR", repeating: "none")
+        let reservation = try XCTUnwrap(app.model.reservation(for: reserving))
+
+        await list.delete(reservation.listKey)
+        let asking = await until(list.read) { $0.hasAsked }
+        XCTAssertEqual(asking.asked.title, "この予約を削除しますか？")
+        XCTAssertEqual(asking.asked.action, "削除する")
+        XCTAssertTrue(asking.asked.destructive)
+        XCTAssertEqual(asking.asked.closing, "キャンセル")
+        XCTAssertTrue(asking.asked.message.contains(reserving.title))
+        await list.act("another question")
+        let still = await list.read()
+        XCTAssertEqual(still.asked.key, asking.asked.key, "a press for another question answered this one")
+        XCTAssertNotNil(app.model.reservation(for: reserving))
+        await list.closeAsked(asking.asked.key)
+        let left = await until(list.read) { !$0.hasAsked }
+        XCTAssertTrue(left.sections.flatMap(\.rows).contains { $0.id == reservation.listKey }, "キャンセル deleted it")
+
+        await list.delete(reservation.listKey)
+        let again = await until(list.read) { $0.hasAsked }
+        await list.act(again.asked.key)
+        let gone = await until(list.read) { shown in
+            !shown.sections.flatMap(\.rows).contains { $0.id == reservation.listKey } && shown.line.isEmpty
+        }
+        XCTAssertFalse(gone.hasAsked, "a delete that went through said something: \(gone.asked.message)")
+
+        let store = try GuideStore(path: Storage.guidePath(demo: true, in: folder))
+        let request = try XCTUnwrap(ReservationRequest(program: queued, quality: "DR", repeating: "none"))
+        let refused = PendingReservation(request: request, serviceName: queued.serviceName, problem: "断られた理由")
+        try await store.queue(refused)
+        await app.model.loadPending()
+        let waiting = await until(list.read) { !$0.waiting.isEmpty }
+        XCTAssertEqual(waiting.waitingHeading, "送信待ち 1 件")
+        let row = try XCTUnwrap(waiting.waiting.first)
+        XCTAssertTrue(row.offersSendingAgain)
+        XCTAssertFalse(row.held)
+        XCTAssertEqual(row.problem, "断られた理由。")
+
+        await list.deleteWaiting(row.id)
+        let askingOfIt = await until(list.read) { $0.hasAsked }
+        XCTAssertEqual(askingOfIt.asked.title, "送信待ちの予約を削除しますか？")
+        XCTAssertTrue(askingOfIt.asked.message.hasSuffix("この端末から削除し、レコーダーには送りません。"), askingOfIt.asked.message)
+        await list.closeAsked(askingOfIt.asked.key)
+        _ = await until(list.read) { !$0.hasAsked }
+
+        // Sent again, the demo's recorder makes it: the row goes, the guide marks it, and nothing is left to say.
+        await list.sendAgain(row.id)
+        let sent = await until(list.read) { $0.waiting.isEmpty && $0.line.isEmpty }
+        XCTAssertFalse(sent.hasAsked, "a row made said something: \(sent.asked.message)")
+        XCTAssertNotNil(app.model.reservation(for: queued))
     }
 
     @MainActor
@@ -317,7 +408,7 @@ extension AndroidBridgeTests {
     @MainActor
     func testAReservationIsChangedAndDeletedFromItsSheet() async throws {
         let app = await demo()
-        let list = app.reservations()
+        let list = await app.reservations()
         let (row, sheet) = try await aReservationToChange(list)
         defer { Task { await sheet.closed() } }
         let opened = await until(sheet.read) { !$0.quality.isEmpty && !$0.buttonsHeld }
@@ -359,7 +450,7 @@ extension AndroidBridgeTests {
     @MainActor
     func testASecondPressWhileARequestIsOutSendsNothing() async throws {
         let app = await demo()
-        let list = app.reservations()
+        let list = await app.reservations()
         let (_, sheet) = try await aReservationToChange(list)
         defer { Task { await sheet.closed() } }
         let opened = await until(sheet.read) { !$0.quality.isEmpty && !$0.buttonsHeld }

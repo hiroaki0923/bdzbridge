@@ -97,7 +97,7 @@ object RecBridge {
         val version = "${info.versionName} (${info.longVersionCode})"
         scope.launch {
             val app = call { RecBridgeApp.open(files, kept, version, arena) }
-            val windows = Windows(app, app.devices(arena), app.guide(arena), app.reservations(arena),
+            val windows = Windows(app, app.devices(arena), app.guide(arena), call { app.reservations(arena) },
                                   app.recordings(arena), app.strip(arena), call { app.settings(arena) },
                                   call { app.search(arena) })
             watch({ windows.devices.observe(it) }, { Devices(call { windows.devices.read(arena) }) }, _devices)
@@ -506,21 +506,31 @@ data class Programme(
     val markIsRed: Boolean, val genre: String, val summary: String, val starts: Long, val ends: Long,
 )
 
+/**
+ * The reservations (`ReservationsWindow`): the menu's 種類 and 並び順, the rows that wait on this device and the list
+ * under its headings, and the one question or answer up at a time. `staleKey` moves when a device's old list does:
+ * what is said of it is read each minute.
+ */
 data class Reservations(
     val hasNoRecorder: Boolean, val noRecorder: NoRecorder, val isEmpty: Boolean, val emptyTitle: String,
-    val emptyDetail: String, val subtitle: String, val waiting: List<Waiting>, val waitingSays: String,
-    val sections: List<Section>,
-    val line: String, val lineIsAProblem: Boolean, val loadKey: String,
+    val emptyDetail: String, val subtitle: String, val kinds: List<Labelled>, val kind: String,
+    val sorts: List<Labelled>, val sort: String, val filtering: Boolean, val staleKey: String,
+    val waitingHeading: String, val waiting: List<Waiting>, val waitingSays: String, val sections: List<Section>,
+    val asked: Asked?, val line: String, val lineIsAProblem: Boolean, val loadKey: String,
 )
 
 data class Section(val title: String, val rows: List<ReservationItem>)
 
 data class ReservationItem(
     val id: String, val time: String, val length: String, val recording: Boolean, val conflict: Boolean,
-    val byTheRecorder: Boolean, val title: String, val details: String,
+    val byTheRecorder: Boolean, val title: String, val details: String, val deleteHeld: Boolean,
 )
 
-data class Waiting(val id: String, val title: String, val details: String, val problem: String)
+/** A row that waits on this device: `held` while the device it waits for works, when neither swipe does anything. */
+data class Waiting(
+    val id: String, val title: String, val details: String, val problem: String, val offersSendingAgain: Boolean,
+    val held: Boolean,
+)
 
 data class Recordings(
     val hasNoRecorder: Boolean, val noRecorder: NoRecorder, val isLoading: Boolean, val loadingTitle: String,
@@ -542,7 +552,7 @@ private fun Programme(row: jp.hiroaki.bdbridge.bridge.GuideRow) =
 
 private fun ReservationItem(row: jp.hiroaki.bdbridge.bridge.ReservationRow) =
     ReservationItem(row.id, row.time, row.length, row.isRecording, row.isConflict, row.isByTheRecorder, row.title,
-                    row.details)
+                    row.details, row.isDeleteHeld)
 
 private fun RecordingItem(row: jp.hiroaki.bdbridge.bridge.RecordingRow) =
     RecordingItem(row.id, row.title, row.isRecording, row.isProtected, row.details, row.watched, row.isUnwatched,
@@ -602,11 +612,16 @@ private fun Guide(it: jp.hiroaki.bdbridge.bridge.GuideScreen) = it.getSaid(arena
 private fun Reservations(it: jp.hiroaki.bdbridge.bridge.ReservationsScreen) = it.getEmpty(arena).let { empty ->
     Reservations(
         it.isHasNoRecorder, NoRecorder(it.getNoRecorder(arena)), it.isEmpty, empty.title, empty.detail, it.subtitle,
-        it.getWaiting(arena).map { row -> Waiting(row.id, row.title, row.details, row.problem) }, it.waitingSays,
+        labelled(it.getKinds(arena)), it.kind, labelled(it.getSorts(arena)), it.sort, it.isFiltering, it.staleKey,
+        it.waitingHeading,
+        it.getWaiting(arena).map { row ->
+            Waiting(row.id, row.title, row.details, row.problem, row.isOffersSendingAgain, row.isHeld)
+        },
+        it.waitingSays,
         it.getSections(arena).map { section ->
             Section(section.title, section.getRows(arena).map { row -> ReservationItem(row) })
         },
-        it.line, it.isLineIsAProblem, it.loadKey,
+        asked(it.isHasAsked, it.getAsked(arena)), it.line, it.isLineIsAProblem, it.loadKey,
     )
 }
 
