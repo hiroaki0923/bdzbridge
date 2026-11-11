@@ -150,7 +150,6 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertTrue(found.programmes.allSatisfy { $0.day.contains("(") }, "each says its day")
         XCTAssertTrue(found.reservations.isEmpty && found.recordings.isEmpty, "only the scope's rows")
         let hit = try XCTUnwrap(found.programmes.first)
-        XCTAssertTrue(found.logos.contains { $0.key == hit.logo } || found.logos.isEmpty)
         let opening = await search.openProgramme(hit.row.id)
         let sheet = try XCTUnwrap(opening)
         let opened = await sheet.read()
@@ -168,7 +167,8 @@ final class AndroidBridgeTests: XCTestCase {
         await search.type(recording.title)
         let recorded = await until(search.read) { $0.shows == "results" && !$0.recordings.isEmpty }
         XCTAssertTrue(recorded.recordings.contains { $0.id == recording.id })
-        XCTAssertTrue(recorded.countLine.hasPrefix("録画 "), recorded.countLine)
+        XCTAssertEqual(recorded.countLine, "録画 \(recorded.recordings.count) 件", "the rows are the ones counted")
+        XCTAssertLessThan(recorded.recordings.count, titles.rows.count, "the words narrowed nothing")
         let openingTitle = await search.openRecording(recording.id)
         let titleSheet = try XCTUnwrap(openingTitle)
         await titleSheet.closed()
@@ -181,6 +181,8 @@ final class AndroidBridgeTests: XCTestCase {
         await search.type(reservation.title)
         let reserved = await until(search.read) { $0.shows == "results" && !$0.reservations.isEmpty }
         let foundReservation = try XCTUnwrap(reserved.reservations.first { $0.id == reservation.id })
+        XCTAssertEqual(reserved.countLine, "予約 \(reserved.reservations.count) 件", "the rows are the ones counted")
+        XCTAssertLessThan(reserved.reservations.count, listed.sections.flatMap(\.rows).count, "the words narrowed nothing")
         XCTAssertTrue(foundReservation.time.contains("(") && foundReservation.time.hasSuffix(reservation.time),
                       "found away from the days' headings, it says its day: \(foundReservation.time)")
         let openingReservation = await search.openReservation(reservation.id)

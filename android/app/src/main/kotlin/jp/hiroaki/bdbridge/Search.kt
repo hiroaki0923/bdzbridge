@@ -7,11 +7,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -40,6 +43,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -84,8 +88,9 @@ fun SearchScreen() {
             StripBar()
         }
     }) { padding ->
-        // Above the keyboard, so that what is said of the words typed is not under it.
-        Box(Modifier.padding(padding).imePadding().fillMaxSize()) {
+        // Above the keyboard, so that what is said of the words typed is not under it: by what the keyboard takes
+        // beyond the bars the padding already answers for.
+        Box(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
             when (shown.shows) {
                 "waiting" -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 "results" -> Column {
@@ -97,10 +102,10 @@ fun SearchScreen() {
                     }
                     when (shown.scope) {
                         "guide" -> FoundProgrammes(shown) { programme = it }
-                        "reservations" -> LazyColumn(Modifier.fillMaxSize()) {
+                        "reservations" -> LazyColumn(Modifier.fillMaxSize(), state = listKeptAtItsTop()) {
                             items(shown.reservations, key = { it.id }) { row -> ReservationRow(row) { reservation = row } }
                         }
-                        else -> LazyColumn(Modifier.fillMaxSize()) {
+                        else -> LazyColumn(Modifier.fillMaxSize(), state = listKeptAtItsTop()) {
                             items(shown.recordings, key = { it.id }) { row -> RecordingRow(row) { recording = row } }
                         }
                     }
@@ -109,6 +114,20 @@ fun SearchScreen() {
             }
         }
     }
+}
+
+/**
+ * A list's place, kept at the top while it is at the top: a list keeps its place by its first row, and with other
+ * words in the box that row may be found again further down, the better matches then out of sight above it. A list
+ * scrolled keeps its place, as it does when a row is deleted from its sheet.
+ */
+@Composable
+private fun listKeptAtItsTop(): LazyListState {
+    val state = rememberLazyListState()
+    Snapshot.withoutReadObservation {
+        if (state.firstVisibleItemIndex == 0 && state.firstVisibleItemScrollOffset == 0) state.requestScrollToItem(0)
+    }
+    return state
 }
 
 /** The box, drawn from what was typed as it is typed, with what the scope searches said in it while it is empty. */
@@ -156,7 +175,7 @@ private fun FoundProgrammes(shown: Search, open: (FoundProgramme) -> Unit) {
         shown.logos.mapValues { (_, image) -> BitmapFactory.decodeByteArray(image, 0, image.size)?.asImageBitmap() }
     }
     val strong = SpanStyle(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), state = listKeptAtItsTop()) {
         if (shown.moreLine.isNotEmpty()) {
             item(key = "more") { Footnote(shown.moreLine, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
         }
