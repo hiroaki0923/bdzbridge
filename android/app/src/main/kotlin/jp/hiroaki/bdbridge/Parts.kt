@@ -2,6 +2,8 @@ package jp.hiroaki.bdbridge
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +35,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
@@ -41,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +55,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -232,6 +239,10 @@ class SwipeAction(val label: String, val container: Color, val content: Color, v
  * right, `toTheLeft` under one to the left. The row never goes with the swipe -- it comes back, and what was asked
  * for is asked first or answered by the device, the row going when the list is read again -- and a swipe does nothing
  * while its action is held. The same actions are offered by name to a screen reader.
+ *
+ * A swipe counts once the row has been drawn two fifths of its width aside: a flick that barely moves it does
+ * nothing, where an iOS swipe that short only shows the button to tap. And it counts once for a touch, however the
+ * row comes to rest: drawn its whole width, the box would otherwise settle on it twice.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -239,14 +250,24 @@ fun SwipeActions(toTheRight: SwipeAction?, toTheLeft: SwipeAction?, content: @Co
     // The state keeps the first lambda it was made with: what the row offers now is read through these.
     val right by rememberUpdatedState(toTheRight)
     val left by rememberUpdatedState(toTheLeft)
-    val state = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
-        when (value) {
-            SwipeToDismissBoxValue.StartToEnd -> right?.takeIf { it.enabled }?.act?.invoke()
-            SwipeToDismissBoxValue.EndToStart -> left?.takeIf { it.enabled }?.act?.invoke()
-            SwipeToDismissBoxValue.Settled -> {}
+    val box = remember { arrayOfNulls<SwipeToDismissBoxState>(1) }
+    val acted = remember { booleanArrayOf(false) }
+    var width by remember { mutableIntStateOf(0) }
+    val farEnough = { fraction: Float -> width * fraction }
+    val state = rememberSwipeToDismissBoxState(positionalThreshold = { farEnough(0.4f) }, confirmValueChange = { value ->
+        val drawn = runCatching { kotlin.math.abs(box[0]?.requireOffset() ?: 0f) }.getOrDefault(0f)
+        val action = when (value) {
+            SwipeToDismissBoxValue.StartToEnd -> right
+            SwipeToDismissBoxValue.EndToStart -> left
+            SwipeToDismissBoxValue.Settled -> null
+        }
+        if (action != null && action.enabled && !acted[0] && width > 0 && drawn >= farEnough(0.4f)) {
+            acted[0] = true
+            action.act()
         }
         false
     })
+    box[0] = state
     val named = listOfNotNull(toTheRight, toTheLeft).filter { it.enabled }.map { action ->
         CustomAccessibilityAction(action.label) {
             action.act()
@@ -255,7 +276,14 @@ fun SwipeActions(toTheRight: SwipeAction?, toTheLeft: SwipeAction?, content: @Co
     }
     SwipeToDismissBox(
         state = state, enableDismissFromStartToEnd = toTheRight != null, enableDismissFromEndToStart = toTheLeft != null,
-        modifier = Modifier.semantics { customActions = named },
+        modifier = Modifier.semantics { customActions = named }.onSizeChanged { width = it.width }
+            // A new touch is a new swipe, whether or not the row had come back to rest from the last.
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    acted[0] = false
+                }
+            },
         backgroundContent = {
             val toRight = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
             val action = (if (toRight) toTheRight else toTheLeft) ?: return@SwipeToDismissBox

@@ -162,7 +162,7 @@ struct ReservationsScreen: View {
                             }
                     }
                 } header: {
-                    Text(state.waitingHeading)
+                    Text("送信待ち \(model.pending.count) 件")
                 } footer: {
                     Text(model.whatWaitsSays)
                 }

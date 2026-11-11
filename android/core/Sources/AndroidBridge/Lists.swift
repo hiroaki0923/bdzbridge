@@ -24,9 +24,8 @@ public struct ReservationsScreen: Sendable {
     /// A device's list that is old, by the device and when it was read: what is said of it is read with `stale`,
     /// again each minute and each time this moves.
     public var staleKey: String
-    /// The reservations waiting on this device to be sent, under `送信待ち 2 件`, with what is said of when they go,
-    /// then the list under its headings.
-    public var waitingHeading: String
+    /// The reservations waiting on this device to be sent, with what is said of when they go, then the list under
+    /// its headings.
     public var waiting: [WaitingRow]
     public var waitingSays: String
     public var sections: [ReservationSection]
@@ -209,7 +208,6 @@ public final class ReservationsWindow: Sendable {
             sorts: AppModel.ReservationSort.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
             sort: model.reservationSort.rawValue, filtering: state.narrowedOrSorted,
             staleKey: state.stale.map { "\($0.device.rawValue)-\(seconds($0.since))" }.joined(separator: " "),
-            waitingHeading: state.waitingHeading,
             waiting: model.pending.map { waiting in
                 var parts = [model.deviceSaid(for: waiting), model.diskShown(waiting),
                              Format.dateTime.string(from: waiting.request.start), waiting.serviceName].compactMap { $0 }

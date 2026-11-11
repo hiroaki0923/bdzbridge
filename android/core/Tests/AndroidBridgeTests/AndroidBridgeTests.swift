@@ -241,10 +241,12 @@ final class AndroidBridgeTests: XCTestCase {
         await list.chooseSort("time")
 
         // Two programmes still to come that nothing is set to record: one reserved, to delete from the list, and
-        // one put in the queue as a device had refused it.
-        let now = Date()
+        // one put in the queue as a device had refused it. Of tomorrow's, which has them at any hour: late in a
+        // broadcast day today has none left.
+        await app.guide().chooseDay(1)
+        _ = await until(app.guide().read) { $0.day == 1 && $0.shows == "programmes" }
         let free = app.model.programs.filter {
-            $0.start > now.addingTimeInterval(3600) && app.model.reservation(for: $0) == nil
+            app.model.reservation(for: $0) == nil && app.model.pending(for: $0) == nil
         }
         let (reserving, queued) = (try XCTUnwrap(free.first), try XCTUnwrap(free.dropFirst().first))
         _ = await app.model.reserve(reserving, on: .recorder, quality: "DR", repeating: "none")
@@ -279,7 +281,6 @@ final class AndroidBridgeTests: XCTestCase {
         try await store.queue(refused)
         await app.model.loadPending()
         let waiting = await until(list.read) { !$0.waiting.isEmpty }
-        XCTAssertEqual(waiting.waitingHeading, "送信待ち 1 件")
         let row = try XCTUnwrap(waiting.waiting.first)
         XCTAssertTrue(row.offersSendingAgain)
         XCTAssertFalse(row.held)
@@ -337,12 +338,13 @@ final class AndroidBridgeTests: XCTestCase {
 // MARK: - the sheets
 
 extension AndroidBridgeTests {
-    /// A programme of today's guide that has not begun and is not reserved: one the sheet offers to reserve.
+    /// A programme that has not begun and is not reserved: one the sheet offers to reserve.
     @MainActor
     private func aProgrammeToReserve(_ guide: GuideWindow) async throws -> GuideRow {
-        let shown = await until(guide.read) { $0.shows == "programmes" }
-        let now = Int64(Date().timeIntervalSince1970)
-        return try XCTUnwrap(shown.programmes.first { $0.starts > now + 3600 && $0.mark.isEmpty })
+        // Of tomorrow's, which has programmes ahead at any hour: late in a broadcast day today has none left.
+        await guide.chooseDay(1)
+        let shown = await until(guide.read) { $0.day == 1 && $0.shows == "programmes" }
+        return try XCTUnwrap(shown.programmes.first { $0.mark.isEmpty })
     }
 
     @MainActor

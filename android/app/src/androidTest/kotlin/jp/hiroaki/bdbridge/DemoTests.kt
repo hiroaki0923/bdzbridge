@@ -2,11 +2,13 @@ package jp.hiroaki.bdbridge
 
 import android.content.Context
 import android.view.KeyEvent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasSetTextAction
@@ -24,6 +26,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
 import androidx.compose.ui.test.swipeLeft
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -233,6 +236,12 @@ class DemoTests {
         // A swipe does nothing while the recorder works: its line is waited out first.
         compose.waitUntil(30_000) { RecBridge.reservations.value?.line?.isEmpty() == true }
         val rows = RecBridge.reservations.value!!.sections.sumOf { it.rows.size }
+        // A flick that barely moves the row asks nothing; the row drawn well aside does.
+        compose.onAllNodes(aTimeAndALength)[0].performTouchInput {
+            swipe(center, center - Offset(width * 0.15f, 0f), durationMillis = 60)
+        }
+        compose.waitForIdle()
+        compose.onAllNodesWithText("この予約を削除しますか？").assertCountEquals(0)
         compose.onAllNodes(aTimeAndALength)[0].performTouchInput { swipeLeft() }
         compose.waitUntilAtLeastOneExists(hasText("この予約を削除しますか？"), 10_000)
         compose.onNodeWithText("キャンセル").performClick()

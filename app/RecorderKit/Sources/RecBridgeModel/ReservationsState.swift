@@ -183,9 +183,6 @@ public final class ReservationsState {
     /// Whether the list is narrowed to a kind or sorted otherwise than by time, which the menu's icon marks.
     public var narrowedOrSorted: Bool { !(model.reservationSort == .time && model.reservationKind == .all) }
 
-    /// Over the rows that wait on this device.
-    public var waitingHeading: String { "送信待ち \(model.pending.count) 件" }
-
     /// A device whose list on screen is old, and since when.
     public struct Stale: Identifiable, Sendable {
         public var device: DeviceSlot
