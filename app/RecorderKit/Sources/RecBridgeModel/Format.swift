@@ -23,6 +23,12 @@ public enum Format {
         return formatter
     }
 
+    /// A count as a screen's own text writes a number put into it, with the reader's grouping of digits (1,234):
+    /// for the words a screen drew that way before they were the model's.
+    public static func count(_ number: Int) -> String {
+        String.localizedStringWithFormat("%lld", number)
+    }
+
     public static func duration(_ seconds: Int) -> String {
         "\(max(0, seconds) / 60)分"
     }
