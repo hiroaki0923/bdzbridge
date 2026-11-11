@@ -10,7 +10,10 @@ RecBridgeModel`), one for the process as the iOS app has one, with a window in f
 connects to a recorder as the iOS app's tutorial does -- by the search for both kinds (レコーダーとテレビを探す), by an
 address, or to the demo's invented recorder -- and shows the guide as the iOS guide's list does (a broadcasting type,
 every station or one, a broadcast day, opening at what is on now, 今 and 番組表を更新, and what an empty guide says),
-the reservations and the recordings as lists, and the two sheets that write: a programme's, which reserves it on the
+the reservations and the recordings as lists -- the reservations' with its 種類 and 並び順, pulled down to send what
+waits and read again, a row swiped to the left to delete it after its question and a waiting row a device refused
+swiped to the right to send it again, over the model's state of the screen (`ReservationsState`) -- and the two sheets
+that write: a programme's, which reserves it on the
 recorder or the television (where it goes, the disk, the mode, the repeat, what it would clash with) and deletes or
 sends again what waits for it, and a reservation's, which changes and deletes it; and a recording's, which plays,
 protects and deletes it. What each sheet holds, offers, holds back and says is the model's own state of it
@@ -51,7 +54,8 @@ connect wakes a recorder that does not answer with a magic packet when its MAC i
   (the sheets, which open at once with what the row says and fill in as their window is read), `Settings.kt` (the
   settings and ご利用上の注意), `Television.kt` (the television's sheets, the televisions a search found, and the
   television's 対応状況), `Channels.kt` (the stations' page, a station dragged by its handle to another place),
-  and `Parts.kt` (the empty states, the marks, the strip, what a search found).
+  and `Parts.kt` (the empty states, the marks, the strip, what a search found, and a row with what a swipe either way
+asks for, which never takes the row with it).
 
 The model's settings are kept in `files/settings/recbridge.plist`: Foundation on Android keeps a `UserDefaults` suite
 named by the path of its file, and writes it out only when told to, which `WrittenDefaults` does at each change. The
