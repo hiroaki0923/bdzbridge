@@ -39,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -147,8 +148,12 @@ private fun ConditionFormPage(page: RecBridge.ConditionsHandle, close: () -> Uni
     val held = form?.asking ?: false
     BackHandler(enabled = true) { if (!held) close() }
     LaunchedEffect(form?.done) { if (form?.done == true) close() }
-    // What is typed, by its row, drawn as it is typed: the model's text is only what a row starts with.
+    // What is typed, by its row, drawn as it is typed: the model's text is only what a row starts with. Let go of
+    // whenever the form is not held, once its edits have all been answered: a keystroke made after レコーダーに登録
+    // was pressed, and before the form was held, is turned down by the model, and the field then shows what the
+    // model has, which is what the next press sends.
     val typed = remember { mutableStateMapOf<String, String>() }
+    LaunchedEffect(held) { if (!held) typed.clear() }
     form?.failure?.takeIf { it.isNotEmpty() }?.let { said ->
         AlertDialog(onDismissRequest = { handle.failureClosed() },
                     confirmButton = { TextButton(onClick = { handle.failureClosed() }) { Text("OK") } },
@@ -177,7 +182,9 @@ private fun ConditionFormPage(page: RecBridge.ConditionsHandle, close: () -> Uni
         Column(Modifier.padding(padding).imePadding().fillMaxSize().verticalScroll(rememberScrollState())
                    .padding(vertical = 8.dp)) {
             Heading("キーワード")
-            for (word in form.keywords) {
+            // Keyed by the row, so that a field, its focus and what is being composed in it go with its row when
+            // another row is taken away.
+            for (word in form.keywords) key(word.id) {
                 WordField(text = typed[word.id] ?: word.text, placeholder = "キーワード", enabled = !held,
                           remove = if (form.mayRemoveKeyword) ({ handle.removeKeyword(word.id) }) else null) {
                     typed[word.id] = it
@@ -188,7 +195,7 @@ private fun ConditionFormPage(page: RecBridge.ConditionsHandle, close: () -> Uni
             Footnote(form.keywordFooter, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
 
             Heading("除外ワード")
-            for (word in form.excluded) {
+            for (word in form.excluded) key(word.id) {
                 WordField(text = typed[word.id] ?: word.text, placeholder = "除外ワード", enabled = !held,
                           remove = { handle.removeExclusion(word.id) }) {
                     typed[word.id] = it

@@ -312,10 +312,12 @@ class DemoTests {
         compose.waitUntilAtLeastOneExists(aDay, 30_000)
         compose.waitUntilAtLeastOneExists(hasContentDescription("おまかせ・まる録") and isEnabled(), 30_000)
         compose.onNodeWithContentDescription("おまかせ・まる録").performClick()
-        compose.waitUntilAtLeastOneExists(hasText("レコーダー本体が番組を自動で探して録画する条件です。", substring = true), 10_000)
+        // The demo's conditions, read as the page opens: one of them names 除外.
+        compose.waitUntilAtLeastOneExists(hasText("除外: ", substring = true), 30_000)
         compose.waitUntilAtLeastOneExists(hasContentDescription("条件を追加") and isEnabled(), 30_000)
         compose.onNodeWithContentDescription("条件を追加").performClick()
-        compose.waitUntilAtLeastOneExists(hasText("レコーダーに登録"), 10_000)
+        // The form read: its field drawn, レコーダーに登録 held while no word is typed.
+        compose.waitUntilAtLeastOneExists(hasSetTextAction(), 10_000)
         compose.onNode(hasText("レコーダーに登録") and hasClickAction()).assertIsNotEnabled()
         compose.onAllNodes(hasSetTextAction())[0].performTextInput("ためしの言葉")
         compose.waitUntilAtLeastOneExists(hasText("レコーダーに登録") and isEnabled(), 10_000)

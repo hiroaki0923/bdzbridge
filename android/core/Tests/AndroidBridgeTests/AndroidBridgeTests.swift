@@ -507,7 +507,8 @@ final class AndroidBridgeTests: XCTestCase {
 
         let conditions = await app.conditions()
         await conditions.load()
-        let listed = await until(conditions.read) { !$0.rows.isEmpty }
+        // Once the recorder's work after the connect is done: while it works, adding and deleting are held.
+        let listed = await until(conditions.read) { !$0.rows.isEmpty && !$0.addHeld && !$0.deleteHeld }
         XCTAssertEqual(listed.title, "おまかせ・まる録")
         XCTAssertEqual(listed.listSays, "")
         XCTAssertFalse(listed.addHeld)
@@ -521,11 +522,13 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertTrue(asking.asked.message.contains(rule.name))
         await conditions.act("another question")
         await conditions.closeAsked(asking.asked.key)
-        _ = await until(conditions.read) { !$0.hasAsked }
+        _ = await until(conditions.read) { !$0.hasAsked && !$0.deleteHeld }
         await conditions.delete(rule.id)
         let again = await until(conditions.read) { $0.hasAsked }
         await conditions.act(again.asked.key)
-        let fewer = await until(conditions.read) { shown in !shown.rows.contains { $0.id == rule.id } }
+        let fewer = await until(conditions.read) { shown in
+            !shown.rows.contains { $0.id == rule.id } && !shown.addHeld
+        }
         XCTAssertFalse(fewer.hasAsked)
 
         let form = await conditions.newCondition()

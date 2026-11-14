@@ -38,7 +38,12 @@ final class RecorderRulesStateTests: XCTestCase {
         let state = RecorderRulesState(model: model)
         XCTAssertEqual(state.listSays, .loading)
         XCTAssertFalse(state.holdsAdding)
+        // A first read that fails is said, not taken for one still on its way.
+        await recorder.answer("X_GetPrefRecSettingList", with: .fault(501))
         await model.loadRecorderRules()
+        XCTAssertTrue(model.recorderRules.isEmpty)
+        guard case .failed = state.listSays else { return XCTFail("a first read that failed said \(state.listSays)") }
+        await model.refreshRecorderRules()
         XCTAssertEqual(state.listSays, .nothing)
         let rule = try XCTUnwrap(model.recorderRules.first)
         XCTAssertEqual(state.details(of: rule), rule.details(disk: model.diskShown(rule)))
@@ -166,5 +171,36 @@ final class RecorderRulesStateTests: XCTestCase {
         XCTAssertTrue(sheet.done, "a condition made did not close the form: \(sheet.failureMessage ?? "")")
         XCTAssertNil(sheet.failureMessage)
         XCTAssertEqual(model.recorderRules.count, before + 1)
+    }
+
+    /// A registration turned down for a disk that cannot be had sends the form back to the internal disk, named;
+    /// one turned down for anything else leaves the disk as picked.
+    func testARefusedDiskSendsTheFormBackToTheInternalDisk() async throws {
+        let bench = try aBench()
+        let recorder = NamedRecorder(1)
+        await recorder.answer("X_GetMediaInfo", with: .result(USBDiskTests.slot()), times: 1000)
+        let model = bench.model(recorders: [Bench.host: recorder])
+        await model.start()
+        try await untilConnected(model)
+        addTeardownBlock { await recorder.letGo() }
+        XCTAssertEqual(model.diskChoices.map(\.destination), ["HDD", "USBHDD"])
+
+        let kept = RecorderRuleSheetState(model: model)
+        kept.draft.keywords[0].text = "ためしの言葉"
+        kept.chosenDisk = "USBHDD"
+        await recorder.answer("X_CreatePrefRecSetting", with: .fault(402))
+        kept.register()
+        try await until("the registration never came back") { !kept.asking }
+        XCTAssertNotNil(kept.failureMessage)
+        XCTAssertEqual(kept.chosenDisk, "USBHDD", "a refusal for something else changed the disk picked")
+
+        let gone = RecorderRuleSheetState(model: model)
+        gone.draft.keywords[0].text = "ためしの言葉"
+        gone.chosenDisk = "USBHDD2"
+        gone.register()
+        try await until("the registration never came back") { !gone.asking }
+        XCTAssertNotNil(gone.failureMessage, "a disk that cannot be had was sent")
+        XCTAssertFalse(gone.done)
+        XCTAssertEqual(gone.chosenDisk, RecorderDisk.internalID, "the form did not go back to the internal disk")
     }
 }
