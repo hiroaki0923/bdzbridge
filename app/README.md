@@ -16,8 +16,10 @@
   duplicates (`DuplicatesState`), the recorder's own keyword conditions and the form for a new one
   (`RecorderRulesState`, `RecorderRuleSheetState`), the channels' screen (`ChannelsState`), the recorder's part of
   the settings (`RecorderSettingsState`), the television's sheets and its part of the settings (`TVRegisterState`,
-  `HelperRegisterState`, `TVSettingsState`), and what an empty screen says (`AppModelEmptyScreens.swift`), with the
-  disclaimer's words (`Disclaimer`); the SwiftUI views lay them out and hand them the reader's presses. The connection to each device -- when it is
+  `HelperRegisterState`, `TVSettingsState`), the tutorial (`WelcomeState`: what holds its buttons and when a recorder
+  chosen there has answered), and what an empty screen says (`AppModelEmptyScreens.swift`), with the
+  disclaimer's words (`Disclaimer`) and the tutorial's (`Tutorial`, but for the three that say iPhone or name the
+  system's question, which the view keeps); the SwiftUI views lay them out and hand them the reader's presses. The connection to each device -- when it is
   asked, woken, made sure of, looked for at another address and given up on -- is RecorderKit's `DeviceLink`
   with the device's driver (`RecorderDriver`, `TVDriver`); what the link tells the app is told to a host of
   the device's own (`LinkHost`), and what it reaches on the network is the model's to give it
