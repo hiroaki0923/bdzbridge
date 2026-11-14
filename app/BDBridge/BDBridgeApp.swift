@@ -60,7 +60,7 @@ struct RootView: View {
             ReservationsScreen(model: model)
                 .tabItem { Label("予約", systemImage: "clock") }
                 .tag("reservations")
-            RecordingsScreen()
+            RecordingsScreen(model: model)
                 .tabItem { Label("録画", systemImage: "play.rectangle") }
                 .tag("recordings")
             SettingsScreen(model: model)

@@ -12,31 +12,17 @@ struct RecordingsScreen: View {
     @State private var opened: RecordedTitle?
     @State private var welcoming = false
     @State private var openedGroup: TitleGroup?
-    /// The row swiped, by key rather than by value (`RecordedTitle.listKey`): the recording is read back out of
-    /// the model when the dialog asks, so a delete can only ever be sent for a row the list still holds.
-    @State private var removing: String?
-    @State private var failure: String?
-    /// What a delete that went through had to say: that the recording was deleted already.
-    @State private var told: String?
+    /// What is swiped and asked on this screen, and what it says under its title: the model's (`RecordingsState`).
+    @State private var state: RecordingsState
 
-    private var grouped: Bool { mode == "groups" }
-    private var duplicating: Bool { mode == "dups" }
-
-    /// One alert does both jobs, because two on the same view is not something SwiftUI promises to honour.
-    private enum Shown {
-        case confirm(RecordedTitle)
-        case failed(String)
-        case told(String)
+    init(model: AppModel) {
+        _state = State(initialValue: RecordingsState(model: model))
     }
 
-    private var shown: Shown? {
-        if let failure { return .failed(failure) }
-        if let told { return .told(told) }
-        if let key = removing, let title = model.allTitles.first(where: { $0.listKey == key }) {
-            return .confirm(title)
-        }
-        return nil
-    }
+    /// The view that is on, as the model names the three.
+    private var shownMode: RecordingsState.Mode { RecordingsState.Mode(kept: mode) }
+    private var grouped: Bool { shownMode == .groups }
+    private var duplicating: Bool { shownMode == .dups }
 
     var body: some View {
         NavigationStack {
@@ -50,9 +36,9 @@ struct RecordingsScreen: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
                         Picker("表示", selection: $mode) {
-                            Label("一覧", systemImage: "list.bullet").tag("list")
-                            Label("まとめ", systemImage: "rectangle.stack").tag("groups")
-                            Label("重複", systemImage: "square.on.square").tag("dups")
+                            Label(RecordingsState.Mode.list.label, systemImage: "list.bullet").tag("list")
+                            Label(RecordingsState.Mode.groups.label, systemImage: "rectangle.stack").tag("groups")
+                            Label(RecordingsState.Mode.dups.label, systemImage: "square.on.square").tag("dups")
                         }
                     } label: {
                         Image(systemName: duplicating ? "square.on.square"
@@ -63,9 +49,8 @@ struct RecordingsScreen: View {
                 // the free space is worth a permanent place; the sort and the watch state are worth a menu
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 0) {
-                        Text(model.shownFreeBytes.map { "残り \(Format.gigabytes($0, on: model.shownFreeDevice))" } ?? "録画")
-                            .font(.subheadline.weight(.semibold))
-                        Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        Text(state.heading).font(.subheadline.weight(.semibold))
+                        Text(state.subtitle(in: shownMode)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -103,8 +88,8 @@ struct RecordingsScreen: View {
                             }
                         }
                     } label: {
-                        Image(systemName: filtering ? "line.3.horizontal.decrease.circle.fill"
-                                                    : "line.3.horizontal.decrease.circle")
+                        Image(systemName: state.filtering ? "line.3.horizontal.decrease.circle.fill"
+                                                          : "line.3.horizontal.decrease.circle")
                     }
                     .accessibilityLabel(model.titleDestinations.isEmpty ? "ジャンル・並び順・視聴状態で絞り込む"
                                                                         : "録画先・ジャンル・並び順・視聴状態で絞り込む")
@@ -127,64 +112,25 @@ struct RecordingsScreen: View {
             // strip's 再接続 is.
             .refreshable { await model.pullDownTitles() }
             .sheet(item: $opened) { TitleSheet(title: $0, model: model) }
-            .sheet(item: $openedGroup) { GroupSheet(group: $0) }
+            .sheet(item: $openedGroup) { GroupSheet(group: $0, model: model) }
             // The recording picked for deletion is the last recorder's when its lists are let go of: see
             // `timesForgotten`. The sheets close themselves. A television's rows go with its host, and a row of
             // the other device's stays picked.
-            .onChange(of: model.timesForgotten) { removing = nil }
-            .onChange(of: model.tvTimesForgotten) {
-                if !model.allTitles.contains(where: { $0.listKey == removing }) { removing = nil }
-            }
-            .alert(shownTitle,
-                   isPresented: Binding(get: { shown != nil },
-                                        set: { if !$0 { removing = nil; failure = nil; told = nil } }),
-                   presenting: shown) { shown in
-                switch shown {
-                case .confirm(let title):
-                    Button("削除する", role: .destructive) {
-                        Task {
-                            switch await model.delete(title) {
-                            case .notDone(let why): failure = why
-                            case .done(let more): told = more
-                            }
-                        }
-                    }
-                    .disabled(!model.canAlter(title))
-                    Button("キャンセル", role: .cancel) {}
-                case .failed, .told:
-                    Button("OK", role: .cancel) {}
+            .onChange(of: model.timesForgotten) { state.recordersListsLetGo() }
+            .onChange(of: model.tvTimesForgotten) { state.televisionsListsLetGo() }
+            .alert(state.askTitle,
+                   isPresented: Binding(get: { state.ask != nil }, set: { if !$0 { state.askClosed() } }),
+                   presenting: state.ask) { asked in
+                if let action = state.actionLabel(for: asked) {
+                    Button(action.label, role: action.destructive ? .destructive : nil) { state.act(on: asked) }
+                        .disabled(state.holdsTheAction(for: asked))
                 }
-            } message: { shown in
-                switch shown {
-                case .confirm(let title): Text(AppModel.deleteMessage(title))
-                case .failed(let reason), .told(let reason): Text(reason.asABody)
-                }
+                Button(state.closingLabel(for: asked), role: .cancel) {}
+            } message: { asked in
+                Text(state.message(for: asked))
             }
         }
         .welcomesHere($welcoming)
-    }
-
-    private var shownTitle: String {
-        switch shown {
-        case .failed: "エラー"
-        case .told: "録画"
-        case .confirm, nil: "この録画を削除しますか？"
-        }
-    }
-
-    private var filtering: Bool {
-        model.shownDestination != nil || model.titleGenre != nil || model.titleState != nil
-            || model.titleSort != .newest
-    }
-
-    /// What is being shown, since the filters now live behind a menu.
-    private var subtitle: String {
-        if let busy = model.busy { return busy }
-        if duplicating { return "\(model.duplicates.count) 組の重複" }
-        let what = grouped ? "\(model.titleGroups.count) 番組" : "\(model.shownTitles.count) 件"
-        let disk = model.shownDestination.map(model.titleDestinationLabel)
-        let genre = model.titleGenre.flatMap { Codes.genreLabel[$0] }
-        return ([disk, genre].compactMap { $0 } + [what]).joined(separator: " · ")
     }
 
     @ViewBuilder
@@ -198,7 +144,7 @@ struct RecordingsScreen: View {
                 Text(AppModel.loadingRecordings.detail ?? "")
             }
         } else if duplicating {
-            DuplicatesView { opened = $0 }
+            DuplicatesView(model: model) { opened = $0 }
         } else if grouped {
             // Once for the list and its overlay: each read filters, sorts and groups every recording.
             let groups = model.titleGroups
@@ -217,10 +163,8 @@ struct RecordingsScreen: View {
                                  logo: model.logo(for: title), disk: model.diskShown(title)).rowHitArea()
                 }
                 .buttonStyle(.plain)
-                .titleSwipe(title, whyNot: model.whyNot(deleting: title), held: !model.canAlter(title),
-                            ask: { removing = title.listKey }, unprotect: {
-                    Task { if case .notDone(let why) = await model.setProtected(title, false) { failure = why } }
-                })
+                .titleSwipe(model.swipe(for: title), held: state.holds(title),
+                            ask: { state.delete(title) }, unprotect: { state.unprotect(title) })
             }
             .listStyle(.plain)
             .overlay { if listed.isEmpty { noTitles } }
@@ -262,29 +206,22 @@ extension View {
     /// The trailing swipe on a recording. It asks before deleting -- this is the recorder's disk and there
     /// is no undo -- so a full swipe is off: a flick should not be able to spend a recording.
     ///
-    /// Offered only where the delete's own door would let it through (`AppModel.whyNot(deleting:)`, handed in as
-    /// `whyNot`). The recorder refuses to delete a protected recording, so the swipe offers 保護解除 instead, which
-    /// has to happen first. `title` is nil where the row should not be swipeable at all. Both are held while the
-    /// device that holds the row works or a run is under way (`held`, `AppModel.canAlter`), and on a programme's
-    /// sheet while its own request is out: a second delete or protect of a row while one is out, or beside a run
-    /// that walks the list, and nothing held by the other device's work.
-    func titleSwipe(_ title: RecordedTitle?, whyNot: String?, held: Bool, ask: @escaping () -> Void,
+    /// What it offers is the model's to say (`AppModel.swipe(for:)`, handed in as `offer`): the delete where the
+    /// delete's own door would let it through, 保護解除 for a protected recording, which has to happen first, and
+    /// nothing where the row should not be swipeable at all. Both are held while the device that holds the row
+    /// works or a run is under way (`held`), and on a programme's sheet while its own request is out.
+    func titleSwipe(_ offer: AppModel.TitleSwipe?, held: Bool, ask: @escaping () -> Void,
                     unprotect: @escaping () -> Void) -> some View {
         swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if let title {
-                switch whyNot {
-                case nil:
-                    Button("削除") { ask() }.tint(.red).disabled(held)
-                case RecorderDriver.protectedCannotBeDeleted?:
-                    // `role: .destructive` would animate the row away as it is swiped, before there is an
-                    // answer, and it stays away when the answer is no. The colour is all that is wanted.
-                    Button("保護解除") { unprotect() }.tint(Color.legibleOrange).disabled(held)
-                default:
-                    // Nothing on offer: the recorder is writing to this one and refuses to delete it, and the row
-                    // says 録画中, which is the answer to why there is no button here; or its disk has left the
-                    // slot, and the list is about to be read again.
-                    EmptyView()
-                }
+            switch offer {
+            case .delete:
+                Button("削除") { ask() }.tint(.red).disabled(held)
+            case .unprotect:
+                // `role: .destructive` would animate the row away as it is swiped, before there is an
+                // answer, and it stays away when the answer is no. The colour is all that is wanted.
+                Button("保護解除") { unprotect() }.tint(Color.legibleOrange).disabled(held)
+            case nil:
+                EmptyView()
             }
         }
     }
@@ -377,7 +314,7 @@ struct GroupRowView: View {
             Text(group.name).font(.subheadline).lineLimit(2)
             counts.font(.caption2).foregroundStyle(.secondary)
             // The secondary grey rather than fainter: it is what says how far back the programme goes.
-            Text(span)
+            Text(group.span)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -385,185 +322,94 @@ struct GroupRowView: View {
         .padding(.vertical, 2)
     }
 
-    /// From the start of the first recording to the end of the last, which for one recording is when it was on.
-    /// An end on the day the span starts is said by its time alone.
-    private var span: String {
-        let sameDay = Format.day.string(from: group.earliest) == Format.day.string(from: group.lastEnd)
-        let end = (sameDay ? Format.time : Format.dateTime).string(from: group.lastEnd)
-        return "\(Format.dateTime.string(from: group.earliest)) 〜 \(end)"
-    }
-
     /// How many, how big, and how many are new or protected, as one line of text that wraps as a line does.
     private var counts: Text {
-        var line = Text("\(group.count) 件") + Text.rowGap + Text(Format.gigabytes(group.sizeGB))
-        if group.newCount > 0 {
-            line = line + Text.rowGap + Text("未視聴 \(group.newCount)").foregroundStyle(Color.accentColor)
-        }
-        if group.protectedCount > 0 { line = line + Text.rowGap + Text("🔒 \(group.protectedCount)") }
+        var line = Text(group.countSaid) + Text.rowGap + Text(group.sizeSaid)
+        if let new = group.newSaid { line = line + Text.rowGap + Text(new).foregroundStyle(Color.accentColor) }
+        if let protected = group.protectedSaid { line = line + Text.rowGap + Text(protected) }
         return line
     }
 }
 
-/// One programme's recordings, with the selection that bulk work needs.
+/// One programme's recordings, with the selection that bulk work needs. What is ticked, asked and held is the
+/// model's (`GroupSheetState`); the sheet lays it out.
 struct GroupSheet: View {
-    let group: TitleGroup
     @Environment(AppModel.self) private var model
+    @State private var sheet: GroupSheetState
 
     /// The episode opened, in a sheet over this one, so that closing it comes back to this programme rather
     /// than to the list of programmes.
     @State private var opened: RecordedTitle?
-    @State private var selecting = false
-    @State private var selected: Set<String> = []
-    @State private var confirmingDelete = false
-    /// The row swiped, by key, read back out of the model when the dialog asks.
-    @State private var removing: String?
-    @State private var failure: String?
-    /// What a single delete that went through had to say: that the recording was deleted already.
-    @State private var told: String?
-    /// Whether the sheet's own single delete, or a swipe's 保護解除, is out: the sheet is held open until it is
-    /// answered, so that what it came to is said here rather than lost with a closed sheet, and the swipes and
-    /// the delete's confirm are held, so that a second is not sent meanwhile.
-    @State private var asking = false
 
-    /// One alert for all three jobs. Two on a view is not something SwiftUI promises to honour, and this
-    /// one has a bulk delete, a single delete and a failure to report.
-    private enum Shown {
-        case bulk
-        case one(RecordedTitle)
-        case failed(String)
-        case told(String)
-    }
-
-    private func shown(among members: [RecordedTitle]) -> Shown? {
-        if let failure { return .failed(failure) }
-        if let told { return .told(told) }
-        if let key = removing, let title = members.first(where: { $0.listKey == key }) { return .one(title) }
-        return confirmingDelete ? .bulk : nil
-    }
-
-    private static func gigabytes(_ titles: [RecordedTitle]) -> String {
-        Format.gigabytes(Gigabytes.of(titles))
+    init(group: TitleGroup, model: AppModel) {
+        _sheet = State(initialValue: GroupSheetState(group: group, model: model))
     }
 
     var body: some View {
         // Read once here and handed to the parts that need them: each read sorts every recording and picks
         // this programme's out of them, and every tick in the selection draws the sheet again.
-        let members = model.members(of: group)
-        let chosen = AppModel.chosenTitles(among: members, selected)
-        let shown = self.shown(among: members)
+        let members = sheet.members
+        let chosen = sheet.chosen(among: members)
+        let asked = sheet.ask(among: members)
         NavigationStack {
             VStack(spacing: 0) {
                 JobBarView()
-                if selecting { selectionBar(members: members, chosen: chosen) }
+                if sheet.selecting { selectionBar(members: members, chosen: chosen) }
                 list(members)
             }
-            .navigationTitle(group.name)
+            .navigationTitle(sheet.group.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(selecting ? "完了" : "選択") {
-                        selecting.toggle()
-                        selected = []
-                    }
-                    .disabled(members.isEmpty)
+                    Button(sheet.selectLabel) { sheet.toggleSelecting() }
+                        .disabled(members.isEmpty)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("この番組をすべて保護") {
-                            model.startBulk(.protecting(true), ids: members.map(\.id))
-                        }
-                        Button("この番組の保護をすべて解除") {
-                            model.startBulk(.protecting(false), ids: members.map(\.id))
-                        }
+                        Button("この番組をすべて保護") { sheet.protectAll(true, members) }
+                        Button("この番組の保護をすべて解除") { sheet.protectAll(false, members) }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
                     .accessibilityLabel("保護をまとめて変更")
-                    // What starts a run is held while one is under way, and while the recorder works or
-                    // connects, where a recorder's row is among them (`AppModel.canStartARun(over:)`): here, on
-                    // the bar under the selection, and on the confirm of the bulk delete.
-                    .disabled(!model.canStartARun(over: members) || members.isEmpty)
+                    .disabled(sheet.holdsProtectingAll(members))
                 }
-                ToolbarItem(placement: .topBarTrailing) { SheetCloseButton().disabled(asking) }
+                ToolbarItem(placement: .topBarTrailing) { SheetCloseButton().disabled(sheet.asking) }
             }
-            .interactiveDismissDisabled(asking)
-            .safeAreaInset(edge: .bottom) { if selecting, !chosen.isEmpty { actions(chosen) } }
+            .interactiveDismissDisabled(sheet.asking)
+            .safeAreaInset(edge: .bottom) { if sheet.offersActions(on: chosen) { actions(chosen) } }
             .sheet(item: $opened) { TitleSheet(title: $0, model: model) }
             .closesWithItsRecorder()
-            .alert(shownTitle(shown, chosen: chosen),
-                   isPresented: Binding(get: { shown != nil },
-                                        set: { if !$0 { confirmingDelete = false; removing = nil
-                                                        failure = nil; told = nil } }),
-                   presenting: shown) { shown in
-                switch shown {
-                case .bulk:
-                    Button("\(chosen.count) 件を削除する", role: .destructive) {
-                        // The selection stays when the press was held off: nothing was started.
-                        let deletable = chosen.filter { model.whyNot(deleting: $0) == nil }.map(\.id)
-                        if model.startBulk(.delete, ids: deletable) {
-                            selecting = false
-                            selected = []
-                        }
+            .alert(sheet.askTitle(asked, chosen: chosen),
+                   isPresented: Binding(get: { asked != nil }, set: { if !$0 { sheet.askClosed() } }),
+                   presenting: asked) { asked in
+                if let action = sheet.actionLabel(for: asked, chosen: chosen) {
+                    Button(action.label, role: action.destructive ? .destructive : nil) {
+                        sheet.act(on: asked, chosen: chosen)
                     }
-                    .disabled(!model.canStartARun(over: chosen))
-                    Button("キャンセル", role: .cancel) {}
-                case .one(let title):
-                    Button("削除する", role: .destructive) { ask { await model.delete(title) } }
-                        .disabled(!model.canAlter(title) || asking)
-                    Button("キャンセル", role: .cancel) {}
-                case .failed, .told:
-                    Button("OK", role: .cancel) {}
+                    .disabled(sheet.holdsTheAction(for: asked, chosen: chosen))
                 }
-            } message: { shown in
-                switch shown {
-                case .bulk:
-                    Text("合計 \(Self.gigabytes(chosen))。保護された録画と録画中のものは削除されません。\n"
-                         + chosen.deletedForGood.asABody)
-                case .one(let title): Text(AppModel.deleteMessage(title))
-                case .failed(let reason), .told(let reason): Text(reason.asABody)
-                }
+                Button(sheet.closingLabel(for: asked), role: .cancel) {}
+            } message: { asked in
+                Text(sheet.message(for: asked, chosen: chosen))
             }
-        }
-    }
-
-    /// Asks `operation` with the sheet held until it is answered, and says what it came to in the alert.
-    private func ask(_ operation: @escaping @MainActor () async -> Altered) {
-        asking = true
-        Task {
-            let came = await operation()
-            asking = false
-            switch came {
-            case .notDone(let why): failure = why
-            case .done(let more): told = more
-            }
-        }
-    }
-
-    private func shownTitle(_ shown: Shown?, chosen: [RecordedTitle]) -> String {
-        switch shown {
-        case .bulk: "選択した \(chosen.count) 件を削除しますか？"
-        case .failed: "エラー"
-        case .told: "録画"
-        case .one, nil: "この録画を削除しますか？"
         }
     }
 
     private func list(_ members: [RecordedTitle]) -> some View {
         List(members) { title in
             Button {
-                if selecting {
-                    toggle(title)
+                if sheet.selecting {
+                    sheet.toggle(title)
                 } else {
                     opened = title
                 }
             } label: {
                 HStack(spacing: 10) {
-                    if selecting {
-                        // Grey where a bulk delete would pass the recording over, by the delete's own door: a
-                        // protected one, and one still being recorded.
-                        let deletable = model.whyNot(deleting: title) == nil
-                        Image(systemName: selected.contains(title.listKey) ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(deletable ? Color.accentColor : .secondary)
+                    if sheet.selecting {
+                        // Grey where a bulk delete would pass the recording over.
+                        Image(systemName: sheet.isSelected(title) ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(sheet.wouldBeDeleted(title) ? Color.accentColor : .secondary)
                             .accessibilityHidden(true)
                     }
                     TitleRowView(title: title, channel: model.channelName(for: title),
@@ -573,23 +419,19 @@ struct GroupSheet: View {
             }
             .buttonStyle(.plain)
             // The tick said to VoiceOver as the row being selected, rather than as the name of a circle.
-            .accessibilityAddTraits(selecting && selected.contains(title.listKey) ? .isSelected : [])
-            // Not while picking: a swipe there is how the reader scrolls a list of tick boxes.
-            .titleSwipe(selecting ? nil : title, whyNot: model.whyNot(deleting: title),
-                        held: !model.canAlter(title) || asking, ask: { removing = title.listKey },
-                        unprotect: { ask { await model.setProtected(title, false) } })
+            .accessibilityAddTraits(sheet.selecting && sheet.isSelected(title) ? .isSelected : [])
+            .titleSwipe(sheet.swipe(for: title), held: sheet.holds(title),
+                        ask: { sheet.delete(title) }, unprotect: { sheet.unprotect(title) })
         }
         .listStyle(.plain)
     }
 
     private func selectionBar(members: [RecordedTitle], chosen: [RecordedTitle]) -> some View {
         HStack {
-            Button("削除できるものをすべて選択") {
-                selected = Set(members.filter { model.whyNot(deleting: $0) == nil }.map(\.listKey))
-            }
-            Button("選択解除") { selected = [] }
+            Button("削除できるものをすべて選択") { sheet.selectWhatCanBeDeleted(among: members) }
+            Button("選択解除") { sheet.selectNothing() }
             Spacer()
-            Text("\(chosen.count) 件").foregroundStyle(.secondary)
+            Text(GroupSheetState.countLine(chosen)).foregroundStyle(.secondary)
         }
         .font(.footnote)
         .padding(.horizontal, 12)
@@ -600,34 +442,20 @@ struct GroupSheet: View {
     private func actions(_ chosen: [RecordedTitle]) -> some View {
         VStack(spacing: 8) {
             Button(role: .destructive) {
-                confirmingDelete = true
+                sheet.deleteChosen()
             } label: {
-                Text("選択した \(chosen.count) 件を削除（\(Self.gigabytes(chosen))）")
+                Text(GroupSheetState.deleteLabel(chosen))
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             HStack {
-                Button("保護する") { bulkProtect(true, chosen) }
-                Button("保護を解除") { bulkProtect(false, chosen) }
+                Button("保護する") { sheet.protect(true, chosen) }
+                Button("保護を解除") { sheet.protect(false, chosen) }
             }
             .buttonStyle(.bordered)
         }
-        .disabled(!model.canStartARun(over: chosen))
+        .disabled(sheet.holdsActions(on: chosen))
         .padding(12)
         .background(.regularMaterial)
-    }
-
-    private func toggle(_ title: RecordedTitle) {
-        if selected.contains(title.listKey) {
-            selected.remove(title.listKey)
-        } else {
-            selected.insert(title.listKey)
-        }
-    }
-
-    private func bulkProtect(_ on: Bool, _ chosen: [RecordedTitle]) {
-        guard model.startBulk(.protecting(on), ids: chosen.map(\.id)) else { return }
-        selecting = false
-        selected = []
     }
 }

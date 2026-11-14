@@ -22,11 +22,14 @@ public final class RecBridgeApp: Sendable {
     /// The setting the settings screen writes itself, as the iOS screen writes it, and what the app's version is
     /// called, for the settings to say.
     let quality: ChosenQuality
+    /// Which view of the recordings is on, kept as the iOS screen keeps it.
+    let recordingsMode: ShownMode
     let version: String
 
-    init(model: AppModel, quality: ChosenQuality, version: String) {
+    init(model: AppModel, quality: ChosenQuality, recordingsMode: ShownMode, version: String) {
         self.model = model
         self.quality = quality
+        self.recordingsMode = recordingsMode
         self.version = version
     }
 
@@ -50,7 +53,8 @@ public final class RecBridgeApp: Sendable {
     static func made(files: String, kept: String, version: String) -> RecBridgeApp {
         let defaults = WrittenDefaults.android(files: files)
         let model = AppModel(surroundings: .android(files: files, kept: kept, defaults: defaults, version: version))
-        return RecBridgeApp(model: model, quality: ChosenQuality(defaults), version: version)
+        return RecBridgeApp(model: model, quality: ChosenQuality(defaults), recordingsMode: ShownMode(defaults),
+                            version: version)
     }
 
     /// Opens the cache and shows what it holds, and makes the first connect: what every iOS screen awaits first.
@@ -83,7 +87,17 @@ public final class RecBridgeApp: Sendable {
     public func reservations() async -> ReservationsWindow {
         await MainActor.run { ReservationsWindow(model) }
     }
-    public func recordings() -> RecordingsWindow { RecordingsWindow(model) }
+    public func recordings() async -> RecordingsWindow {
+        await MainActor.run { RecordingsWindow(model, mode: recordingsMode) }
+    }
+
+    /// The bulk job, wherever the reader happens to be looking: on the recordings' screen and on a programme's page.
+    public func job() -> JobWindow { JobWindow(model) }
+
+    /// The recordings that look like copies of one broadcast.
+    public func duplicates() async -> DuplicatesWindow {
+        await MainActor.run { DuplicatesWindow(DuplicatesState(model: model), model: model) }
+    }
     public func strip() -> StripWindow { StripWindow(model) }
     public func search() async -> SearchWindow {
         await MainActor.run { SearchWindow(model) }
@@ -138,6 +152,12 @@ extension Surroundings {
         android.tvCredentials = KeptTVCredentials(folder: keptFolder)
         android.tvHelperTokens = KeptTVHelperToken(folder: keptFolder)
         android.helperLabel = "RecBridge (Android)"
+        // The step of a bulk job in hand when the reader leaves the app is finished, as on iOS: Swift's main queue
+        // is run until its time is ended (`StepsHeld`, `runWhatWaitsOnTheMainQueue`).
+        android.holdTime = { _ in
+            StepsHeld.shared.begin()
+            return { StepsHeld.shared.end() }
+        }
         return android
     }
 }

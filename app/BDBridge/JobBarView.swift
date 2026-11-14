@@ -1,4 +1,5 @@
 import RecBridgeModel
+import RecorderKit
 import SwiftUI
 
 /// The bulk job, wherever the reader happens to be looking. It is shown on the recordings screen and inside
@@ -24,8 +25,8 @@ struct JobBarView: View {
                         .accessibilityLabel("閉じる")
                     } else {
                         ProgressView().controlSize(.small)
-                        Text("\(job.verb)中 \(job.done) / \(job.total)").font(.footnote)
-                        if job.cancelled { Text("中止します…").font(.caption).foregroundStyle(.secondary) }
+                        Text(job.progressLine).font(.footnote)
+                        if job.cancelled { Text(BulkJob.stopping).font(.caption).foregroundStyle(.secondary) }
                         Spacer()
                         Button("中止") { model.cancelBulk() }
                             .font(.footnote)
@@ -36,19 +37,17 @@ struct JobBarView: View {
                     ProgressView(value: job.progress)
                     // Said while it runs, since nothing can say it once the reader has gone: iOS suspends the
                     // app soon after it leaves, so the job finishes the recording it is on and waits there.
-                    Text("アプリを離れると一時停止し、戻ると再開します")
+                    Text(BulkJob.pausesAway)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
                 // Why the recorder stopped the run, or kept it from beginning, in the sentence the driver handed
                 // back with the stop. Silence has none: what the job says above says it.
-                if job.finished, let why = job.stopped?.said {
-                    Text(why.asABody).font(.caption).foregroundStyle(.secondary)
+                if let why = job.whyItStopped {
+                    Text(why).font(.caption).foregroundStyle(.secondary)
                 }
-                if job.finished, !job.skipped.isEmpty {
-                    ForEach(job.skipped.prefix(3)) { skip in
-                        Text("・" + skip.reason.asABody).font(.caption2).foregroundStyle(.secondary)
-                    }
+                ForEach(job.passedOver) { skip in
+                    Text(skip.said).font(.caption2).foregroundStyle(.secondary)
                 }
             }
             .padding(.horizontal, 12)
