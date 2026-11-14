@@ -5,6 +5,22 @@ import RecorderKit
 // The reservations' and the recordings' screens as the iOS app lists them, over the model's states of them
 // (`ReservationsState`, `RecordingsState`).
 
+/// The logos of the stations a list's rows are of, each handed over once and named by a key the rows carry, as the
+/// search's are: a row that carried its own would send the same picture again for every recording of a station.
+@MainActor
+final class LogoShelf {
+    private(set) var logos: [StationLogo] = []
+    private var listed: Set<String> = []
+
+    /// The key of `png` for a station named by the broadcasting type's number and its service, or nothing for none.
+    func key(_ png: Data?, broadcastingType: Int, serviceID: Int) -> String {
+        guard let png else { return "" }
+        let key = "\(broadcastingType)-\(serviceID)"
+        if listed.insert(key).inserted { logos.append(StationLogo(key: key, image: [UInt8](png))) }
+        return key
+    }
+}
+
 /// The reservations' screen (`ReservationsScreen`).
 public struct ReservationsScreen: Sendable {
     /// With no recorder to talk to and nothing to show, what is said in place of the list.
@@ -40,6 +56,8 @@ public struct ReservationsScreen: Sendable {
     /// What the recorder's list is read again by: when it changes, the screen loads it (`load`), as the iOS screen
     /// does each time the app connects. The television's is read once each time the screen appears (`loadTV`).
     public var loadKey: String
+    /// The logos of the stations the rows are of, each once.
+    public var logos: [StationLogo]
 }
 
 public struct ReservationSection: Sendable {
@@ -61,6 +79,9 @@ public struct ReservationRow: Sendable {
     public var details: String
     /// Its delete is held while its own device works.
     public var deleteHeld: Bool
+    /// The key of its station's logo among the screen's `logos`, or nothing where the station has none. The logo
+    /// goes first on the meta line; its space is held when there is none, as on iOS.
+    public var logo: String
 }
 
 public struct WaitingRow: Sendable {
@@ -201,6 +222,10 @@ public final class ReservationsWindow: Sendable {
                          action: action?.label ?? "", destructive: action?.destructive ?? false,
                          closing: state.closingLabel(for: asked))
         }
+        let shelf = LogoShelf()
+        let sections = model.reservationSections.map { section in
+            ReservationSection(title: section.title, rows: section.items.map { row($0, model, shelf) })
+        }
         return ReservationsScreen(
             hasNoRecorder: model.reservationsHaveNoRecorder, noRecorder: NoRecorder(model),
             isEmpty: model.reservationsAreEmpty, empty: Said(AppModel.noReservations),
@@ -222,17 +247,15 @@ public final class ReservationsWindow: Sendable {
                                   offersSendingAgain: state.offersSendingAgain(waiting), held: state.holds(waiting))
             },
             waitingSays: model.whatWaitsSays,
-            sections: model.reservationSections.map { section in
-                ReservationSection(title: section.title, rows: section.items.map { row($0, model) })
-            },
+            sections: sections,
             hasAsked: asked != nil,
             asked: asked ?? Asked(key: "", title: "", message: "", action: "", destructive: false, closing: ""),
             line: model.busy ?? problem?.asABody ?? "", lineIsAProblem: model.busy == nil && problem != nil,
-            loadKey: "\(model.connected && !model.offline)")
+            loadKey: "\(model.connected && !model.offline)", logos: shelf.logos)
     }
 
     @MainActor
-    static func row(_ reservation: Reservation, _ model: AppModel) -> ReservationRow {
+    static func row(_ reservation: Reservation, _ model: AppModel, _ shelf: LogoShelf? = nil) -> ReservationRow {
         var parts = [model.tv != nil ? reservation.device.label : nil, model.diskShown(reservation)].compactMap { $0 }
         let channel = model.channelName(for: reservation)
         if !channel.isEmpty { parts.append(channel) }
@@ -243,7 +266,10 @@ public final class ReservationsWindow: Sendable {
                               length: Format.duration(reservation.durationSec), recording: reservation.recording,
                               conflict: reservation.conflict, byTheRecorder: reservation.createdByRecorder,
                               title: reservation.title, details: parts.joined(separator: " · "),
-                              deleteHeld: model.isBusy(for: reservation.device))
+                              deleteHeld: model.isBusy(for: reservation.device),
+                              logo: shelf?.key(model.logo(for: reservation),
+                                               broadcastingType: reservation.broadcastingType,
+                                               serviceID: reservation.serviceID) ?? "")
     }
 }
 
@@ -262,7 +288,8 @@ public struct RecordingsScreen: Sendable {
     public var empty: Said
     /// `残り 120.5 GB` when the free space is known, `録画` when it is not.
     public var heading: String
-    /// The recorder's line while it works, or what is shown: the disk and the genre picked, and how many.
+    /// The recorder's line while it works, or what is shown: the disk and the genre picked, and how many. It is the
+    /// one place the screen says what the recorder is doing, as on iOS, where it is also what a test waits on.
     public var subtitle: String
     /// The filters, as the iOS screen's menu offers them: 録画先 (only where there is more than one place), ジャンル
     /// with how many of each, 並び順 and 視聴状態. An empty code is すべて; `filtering` when any is not its default.
@@ -285,8 +312,6 @@ public struct RecordingsScreen: Sendable {
     public var hasAsked: Bool
     public var asked: Asked
     public var actionHeld: Bool
-    public var line: String
-    public var lineIsAProblem: Bool
     /// What each list is read again by, as on the iOS screen: the recorder's (`load`) each time the app connects,
     /// the television's (`loadTV`) each time it is attached, and the recorder's afresh (`loadOutdated`) when the
     /// disk in the USB slot is no longer the one the list was read from. What becomes of the television is no
@@ -295,6 +320,8 @@ public struct RecordingsScreen: Sendable {
     public var loadKey: String
     public var tvKey: String
     public var outdatedKey: String
+    /// The logos of the stations the rows are of, each once.
+    public var logos: [StationLogo]
 }
 
 public struct RecordingRow: Sendable {
@@ -304,6 +331,11 @@ public struct RecordingRow: Sendable {
     public var protected: Bool
     /// When, the disk where it is said, the station, the length, the size and the mode.
     public var details: String
+    /// The key of its station's logo among the screen's `logos`, or nothing where the station has none, and how
+    /// many UTF-16 units of `details` come before the channel's name, where the logo goes (never more than there
+    /// are). No space is held for a station without one.
+    public var logo: String
+    public var logoAt: Int64
     /// `未視聴`, `視聴済み`, `途中まで`, and `unwatched` for the first, which is in the accent colour.
     public var watched: String
     public var unwatched: Bool
@@ -465,13 +497,14 @@ public final class RecordingsWindow: Sendable {
         // Only what the view that is on shows: each read filters and sorts every recording, and まとめ groups them.
         let listed = mode == .list ? model.shownTitles : []
         let groups = mode == .groups ? model.titleGroups : []
-        let problem = model.problem(for: .recorder) ?? model.problem(for: .tv)
         let asked = state.ask.map { asked in
             let action = state.actionLabel(for: asked)
             return Asked(key: key(asked), title: state.askTitle, message: state.message(for: asked),
                          action: action?.label ?? "", destructive: action?.destructive ?? false,
                          closing: state.closingLabel(for: asked))
         }
+        let shelf = LogoShelf()
+        let rows = listed.map { row($0, model, shelf: shelf) }
         return RecordingsScreen(
             modes: RecordingsState.Mode.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
             mode: mode.rawValue,
@@ -495,7 +528,7 @@ public final class RecordingsWindow: Sendable {
             state: model.titleState?.rawValue ?? "",
             filtering: state.filtering,
             tvNote: model.tvTitlesNote?.asABody ?? "",
-            rows: listed.map { row($0, model) },
+            rows: rows,
             groups: groups.map {
                 GroupRow(id: $0.id, name: $0.name, count: $0.countSaid, size: $0.sizeSaid, unwatched: $0.newSaid ?? "",
                          locked: $0.protectedSaid ?? "", span: $0.span)
@@ -503,26 +536,33 @@ public final class RecordingsWindow: Sendable {
             hasAsked: asked != nil,
             asked: asked ?? Asked(key: "", title: "", message: "", action: "", destructive: false, closing: ""),
             actionHeld: state.ask.map(state.holdsTheAction) ?? false,
-            line: model.busy ?? problem?.asABody ?? "", lineIsAProblem: model.busy == nil && problem != nil,
             loadKey: "\(model.connected && !model.offline)", tvKey: model.tvTitlesToRead,
-            outdatedKey: "\(model.titlesOutOfStep)")
+            outdatedKey: "\(model.titlesOutOfStep)", logos: shelf.logos)
     }
 
     /// A recording's row. On a programme's page what it offers under a swipe and when that is held are the page's
     /// to say (`swipe`, `held`); elsewhere the model's.
     @MainActor
     static func row(_ title: RecordedTitle, _ model: AppModel, swipe: AppModel.TitleSwipe?? = nil,
-                    held: Bool? = nil) -> RecordingRow {
+                    held: Bool? = nil, shelf: LogoShelf? = nil) -> RecordingRow {
         let offered = swipe ?? model.swipe(for: title)
         var parts = [Format.dateTime.string(from: title.start)]
         if let disk = model.diskShown(title) { parts.append(disk) }
         let channel = model.channelName(for: title)
+        // The logo goes before the channel's name. A station with a logo but no name is a part of its own on iOS; here
+        // the logo then stands before whatever follows the disk, or at the end of the line when nothing does.
+        let before = parts.count
         if !channel.isEmpty { parts.append(channel) }
         if title.lengthKnown { parts.append(Format.duration(title.durationSec)) }
         if let size = Format.size(of: title) { parts.append(size) }
         if let quality = title.qualityName { parts.append(quality) }
+        let details = parts.joined(separator: " · ")
+        let lead = parts.prefix(before).joined(separator: " · ") + (parts.count > before ? " · " : "")
         return RecordingRow(id: title.listKey, title: title.title, recording: title.recording, protected: title.protected,
-                            details: parts.joined(separator: " · "), watched: title.watchState.label,
+                            details: details,
+                            logo: shelf?.key(model.logo(for: title), broadcastingType: title.broadcastingType,
+                                             serviceID: title.serviceID) ?? "",
+                            logoAt: Int64(lead.utf16.count), watched: title.watchState.label,
                             unwatched: title.watchState == .unwatched,
                             resume: title.watchState == .partway ? Int64((title.resumeFraction * 100).rounded()) : -1,
                             genre: title.genre?.label ?? "",

@@ -1,6 +1,16 @@
 package jp.hiroaki.bdbridge
 
+import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -59,7 +69,9 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -119,12 +131,17 @@ fun TitleWithSubtitle(title: String, subtitle: String) {
     }
 }
 
-/** What a search came to, with the likely causes under it when it found nothing, in the tutorial and the settings. */
+/**
+ * What a search came to, with the likely causes under it when it found nothing, in the tutorial and the settings. The
+ * sentence is a live region: the model announces it on iOS (`Surroundings.announce`), and TalkBack says it as it
+ * appears, politely, here.
+ */
 @Composable
 fun SearchOutcome(outcome: String, failed: Boolean, note: String, causes: List<String>) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(outcome, style = MaterialTheme.typography.bodyMedium,
-             color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+             color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         if (note.isNotEmpty()) Footnote(note)
         if (causes.isNotEmpty()) {
             Text("考えられる原因", style = MaterialTheme.typography.labelMedium)
@@ -300,4 +317,34 @@ fun SwipeActions(toTheRight: SwipeAction?, toTheLeft: SwipeAction?, content: @Co
 @Composable
 fun Footnote(text: String, modifier: Modifier = Modifier) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier)
+}
+
+/** Each station's logo made once from what the model sent, keyed as it sent them, and again only for other logos. */
+@Composable
+internal fun rememberLogos(logos: Map<String, ByteArray>): Map<String, ImageBitmap?> =
+    remember(logos.map { (key, image) -> key to image.size }) {
+        logos.mapValues { (_, image) -> BitmapFactory.decodeByteArray(image, 0, image.size)?.asImageBitmap() }
+    }
+
+/**
+ * A line of details with a station's logo set inside it, as the iOS rows set theirs, so that the logo and the words
+ * wrap as one line: `before`, the logo, then `after`. Where the station has no logo the line is as it is said, or with
+ * the space of a logo held first when `holdSpace`, so that what follows lines up down a list.
+ */
+@Composable
+internal fun LogoLine(before: String, logo: ImageBitmap?, after: String, holdSpace: Boolean) {
+    if (logo == null && !holdSpace) return Text(before + after)
+    val height = with(LocalDensity.current) { 14.dp.toSp() }
+    // The recorder sends its logos at 64 by 36; that is the shape of the space held.
+    val width = height * (logo?.let { it.width.toFloat() / it.height } ?: (64f / 36f))
+    val content = mapOf("logo" to InlineTextContent(Placeholder(width, height, PlaceholderVerticalAlign.Center)) {
+        if (logo != null) Image(logo, contentDescription = null, Modifier.fillMaxSize())
+    })
+    Text(buildAnnotatedString {
+        append(before)
+        if (before.isNotEmpty() && !before.endsWith(" ")) append(" ")
+        appendInlineContent("logo", " ")
+        append(" ")
+        append(after)
+    }, inlineContent = content)
 }

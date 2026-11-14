@@ -111,6 +111,8 @@ public struct GroupScreen: Sendable {
     public var asking: Bool
     /// The recorder whose recordings these were has been let go of: the page closes.
     public var done: Bool
+    /// The logos of the stations the rows are of, each once.
+    public var logos: [StationLogo]
 }
 
 /// A recording of the programme: its row, whether it is ticked, and whether a bulk delete would take it (the tick
@@ -270,20 +272,22 @@ public final class GroupWindow: Sendable {
                          message: sheet.message(for: asked, chosen: chosen), action: action?.label ?? "",
                          destructive: action?.destructive ?? false, closing: sheet.closingLabel(for: asked))
         }
+        let shelf = LogoShelf()
+        let rows = members.map { title in
+            GroupMember(row: RecordingsWindow.row(title, model, swipe: .some(sheet.swipe(for: title)),
+                                                  held: sheet.holds(title), shelf: shelf),
+                        selected: sheet.isSelected(title), wouldBeDeleted: sheet.wouldBeDeleted(title))
+        }
         return GroupScreen(
             name: sheet.group.name, selecting: sheet.selecting, selectLabel: sheet.selectLabel,
             selectHeld: members.isEmpty, protectAllHeld: sheet.holdsProtectingAll(members),
-            rows: members.map { title in
-                GroupMember(row: RecordingsWindow.row(title, model, swipe: .some(sheet.swipe(for: title)),
-                                                      held: sheet.holds(title)),
-                            selected: sheet.isSelected(title), wouldBeDeleted: sheet.wouldBeDeleted(title))
-            },
+            rows: rows,
             count: GroupSheetState.countLine(chosen), offersActions: sheet.offersActions(on: chosen),
             deleteLabel: GroupSheetState.deleteLabel(chosen), actionsHeld: sheet.holdsActions(on: chosen),
             hasAsked: asked != nil,
             asked: asked ?? Asked(key: "", title: "", message: "", action: "", destructive: false, closing: ""),
             actionHeld: ask.map { sheet.holdsTheAction(for: $0, chosen: chosen) } ?? false,
-            asking: sheet.asking, done: gone.happened)
+            asking: sheet.asking, done: gone.happened, logos: shelf.logos)
     }
 }
 

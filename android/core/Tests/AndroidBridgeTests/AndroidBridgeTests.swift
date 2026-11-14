@@ -70,6 +70,101 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertNil(nothing)
     }
 
+    /// The demo's stations get the tiles Kotlin draws, which come back as the guide's logos; with no drawer there are
+    /// none.
+    @MainActor
+    func testTheDemosStationsGetTheTilesKotlinDraws() async throws {
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path,
+                                    version: "0.1 (1)")
+        app.drawsTiles(Drawing())
+        await app.start()
+        await app.devices().enterDemo()
+        let shown = await until(app.guide().read) { $0.shows == "programmes" && !$0.stations.isEmpty }
+        XCTAssertTrue(shown.stations.allSatisfy { $0.logo.starts(with: [0x89, 0x50, 0x4E, 0x47]) })
+        let first = try XCTUnwrap(shown.stations.first)
+        XCTAssertEqual(String(decoding: first.logo.dropFirst(8), as: UTF8.self).prefix(2), "0:")
+        let kept = folder.appendingPathComponent("demo-tiles").path
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: kept), [], "the files are not kept")
+
+        // The rows of the reservations and the recordings name their stations' logos, which come once each.
+        let reservationsWindow = await app.reservations()
+        await reservationsWindow.load()
+        let reservations = await until(reservationsWindow.read) { !$0.sections.isEmpty }
+        let reserved = reservations.sections.flatMap(\.rows)
+        XCTAssertTrue(reserved.contains { !$0.logo.isEmpty })
+        XCTAssertTrue(reserved.allSatisfy { row in
+            row.logo.isEmpty || reservations.logos.contains { $0.key == row.logo }
+        })
+        XCTAssertEqual(Set(reservations.logos.map(\.key)).count, reservations.logos.count)
+        let recordingsWindow = await app.recordings()
+        await recordingsWindow.load()
+        let recordings = await until(recordingsWindow.read) { !$0.rows.isEmpty }
+        let recorded = try XCTUnwrap(recordings.rows.first { !$0.logo.isEmpty })
+        XCTAssertTrue(recordings.logos.contains { $0.key == recorded.logo })
+        XCTAssertTrue(recorded.details.utf16.count >= Int(recorded.logoAt), "the logo goes inside the details")
+
+        let bare = await demo().guide()
+        let without = await until(bare.read) { $0.shows == "programmes" && !$0.stations.isEmpty }
+        XCTAssertTrue(without.stations.allSatisfy { $0.logo.isEmpty })
+    }
+
+    /// What Android's watcher reports reaches what the model handed over, for as long as the model holds its token.
+    func testTheNetworksChangesReachTheModelForAsLongAsItWatches() {
+        let reports = NetworkReports()
+        let told = NSLock()
+        nonisolated(unsafe) var count = 0
+        var token: AnyObject? = reports.watch { told.withLock { count += 1 } }
+        reports.report()
+        reports.report()
+        XCTAssertEqual(told.withLock { count }, 2)
+        token = nil
+        reports.report()
+        XCTAssertEqual(told.withLock { count }, 2, "nothing is told once the model has let go")
+        XCTAssertNil(token)
+    }
+
+    /// A programme's page hands over its recordings' stations' logos, as the list does.
+    @MainActor
+    func testAProgrammesPageHasItsStationsLogos() async throws {
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path,
+                                    version: "0.1 (1)")
+        app.drawsTiles(Drawing())
+        await app.start()
+        await app.devices().enterDemo()
+        let recordings = await app.recordings()
+        await recordings.load()
+        _ = await until(recordings.read) { !$0.rows.isEmpty }
+        let programme = try XCTUnwrap(app.model.titleGroups.first)
+        let opening = await recordings.openGroup(programme.id)
+        let page = try XCTUnwrap(opening)
+        let shown = await page.read()
+        XCTAssertFalse(shown.logos.isEmpty)
+        XCTAssertTrue(shown.rows.allSatisfy { member in
+            member.row.logo.isEmpty || shown.logos.contains { $0.key == member.row.logo }
+        })
+        XCTAssertTrue(shown.rows.contains { !$0.row.logo.isEmpty })
+    }
+
+    /// Where a recording's logo goes is never past its details, even for one with no channel's name and nothing after
+    /// its time: the row is cut there on the screen.
+    @MainActor
+    func testARecordingWithNoChannelNameKeepsItsLogoInsideItsDetails() async throws {
+        let app = await demo()
+        let window = await app.recordings()
+        await window.load()
+        _ = await until(window.read) { !$0.rows.isEmpty }
+        var title = try XCTUnwrap(app.model.allTitles.first)
+        title.channelName = nil
+        title.broadcastingType = 999
+        title.qualityCode = 999
+        title.durationSec = 0
+        title.sizeMB = nil
+        title.destination = ""
+        let row = RecordingsWindow.row(title, app.model, shelf: LogoShelf())
+        XCTAssertLessThanOrEqual(Int(row.logoAt), row.details.utf16.count)
+        XCTAssertFalse(row.details.isEmpty)
+    }
+
     @MainActor
     func testTheGuideFollowsWhatTheReaderChooses() async throws {
         let guide = await demo().guide()
@@ -123,7 +218,7 @@ final class AndroidBridgeTests: XCTestCase {
 
         let recordings = await app.recordings()
         await recordings.load()
-        let titles = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
+        let titles = await until(recordings.read) { !$0.rows.isEmpty && $0.subtitle == "\($0.rows.count) 件" }
         XCTAssertFalse(titles.hasNoRecorder)
         XCTAssertEqual(titles.subtitle, "\(titles.rows.count) 件")
         XCTAssertTrue(titles.rows.allSatisfy { $0.details.contains("(") && !$0.watched.isEmpty })
@@ -307,7 +402,7 @@ final class AndroidBridgeTests: XCTestCase {
         let app = await demo()
         let recordings = await app.recordings()
         await recordings.load()
-        let listed = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
+        let listed = await until(recordings.read) { !$0.rows.isEmpty && $0.subtitle == "\($0.rows.count) 件" }
         XCTAssertEqual(listed.modes.map(\.label), ["一覧", "まとめ", "重複"])
         XCTAssertEqual(listed.mode, "list")
         XCTAssertTrue(listed.groups.isEmpty, "the programmes were worked out with the list on")
@@ -347,7 +442,9 @@ final class AndroidBridgeTests: XCTestCase {
         await recordings.delete(going.id)
         let asked = await until(recordings.read) { $0.hasAsked }
         await recordings.act(asked.asked.key)
-        let gone = await until(recordings.read) { shown in !shown.rows.contains { $0.id == going.id } && shown.line.isEmpty }
+        let gone = await until(recordings.read) { shown in
+            !shown.rows.contains { $0.id == going.id } && shown.subtitle == "\(shown.rows.count) 件"
+        }
         XCTAssertFalse(gone.hasAsked, "a delete that went through said something: \(gone.asked.message)")
 
         // 保護解除 on a row that offers the delete does nothing; on the protected one it takes the protection off.
@@ -364,7 +461,7 @@ final class AndroidBridgeTests: XCTestCase {
         let app = await demo()
         let recordings = await app.recordings()
         await recordings.load()
-        _ = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
+        _ = await until(recordings.read) { !$0.rows.isEmpty && $0.subtitle == "\($0.rows.count) 件" }
         let programme = try XCTUnwrap(app.model.titleGroups.max { $0.count < $1.count })
         XCTAssertGreaterThan(programme.count, 2, "the demo has no programme with three recordings")
         let opening = await recordings.openGroup(programme.id)
@@ -449,7 +546,7 @@ final class AndroidBridgeTests: XCTestCase {
         let app = await demo()
         let recordings = await app.recordings()
         await recordings.load()
-        _ = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
+        _ = await until(recordings.read) { !$0.rows.isEmpty && $0.subtitle == "\($0.rows.count) 件" }
         let duplicates = await app.duplicates()
         let before = await until(duplicates.read) { !$0.scanHeld }
         XCTAssertFalse(before.hasSets)
@@ -747,7 +844,7 @@ extension AndroidBridgeTests {
         let app = await demo()
         let recordings = await app.recordings()
         await recordings.load()
-        let all = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
+        let all = await until(recordings.read) { !$0.rows.isEmpty && $0.subtitle == "\($0.rows.count) 件" }
         XCTAssertFalse(all.filtering)
         XCTAssertEqual(all.genre, "")
         XCTAssertTrue(all.genres.first?.label.hasPrefix("すべて") ?? false)
@@ -815,6 +912,15 @@ extension AndroidBridgeTests {
 }
 
 struct StillWaiting: Error {}
+
+/// A drawer that writes what it was asked for as a PNG's signature and the text, so a test sees what reached it.
+final class Drawing: TileDrawer, @unchecked Sendable {
+    func draw(_ text: String, _ index: Int64, _ path: String) {
+        var bytes: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+        bytes += Array("\(index):\(text)".utf8)
+        FileManager.default.createFile(atPath: path, contents: Data(bytes))
+    }
+}
 
 final class Counting: ScreenListener, @unchecked Sendable {
     private let lock = NSLock()

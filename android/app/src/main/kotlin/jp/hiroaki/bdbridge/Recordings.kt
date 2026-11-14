@@ -191,6 +191,7 @@ fun GroupPage(group: GroupItem, close: () -> Unit) {
     }) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             if (shown == null) return@Box CircularProgressIndicator(Modifier.align(Alignment.Center))
+            val logos = rememberLogos(shown.logos)
             LazyColumn(Modifier.fillMaxSize()) {
                 items(shown.rows, key = { it.row.id }) { member ->
                     val row = member.row
@@ -201,11 +202,15 @@ fun GroupPage(group: GroupItem, close: () -> Unit) {
                             Icon(if (member.selected) Icons.Default.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
                                  contentDescription = null, Modifier.padding(start = 16.dp),
                                  tint = if (member.wouldBeDeleted) colors.primary else colors.onSurfaceVariant)
-                            Column(Modifier.weight(1f)) { RecordingRow(row, selected = member.selected) { act { toggle(row.id) } } }
+                            Column(Modifier.weight(1f)) {
+                                RecordingRow(row, selected = member.selected, logo = logos[row.logo]) {
+                                    act { toggle(row.id) }
+                                }
+                            }
                         }
                     } else {
                         RecordingSwipes(row, delete = { act { delete(row.id) } }, unprotect = { act { unprotect(row.id) } }) {
-                            RecordingRow(row) { opened = row }
+                            RecordingRow(row, logo = logos[row.logo]) { opened = row }
                         }
                     }
                 }

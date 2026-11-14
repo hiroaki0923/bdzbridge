@@ -79,7 +79,9 @@ fun TVRegisterSheetView(request: TVSheetRequest, close: () -> Unit) {
     if (host == null && sheet != null) host = sheet.typedHost
     LaunchedEffect(handle) { handle?.appeared() }
     HeldSheet(held = false, done = sheet?.done ?: false, close = close) {
-        Title(sheet?.title ?: if (request.again) "テレビを登録" else "テレビを追加")
+        // The title and the button's words are the model's alone: blank for the moment before its window is read, the
+        // button held meanwhile.
+        Title(sheet?.title.orEmpty())
         Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(value = host ?: request.host, onValueChange = {
                 host = it
@@ -104,7 +106,7 @@ fun TVRegisterSheetView(request: TVSheetRequest, close: () -> Unit) {
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(onClick = { handle?.press() }, enabled = sheet != null && !sheet.pressHeld) {
-                    Text(sheet?.pressLabel ?: "テレビに接続")
+                    Text(sheet?.pressLabel.orEmpty())
                 }
                 if (sheet?.working == true) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
             }

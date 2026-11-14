@@ -1,6 +1,9 @@
 package jp.hiroaki.bdbridge
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
 import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.CompletableFuture
@@ -106,6 +109,9 @@ object RecBridge {
         val version = "${info.versionName} (${info.longVersionCode})"
         scope.launch {
             val app = call { RecBridgeApp.open(files, kept, version, arena) }
+            // Before the start, which seeds the demo's guide with its tiles when the demo is on.
+            app.drawsTiles(Tiles)
+            watchTheNetwork(context.applicationContext, app)
             val windows = Windows(app, app.devices(arena), app.guide(arena), call { app.reservations(arena) },
                                   call { app.recordings(arena) }, app.strip(arena), call { app.settings(arena) },
                                   call { app.search(arena) }, app.job(arena), call { app.duplicates(arena) })
@@ -129,6 +135,29 @@ object RecBridge {
             }
             opened.complete(windows)
             call<Void> { app.start() }
+        }
+    }
+
+    /**
+     * Tells the model when the network under the device changes, as the iOS app's monitor does: an address coming or
+     * going on the default network, or the default network lost. The model looks at the addresses itself. It lives as
+     * the process does, as the model does, so it is never unregistered.
+     */
+    private fun watchTheNetwork(context: Context, app: RecBridgeApp) {
+        try {
+            val manager = context.getSystemService(ConnectivityManager::class.java)
+            manager.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = told()
+                override fun onLost(network: Network) = told()
+
+                private fun told() {
+                    try {
+                        app.networkChanged()
+                    } catch (_: Throwable) {
+                    }
+                }
+            })
+        } catch (_: Throwable) {
         }
     }
 
@@ -604,7 +633,7 @@ data class Reservations(
     val emptyDetail: String, val subtitle: String, val kinds: List<Labelled>, val kind: String,
     val sorts: List<Labelled>, val sort: String, val filtering: Boolean, val conditionsHeld: Boolean,
     val staleKey: String, val waiting: List<Waiting>, val waitingSays: String, val sections: List<Section>, val asked: Asked?,
-    val line: String, val lineIsAProblem: Boolean, val loadKey: String,
+    val line: String, val lineIsAProblem: Boolean, val loadKey: String, val logos: Map<String, ByteArray>,
 )
 
 data class Section(val title: String, val rows: List<ReservationItem>)
@@ -612,6 +641,8 @@ data class Section(val title: String, val rows: List<ReservationItem>)
 data class ReservationItem(
     val id: String, val time: String, val length: String, val recording: Boolean, val conflict: Boolean,
     val byTheRecorder: Boolean, val title: String, val details: String, val deleteHeld: Boolean,
+    /** The key of its station's logo among the screen's `logos`; empty where the station has none. */
+    val logo: String = "",
 )
 
 /** A row that waits on this device: `held` while the device it waits for works, when neither swipe does anything. */
@@ -630,8 +661,8 @@ data class Recordings(
     val subtitle: String, val destinations: List<Labelled>, val destination: String, val genres: List<Labelled>,
     val genre: String, val sorts: List<Labelled>, val sort: String, val states: List<Labelled>, val state: String,
     val filtering: Boolean, val tvNote: String, val rows: List<RecordingItem>, val groups: List<GroupItem>,
-    val asked: Asked?, val actionHeld: Boolean, val line: String,
-    val lineIsAProblem: Boolean, val loadKey: String, val tvKey: String, val outdatedKey: String,
+    val asked: Asked?, val actionHeld: Boolean, val loadKey: String, val tvKey: String, val outdatedKey: String,
+    val logos: Map<String, ByteArray>,
 )
 
 /**
@@ -642,6 +673,8 @@ data class RecordingItem(
     val id: String, val title: String, val recording: Boolean = false, val protected: Boolean = false,
     val details: String = "", val watched: String = "", val unwatched: Boolean = false, val resume: Long = -1,
     val genre: String = "", val swipe: String = "", val held: Boolean = false,
+    /** The key of its station's logo among the screen's `logos` (empty for none), and where in `details` it goes. */
+    val logo: String = "", val logoAt: Int = 0,
 )
 
 /** A programme's row in まとめ. */
@@ -664,7 +697,7 @@ data class Group(
     val name: String, val selecting: Boolean, val selectLabel: String, val selectHeld: Boolean,
     val protectAllHeld: Boolean, val rows: List<GroupMember>, val count: String, val offersActions: Boolean,
     val deleteLabel: String, val actionsHeld: Boolean, val asked: Asked?, val actionHeld: Boolean,
-    val asking: Boolean, val done: Boolean,
+    val asking: Boolean, val done: Boolean, val logos: Map<String, ByteArray>,
 )
 
 data class GroupMember(val row: RecordingItem, val selected: Boolean, val wouldBeDeleted: Boolean)
@@ -673,7 +706,7 @@ private fun Group(it: jp.hiroaki.bdbridge.bridge.GroupScreen) = Group(
     it.name, it.isSelecting, it.selectLabel, it.isSelectHeld, it.isProtectAllHeld,
     it.getRows(arena).map { member -> GroupMember(RecordingItem(member.getRow(arena)), member.isSelected, member.isWouldBeDeleted) },
     it.count, it.isOffersActions, it.deleteLabel, it.isActionsHeld, asked(it.isHasAsked, it.getAsked(arena)),
-    it.isActionHeld, it.isAsking, it.isDone,
+    it.isActionHeld, it.isAsking, it.isDone, it.getLogos(arena).associate { logo -> logo.key to logo.image },
 )
 
 /** The recorder's own keyword conditions (`ConditionsWindow`): `listSays` is `failed`, `empty`, `loading` or empty. */
@@ -752,11 +785,11 @@ private fun Programme(row: jp.hiroaki.bdbridge.bridge.GuideRow) =
 
 private fun ReservationItem(row: jp.hiroaki.bdbridge.bridge.ReservationRow) =
     ReservationItem(row.id, row.time, row.length, row.isRecording, row.isConflict, row.isByTheRecorder, row.title,
-                    row.details, row.isDeleteHeld)
+                    row.details, row.isDeleteHeld, row.logo)
 
 private fun RecordingItem(row: jp.hiroaki.bdbridge.bridge.RecordingRow) =
     RecordingItem(row.id, row.title, row.isRecording, row.isProtected, row.details, row.watched, row.isUnwatched,
-                  row.resume, row.genre, row.swipe, row.isHeld)
+                  row.resume, row.genre, row.swipe, row.isHeld, row.logo, row.logoAt.toInt())
 
 /**
  * The search (`SearchWindow`): what is said in place of the results, or what was found in the scope picked. A
@@ -822,6 +855,7 @@ private fun Reservations(it: jp.hiroaki.bdbridge.bridge.ReservationsScreen) = it
             Section(section.title, section.getRows(arena).map { row -> ReservationItem(row) })
         },
         asked(it.isHasAsked, it.getAsked(arena)), it.line, it.isLineIsAProblem, it.loadKey,
+        it.getLogos(arena).associate { logo -> logo.key to logo.image },
     )
 }
 
@@ -839,7 +873,8 @@ private fun Recordings(it: jp.hiroaki.bdbridge.bridge.RecordingsScreen): Recordi
             GroupItem(group.id, group.name, group.count, group.size, group.unwatched, group.locked, group.span)
         },
         asked(it.isHasAsked, it.getAsked(arena)), it.isActionHeld,
-        it.line, it.isLineIsAProblem, it.loadKey, it.tvKey, it.outdatedKey,
+        it.loadKey, it.tvKey, it.outdatedKey,
+        it.getLogos(arena).associate { logo -> logo.key to logo.image },
     )
 }
 
