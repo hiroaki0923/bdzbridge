@@ -124,7 +124,7 @@ internal fun HeldSheet(held: Boolean, done: Boolean, close: () -> Unit, content:
  * its closing button. An answer with OK alone goes either way.
  */
 @Composable
-private fun AskDialog(asked: Asked, act: () -> Unit, closeAsked: () -> Unit, actionEnabled: Boolean = true) {
+internal fun AskDialog(asked: Asked, act: () -> Unit, closeAsked: () -> Unit, actionEnabled: Boolean = true) {
     val closing = @Composable { TextButton(onClick = closeAsked) { Text(asked.closing) } }
     AlertDialog(
         onDismissRequest = closeAsked,

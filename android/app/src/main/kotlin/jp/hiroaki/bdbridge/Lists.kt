@@ -52,38 +52,124 @@ import kotlinx.coroutines.launch
 // The reservations and the recordings as the iOS lists show them, for reading: their sheets, their sorting and
 // narrowing, and pulling down come with the screens' own steps.
 
-/** The reservations, the ones waiting on this device first, then by day under headings that stay as the list scrolls. */
+/**
+ * The reservations, the ones waiting on this device first, then under headings that stay as the list scrolls: the
+ * day, or the genre or the station when the menu sorts by them. A row swiped to the left asks to delete it; a waiting
+ * row a device refused, swiped to the right, is sent again. Pulled down, what waits is sent and both devices' lists
+ * are read again. What is asked, held and said is the model's (`ReservationsState`).
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ReservationsScreen(search: () -> Unit) {
     val shown = RecBridge.reservations.collectAsState().value ?: return
+    val scope = rememberCoroutineScope()
+    val colors = MaterialTheme.colorScheme
     LaunchedEffect(shown.loadKey) { RecBridge.act { it.reservations.load() } }
     LaunchedEffect(Unit) { RecBridge.act { it.reservations.loadTV() } }
+    // What is said of a list that is old, read again each minute, as the iOS heading turns over.
+    val minute = minuteNow()
+    var stale by remember { mutableStateOf(emptyList<String>()) }
+    LaunchedEffect(shown.staleKey, minute) {
+        stale = if (shown.staleKey.isEmpty()) emptyList()
+                else RecBridge.ask { it.reservations.stale() }.lines().filter { it.isNotEmpty() }
+    }
     var opened by remember { mutableStateOf<ReservationItem?>(null) }
     opened?.let { row -> ReservationSheetView(row.title, open = { RecBridge.openReservation(row.id) }) { opened = null } }
+    shown.asked?.let { asked ->
+        AskDialog(asked, act = { scope.launch { RecBridge.act { it.reservations.act(asked.key) } } },
+                  closeAsked = { scope.launch { RecBridge.act { it.reservations.closeAsked(asked.key) } } })
+    }
+    val delete = { label: String, held: Boolean, ask: suspend () -> Unit ->
+        SwipeAction(label, colors.errorContainer, colors.onErrorContainer, !held) { scope.launch { ask() } }
+    }
+    var pulling by remember { mutableStateOf(false) }
     Scaffold(topBar = {
         Column {
-            TopAppBar(title = { TitleWithSubtitle("予約", if (shown.hasNoRecorder) "" else shown.subtitle) })
+            TopAppBar(title = { TitleWithSubtitle("予約", if (shown.hasNoRecorder) "" else shown.subtitle) },
+                      actions = { KindAndSort(shown) })
             StripBar()
         }
     }, bottomBar = { Line(shown.line, shown.lineIsAProblem) }) { padding ->
         Box(Modifier.padding(padding)) {
             if (shown.hasNoRecorder) return@Box NoRecorderView(Icons.Outlined.Schedule, shown.noRecorder, search)
-            LazyColumn(Modifier.fillMaxSize()) {
-                if (shown.waiting.isNotEmpty()) {
-                    heading("送信待ち ${shown.waiting.size} 件")
-                    items(shown.waiting, key = { "waiting-" + it.id }) { waiting -> WaitingRow(waiting) }
-                    if (shown.waitingSays.isNotEmpty()) {
-                        item(key = "waiting-says") { Footnote(shown.waitingSays, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+            PullToRefreshBox(isRefreshing = pulling, onRefresh = {
+                pulling = true
+                scope.launch {
+                    try {
+                        RecBridge.act { it.reservations.pullDown() }
+                    } finally {
+                        pulling = false
                     }
                 }
-                for (section in shown.sections) {
-                    heading(section.title)
-                    items(section.rows, key = { it.id }) { row -> ReservationRow(row) { opened = row } }
+            }, modifier = Modifier.fillMaxSize()) {
+                // The empty state is the list's one item, so that an empty list can be pulled down as well.
+                LazyColumn(Modifier.fillMaxSize()) {
+                    if (shown.isEmpty) {
+                        item { Box(Modifier.fillParentMaxSize()) { Unavailable(Icons.Outlined.Schedule, shown.emptyTitle, shown.emptyDetail) } }
+                    }
+                    items(stale, key = { "stale-$it" }) { line -> Footnote(line, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                    if (shown.waiting.isNotEmpty()) {
+                        heading("送信待ち ${shown.waiting.size} 件")
+                        items(shown.waiting, key = { "waiting-" + it.id }) { waiting ->
+                            val again = if (!waiting.offersSendingAgain) null else
+                                SwipeAction("もう一度送る", colors.primaryContainer, colors.onPrimaryContainer, !waiting.held) {
+                                    scope.launch { RecBridge.act { it.reservations.sendAgain(waiting.id) } }
+                                }
+                            SwipeActions(toTheRight = again, toTheLeft = delete("削除", waiting.held) {
+                                RecBridge.act { it.reservations.deleteWaiting(waiting.id) }
+                            }) { WaitingRow(waiting) }
+                        }
+                        if (shown.waitingSays.isNotEmpty()) {
+                            item(key = "waiting-says") { Footnote(shown.waitingSays, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                        }
+                    }
+                    for (section in shown.sections) {
+                        heading(section.title)
+                        items(section.rows, key = { it.id }) { row ->
+                            SwipeActions(toTheRight = null, toTheLeft = delete("削除", row.deleteHeld) {
+                                RecBridge.act { it.reservations.delete(row.id) }
+                            }) { ReservationRow(row) { opened = row } }
+                        }
+                    }
                 }
             }
-            if (shown.isEmpty) Unavailable(Icons.Outlined.Schedule, shown.emptyTitle, shown.emptyDetail)
         }
+    }
+}
+
+/** The menu of which kind of reservation is listed and what the list is sorted by, its icon filled while either is not its default. */
+@Composable
+private fun KindAndSort(shown: Reservations) {
+    val scope = rememberCoroutineScope()
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(if (shown.filtering) Icons.Filled.FilterAlt else Icons.Outlined.FilterAlt, contentDescription = "並び順を変更")
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            MenuGroup("種類", shown.kinds, shown.kind) { code ->
+                open = false
+                scope.launch { RecBridge.act { it.reservations.chooseKind(code) } }
+            }
+            HorizontalDivider()
+            MenuGroup("並び順", shown.sorts, shown.sort) { code ->
+                open = false
+                scope.launch { RecBridge.act { it.reservations.chooseSort(code) } }
+            }
+        }
+    }
+}
+
+/** A menu's choices under their heading, the one chosen ticked. */
+@Composable
+private fun MenuGroup(heading: String, options: List<Labelled>, chosen: String, pick: (String) -> Unit) {
+    Text(heading, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+    for (option in options) {
+        DropdownMenuItem(text = { Text(option.label) }, onClick = { pick(option.code) }, leadingIcon = {
+            if (option.code == chosen) Icon(Icons.Default.Check, contentDescription = null)
+            else Spacer(Modifier.size(24.dp))
+        })
     }
 }
 
@@ -209,16 +295,9 @@ private fun Filters(shown: Recordings) {
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             val group = @Composable { heading: String, options: List<Labelled>, chosen: String, pick: suspend (String) -> Unit ->
-                Text(heading, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
-                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
-                for (option in options) {
-                    DropdownMenuItem(text = { Text(option.label) }, onClick = {
-                        open = false
-                        scope.launch { pick(option.code) }
-                    }, leadingIcon = {
-                        if (option.code == chosen) Icon(Icons.Default.Check, contentDescription = null)
-                        else Spacer(Modifier.size(24.dp))
-                    })
+                MenuGroup(heading, options, chosen) { code ->
+                    open = false
+                    scope.launch { pick(code) }
                 }
             }
             if (shown.destinations.isNotEmpty()) {

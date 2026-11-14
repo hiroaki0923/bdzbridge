@@ -57,7 +57,7 @@ struct RootView: View {
             SearchScreen(model: model)
                 .tabItem { Label("検索", systemImage: "magnifyingglass") }
                 .tag("search")
-            ReservationsScreen()
+            ReservationsScreen(model: model)
                 .tabItem { Label("予約", systemImage: "clock") }
                 .tag("reservations")
             RecordingsScreen()

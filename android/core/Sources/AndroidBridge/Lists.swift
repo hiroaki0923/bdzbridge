@@ -15,10 +15,23 @@ public struct ReservationsScreen: Sendable {
     public var empty: Said
     /// `12 件 · 録画中 1`, under the screen's title.
     public var subtitle: String
-    /// The reservations waiting on this device to be sent, with what is said of when they go, then the list by day.
+    /// The menu, as the iOS screen's offers it: 種類 and 並び順; `filtering` when either is not its default.
+    public var kinds: [Labelled]
+    public var kind: String
+    public var sorts: [Labelled]
+    public var sort: String
+    public var filtering: Bool
+    /// A device's list that is old, by the device and when it was read: what is said of it is read with `stale`,
+    /// again each minute and each time this moves.
+    public var staleKey: String
+    /// The reservations waiting on this device to be sent, with what is said of when they go, then the list under
+    /// its headings.
     public var waiting: [WaitingRow]
     public var waitingSays: String
     public var sections: [ReservationSection]
+    /// The question a row's delete asks, or what a delete or a sending came to: one at a time (`hasAsked`).
+    public var hasAsked: Bool
+    public var asked: Asked
     /// The recorder's line while it works, or what went wrong, in red.
     public var line: String
     public var lineIsAProblem: Bool
@@ -44,6 +57,8 @@ public struct ReservationRow: Sendable {
     public var title: String
     /// The device and the disk where they are said, the station, the mode, the repeat and the genre.
     public var details: String
+    /// Its delete is held while its own device works.
+    public var deleteHeld: Bool
 }
 
 public struct WaitingRow: Sendable {
@@ -52,15 +67,25 @@ public struct WaitingRow: Sendable {
     public var details: String
     /// What the device said when it refused it, or nothing.
     public var problem: String
+    /// もう一度送る is offered on one a device refused; it and the delete are held while the row's device works.
+    public var offersSendingAgain: Bool
+    public var held: Bool
 }
 
 public final class ReservationsWindow: Sendable {
     let model: AppModel
+    let state: ReservationsState
     private let shown: Watched<ReservationsScreen>
 
+    @MainActor
     init(_ model: AppModel) {
         self.model = model
-        shown = Watched { ReservationsWindow.screen(model) }
+        let state = ReservationsState(model: model)
+        self.state = state
+        shown = Watched { ReservationsWindow.screen(state, model) }
+        // As the iOS screen follows them with `onChange`, for as long as the app runs: the screen is the app's.
+        _ = onChange(of: { model.timesForgotten }) { _ in state.recordersListsLetGo() }
+        _ = onChange(of: { model.tvTimesForgotten }) { _ in state.televisionsListsLetGo() }
     }
 
     public func read() async -> ReservationsScreen { await shown.read() }
@@ -88,20 +113,101 @@ public final class ReservationsWindow: Sendable {
         await model.loadReservations(of: .tv)
     }
 
+    /// Pulled down, which is the reader asking: what waits sent and both devices' lists read, side by side.
+    public func pullDown() async {
+        await model.pullDownReservations()
+    }
+
+    public func chooseKind(_ code: String) async {
+        await MainActor.run { if let kind = AppModel.ReservationKind(rawValue: code) { model.reservationKind = kind } }
+    }
+
+    public func chooseSort(_ code: String) async {
+        await MainActor.run { if let sort = AppModel.ReservationSort(rawValue: code) { model.reservationSort = sort } }
+    }
+
+    /// What is said of each list that is old, at this minute (`ReservationsState.staleLine`), a line for each.
+    public func stale() async -> String {
+        await MainActor.run {
+            let now = Date()
+            return state.stale.map { state.staleLine($0, at: now) }.joined(separator: "\n")
+        }
+    }
+
+    // A swipe does nothing while the model holds its button back, as the iOS row's disabled button does: what
+    // Compose shows comes a turn after the model.
+
+    /// 削除 on the reservation whose row has `id`, asked first.
+    public func delete(_ id: String) async {
+        await MainActor.run {
+            guard let reservation = model.reservation(listKey: id), !state.holdsDeleting(reservation) else { return }
+            state.delete(reservation)
+        }
+    }
+
+    /// 削除 on the waiting row with `id`, asked first.
+    public func deleteWaiting(_ id: String) async {
+        await MainActor.run {
+            guard let waiting = model.pending.first(where: { $0.id == id }), !state.holds(waiting) else { return }
+            state.deleteWaiting(waiting)
+        }
+    }
+
+    /// もう一度送る on the waiting row with `id`.
+    public func sendAgain(_ id: String) async {
+        await MainActor.run {
+            guard let waiting = model.pending.first(where: { $0.id == id }), state.offersSendingAgain(waiting),
+                  !state.holds(waiting) else { return }
+            state.sendAgain(waiting)
+        }
+    }
+
+    /// The button of the question shown with `key` that does something, and the question closed with it, in the
+    /// order the iOS alert takes them: what the press came to is said after the close.
+    public func act(_ key: String) async {
+        await MainActor.run {
+            guard let asked = state.ask, Self.key(asked) == key else { return }
+            state.act(on: asked)
+            state.askClosed()
+        }
+    }
+
+    /// The question or the answer shown with `key` closed.
+    public func closeAsked(_ key: String) async {
+        await MainActor.run {
+            guard let asked = state.ask, Self.key(asked) == key else { return }
+            state.askClosed()
+        }
+    }
+
+    /// What tells one question or answer from another: the row it is about, or what it says.
+    static func key(_ asked: ReservationsState.Ask) -> String {
+        switch asked {
+        case .confirm(let reservation): "confirm-\(reservation.listKey)"
+        case .confirmPending(let waiting): "waiting-\(waiting.id)"
+        case .failed(let said): "failed-\(said)"
+        case .said(let said): "said-\(said)"
+        }
+    }
+
     @MainActor
-    private static func screen(_ model: AppModel) -> ReservationsScreen {
-        let shown = model.shownReservations
-        var subtitle: [String] = []
-        if model.reservationKind != .all { subtitle.append(model.reservationKind.label) }
-        subtitle.append("\(shown.count) 件")
-        let recording = shown.filter(\.recording).count, clashing = shown.filter(\.conflict).count
-        if recording > 0 { subtitle.append("録画中 \(recording)") }
-        if clashing > 0 { subtitle.append("重複 \(clashing)") }
+    private static func screen(_ state: ReservationsState, _ model: AppModel) -> ReservationsScreen {
         let problem = model.problem(for: .recorder) ?? model.problem(for: .tv)
+        let asked = state.ask.map { asked in
+            let action = state.actionLabel(for: asked)
+            return Asked(key: key(asked), title: state.askTitle, message: state.message(for: asked),
+                         action: action?.label ?? "", destructive: action?.destructive ?? false,
+                         closing: state.closingLabel(for: asked))
+        }
         return ReservationsScreen(
             hasNoRecorder: model.reservationsHaveNoRecorder, noRecorder: NoRecorder(model),
             isEmpty: model.reservationsAreEmpty, empty: Said(AppModel.noReservations),
-            subtitle: subtitle.joined(separator: " · "),
+            subtitle: state.subtitle,
+            kinds: AppModel.ReservationKind.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
+            kind: model.reservationKind.rawValue,
+            sorts: AppModel.ReservationSort.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
+            sort: model.reservationSort.rawValue, filtering: state.narrowedOrSorted,
+            staleKey: state.stale.map { "\($0.device.rawValue)-\(seconds($0.since))" }.joined(separator: " "),
             waiting: model.pending.map { waiting in
                 var parts = [model.deviceSaid(for: waiting), model.diskShown(waiting),
                              Format.dateTime.string(from: waiting.request.start), waiting.serviceName].compactMap { $0 }
@@ -110,12 +216,15 @@ public final class ReservationsWindow: Sendable {
                 }
                 if waiting.request.eventID == nil { parts.append("時刻指定") }
                 return WaitingRow(id: waiting.id, title: waiting.request.title, details: parts.joined(separator: " · "),
-                                  problem: waiting.problem?.asABody ?? "")
+                                  problem: waiting.problem?.asABody ?? "",
+                                  offersSendingAgain: state.offersSendingAgain(waiting), held: state.holds(waiting))
             },
             waitingSays: model.whatWaitsSays,
             sections: model.reservationSections.map { section in
                 ReservationSection(title: section.title, rows: section.items.map { row($0, model) })
             },
+            hasAsked: asked != nil,
+            asked: asked ?? Asked(key: "", title: "", message: "", action: "", destructive: false, closing: ""),
             line: model.busy ?? problem?.asABody ?? "", lineIsAProblem: model.busy == nil && problem != nil,
             loadKey: "\(model.connected && !model.offline)")
     }
@@ -131,7 +240,8 @@ public final class ReservationsWindow: Sendable {
         return ReservationRow(id: reservation.listKey, time: Format.time.string(from: reservation.start),
                               length: Format.duration(reservation.durationSec), recording: reservation.recording,
                               conflict: reservation.conflict, byTheRecorder: reservation.createdByRecorder,
-                              title: reservation.title, details: parts.joined(separator: " · "))
+                              title: reservation.title, details: parts.joined(separator: " · "),
+                              deleteHeld: model.isBusy(for: reservation.device))
     }
 }
 
