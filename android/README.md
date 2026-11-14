@@ -17,7 +17,12 @@ that write: a programme's, which reserves it on the
 recorder or the television (where it goes, the disk, the mode, the repeat, what it would clash with) and deletes or
 sends again what waits for it, and a reservation's, which changes and deletes it; and a recording's, which plays,
 protects and deletes it. What each sheet holds, offers, holds back and says is the model's own state of it
-(`ProgramSheetState`, `ReservationSheetState`, `TitleSheetState`), as on iOS. Its search is one box over the
+(`ProgramSheetState`, `ReservationSheetState`, `TitleSheetState`), as on iOS. The recordings are a list, the same
+recordings gathered into programmes, or the ones recorded more than once (一覧, まとめ, 重複): a row swiped to the left
+asks to delete it or takes the protection off a protected one, a programme opens a page with the selection that bulk
+deletes and protects need, the duplicates are scanned for and their ticked copies deleted, and the bulk job's bar
+says how far it is with 中止, over the model's states of them (`RecordingsState`, `GroupSheetState`,
+`DuplicatesState`). Its search is one box over the
 programmes still to come, the reservations and the recordings, with the three as chips under it, over the model's
 state of it (`SearchState`): what is found opens the same sheets. Its settings have the recorder (what it
 says of itself, how the link stands, its address and MAC, このアドレスに接続 and 再接続), the mode a new reservation starts
@@ -33,7 +38,8 @@ connect wakes a recorder that does not answer with a magic packet when its MAC i
 
 - `core/` — the Swift side and the Android library around it. `Sources/AndroidBridge` holds the windows over the
   model: `App.swift` (the model, made once, on `Surroundings` of Android's own, and how a window tells Kotlin that what
-  it shows has changed), `Devices.swift`, `Guide.swift`, `Lists.swift`, `Strip.swift` (the strip at the top of
+  it shows has changed), `Devices.swift`, `Guide.swift`, `Lists.swift`, `Recordings.swift` (the bulk job's bar, a programme's page and the duplicates, and the step of a
+  job in hand when the app leaves the screen, which the main queue is run on to finish), `Strip.swift` (the strip at the top of
   every screen, as the model chooses its line), `Search.swift` (the search, whose window runs for as long as the
   screen is on what the iOS screen runs with `task(id:)`), `Settings.swift` (the settings, whose fields keep what is typed and
   take the model's value when the model sets them itself), `Television.swift` (the television's sheets, its part of
@@ -50,7 +56,7 @@ connect wakes a recorder that does not answer with a magic packet when its MAC i
 - `app/` — the Compose app: `Bridge.kt` opens the model, keeps what each window shows for the screens and turns the
   windows' calls into suspending ones. The screens are Material 3's, as an Android app's are: `Theme.kt` (the colours,
   the text marked as Japanese), `App.kt` (the place to choose a recorder over the rest, and the navigation: a bar at
-  the foot of a phone, a rail down the side of anything 600 dp wide), `Guide.kt`, `Search.kt`, `Lists.kt`, `Devices.kt`, `Sheets.kt`
+  the foot of a phone, a rail down the side of anything 600 dp wide), `Guide.kt`, `Search.kt`, `Lists.kt`, `Recordings.kt` (the job's bar, a programme's page, the duplicates), `Devices.kt`, `Sheets.kt`
   (the sheets, which open at once with what the row says and fill in as their window is read), `Settings.kt` (the
   settings and ご利用上の注意), `Television.kt` (the television's sheets, the televisions a search found, and the
   television's 対応状況), `Channels.kt` (the stations' page, a station dragged by its handle to another place),
