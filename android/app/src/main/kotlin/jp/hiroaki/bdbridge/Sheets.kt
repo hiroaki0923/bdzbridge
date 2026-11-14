@@ -440,7 +440,7 @@ private fun Value(label: String, value: String) {
 
 /** A label and a choice, which opens what it can be changed to. */
 @Composable
-private fun Pick(label: String, options: List<Labelled>, chosen: String, enabled: Boolean, pick: (String) -> Unit) {
+internal fun Pick(label: String, options: List<Labelled>, chosen: String, enabled: Boolean, pick: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
     ListItem(headlineContent = { Text(label) }, colors = clear(), modifier = Modifier.padding(horizontal = 8.dp), trailingContent = {
         Box {

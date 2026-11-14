@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.Schedule
@@ -66,7 +67,7 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun ReservationsScreen(search: () -> Unit) {
+fun ReservationsScreen(search: () -> Unit, openConditions: () -> Unit) {
     val shown = RecBridge.reservations.collectAsState().value ?: return
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
@@ -92,7 +93,13 @@ fun ReservationsScreen(search: () -> Unit) {
     Scaffold(topBar = {
         Column {
             TopAppBar(title = { TitleWithSubtitle("予約", if (shown.hasNoRecorder) "" else shown.subtitle) },
-                      actions = { KindAndSort(shown) })
+                      actions = {
+                          KindAndSort(shown)
+                          // The recorder's own keyword conditions, which only a connected recorder can be asked for.
+                          IconButton(onClick = openConditions, enabled = !shown.conditionsHeld) {
+                              Icon(Icons.Outlined.AutoAwesome, contentDescription = "おまかせ・まる録")
+                          }
+                      })
             StripBar()
         }
     }, bottomBar = { Line(shown.line, shown.lineIsAProblem) }) { padding ->

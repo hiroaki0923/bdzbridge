@@ -65,7 +65,7 @@ struct ReservationsScreen: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
-                        RecorderRulesScreen()
+                        RecorderRulesScreen(model: model)
                     } label: {
                         Image(systemName: "wand.and.stars")
                     }

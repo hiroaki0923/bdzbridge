@@ -94,6 +94,11 @@ public final class RecBridgeApp: Sendable {
     /// The bulk job, wherever the reader happens to be looking: on the recordings' screen and on a programme's page.
     public func job() -> JobWindow { JobWindow(model) }
 
+    /// The recorder's own keyword conditions (おまかせ・まる録): a window of its own, ended as its page closes.
+    public func conditions() async -> ConditionsWindow {
+        await MainActor.run { ConditionsWindow(model) }
+    }
+
     /// The recordings that look like copies of one broadcast.
     public func duplicates() async -> DuplicatesWindow {
         await MainActor.run { DuplicatesWindow(DuplicatesState(model: model), model: model) }

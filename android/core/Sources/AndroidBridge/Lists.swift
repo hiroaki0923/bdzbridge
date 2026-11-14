@@ -18,6 +18,8 @@ public struct ReservationsScreen: Sendable {
     /// The menu, as the iOS screen's offers it: 種類 and 並び順; `filtering` when either is not its default.
     public var kinds: [Labelled]
     public var kind: String
+    /// おまかせ・まる録 is held while the app is not connected, as the iOS button is.
+    public var conditionsHeld: Bool
     public var sorts: [Labelled]
     public var sort: String
     public var filtering: Bool
@@ -204,7 +206,7 @@ public final class ReservationsWindow: Sendable {
             isEmpty: model.reservationsAreEmpty, empty: Said(AppModel.noReservations),
             subtitle: state.subtitle,
             kinds: AppModel.ReservationKind.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
-            kind: model.reservationKind.rawValue,
+            kind: model.reservationKind.rawValue, conditionsHeld: !model.connected,
             sorts: AppModel.ReservationSort.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
             sort: model.reservationSort.rawValue, filtering: state.narrowedOrSorted,
             staleKey: state.stale.map { "\($0.device.rawValue)-\(seconds($0.since))" }.joined(separator: " "),

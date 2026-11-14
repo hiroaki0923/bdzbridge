@@ -74,8 +74,11 @@ enum class Destination(val label: String, val icon: ImageVector, val selectedIco
     Settings("設定", Icons.Outlined.Settings, Icons.Filled.Settings),
 }
 
-/** A page over the destinations, with the way back: the stations' settings, ご利用上の注意, and the television's 対応状況. */
-enum class Page { Channels, Disclaimer, Capabilities }
+/**
+ * A page over the destinations, with the way back: the stations' settings, ご利用上の注意, the television's 対応状況,
+ * and the recorder's own keyword conditions.
+ */
+enum class Page { Channels, Disclaimer, Capabilities, Conditions }
 
 /**
  * The destinations, with Material's navigation for the width: a bar along the foot of a phone, a rail down the side
@@ -96,6 +99,7 @@ fun RecorderScreen(search: () -> Unit) {
             Page.Channels -> ChannelsPage { page = null }
             Page.Disclaimer -> DisclaimerPage { page = null }
             Page.Capabilities -> CapabilitiesPage { page = null }
+            Page.Conditions -> ConditionsPage { page = null }
             null -> {}
         }
         group?.let { programme -> GroupPage(programme) { group = null } }
@@ -115,7 +119,7 @@ private fun Destinations(search: () -> Unit, open: (Page) -> Unit, openGroup: (G
         when (destination) {
             Destination.Guide -> GuideScreen(search) { open(Page.Channels) }
             Destination.Search -> SearchScreen()
-            Destination.Reservations -> ReservationsScreen(search)
+            Destination.Reservations -> ReservationsScreen(search) { open(Page.Conditions) }
             Destination.Recordings -> RecordingsScreen(search, openGroup)
             Destination.Settings -> SettingsScreen({ open(Page.Channels) }, { open(Page.Disclaimer) }) { open(Page.Capabilities) }
         }
