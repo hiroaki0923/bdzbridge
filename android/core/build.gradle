@@ -46,6 +46,7 @@ def buildSwift = tasks.register("buildSwift", Exec) {
     inputs.file(new File(projectDir, "Package.swift"))
     inputs.dir(new File(projectDir, "Sources"))
     inputs.dir(new File(projectDir, "../../app/RecorderKit/Sources"))
+    inputs.dir(new File(projectDir, "../../app/RecBridgeModel/Sources"))
     outputs.dir(layout.projectDirectory.dir(".build/plugins/outputs/core/AndroidBridge/destination/JExtractSwiftPlugin/src/generated/java"))
     outputs.dir(layout.projectDirectory.dir(".build/${triple}/${swiftConfiguration}"))
     workingDir = layout.projectDirectory

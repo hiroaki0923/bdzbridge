@@ -1292,7 +1292,7 @@ func vectorFile(_ name: String) throws -> Data {
         directory = URL(fileURLWithPath: copy)
     } else {
         var url = URL(fileURLWithPath: #filePath)
-        // .../app/RecorderKit/Tests/RecBridgeModelTests/Bench.swift -> the repository's root
+        // .../app/RecBridgeModel/Tests/RecBridgeModelTests/Bench.swift -> the repository's root
         for _ in 0..<5 { url.deleteLastPathComponent() }
         directory = url.appendingPathComponent("docs/port")
     }

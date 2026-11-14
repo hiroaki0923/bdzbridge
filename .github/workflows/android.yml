@@ -1,6 +1,6 @@
-# RecorderKit built for Android and its tests run on an Android emulator, so that a change that breaks the
-# package there is seen before it is merged. The steps are app/RecorderKit/scripts/android-tests.sh's, which
-# runs the same by hand (docs/android-port-study.md).
+# RecorderKit and the app's model built for Android and their tests run on an Android emulator, so that a
+# change that breaks either package there is seen before it is merged. The steps are
+# app/scripts/android-tests.sh's, which runs the same by hand (docs/android-port-study.md).
 name: Android
 
 on:
@@ -41,7 +41,8 @@ jobs:
         id: changed
         run: |
           if [ "$GITHUB_EVENT_NAME" = pull_request ] &&
-              git diff --quiet HEAD^1 HEAD -- app/RecorderKit docs/port .github/workflows/android.yml; then
+              git diff --quiet HEAD^1 HEAD -- app/RecorderKit app/RecBridgeModel app/scripts/android-tests.sh \
+                  docs/port .github/workflows/android.yml; then
             echo "package=false" >> "$GITHUB_OUTPUT"
           else
             echo "package=true" >> "$GITHUB_OUTPUT"
@@ -71,7 +72,7 @@ jobs:
 
       - name: Build the tests
         if: steps.changed.outputs.package == 'true'
-        run: app/RecorderKit/scripts/android-tests.sh build x86_64
+        run: app/scripts/android-tests.sh build x86_64
 
       # The emulator needs the runner's KVM, which is not open to the runner's user by default.
       - name: Open KVM to the emulator
@@ -89,4 +90,4 @@ jobs:
           api-level: 36
           target: google_apis
           arch: x86_64
-          script: app/RecorderKit/scripts/android-tests.sh run x86_64
+          script: app/scripts/android-tests.sh run x86_64
