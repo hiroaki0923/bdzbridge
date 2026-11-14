@@ -342,6 +342,7 @@ internal fun LogoLine(before: String, logo: ImageBitmap?, after: String, holdSpa
     })
     Text(buildAnnotatedString {
         append(before)
+        if (before.isNotEmpty() && !before.endsWith(" ")) append(" ")
         appendInlineContent("logo", " ")
         append(" ")
         append(after)

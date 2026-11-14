@@ -118,6 +118,26 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertNil(token)
     }
 
+    /// Where a recording's logo goes is never past its details, even for one with no channel's name and nothing after
+    /// its time: the row is cut there on the screen.
+    @MainActor
+    func testARecordingWithNoChannelNameKeepsItsLogoInsideItsDetails() async throws {
+        let app = await demo()
+        let window = await app.recordings()
+        await window.load()
+        _ = await until(window.read) { !$0.rows.isEmpty }
+        var title = try XCTUnwrap(app.model.allTitles.first)
+        title.channelName = nil
+        title.broadcastingType = 999
+        title.qualityCode = 999
+        title.durationSec = 0
+        title.sizeMB = nil
+        title.destination = ""
+        let row = RecordingsWindow.row(title, app.model, shelf: LogoShelf())
+        XCTAssertLessThanOrEqual(Int(row.logoAt), row.details.utf16.count)
+        XCTAssertFalse(row.details.isEmpty)
+    }
+
     @MainActor
     func testTheGuideFollowsWhatTheReaderChooses() async throws {
         let guide = await demo().guide()

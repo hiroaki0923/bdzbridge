@@ -332,8 +332,8 @@ public struct RecordingRow: Sendable {
     /// When, the disk where it is said, the station, the length, the size and the mode.
     public var details: String
     /// The key of its station's logo among the screen's `logos`, or nothing where the station has none, and how
-    /// many UTF-16 units of `details` come before the channel's name, where the logo goes. No space is held for a
-    /// station without one.
+    /// many UTF-16 units of `details` come before the channel's name, where the logo goes (never more than there
+    /// are). No space is held for a station without one.
     public var logo: String
     public var logoAt: Int64
     /// `未視聴`, `視聴済み`, `途中まで`, and `unwatched` for the first, which is in the accent colour.
@@ -550,19 +550,21 @@ public final class RecordingsWindow: Sendable {
         let offered = swipe ?? model.swipe(for: title)
         var parts = [Format.dateTime.string(from: title.start)]
         if let disk = model.diskShown(title) { parts.append(disk) }
-        // The logo goes before the channel's name: what comes before it, and its separator, is as long as this.
-        let separator = " · "
-        let logoAt = parts.joined(separator: separator).utf16.count + separator.utf16.count
         let channel = model.channelName(for: title)
+        // The logo goes before the channel's name. A station with a logo but no name is a part of its own on iOS; here
+        // the logo then stands before whatever follows the disk, or at the end of the line when nothing does.
+        let before = parts.count
         if !channel.isEmpty { parts.append(channel) }
         if title.lengthKnown { parts.append(Format.duration(title.durationSec)) }
         if let size = Format.size(of: title) { parts.append(size) }
         if let quality = title.qualityName { parts.append(quality) }
+        let details = parts.joined(separator: " · ")
+        let lead = parts.prefix(before).joined(separator: " · ") + (parts.count > before ? " · " : "")
         return RecordingRow(id: title.listKey, title: title.title, recording: title.recording, protected: title.protected,
-                            details: parts.joined(separator: " · "),
+                            details: details,
                             logo: shelf?.key(model.logo(for: title), broadcastingType: title.broadcastingType,
                                              serviceID: title.serviceID) ?? "",
-                            logoAt: Int64(logoAt), watched: title.watchState.label,
+                            logoAt: Int64(lead.utf16.count), watched: title.watchState.label,
                             unwatched: title.watchState == .unwatched,
                             resume: title.watchState == .partway ? Int64((title.resumeFraction * 100).rounded()) : -1,
                             genre: title.genre?.label ?? "",

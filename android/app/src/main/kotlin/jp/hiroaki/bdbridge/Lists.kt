@@ -396,7 +396,10 @@ internal fun RecordingRow(item: RecordingItem, selected: Boolean? = null, logo: 
         },
         supportingContent = {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                LogoLine(item.details.substring(0, item.logoAt), logo, item.details.substring(item.logoAt), holdSpace = false)
+                if (logo == null) Text(item.details) else {
+                    val at = item.logoAt.coerceIn(0, item.details.length)
+                    LogoLine(item.details.substring(0, at), logo, item.details.substring(at), holdSpace = false)
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(item.watched, color = if (item.unwatched) colors.primary else colors.onSurfaceVariant)
                     // How far one watched partway was watched, as the iOS row's bar.
