@@ -69,7 +69,9 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -129,12 +131,17 @@ fun TitleWithSubtitle(title: String, subtitle: String) {
     }
 }
 
-/** What a search came to, with the likely causes under it when it found nothing, in the tutorial and the settings. */
+/**
+ * What a search came to, with the likely causes under it when it found nothing, in the tutorial and the settings. The
+ * sentence is a live region: the model announces it on iOS (`Surroundings.announce`), and TalkBack says it as it
+ * appears, politely, here.
+ */
 @Composable
 fun SearchOutcome(outcome: String, failed: Boolean, note: String, causes: List<String>) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(outcome, style = MaterialTheme.typography.bodyMedium,
-             color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+             color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         if (note.isNotEmpty()) Footnote(note)
         if (causes.isNotEmpty()) {
             Text("考えられる原因", style = MaterialTheme.typography.labelMedium)
