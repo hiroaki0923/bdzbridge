@@ -42,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -90,6 +91,7 @@ fun ReservationsScreen(search: () -> Unit, openConditions: () -> Unit) {
         SwipeAction(label, colors.errorContainer, colors.onErrorContainer, !held) { scope.launch { ask() } }
     }
     var pulling by remember { mutableStateOf(false) }
+    val logos = rememberLogos(shown.logos)
     Scaffold(topBar = {
         Column {
             TopAppBar(title = { TitleWithSubtitle("予約", if (shown.hasNoRecorder) "" else shown.subtitle) },
@@ -141,7 +143,7 @@ fun ReservationsScreen(search: () -> Unit, openConditions: () -> Unit) {
                         items(section.rows, key = { it.id }) { row ->
                             SwipeActions(toTheRight = null, toTheLeft = delete("削除", row.deleteHeld) {
                                 RecBridge.act { it.reservations.delete(row.id) }
-                            }) { ReservationRow(row) { opened = row } }
+                            }) { ReservationRow(row, logos[row.logo]) { opened = row } }
                         }
                     }
                 }
@@ -199,7 +201,7 @@ private fun LazyListScope.heading(title: String) {
 
 /** One reservation, as the iOS row says it: when and how long, marked, the title, then the station and how it records. */
 @Composable
-internal fun ReservationRow(item: ReservationItem, open: () -> Unit) {
+internal fun ReservationRow(item: ReservationItem, logo: ImageBitmap?, open: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val marks = LocalMarks.current
     ListItem(
@@ -212,7 +214,8 @@ internal fun ReservationRow(item: ReservationItem, open: () -> Unit) {
             }
         },
         headlineContent = { Text(item.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-        supportingContent = { Text(item.details) },
+        // The logo's space is held where a station has none, so that the names line up down the list.
+        supportingContent = { LogoLine("", logo, item.details, holdSpace = true) },
         modifier = Modifier.clickable(onClick = open),
     )
     HorizontalDivider()
@@ -256,6 +259,7 @@ fun RecordingsScreen(search: () -> Unit, openGroup: (GroupItem) -> Unit) {
     LaunchedEffect(shown.outdatedKey) { RecBridge.act { it.recordings.loadOutdated() } }
     var opened by remember { mutableStateOf<RecordingItem?>(null) }
     opened?.let { row -> TitleSheetView(row) { opened = null } }
+    val logos = rememberLogos(shown.logos)
     // A copy among the duplicates, whose sheet is opened from its set.
     var openedCopy by remember { mutableStateOf<RecordingItem?>(null) }
     openedCopy?.let { row -> TitleSheetView(row, open = { RecBridge.openCopy(row.id) }) { openedCopy = null } }
@@ -309,7 +313,7 @@ fun RecordingsScreen(search: () -> Unit, openGroup: (GroupItem) -> Unit) {
                             items(shown.rows, key = { it.id }) { row ->
                                 RecordingSwipes(row, delete = { scope.launch { RecBridge.act { it.recordings.delete(row.id) } } },
                                                 unprotect = { scope.launch { RecBridge.act { it.recordings.unprotect(row.id) } } }) {
-                                    RecordingRow(row) { opened = row }
+                                    RecordingRow(row, logo = logos[row.logo]) { opened = row }
                                 }
                             }
                         }
@@ -380,7 +384,7 @@ private fun Filters(shown: Recordings) {
 
 /** One recording, as the iOS row says it: the lock and 録画中 before the title, then when, where and how, then whether it was watched. */
 @Composable
-internal fun RecordingRow(item: RecordingItem, selected: Boolean? = null, open: () -> Unit) {
+internal fun RecordingRow(item: RecordingItem, selected: Boolean? = null, logo: ImageBitmap? = null, open: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     ListItem(
         headlineContent = {
@@ -392,7 +396,7 @@ internal fun RecordingRow(item: RecordingItem, selected: Boolean? = null, open: 
         },
         supportingContent = {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(item.details)
+                LogoLine(item.details.substring(0, item.logoAt), logo, item.details.substring(item.logoAt), holdSpace = false)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(item.watched, color = if (item.unwatched) colors.primary else colors.onSurfaceVariant)
                     // How far one watched partway was watched, as the iOS row's bar.

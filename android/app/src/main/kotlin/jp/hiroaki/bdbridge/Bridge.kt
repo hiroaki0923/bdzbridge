@@ -606,7 +606,7 @@ data class Reservations(
     val emptyDetail: String, val subtitle: String, val kinds: List<Labelled>, val kind: String,
     val sorts: List<Labelled>, val sort: String, val filtering: Boolean, val conditionsHeld: Boolean,
     val staleKey: String, val waiting: List<Waiting>, val waitingSays: String, val sections: List<Section>, val asked: Asked?,
-    val line: String, val lineIsAProblem: Boolean, val loadKey: String,
+    val line: String, val lineIsAProblem: Boolean, val loadKey: String, val logos: Map<String, ByteArray>,
 )
 
 data class Section(val title: String, val rows: List<ReservationItem>)
@@ -614,6 +614,8 @@ data class Section(val title: String, val rows: List<ReservationItem>)
 data class ReservationItem(
     val id: String, val time: String, val length: String, val recording: Boolean, val conflict: Boolean,
     val byTheRecorder: Boolean, val title: String, val details: String, val deleteHeld: Boolean,
+    /** The key of its station's logo among the screen's `logos`; empty where the station has none. */
+    val logo: String = "",
 )
 
 /** A row that waits on this device: `held` while the device it waits for works, when neither swipe does anything. */
@@ -634,6 +636,7 @@ data class Recordings(
     val filtering: Boolean, val tvNote: String, val rows: List<RecordingItem>, val groups: List<GroupItem>,
     val asked: Asked?, val actionHeld: Boolean, val line: String,
     val lineIsAProblem: Boolean, val loadKey: String, val tvKey: String, val outdatedKey: String,
+    val logos: Map<String, ByteArray>,
 )
 
 /**
@@ -644,6 +647,8 @@ data class RecordingItem(
     val id: String, val title: String, val recording: Boolean = false, val protected: Boolean = false,
     val details: String = "", val watched: String = "", val unwatched: Boolean = false, val resume: Long = -1,
     val genre: String = "", val swipe: String = "", val held: Boolean = false,
+    /** The key of its station's logo among the screen's `logos` (empty for none), and where in `details` it goes. */
+    val logo: String = "", val logoAt: Int = 0,
 )
 
 /** A programme's row in まとめ. */
@@ -754,11 +759,11 @@ private fun Programme(row: jp.hiroaki.bdbridge.bridge.GuideRow) =
 
 private fun ReservationItem(row: jp.hiroaki.bdbridge.bridge.ReservationRow) =
     ReservationItem(row.id, row.time, row.length, row.isRecording, row.isConflict, row.isByTheRecorder, row.title,
-                    row.details, row.isDeleteHeld)
+                    row.details, row.isDeleteHeld, row.logo)
 
 private fun RecordingItem(row: jp.hiroaki.bdbridge.bridge.RecordingRow) =
     RecordingItem(row.id, row.title, row.isRecording, row.isProtected, row.details, row.watched, row.isUnwatched,
-                  row.resume, row.genre, row.swipe, row.isHeld)
+                  row.resume, row.genre, row.swipe, row.isHeld, row.logo, row.logoAt.toInt())
 
 /**
  * The search (`SearchWindow`): what is said in place of the results, or what was found in the scope picked. A
@@ -824,6 +829,7 @@ private fun Reservations(it: jp.hiroaki.bdbridge.bridge.ReservationsScreen) = it
             Section(section.title, section.getRows(arena).map { row -> ReservationItem(row) })
         },
         asked(it.isHasAsked, it.getAsked(arena)), it.line, it.isLineIsAProblem, it.loadKey,
+        it.getLogos(arena).associate { logo -> logo.key to logo.image },
     )
 }
 
@@ -842,6 +848,7 @@ private fun Recordings(it: jp.hiroaki.bdbridge.bridge.RecordingsScreen): Recordi
         },
         asked(it.isHasAsked, it.getAsked(arena)), it.isActionHeld,
         it.line, it.isLineIsAProblem, it.loadKey, it.tvKey, it.outdatedKey,
+        it.getLogos(arena).associate { logo -> logo.key to logo.image },
     )
 }
 

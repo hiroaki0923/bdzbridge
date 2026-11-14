@@ -1,6 +1,5 @@
 package jp.hiroaki.bdbridge
 
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,7 +46,6 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -100,13 +98,15 @@ fun SearchScreen() {
                         Text(shown.countLine, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
                              modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                     }
+                    // The logos of the rows of the lists, which the programmes found draw for themselves.
+                    val logos = if (shown.scope == "guide") emptyMap() else rememberLogos(shown.logos)
                     when (shown.scope) {
                         "guide" -> FoundProgrammes(shown) { programme = it }
                         "reservations" -> LazyColumn(Modifier.fillMaxSize(), state = listKeptAtItsTop()) {
-                            items(shown.reservations, key = { it.id }) { row -> ReservationRow(row) { reservation = row } }
+                            items(shown.reservations, key = { it.id }) { row -> ReservationRow(row, logos[row.logo]) { reservation = row } }
                         }
                         else -> LazyColumn(Modifier.fillMaxSize(), state = listKeptAtItsTop()) {
-                            items(shown.recordings, key = { it.id }) { row -> RecordingRow(row) { recording = row } }
+                            items(shown.recordings, key = { it.id }) { row -> RecordingRow(row, logo = logos[row.logo]) { recording = row } }
                         }
                     }
                 }
@@ -171,9 +171,7 @@ private fun Scopes(shown: Search) {
 @Composable
 private fun FoundProgrammes(shown: Search, open: (FoundProgramme) -> Unit) {
     val now = minuteNow()
-    val logos = remember(shown.logos) {
-        shown.logos.mapValues { (_, image) -> BitmapFactory.decodeByteArray(image, 0, image.size)?.asImageBitmap() }
-    }
+    val logos = rememberLogos(shown.logos)
     val strong = SpanStyle(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
     LazyColumn(Modifier.fillMaxSize(), state = listKeptAtItsTop()) {
         if (shown.moreLine.isNotEmpty()) {

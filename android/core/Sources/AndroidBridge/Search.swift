@@ -131,21 +131,24 @@ public final class SearchWindow: Sendable {
                                   logo: key, hasSnippet: hit.snippet != nil, before: hit.snippet?.before ?? "",
                                   match: hit.snippet?.match ?? "", after: hit.snippet?.after ?? "")
         }
+        let shelf = LogoShelf()
+        let reservations: [ReservationRow] = shows == .results && search.scope == .reservations
+            ? search.reservations.map { reservation in
+                // A reservation found says its day before its time: the list it is found in is not under the days'
+                // headings, as the reservations' own is.
+                var row = ReservationsWindow.row(reservation, model, shelf)
+                row.time = Format.dateTime.string(from: reservation.start)
+                return row
+            } : []
+        let recordings: [RecordingRow] = shows == .results && search.scope == .recordings
+            ? search.recordings.map { RecordingsWindow.row($0, model, shelf: shelf) } : []
+        logos += shelf.logos
         return SearchScreen(
             shows: "\(shows)", said: said,
             scopes: SearchState.Scope.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
             scope: search.scope.rawValue, prompt: search.scope.prompt, query: search.query,
             countLine: search.countLine ?? "", moreLine: search.moreLine ?? "", programmes: programmes, logos: logos,
-            // A reservation found says its day before its time: the list it is found in is not under the days'
-            // headings, as the reservations' own is.
-            reservations: shows == .results && search.scope == .reservations
-                ? search.reservations.map { reservation in
-                    var row = ReservationsWindow.row(reservation, model)
-                    row.time = Format.dateTime.string(from: reservation.start)
-                    return row
-                } : [],
-            recordings: shows == .results && search.scope == .recordings
-                ? search.recordings.map { RecordingsWindow.row($0, model) } : [])
+            reservations: reservations, recordings: recordings)
     }
 }
 

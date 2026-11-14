@@ -83,6 +83,21 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent("demo-tiles").path), [],
                        "the files are not kept")
 
+        // The rows of the reservations and the recordings name their stations' logos, which come once each.
+        let reservationsWindow = await app.reservations()
+        await reservationsWindow.load()
+        let reservations = await until(reservationsWindow.read) { !$0.sections.isEmpty }
+        let reserved = reservations.sections.flatMap(\.rows)
+        XCTAssertTrue(reserved.contains { !$0.logo.isEmpty })
+        XCTAssertTrue(reserved.allSatisfy { row in row.logo.isEmpty || reservations.logos.contains { $0.key == row.logo } })
+        XCTAssertEqual(Set(reservations.logos.map(\.key)).count, reservations.logos.count)
+        let recordingsWindow = await app.recordings()
+        await recordingsWindow.load()
+        let recordings = await until(recordingsWindow.read) { !$0.rows.isEmpty }
+        let recorded = try XCTUnwrap(recordings.rows.first { !$0.logo.isEmpty })
+        XCTAssertTrue(recordings.logos.contains { $0.key == recorded.logo })
+        XCTAssertTrue(recorded.details.utf16.count >= Int(recorded.logoAt), "the logo goes inside the details")
+
         let bare = await demo().guide()
         let without = await until(bare.read) { $0.shows == "programmes" && !$0.stations.isEmpty }
         XCTAssertTrue(without.stations.allSatisfy { $0.logo.isEmpty })
