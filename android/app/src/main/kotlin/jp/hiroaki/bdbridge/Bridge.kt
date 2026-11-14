@@ -698,7 +698,7 @@ data class Group(
     val name: String, val selecting: Boolean, val selectLabel: String, val selectHeld: Boolean,
     val protectAllHeld: Boolean, val rows: List<GroupMember>, val count: String, val offersActions: Boolean,
     val deleteLabel: String, val actionsHeld: Boolean, val asked: Asked?, val actionHeld: Boolean,
-    val asking: Boolean, val done: Boolean,
+    val asking: Boolean, val done: Boolean, val logos: Map<String, ByteArray>,
 )
 
 data class GroupMember(val row: RecordingItem, val selected: Boolean, val wouldBeDeleted: Boolean)
@@ -707,7 +707,7 @@ private fun Group(it: jp.hiroaki.bdbridge.bridge.GroupScreen) = Group(
     it.name, it.isSelecting, it.selectLabel, it.isSelectHeld, it.isProtectAllHeld,
     it.getRows(arena).map { member -> GroupMember(RecordingItem(member.getRow(arena)), member.isSelected, member.isWouldBeDeleted) },
     it.count, it.isOffersActions, it.deleteLabel, it.isActionsHeld, asked(it.isHasAsked, it.getAsked(arena)),
-    it.isActionHeld, it.isAsking, it.isDone,
+    it.isActionHeld, it.isAsking, it.isDone, it.getLogos(arena).associate { logo -> logo.key to logo.image },
 )
 
 /** The recorder's own keyword conditions (`ConditionsWindow`): `listSays` is `failed`, `empty`, `loading` or empty. */

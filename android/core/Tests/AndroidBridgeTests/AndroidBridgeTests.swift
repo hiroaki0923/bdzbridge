@@ -118,6 +118,27 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertNil(token)
     }
 
+    /// A programme's page hands over its recordings' stations' logos, as the list does.
+    @MainActor
+    func testAProgrammesPageHasItsStationsLogos() async throws {
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
+        app.drawsTiles(Drawing())
+        await app.start()
+        await app.devices().enterDemo()
+        let recordings = await app.recordings()
+        await recordings.load()
+        _ = await until(recordings.read) { !$0.rows.isEmpty }
+        let programme = try XCTUnwrap(app.model.titleGroups.first)
+        let opening = await recordings.openGroup(programme.id)
+        let page = try XCTUnwrap(opening)
+        let shown = await page.read()
+        XCTAssertFalse(shown.logos.isEmpty)
+        XCTAssertTrue(shown.rows.allSatisfy { member in
+            member.row.logo.isEmpty || shown.logos.contains { $0.key == member.row.logo }
+        })
+        XCTAssertTrue(shown.rows.contains { !$0.row.logo.isEmpty })
+    }
+
     /// Where a recording's logo goes is never past its details, even for one with no channel's name and nothing after
     /// its time: the row is cut there on the screen.
     @MainActor
