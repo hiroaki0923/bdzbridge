@@ -125,13 +125,13 @@ export ANDROID_NDK_HOME=<Android SDK>/ndk/30.0.16248370
 ~/Library/org.swift.swiftpm/swift-sdks/swift-6.4.2-RELEASE_android.artifactbundle/swift-android/scripts/setup-android-sdk.sh
 ```
 
-ビルドと、エミュレーター（または adb につないだ端末）でのテストは、`app/RecorderKit/scripts/android-tests.sh` で
+ビルドと、エミュレーター（または adb につないだ端末）でのテストは、`app/scripts/android-tests.sh` で
 行います。CI（下の「CI」）も同じものを走らせます。
 
 ```
 export SWIFT="swiftly run swift +6.4.2"
-app/RecorderKit/scripts/android-tests.sh build aarch64   # x86_64 のエミュレーターなら x86_64
-app/RecorderKit/scripts/android-tests.sh run aarch64
+app/scripts/android-tests.sh build aarch64   # x86_64 のエミュレーターなら x86_64
+app/scripts/android-tests.sh run aarch64
 ```
 
 - XCTest は共有ライブラリしかないので、テストは Swift の標準ライブラリを静的にリンクしません。スクリプトは、できた
@@ -454,10 +454,10 @@ Wi-Fi の端末での測定と、Skip の試しも済みました（上）。B �
 1. ~~Kotlin から swift-java で RecorderKit を呼ぶ試し~~（済み、上の「swift-java の試し」）。
 2. アプリのモデル（`AppModel`、`RecorderHost`、`TVHost`、一覧の組み立て、シートの状態の移り変わり）を、UI のない
    パッケージに出し、Kotlin から値の写しと操作で見られる形にする。iOS もこれを使う。
-   - モデルを iOS から切り離し（#121）、RecorderKit の 2 つ目のターゲット `RecBridgeModel` に移しました。モデルは
+   - モデルを iOS から切り離し（#121）、RecorderKit の隣の、独立したパッケージ `app/RecBridgeModel` に移しました（はじめは RecorderKit の 2 つ目のターゲットで、のちにパッケージを分けました。`RecorderKit` に依存します）。モデルは
      `@MainActor @Observable` のまま、`public` はアプリが使う名前だけです。
    - アプリのテスト 574 件のうち 555 件は、モデルと一緒にパッケージに移りました（`RecBridgeModelTests`）。
-     シミュレーターなしの `swift test` で、Mac でも Android のエミュレーターでも走ります。アプリに残ったのは、
+     シミュレーターなしの `swift test`（`app/RecBridgeModel` で）で、Mac でも Android のエミュレーターでも走ります。アプリに残ったのは、
      アプリそのものが要る 19 件です（Keychain、番組表の表形式、アプリの起動など）。
    - Android で走らせて、モデルの順番の取り違えが 1 つ見つかりました。一覧の読み直しの後ろに保護の要求が
      並んでいるとき、読み直しの答えが保護の答えのあとでモデルに入ると、保護の印が古い一覧で消えます（削除なら、
