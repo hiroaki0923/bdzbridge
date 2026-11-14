@@ -346,8 +346,3 @@ struct SettingsScreen: View {
         RecorderTime.parse(stored).map { Format.when($0) } ?? stored
     }
 }
-
-extension DefaultQuality {
-    /// The mode saved in the app's own defaults, for a sheet that starts from it before it has the model.
-    static var current: String { current(in: .standard) }
-}
