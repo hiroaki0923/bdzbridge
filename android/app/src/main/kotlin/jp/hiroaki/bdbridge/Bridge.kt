@@ -661,8 +661,7 @@ data class Recordings(
     val subtitle: String, val destinations: List<Labelled>, val destination: String, val genres: List<Labelled>,
     val genre: String, val sorts: List<Labelled>, val sort: String, val states: List<Labelled>, val state: String,
     val filtering: Boolean, val tvNote: String, val rows: List<RecordingItem>, val groups: List<GroupItem>,
-    val asked: Asked?, val actionHeld: Boolean, val line: String,
-    val lineIsAProblem: Boolean, val loadKey: String, val tvKey: String, val outdatedKey: String,
+    val asked: Asked?, val actionHeld: Boolean, val loadKey: String, val tvKey: String, val outdatedKey: String,
     val logos: Map<String, ByteArray>,
 )
 
@@ -874,7 +873,7 @@ private fun Recordings(it: jp.hiroaki.bdbridge.bridge.RecordingsScreen): Recordi
             GroupItem(group.id, group.name, group.count, group.size, group.unwatched, group.locked, group.span)
         },
         asked(it.isHasAsked, it.getAsked(arena)), it.isActionHeld,
-        it.line, it.isLineIsAProblem, it.loadKey, it.tvKey, it.outdatedKey,
+        it.loadKey, it.tvKey, it.outdatedKey,
         it.getLogos(arena).associate { logo -> logo.key to logo.image },
     )
 }

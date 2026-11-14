@@ -287,7 +287,8 @@ public struct RecordingsScreen: Sendable {
     public var empty: Said
     /// `残り 120.5 GB` when the free space is known, `録画` when it is not.
     public var heading: String
-    /// The recorder's line while it works, or what is shown: the disk and the genre picked, and how many.
+    /// The recorder's line while it works, or what is shown: the disk and the genre picked, and how many. It is the
+    /// one place the screen says what the recorder is doing, as on iOS, where it is also what a test waits on.
     public var subtitle: String
     /// The filters, as the iOS screen's menu offers them: 録画先 (only where there is more than one place), ジャンル
     /// with how many of each, 並び順 and 視聴状態. An empty code is すべて; `filtering` when any is not its default.
@@ -310,8 +311,6 @@ public struct RecordingsScreen: Sendable {
     public var hasAsked: Bool
     public var asked: Asked
     public var actionHeld: Bool
-    public var line: String
-    public var lineIsAProblem: Bool
     /// What each list is read again by, as on the iOS screen: the recorder's (`load`) each time the app connects,
     /// the television's (`loadTV`) each time it is attached, and the recorder's afresh (`loadOutdated`) when the
     /// disk in the USB slot is no longer the one the list was read from. What becomes of the television is no
@@ -497,7 +496,6 @@ public final class RecordingsWindow: Sendable {
         // Only what the view that is on shows: each read filters and sorts every recording, and まとめ groups them.
         let listed = mode == .list ? model.shownTitles : []
         let groups = mode == .groups ? model.titleGroups : []
-        let problem = model.problem(for: .recorder) ?? model.problem(for: .tv)
         let asked = state.ask.map { asked in
             let action = state.actionLabel(for: asked)
             return Asked(key: key(asked), title: state.askTitle, message: state.message(for: asked),
@@ -537,7 +535,6 @@ public final class RecordingsWindow: Sendable {
             hasAsked: asked != nil,
             asked: asked ?? Asked(key: "", title: "", message: "", action: "", destructive: false, closing: ""),
             actionHeld: state.ask.map(state.holdsTheAction) ?? false,
-            line: model.busy ?? problem?.asABody ?? "", lineIsAProblem: model.busy == nil && problem != nil,
             loadKey: "\(model.connected && !model.offline)", tvKey: model.tvTitlesToRead,
             outdatedKey: "\(model.titlesOutOfStep)", logos: shelf.logos)
     }

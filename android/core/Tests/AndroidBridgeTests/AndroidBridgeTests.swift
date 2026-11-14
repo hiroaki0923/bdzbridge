@@ -212,7 +212,7 @@ final class AndroidBridgeTests: XCTestCase {
 
         let recordings = await app.recordings()
         await recordings.load()
-        let titles = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
+        let titles = await until(recordings.read) { !$0.rows.isEmpty && $0.subtitle == "\($0.rows.count) 件" }
         XCTAssertFalse(titles.hasNoRecorder)
         XCTAssertEqual(titles.subtitle, "\(titles.rows.count) 件")
         XCTAssertTrue(titles.rows.allSatisfy { $0.details.contains("(") && !$0.watched.isEmpty })
@@ -396,7 +396,7 @@ final class AndroidBridgeTests: XCTestCase {
         let app = await demo()
         let recordings = await app.recordings()
         await recordings.load()
-        let listed = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
+        let listed = await until(recordings.read) { !$0.rows.isEmpty && $0.subtitle == "\($0.rows.count) 件" }
         XCTAssertEqual(listed.modes.map(\.label), ["一覧", "まとめ", "重複"])
         XCTAssertEqual(listed.mode, "list")
         XCTAssertTrue(listed.groups.isEmpty, "the programmes were worked out with the list on")
@@ -436,7 +436,9 @@ final class AndroidBridgeTests: XCTestCase {
         await recordings.delete(going.id)
         let asked = await until(recordings.read) { $0.hasAsked }
         await recordings.act(asked.asked.key)
-        let gone = await until(recordings.read) { shown in !shown.rows.contains { $0.id == going.id } && shown.line.isEmpty }
+        let gone = await until(recordings.read) { shown in
+            !shown.rows.contains { $0.id == going.id } && shown.subtitle == "\(shown.rows.count) 件"
+        }
         XCTAssertFalse(gone.hasAsked, "a delete that went through said something: \(gone.asked.message)")
 
         // 保護解除 on a row that offers the delete does nothing; on the protected one it takes the protection off.
@@ -453,7 +455,7 @@ final class AndroidBridgeTests: XCTestCase {
         let app = await demo()
         let recordings = await app.recordings()
         await recordings.load()
-        _ = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
+        _ = await until(recordings.read) { !$0.rows.isEmpty && $0.subtitle == "\($0.rows.count) 件" }
         let programme = try XCTUnwrap(app.model.titleGroups.max { $0.count < $1.count })
         XCTAssertGreaterThan(programme.count, 2, "the demo has no programme with three recordings")
         let opening = await recordings.openGroup(programme.id)
@@ -538,7 +540,7 @@ final class AndroidBridgeTests: XCTestCase {
         let app = await demo()
         let recordings = await app.recordings()
         await recordings.load()
-        _ = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
+        _ = await until(recordings.read) { !$0.rows.isEmpty && $0.subtitle == "\($0.rows.count) 件" }
         let duplicates = await app.duplicates()
         let before = await until(duplicates.read) { !$0.scanHeld }
         XCTAssertFalse(before.hasSets)
@@ -836,7 +838,7 @@ extension AndroidBridgeTests {
         let app = await demo()
         let recordings = await app.recordings()
         await recordings.load()
-        let all = await until(recordings.read) { !$0.rows.isEmpty && $0.line.isEmpty }
+        let all = await until(recordings.read) { !$0.rows.isEmpty && $0.subtitle == "\($0.rows.count) 件" }
         XCTAssertFalse(all.filtering)
         XCTAssertEqual(all.genre, "")
         XCTAssertTrue(all.genres.first?.label.hasPrefix("すべて") ?? false)
