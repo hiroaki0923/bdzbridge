@@ -249,6 +249,45 @@ class DemoTests {
         assert(RecBridge.reservations.value!!.sections.sumOf { it.rows.size } == rows) { "キャンセル deleted a reservation" }
     }
 
+    /**
+     * The recordings turned to まとめ, a programme's page opened -- 選択, every row a delete would take ticked, the
+     * delete at the foot saying how many, 選択解除, and the back key closing the page -- and then to 重複, whose scan
+     * finds the demo's copy. Reads only. The view picked is kept, so it is put back to 一覧 whatever happens.
+     */
+    @Test fun theRecordingsAreGatheredIntoProgrammesAndScannedForCopies() {
+        openTheDemo()
+        destination("録画").performClick()
+        compose.waitUntilAtLeastOneExists(startsWithADayAndATime, 30_000)
+        try {
+            compose.onNodeWithContentDescription("表示を変える").performClick()
+            compose.onNodeWithText("まとめ").performClick()
+            compose.waitUntilAtLeastOneExists(hasText(" 番組", substring = true), 10_000)
+            compose.waitUntil(10_000) { RecBridge.recordings.value?.groups?.isNotEmpty() == true }
+            val programme = RecBridge.recordings.value!!.groups.maxBy { it.count.removeSuffix(" 件").toInt() }
+            compose.onNodeWithText(programme.name).performClick()
+            compose.waitUntilAtLeastOneExists(hasText("選択") and hasClickAction(), 10_000)
+            compose.onNode(hasText("選択") and hasClickAction()).performClick()
+            compose.onNodeWithText("削除できるものをすべて選択").performClick()
+            compose.waitUntilAtLeastOneExists(hasText("選択した ", substring = true), 10_000)
+            compose.onNodeWithText("選択解除").performClick()
+            compose.waitUntilDoesNotExist(hasText("選択した ", substring = true), 10_000)
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            compose.waitUntilDoesNotExist(hasText("完了"), 10_000)
+
+            compose.onNodeWithContentDescription("表示を変える").performClick()
+            compose.onNodeWithText("重複").performClick()
+            compose.waitUntilAtLeastOneExists(hasText("検出を開始"), 10_000)
+            compose.onNodeWithText("検出を開始").performClick()
+            compose.waitUntilAtLeastOneExists(hasText("残す"), 60_000)
+            compose.waitUntilAtLeastOneExists(hasText(" 本 · ", substring = true), 10_000)
+        } finally {
+            runBlocking {
+                RecBridge.act { it.job.clear() }
+                RecBridge.act { it.recordings.chooseMode("list") }
+            }
+        }
+    }
+
     @Test fun aRecordingsSheetOpensFromTheListWithItsPlaybackAndItsDelete() {
         openTheDemo()
         destination("録画").performClick()
