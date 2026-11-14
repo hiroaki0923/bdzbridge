@@ -65,6 +65,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -261,7 +262,8 @@ private fun Programmes(guide: Guide, open: (Programme) -> Unit) {
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ProgrammeRow(item: Programme, logo: ImageBitmap?, now: Long, open: () -> Unit) {
+internal fun ProgrammeRow(item: Programme, logo: ImageBitmap?, now: Long, day: String = "",
+                          found: AnnotatedString? = null, open: () -> Unit) {
     val onAir = item.starts <= now && now < item.ends
     val ended = item.ends <= now
     val colors = MaterialTheme.colorScheme
@@ -269,7 +271,8 @@ private fun ProgrammeRow(item: Programme, logo: ImageBitmap?, now: Long, open: (
     Row(Modifier.fillMaxWidth().clickable(onClick = open).alpha(if (ended) 0.45f else 1f)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.width(48.dp), horizontalAlignment = Alignment.End) {
+        Column(Modifier.width(if (day.isEmpty()) 48.dp else 64.dp), horizontalAlignment = Alignment.End) {
+            if (day.isNotEmpty()) Text(day, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
             Text(item.time, style = MaterialTheme.typography.titleSmall)
             Text(item.length, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
         }
@@ -291,6 +294,10 @@ private fun ProgrammeRow(item: Programme, logo: ImageBitmap?, now: Long, open: (
             }
             if (item.summary.isNotEmpty()) {
                 Text(item.summary, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                     color = colors.onSurfaceVariant)
+            }
+            if (found != null) {
+                Text(found, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
                      color = colors.onSurfaceVariant)
             }
         }

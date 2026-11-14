@@ -197,6 +197,33 @@ func onChange<T: Equatable & Sendable>(of value: @escaping @MainActor @Sendable 
     }
 }
 
+/// SwiftUI's `task(id:)` for a screen: `work` begun as the screen comes on and begun again each time `id` moves, the
+/// one before given up, and given up as the screen goes.
+@MainActor
+final class TaskByID {
+    private var running: Task<Void, Never>?
+    private var following: Task<Void, Never>?
+
+    nonisolated init() {}
+
+    func begin<ID: Equatable & Sendable>(id: @escaping @MainActor @Sendable () -> ID,
+                                         _ work: @escaping @MainActor @Sendable () async -> Void) {
+        end()
+        running = Task { await work() }
+        following = onChange(of: id) { [weak self] _ in
+            self?.running?.cancel()
+            self?.running = Task { await work() }
+        }
+    }
+
+    func end() {
+        running?.cancel()
+        following?.cancel()
+        running = nil
+        following = nil
+    }
+}
+
 private func labelled(_ codes: [String], _ labels: [String: String]) -> [Labelled] {
     codes.map { Labelled(code: $0, label: labels[$0] ?? $0) }
 }

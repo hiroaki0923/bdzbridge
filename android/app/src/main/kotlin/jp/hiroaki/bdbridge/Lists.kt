@@ -100,7 +100,7 @@ private fun LazyListScope.heading(title: String) {
 
 /** One reservation, as the iOS row says it: when and how long, marked, the title, then the station and how it records. */
 @Composable
-private fun ReservationRow(item: ReservationItem, open: () -> Unit) {
+internal fun ReservationRow(item: ReservationItem, open: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val marks = LocalMarks.current
     ListItem(
@@ -236,7 +236,7 @@ private fun Filters(shown: Recordings) {
 
 /** One recording, as the iOS row says it: the lock and 録画中 before the title, then when, where and how, then whether it was watched. */
 @Composable
-private fun RecordingRow(item: RecordingItem, open: () -> Unit) {
+internal fun RecordingRow(item: RecordingItem, open: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     ListItem(
         headlineContent = {

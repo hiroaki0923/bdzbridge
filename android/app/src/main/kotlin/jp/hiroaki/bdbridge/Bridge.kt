@@ -15,10 +15,14 @@ import jp.hiroaki.bdbridge.bridge.RecordingsWindow
 import jp.hiroaki.bdbridge.bridge.ReservationSheetWindow
 import jp.hiroaki.bdbridge.bridge.ReservationsWindow
 import jp.hiroaki.bdbridge.bridge.ScreenListener
+import jp.hiroaki.bdbridge.bridge.SearchWindow
 import jp.hiroaki.bdbridge.bridge.SettingsWindow
 import jp.hiroaki.bdbridge.bridge.StripWindow
 import jp.hiroaki.bdbridge.bridge.TVRegisterWindow
 import jp.hiroaki.bdbridge.bridge.TitleSheetWindow
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +31,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -48,7 +54,7 @@ object RecBridge {
     class Windows(
         val app: RecBridgeApp, val devices: DevicesWindow, val guide: GuideWindow,
         val reservations: ReservationsWindow, val recordings: RecordingsWindow, val strip: StripWindow,
-        val settings: SettingsWindow,
+        val settings: SettingsWindow, val search: SearchWindow,
     )
 
     private val _devices = MutableStateFlow<Devices?>(null)
@@ -57,12 +63,14 @@ object RecBridge {
     private val _recordings = MutableStateFlow<Recordings?>(null)
     private val _strip = MutableStateFlow<Strip?>(null)
     private val _settings = MutableStateFlow<Settings?>(null)
+    private val _search = MutableStateFlow<Search?>(null)
     val devices: StateFlow<Devices?> = _devices
     val guide: StateFlow<Guide?> = _guide
     val reservations: StateFlow<Reservations?> = _reservations
     val recordings: StateFlow<Recordings?> = _recordings
     val strip: StateFlow<Strip?> = _strip
     val settings: StateFlow<Settings?> = _settings
+    val search: StateFlow<Search?> = _search
 
     /**
      * Runs `work` where nothing a screen does cancels it: for what has to finish whatever becomes of the screen that
@@ -90,13 +98,17 @@ object RecBridge {
         scope.launch {
             val app = call { RecBridgeApp.open(files, kept, version, arena) }
             val windows = Windows(app, app.devices(arena), app.guide(arena), app.reservations(arena),
-                                  app.recordings(arena), app.strip(arena), call { app.settings(arena) })
+                                  app.recordings(arena), app.strip(arena), call { app.settings(arena) },
+                                  call { app.search(arena) })
             watch({ windows.devices.observe(it) }, { Devices(call { windows.devices.read(arena) }) }, _devices)
             watch({ windows.guide.observe(it) }, { Guide(call { windows.guide.read(arena) }) }, _guide)
             watch({ windows.reservations.observe(it) }, { Reservations(call { windows.reservations.read(arena) }) }, _reservations)
             watch({ windows.recordings.observe(it) }, { Recordings(call { windows.recordings.read(arena) }) }, _recordings)
             watch({ windows.strip.observe(it) }, { Strip(call { windows.strip.read(arena) }) }, _strip)
             watch({ windows.settings.observe(it) }, { Settings(call { windows.settings.read(arena) }) }, _settings)
+            watch({ windows.search.observe(it) }, { Search(call { windows.search.read(arena) }) }, _search)
+            // The box starts with what the model has in it; nothing but the reader changes it after that.
+            launch { searchField.follow(search.filterNotNull().first().query, 0) }
             launch {
                 settings.collect { shown ->
                     shown ?: return@collect
@@ -169,9 +181,16 @@ object RecBridge {
     class Field(private val send: (String, Long) -> Unit) {
         private val _text = MutableStateFlow("")
         val text: StateFlow<String> = _text
+        /**
+         * The same text where Compose reads it in the turn it was typed: a field drawn from the flow gets it a moment
+         * later, which is enough to lose the letters an input method is still composing, as it composes kana.
+         */
+        var typed by mutableStateOf("")
+            private set
         private var seen = -1L
 
         fun type(value: String) {
+            typed = value
             _text.value = value
             send(value, seen)
         }
@@ -179,6 +198,7 @@ object RecBridge {
         internal fun follow(value: String, set: Long) {
             if (set == seen) return
             seen = set
+            typed = value
             _text.value = value
         }
     }
@@ -210,6 +230,25 @@ object RecBridge {
     }
 
     /**
+     * What the reader does on the search screen -- the words typed, the scope picked -- and the screen's coming on and
+     * going, sent to Swift one after the other in the order they happened: Swift searches and reads for as long as the
+     * screen is on, by what is in the box and the scope then.
+     */
+    private val searching = Channel<suspend (SearchWindow) -> Unit>(Channel.UNLIMITED).also { operations ->
+        scope.launch { for (operation in operations) operation(windows().search) }
+    }
+
+    val searchField = Field { text, _ -> searching.trySend { window -> call<Void> { window.type(text) } } }
+
+    fun searchScope(code: String) {
+        searching.trySend { window -> call<Void> { window.chooseScope(code) } }
+    }
+
+    fun searchShown(on: Boolean) {
+        searching.trySend { window -> call<Void> { window.shown(on) } }
+    }
+
+    /**
      * Reads what a window shows each time it says it changed, one read at a time and only the latest: told twice while
      * a read is out, it reads once more after it. The job handed back ends the reading, for a sheet that closes.
      */
@@ -236,6 +275,16 @@ object RecBridge {
     /** The sheet of a reservation in the list, opened: nil when the list no longer has it. */
     suspend fun openReservation(id: String): ReservationSheetHandle? =
         ask { it.reservations.open(id, arena) }.orElse(null)?.let { ReservationSheetHandle(it) }
+
+    /** The sheets of what the search found, opened: nil when what was found has gone since. */
+    suspend fun openFoundProgramme(id: String): ProgrammeSheetHandle? =
+        ask { it.search.openProgramme(id, arena) }.orElse(null)?.let { ProgrammeSheetHandle(it) }
+
+    suspend fun openFoundReservation(id: String): ReservationSheetHandle? =
+        ask { it.search.openReservation(id, arena) }.orElse(null)?.let { ReservationSheetHandle(it) }
+
+    suspend fun openFoundRecording(id: String): TitleSheetHandle? =
+        ask { it.search.openRecording(id, arena) }.orElse(null)?.let { TitleSheetHandle(it) }
 
     /** Which stations the guide shows and in what order, opened at the broadcasting type the guide is on. */
     suspend fun openChannels(): ChannelsHandle = ChannelsHandle(ask { it.app.channels(arena) })
@@ -487,6 +536,48 @@ data class RecordingItem(
     val watched: String, val unwatched: Boolean, val genre: String,
 )
 
+private fun Programme(row: jp.hiroaki.bdbridge.bridge.GuideRow) =
+    Programme(row.id, row.serviceID, row.time, row.length, row.title, row.station, row.mark, row.isMarkIsRed, row.genre,
+              row.summary, row.starts, row.ends)
+
+private fun ReservationItem(row: jp.hiroaki.bdbridge.bridge.ReservationRow) =
+    ReservationItem(row.id, row.time, row.length, row.isRecording, row.isConflict, row.isByTheRecorder, row.title,
+                    row.details)
+
+private fun RecordingItem(row: jp.hiroaki.bdbridge.bridge.RecordingRow) =
+    RecordingItem(row.id, row.title, row.isRecording, row.isProtected, row.details, row.watched, row.isUnwatched,
+                  row.genre)
+
+/**
+ * The search (`SearchWindow`): what is said in place of the results, or what was found in the scope picked. A
+ * programme found says its day, being of any day of the guide, and for one found only in its details, the words found.
+ */
+data class Search(
+    val shows: String, val title: String, val detail: String, val scopes: List<Labelled>, val scope: String,
+    val prompt: String, val query: String, val countLine: String, val moreLine: String,
+    val programmes: List<FoundProgramme>, val logos: Map<String, ByteArray>, val reservations: List<ReservationItem>,
+    val recordings: List<RecordingItem>,
+)
+
+data class FoundProgramme(
+    val row: Programme, val day: String, val logo: String, val before: String, val match: String, val after: String,
+    val hasSnippet: Boolean,
+)
+
+private fun Search(it: jp.hiroaki.bdbridge.bridge.SearchScreen) = it.getSaid(arena).let { said ->
+    Search(
+        it.shows, said.title, said.detail, labelled(it.getScopes(arena)), it.scope, it.prompt, it.query, it.countLine,
+        it.moreLine,
+        it.getProgrammes(arena).map { found ->
+            FoundProgramme(Programme(found.getRow(arena)), found.day, found.logo, found.before, found.match, found.after,
+                           found.isHasSnippet)
+        },
+        it.getLogos(arena).associate { logo -> logo.key to logo.image },
+        it.getReservations(arena).map { row -> ReservationItem(row) },
+        it.getRecordings(arena).map { row -> RecordingItem(row) },
+    )
+}
+
 private fun NoRecorder(said: jp.hiroaki.bdbridge.bridge.NoRecorder) =
     said.getSaid(arena).let { NoRecorder(said.kind, it.title, it.detail) }
 
@@ -503,10 +594,7 @@ private fun Guide(it: jp.hiroaki.bdbridge.bridge.GuideScreen) = it.getSaid(arena
         it.getBroadcastings(arena).map { choice -> Choice(choice.code, choice.label) }, it.broadcasting,
         it.getStations(arena).map { station -> Station(station.serviceID, station.name, station.logo) }, it.station,
         it.days.toList(), it.day.toInt(),
-        it.getProgrammes(arena).map { row ->
-            Programme(row.id, row.serviceID, row.time, row.length, row.title, row.station, row.mark, row.isMarkIsRed, row.genre,
-                      row.summary, row.starts, row.ends)
-        },
+        it.getProgrammes(arena).map { row -> Programme(row) },
         it.nowRequests, it.isCanRefresh, it.isDemo,
     )
 }
@@ -516,10 +604,7 @@ private fun Reservations(it: jp.hiroaki.bdbridge.bridge.ReservationsScreen) = it
         it.isHasNoRecorder, NoRecorder(it.getNoRecorder(arena)), it.isEmpty, empty.title, empty.detail, it.subtitle,
         it.getWaiting(arena).map { row -> Waiting(row.id, row.title, row.details, row.problem) }, it.waitingSays,
         it.getSections(arena).map { section ->
-            Section(section.title, section.getRows(arena).map { row ->
-                ReservationItem(row.id, row.time, row.length, row.isRecording, row.isConflict, row.isByTheRecorder,
-                                row.title, row.details)
-            })
+            Section(section.title, section.getRows(arena).map { row -> ReservationItem(row) })
         },
         it.line, it.isLineIsAProblem, it.loadKey,
     )
@@ -533,10 +618,7 @@ private fun Recordings(it: jp.hiroaki.bdbridge.bridge.RecordingsScreen): Recordi
         empty.title, empty.detail, it.heading, it.subtitle, labelled(it.getDestinations(arena)), it.destination,
         labelled(it.getGenres(arena)), it.genre, labelled(it.getSorts(arena)), it.sort, labelled(it.getStates(arena)),
         it.state, it.isFiltering, it.tvNote,
-        it.getRows(arena).map { row ->
-            RecordingItem(row.id, row.title, row.isRecording, row.isProtected, row.details, row.watched,
-                          row.isUnwatched, row.genre)
-        },
+        it.getRows(arena).map { row -> RecordingItem(row) },
         it.line, it.isLineIsAProblem, it.loadKey, it.tvKey, it.outdatedKey,
     )
 }

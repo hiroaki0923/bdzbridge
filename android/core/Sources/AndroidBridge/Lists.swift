@@ -121,7 +121,7 @@ public final class ReservationsWindow: Sendable {
     }
 
     @MainActor
-    private static func row(_ reservation: Reservation, _ model: AppModel) -> ReservationRow {
+    static func row(_ reservation: Reservation, _ model: AppModel) -> ReservationRow {
         var parts = [model.tv != nil ? reservation.device.label : nil, model.diskShown(reservation)].compactMap { $0 }
         let channel = model.channelName(for: reservation)
         if !channel.isEmpty { parts.append(channel) }
@@ -190,7 +190,7 @@ public struct RecordingRow: Sendable {
 public final class RecordingsWindow: Sendable {
     let model: AppModel
     private let shown: Watched<RecordingsScreen>
-    private let wait = TitlesWait()
+    private let wait = TaskByID()
 
     init(_ model: AppModel) {
         self.model = model
@@ -200,7 +200,10 @@ public final class RecordingsWindow: Sendable {
     /// The screen has come on, or gone: told in the order it happened. While it is on, the window waits for a
     /// television's list that may still be coming, as the iOS screen's task keyed by `tvTitlesToWaitFor` does.
     public func shown(_ on: Bool) async {
-        await MainActor.run { on ? wait.begin(model) : wait.end() }
+        let model = model
+        await MainActor.run {
+            on ? wait.begin(id: { model.tvTitlesToWaitFor }) { await model.waitForTVTitles() } : wait.end()
+        }
     }
 
     public func read() async -> RecordingsScreen { await shown.read() }
@@ -284,7 +287,7 @@ public final class RecordingsWindow: Sendable {
     }
 
     @MainActor
-    private static func row(_ title: RecordedTitle, _ model: AppModel) -> RecordingRow {
+    static func row(_ title: RecordedTitle, _ model: AppModel) -> RecordingRow {
         var parts = [Format.dateTime.string(from: title.start)]
         if let disk = model.diskShown(title) { parts.append(disk) }
         let channel = model.channelName(for: title)
@@ -295,32 +298,5 @@ public final class RecordingsWindow: Sendable {
         return RecordingRow(id: title.listKey, title: title.title, recording: title.recording, protected: title.protected,
                             details: parts.joined(separator: " · "), watched: title.watchState.label,
                             unwatched: title.watchState == .unwatched, genre: title.genre?.label ?? "")
-    }
-}
-
-/// The recordings screen's wait for a television's list that may still be coming (`AppModel.waitForTVTitles`), as the
-/// iOS screen's `task(id: tvTitlesToWaitFor)` waits: begun as the screen comes on and begun again each time the key
-/// moves, the one before ending, and ended as the screen goes.
-@MainActor
-final class TitlesWait {
-    private var waiting: Task<Void, Never>?
-    private var following: Task<Void, Never>?
-
-    nonisolated init() {}
-
-    func begin(_ model: AppModel) {
-        end()
-        waiting = Task { await model.waitForTVTitles() }
-        following = onChange(of: { model.tvTitlesToWaitFor }) { [weak self] _ in
-            self?.waiting?.cancel()
-            self?.waiting = Task { await model.waitForTVTitles() }
-        }
-    }
-
-    func end() {
-        waiting?.cancel()
-        following?.cancel()
-        waiting = nil
-        following = nil
     }
 }
