@@ -34,7 +34,11 @@ device and which device it is fetched from, the demo and ご利用上の注意, 
 (`RecorderSettingsState`, `TVSettingsState`, `ChannelsState`). A television is added from a search, the settings or the
 strip's 登録 on a sheet over the model's state of it (`TVRegisterState`), and the helper on it on another
 (`HelperRegisterState`). As on iOS, a
-connect wakes a recorder that does not answer with a magic packet when its MAC is known.
+connect wakes a recorder that does not answer with a magic packet when its MAC is known. The stations' logos are on the
+guide's rows, on the reservations' and the recordings' and on the search's; the demo's stations have tiles that Kotlin
+draws (`Tiles.kt`) and hands to the model as files (`TileDrawer`). The model is told when the network changes, by a
+`ConnectivityManager` callback (`RecBridgeApp.networkChanged`), and what a search for devices came to, which iOS
+announces to VoiceOver, is a polite live region for TalkBack.
 
 ## Layout
 
