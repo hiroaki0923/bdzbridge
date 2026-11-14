@@ -70,7 +70,9 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit, checkTV: () -> Unit) {
+fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit, setUp: () -> Unit, checkTV: () -> Unit) {
+    // The words of the row that opens the tutorial are the model's, which the place where a recorder is chosen carries.
+    val reviewRow = RecBridge.devices.collectAsState().value?.tutorial?.reviewRow
     val shown = RecBridge.settings.collectAsState().value
         ?: return Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
     val scope = rememberCoroutineScope()
@@ -178,6 +180,14 @@ fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit, checkTV: () 
 
             item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
             item { Demo(shown) }
+
+            reviewRow?.let { row ->
+                item {
+                    ListItem(headlineContent = { Text(row) },
+                             trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+                             modifier = Modifier.clickable(onClick = setUp))
+                }
+            }
 
             item { Heading("このアプリ") }
             // Before the version, because it is the one thing here worth reading: what this app writes to the recorder,

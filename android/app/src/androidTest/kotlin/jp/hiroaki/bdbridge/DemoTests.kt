@@ -90,7 +90,9 @@ class DemoTests {
     }
 
     private fun openTheDemo() {
-        compose.waitUntilAtLeastOneExists(hasText("サンプルデータで試す"), 20_000)
+        // Under the steps now: a lazy list makes a row only as it is scrolled to.
+        compose.waitUntilAtLeastOneExists(hasScrollToNodeAction(), 20_000)
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("サンプルデータで試す"))
         compose.onNodeWithText("サンプルデータで試す").performClick()
         compose.waitUntilAtLeastOneExists(hasText("サンプルデータを表示しています"), 30_000)
     }
@@ -394,6 +396,43 @@ class DemoTests {
         settings.performScrollToNode(hasText("アドレスを入力して追加"))
     }
 
+    /**
+     * The first screen is the tutorial: what the app is, the four steps (this device's own words for the second), and the
+     * ways on, before the demo is entered.
+     */
+    @Test fun theFirstScreenTellsTheStepsBesideTheSearchAndTheDemo() {
+        compose.waitUntilAtLeastOneExists(hasText("セットアップ"), 20_000)
+        compose.onNodeWithText("レコーダーとテレビの電源を入れる").assertExists()
+        compose.onNodeWithText("この端末をレコーダーやテレビと同じ Wi-Fi につなぐ").assertExists()
+        compose.onNodeWithText("あとで設定").assertExists()
+        val list = compose.onNode(hasScrollToNodeAction())
+        list.performScrollToNode(hasText("見つかったレコーダーやテレビをタップする"))
+        compose.onNodeWithText("「レコーダーとテレビを探す」をタップする").assertExists()
+        list.performScrollToNode(hasText("サンプルデータで試す"))
+        compose.onNodeWithText("いつでも設定から終了できます。", substring = true).assertExists()
+        openTheDemo()
+    }
+
+    /**
+     * In the settings, セットアップ手順を見る opens the steps again with 閉じる in place of あとで設定, and the back key
+     * returns to the settings, not to the guide.
+     */
+    @Test fun theSettingsOpenTheStepsAgainAndTheBackKeyComesBackToThem() {
+        openTheDemo()
+        destination("設定").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("機種"), 30_000)
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("セットアップ手順を見る"))
+        compose.onNode(hasText("セットアップ手順を見る") and hasClickAction()).performClick()
+        compose.waitUntilAtLeastOneExists(hasText("セットアップ"), 10_000)
+        compose.onNodeWithText("レコーダーとテレビの電源を入れる").assertExists()
+        compose.onAllNodesWithText("あとで設定").assertCountEquals(0)
+        compose.onNodeWithContentDescription("閉じる").assertExists()
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntilDoesNotExist(hasText("レコーダーとテレビの電源を入れる"), 10_000)
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("セットアップ手順を見る"))
+        compose.onNodeWithText("セットアップ手順を見る").assertExists()
+    }
+
     @Test fun leavingTheDemoSaysNoRecorderIsAddedAndOffersTheSearch() {
         openTheDemo()
         // The strip's 終了, held while the model is at work on the demo's recorder, as on iOS.
@@ -401,6 +440,8 @@ class DemoTests {
         compose.onNodeWithText("終了").performClick()
         compose.waitUntilAtLeastOneExists(hasText("レコーダーが追加されていません"), 20_000)
         compose.onNodeWithText("レコーダーを探す").performClick()
-        compose.waitUntilAtLeastOneExists(hasText("サンプルデータで試す"), 10_000)
+        compose.waitUntilAtLeastOneExists(hasScrollToNodeAction(), 10_000)
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("サンプルデータで試す"))
+        compose.onNodeWithText("サンプルデータで試す").assertExists()
     }
 }
