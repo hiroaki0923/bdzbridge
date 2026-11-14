@@ -57,9 +57,13 @@ public final class JobWindow: Sendable {
     public func read() async -> JobBar { await shown.read() }
     public func observe(_ listener: some ScreenListener) { shown.watch(listener) }
 
-    /// 中止: stops before the next recording.
+    /// 中止: stops before the next recording. Nothing once the job has stopped, or is stopping already, as the iOS bar
+    /// has no 中止 then: a press a frame late would have the finished job say it was cut short.
     public func cancel() async {
-        await MainActor.run { model.cancelBulk() }
+        await MainActor.run {
+            guard let job = model.job, !job.finished, !job.cancelled else { return }
+            model.cancelBulk()
+        }
     }
 
     /// The finished job's bar closed.
@@ -384,6 +388,11 @@ public final class DuplicatesWindow: Sendable {
             guard state.confirming, Self.key(state) == key else { return }
             state.confirming = false
         }
+    }
+
+    /// The view has left the screen: a question up goes with it, as the iOS view's own state does.
+    public func gone() async {
+        await MainActor.run { state.confirming = false }
     }
 
     /// The sheet of the copy with `id`, while a set has it.

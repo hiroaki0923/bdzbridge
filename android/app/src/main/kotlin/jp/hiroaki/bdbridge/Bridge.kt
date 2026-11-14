@@ -475,8 +475,9 @@ object RecBridge {
 /**
  * Swift's main queue, which nothing else runs on Android, run from the main thread: much of RecorderKit, and the
  * app's model, are on Swift's main actor (core/Sources/AndroidBridge/MainQueue.swift). It runs while the app is on
- * screen, and while a call to Swift is out, so that one made as the app goes out of sight -- the model told that it
- * has -- is answered. Each run takes what has come since the last and returns at once; one comes every frame or so.
+ * screen, while a call to Swift is out, so that one made as the app goes out of sight -- the model told that it
+ * has -- is answered, and while a step of a bulk job is held, which is finished though the app has gone. Each run
+ * takes what has come since the last and returns at once; one comes every frame or so.
  */
 private object MainQueue {
     private val mainThread = Handler(Looper.getMainLooper())

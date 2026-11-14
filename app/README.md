@@ -10,8 +10,8 @@
   `AppModelRecorderRules`, `AppModelRecordings`, `AppModelTV`). The screens' own rules are the model's as well,
   where tests hold them: a programme's, a reservation's and a recording's sheet as the reader works them
   (`ProgramSheetState`, `ReservationSheetState`, `TitleSheetState`), the search (`SearchState`), the reservations'
-  screen (`ReservationsState`: what a row's swipe asks, the one alert, how old a list is said to be), the recordings' screen (`RecordingsState`: which view is on, what a
-  row's swipe offers and asks), a programme's sheet with its selection and bulk runs (`GroupSheetState`), the
+  screen (`ReservationsState`: what a row's swipe asks, the one alert, how old a list is said to be), the recordings' screen (`RecordingsState`: its three views and what the
+  title says in each, what a row's swipe offers and asks, the one alert), a programme's sheet with its selection and bulk runs (`GroupSheetState`), the
   duplicates (`DuplicatesState`), the channels' screen (`ChannelsState`), the recorder's part of
   the settings (`RecorderSettingsState`), the television's sheets and its part of the settings (`TVRegisterState`,
   `HelperRegisterState`, `TVSettingsState`), and what an empty screen says (`AppModelEmptyScreens.swift`), with the

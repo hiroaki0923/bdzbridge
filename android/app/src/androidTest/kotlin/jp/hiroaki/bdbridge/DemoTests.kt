@@ -37,6 +37,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -250,8 +251,8 @@ class DemoTests {
     }
 
     /**
-     * The recordings turned to まとめ, a programme's page opened -- 選択, every row a delete would take ticked, the
-     * delete at the foot saying how many, 選択解除, and the back key closing the page -- and then to 重複, whose scan
+     * The recordings turned to まとめ, a programme's page opened -- 選択, 削除できるものをすべて選択, the delete at the
+     * foot saying as many as are ticked, 選択解除, and the back key closing the page -- and then to 重複, whose scan
      * finds the demo's copy. Reads only. The view picked is kept, so it is put back to 一覧 whatever happens.
      */
     @Test fun theRecordingsAreGatheredIntoProgrammesAndScannedForCopies() {
@@ -265,10 +266,21 @@ class DemoTests {
             compose.waitUntil(10_000) { RecBridge.recordings.value?.groups?.isNotEmpty() == true }
             val programme = RecBridge.recordings.value!!.groups.maxBy { it.count.removeSuffix(" 件").toInt() }
             compose.onNodeWithText(programme.name).performClick()
-            compose.waitUntilAtLeastOneExists(hasText("選択") and hasClickAction(), 10_000)
+            // Live once the page's window has been read: a press before that does nothing.
+            compose.waitUntilAtLeastOneExists(hasText("選択") and hasClickAction() and isEnabled(), 10_000)
             compose.onNode(hasText("選択") and hasClickAction()).performClick()
+            compose.waitUntilAtLeastOneExists(hasText("完了"), 10_000)
             compose.onNodeWithText("削除できるものをすべて選択").performClick()
-            compose.waitUntilAtLeastOneExists(hasText("選択した ", substring = true), 10_000)
+            // The delete at the foot says as many as the selection's bar counts, and no more than the programme has.
+            // The bar says 0 件 from the start; what is waited for is the count once the ticks are on.
+            val count = SemanticsMatcher("how many are ticked") { node ->
+                node.config.getOrNull(SemanticsProperties.Text).orEmpty().any { Regex("^[1-9]\\d* 件$").matches(it.text) }
+            }
+            compose.waitUntilAtLeastOneExists(count, 10_000)
+            val ticked = compose.onNode(count).fetchSemanticsNode().config[SemanticsProperties.Text].first().text
+                .removeSuffix(" 件").toInt()
+            assertTrue(ticked in 1..programme.count.removeSuffix(" 件").toInt())
+            compose.waitUntilAtLeastOneExists(hasText("選択した $ticked 件を削除", substring = true), 10_000)
             compose.onNodeWithText("選択解除").performClick()
             compose.waitUntilDoesNotExist(hasText("選択した ", substring = true), 10_000)
             InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)

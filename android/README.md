@@ -38,8 +38,7 @@ connect wakes a recorder that does not answer with a magic packet when its MAC i
 
 - `core/` — the Swift side and the Android library around it. `Sources/AndroidBridge` holds the windows over the
   model: `App.swift` (the model, made once, on `Surroundings` of Android's own, and how a window tells Kotlin that what
-  it shows has changed), `Devices.swift`, `Guide.swift`, `Lists.swift`, `Recordings.swift` (the bulk job's bar, a programme's page and the duplicates, and the step of a
-  job in hand when the app leaves the screen, which the main queue is run on to finish), `Strip.swift` (the strip at the top of
+  it shows has changed), `Devices.swift`, `Guide.swift`, `Lists.swift`, `Recordings.swift` (the bulk job's bar, a programme's page and the duplicates), `Strip.swift` (the strip at the top of
   every screen, as the model chooses its line), `Search.swift` (the search, whose window runs for as long as the
   screen is on what the iOS screen runs with `task(id:)`), `Settings.swift` (the settings, whose fields keep what is typed and
   take the model's value when the model sets them itself), `Television.swift` (the television's sheets, its part of
@@ -131,7 +130,9 @@ through `DateFormatter`, which needs it.
 
 Swift's main actor needs the app's help on Android: nothing runs Swift's main queue there, so a job on the main
 actor, where much of RecorderKit runs, would wait for ever. Foundation's run loop serves the main queue when it runs
-on the main thread, so while the app is on screen, and while a call to Swift is out, `Bridge.kt` calls
+on the main thread, so while the app is on screen, while a call to Swift is out, and while a step of a bulk job is
+held -- the step in hand when the reader leaves the app, finished as on iOS (`StepsHeld`, which `Surroundings.holdTime`
+counts in `App.swift`, and which `runWhatWaitsOnTheMainQueue()` answers with) -- `Bridge.kt` calls
 `runWhatWaitsOnTheMainQueue()` (`core/Sources/AndroidBridge/MainQueue.swift`) from the main thread about once a frame
 -- the calls so that one made as the app goes out of sight, the model told that it has, is answered: it runs the run
 loop once,

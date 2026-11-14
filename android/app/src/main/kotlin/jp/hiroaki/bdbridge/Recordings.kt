@@ -43,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -53,7 +54,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -195,13 +195,13 @@ fun GroupPage(group: GroupItem, close: () -> Unit) {
                 items(shown.rows, key = { it.row.id }) { member ->
                     val row = member.row
                     if (shown.selecting) {
-                        // The tick, said to a screen reader as the row being selected; grey where a bulk delete would
-                        // pass the recording over.
-                        Row(Modifier.semantics { selected = member.selected }, verticalAlignment = Alignment.CenterVertically) {
+                        // The tick, grey where a bulk delete would pass the recording over; the row says to a screen
+                        // reader whether it is selected.
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(if (member.selected) Icons.Default.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
                                  contentDescription = null, Modifier.padding(start = 16.dp),
                                  tint = if (member.wouldBeDeleted) colors.primary else colors.onSurfaceVariant)
-                            Column(Modifier.weight(1f)) { RecordingRow(row) { act { toggle(row.id) } } }
+                            Column(Modifier.weight(1f)) { RecordingRow(row, selected = member.selected) { act { toggle(row.id) } } }
                         }
                     } else {
                         RecordingSwipes(row, delete = { act { delete(row.id) } }, unprotect = { act { unprotect(row.id) } }) {
@@ -256,9 +256,12 @@ fun RecordingSwipes(row: RecordingItem, delete: () -> Unit, unprotect: () -> Uni
  * kept. With no sets yet, what is said in their place and the scan it offers.
  */
 @Composable
-fun DuplicatesView(open: (RecordingItem) -> Unit) {
+fun DuplicatesView(pulled: @Composable (@Composable () -> Unit) -> Unit, open: (RecordingItem) -> Unit) {
     val shown = RecBridge.duplicates.collectAsState().value ?: return
     val scope = rememberCoroutineScope()
+    // The question goes with the view, as the iOS view's own does: drawn again later -- the recorder back, the view
+    // turned to again -- it would come up by itself.
+    DisposableEffect(Unit) { onDispose { RecBridge.launch { RecBridge.act { it.duplicates.gone() } } } }
     val colors = MaterialTheme.colorScheme
     val scan = { scope.launch { RecBridge.act { it.duplicates.scan() } }; Unit }
     shown.asked?.let { asked ->
@@ -272,7 +275,8 @@ fun DuplicatesView(open: (RecordingItem) -> Unit) {
         }
     }
     Column(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.weight(1f)) {
+        // Pulled down, the recordings are read again from both devices, as everywhere on the screen.
+        Box(Modifier.weight(1f)) { pulled { LazyColumn(Modifier.fillMaxSize()) {
             item(key = "explanation") { Footnote(shown.explanation, Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) }
             if (shown.unread.isNotEmpty()) {
                 item(key = "unread") {
@@ -293,7 +297,7 @@ fun DuplicatesView(open: (RecordingItem) -> Unit) {
                 }
                 items(set.copies, key = { set.id + "-" + it.id }) { copy -> CopyRow(copy, set.title, open) }
             }
-        }
+        } } }
         if (shown.deleteLabel.isNotEmpty()) {
             Surface(color = colors.surfaceContainer) {
                 Button(onClick = { scope.launch { RecBridge.act { it.duplicates.delete() } } }, enabled = !shown.deleteHeld,

@@ -80,8 +80,13 @@ final class GroupSheetTests: XCTestCase {
         let (_, model, sheet) = try await withAProgramme()
         sheet.toggleSelecting()
         sheet.selectWhatCanBeDeleted(among: sheet.members)
+        let deletable = sheet.chosen(among: sheet.members)
+        XCTAssertFalse(deletable.isEmpty)
+        // A row the delete would pass over, ticked by hand as 保護する needs it to be: the delete sends it nothing.
+        let kept = try XCTUnwrap(sheet.members.first { !sheet.wouldBeDeleted($0) }, "the programme has no row a delete passes over")
+        sheet.toggle(kept)
         let chosen = sheet.chosen(among: sheet.members)
-        XCTAssertFalse(chosen.isEmpty)
+        XCTAssertEqual(chosen.count, deletable.count + 1)
         XCTAssertFalse(sheet.holdsActions(on: chosen))
 
         sheet.deleteChosen()
@@ -106,7 +111,9 @@ final class GroupSheetTests: XCTestCase {
         XCTAssertTrue(sheet.selected.isEmpty)
         try await until("the run never ended") { model.job?.finished == true }
         let left = Set(model.titles.map(\.listKey))
-        XCTAssertTrue(chosen.allSatisfy { !left.contains($0.listKey) }, "a recording chosen is still listed")
+        XCTAssertTrue(deletable.allSatisfy { !left.contains($0.listKey) }, "a recording chosen is still listed")
+        XCTAssertEqual(model.job?.total, deletable.count, "the run was sent a row the delete passes over")
+        XCTAssertEqual(model.job?.skipped.isEmpty, true)
         XCTAssertEqual(model.job?.progressLine.hasPrefix("削除中 "), true)
         XCTAssertNil(model.job?.whyItStopped)
     }
@@ -183,6 +190,45 @@ final class GroupSheetTests: XCTestCase {
         try await until("the delete never came back") { !sheet.asking }
         XCTAssertEqual(shown(sheet), "nothing", "a delete that went through said something")
         XCTAssertFalse(sheet.members.contains { $0.listKey == title.listKey })
+    }
+
+    /// この番組をすべて保護 and its undoing run over every row of the programme, leave the selection as it was, and are
+    /// held with nothing listed.
+    func testEveryRowOfTheProgrammeIsProtectedAndUnprotected() async throws {
+        let (_, model, sheet) = try await withAProgramme()
+        let members = sheet.members
+        XCTAssertFalse(sheet.holdsProtectingAll(members))
+        XCTAssertTrue(sheet.holdsProtectingAll([]))
+        sheet.toggleSelecting()
+        sheet.toggle(members[0])
+
+        sheet.protectAll(true, members)
+        try await until("the run never ended") { model.job?.finished == true && !model.jobRunning }
+        let keys = Set(members.map(\.listKey))
+        XCTAssertTrue(model.titles.filter { keys.contains($0.listKey) && !$0.recording }.allSatisfy(\.protected))
+        XCTAssertTrue(sheet.selecting && sheet.isSelected(members[0]), "protecting the whole programme ended the selection")
+        model.clearJob()
+
+        sheet.protectAll(false, sheet.members)
+        try await until("the run never ended") { model.job?.finished == true && !model.jobRunning }
+        XCTAssertTrue(model.titles.filter { keys.contains($0.listKey) && !$0.recording }.allSatisfy { !$0.protected })
+    }
+
+    /// 保護解除 from a protected row holds the sheet until it is answered; one the recorder turns down is said.
+    func testAProtectedRowsUnprotectHoldsTheSheet() async throws {
+        let (recorder, model, sheet) = try await withAProgramme()
+        let protected = try XCTUnwrap(sheet.members.first { model.swipe(for: $0) == .unprotect })
+        await recorder.answer("X_UpdateTitle", with: .fault(402))
+        sheet.unprotect(protected)
+        XCTAssertTrue(sheet.asking, "the sheet was not held while its 保護解除 was out")
+        try await until("the 保護解除 never came back") { !sheet.asking }
+        XCTAssertEqual(shown(sheet), "failed")
+        sheet.askClosed()
+
+        sheet.unprotect(protected)
+        try await until("the 保護解除 never came back") { !sheet.asking }
+        XCTAssertEqual(shown(sheet), "nothing")
+        XCTAssertEqual(model.titles.first { $0.listKey == protected.listKey }?.protected, false)
     }
 
     /// What a programme's row and a job's bar say.

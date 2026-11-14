@@ -41,7 +41,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Spacer
@@ -235,7 +236,7 @@ private fun WaitingRow(item: Waiting) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RecordingsScreen(search: () -> Unit) {
+fun RecordingsScreen(search: () -> Unit, openGroup: (GroupItem) -> Unit) {
     val shown = RecBridge.recordings.collectAsState().value ?: return
     val scope = rememberCoroutineScope()
     LaunchedEffect(shown.loadKey) { RecBridge.act { it.recordings.load() } }
@@ -251,7 +252,6 @@ fun RecordingsScreen(search: () -> Unit) {
     // A copy among the duplicates, whose sheet is opened from its set.
     var openedCopy by remember { mutableStateOf<RecordingItem?>(null) }
     openedCopy?.let { row -> TitleSheetView(row, open = { RecBridge.openCopy(row.id) }) { openedCopy = null } }
-    var group by remember { mutableStateOf<GroupItem?>(null) }
     shown.asked?.let { asked ->
         AskDialog(asked, act = { scope.launch { RecBridge.act { it.recordings.act(asked.key) } } },
                   closeAsked = { scope.launch { RecBridge.act { it.recordings.closeAsked(asked.key) } } },
@@ -271,7 +271,7 @@ fun RecordingsScreen(search: () -> Unit) {
         }, modifier = Modifier.fillMaxSize()) { content() }
     }
     Box(Modifier.fillMaxSize()) {
-        Scaffold(modifier = if (group != null) Modifier.clearAndSetSemantics {} else Modifier, topBar = {
+        Scaffold(topBar = {
             Column {
                 TopAppBar(title = { TitleWithSubtitle(shown.heading, if (shown.hasNoRecorder || shown.isLoading) "" else shown.subtitle) },
                           navigationIcon = { Views(shown) }, actions = { Filters(shown) })
@@ -289,11 +289,11 @@ fun RecordingsScreen(search: () -> Unit) {
                 when {
                     shown.hasNoRecorder -> NoRecorderView(Icons.Outlined.VideoLibrary, shown.noRecorder, search)
                     shown.isLoading -> Unavailable(Icons.Outlined.VideoLibrary, shown.loadingTitle, shown.loadingDetail)
-                    shown.mode == "dups" -> DuplicatesView { openedCopy = it }
+                    shown.mode == "dups" -> DuplicatesView(pulled) { openedCopy = it }
                     shown.mode == "groups" -> pulled {
                         LazyColumn(Modifier.fillMaxSize()) {
                             if (shown.groups.isEmpty()) item { Box(Modifier.fillParentMaxSize()) { empty() } }
-                            items(shown.groups, key = { it.id }) { programme -> GroupRowView(programme) { group = programme } }
+                            items(shown.groups, key = { it.id }) { programme -> GroupRowView(programme) { openGroup(programme) } }
                         }
                     }
                     else -> pulled {
@@ -310,7 +310,6 @@ fun RecordingsScreen(search: () -> Unit) {
                 }
             }
         }
-        group?.let { programme -> GroupPage(programme) { group = null } }
     }
 }
 
@@ -374,7 +373,7 @@ private fun Filters(shown: Recordings) {
 
 /** One recording, as the iOS row says it: the lock and 録画中 before the title, then when, where and how, then whether it was watched. */
 @Composable
-internal fun RecordingRow(item: RecordingItem, open: () -> Unit) {
+internal fun RecordingRow(item: RecordingItem, selected: Boolean? = null, open: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     ListItem(
         headlineContent = {
@@ -395,7 +394,10 @@ internal fun RecordingRow(item: RecordingItem, open: () -> Unit) {
                 }
             }
         },
-        modifier = Modifier.clickable(onClick = open),
+        // On a programme's page while picking, the tick is said to a screen reader as the row being selected, on the
+        // node it reads, rather than as the name of a circle.
+        modifier = Modifier.clickable(onClick = open).then(
+            if (selected == null) Modifier else Modifier.semantics { this.selected = selected }),
     )
     HorizontalDivider()
 }

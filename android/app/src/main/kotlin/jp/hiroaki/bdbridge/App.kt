@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -84,19 +85,25 @@ enum class Page { Channels, Disclaimer, Capabilities }
 @Composable
 fun RecorderScreen(search: () -> Unit) {
     var page by rememberSaveable { mutableStateOf<Page?>(null) }
+    // A programme of the recordings' まとめ, whose page goes over the whole as the others do: under it, the navigation
+    // would take the reader away from a page whose request is still out.
+    var group by remember { mutableStateOf<GroupItem?>(null) }
     Box(Modifier.fillMaxSize()) {
-        Box(if (page != null) Modifier.clearAndSetSemantics {} else Modifier) { Destinations(search) { page = it } }
+        Box(if (page != null || group != null) Modifier.clearAndSetSemantics {} else Modifier) {
+            Destinations(search, { page = it }) { group = it }
+        }
         when (page) {
             Page.Channels -> ChannelsPage { page = null }
             Page.Disclaimer -> DisclaimerPage { page = null }
             Page.Capabilities -> CapabilitiesPage { page = null }
             null -> {}
         }
+        group?.let { programme -> GroupPage(programme) { group = null } }
     }
 }
 
 @Composable
-private fun Destinations(search: () -> Unit, open: (Page) -> Unit) {
+private fun Destinations(search: () -> Unit, open: (Page) -> Unit, openGroup: (GroupItem) -> Unit) {
     val scope = rememberCoroutineScope()
     var destination by rememberSaveable { mutableStateOf(Destination.Guide) }
     val select = { chosen: Destination ->
@@ -109,7 +116,7 @@ private fun Destinations(search: () -> Unit, open: (Page) -> Unit) {
             Destination.Guide -> GuideScreen(search) { open(Page.Channels) }
             Destination.Search -> SearchScreen()
             Destination.Reservations -> ReservationsScreen(search)
-            Destination.Recordings -> RecordingsScreen(search)
+            Destination.Recordings -> RecordingsScreen(search, openGroup)
             Destination.Settings -> SettingsScreen({ open(Page.Channels) }, { open(Page.Disclaimer) }) { open(Page.Capabilities) }
         }
     }
