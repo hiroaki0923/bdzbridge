@@ -70,6 +70,24 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertNil(nothing)
     }
 
+    /// The demo's stations get the tiles Kotlin draws, which come back as the guide's logos; with no drawer there are none.
+    @MainActor
+    func testTheDemosStationsGetTheTilesKotlinDraws() async throws {
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
+        app.drawsTiles(Drawing())
+        await app.start()
+        await app.devices().enterDemo()
+        let shown = await until(app.guide().read) { $0.shows == "programmes" && !$0.stations.isEmpty }
+        XCTAssertTrue(shown.stations.allSatisfy { $0.logo.starts(with: [0x89, 0x50, 0x4E, 0x47]) })
+        XCTAssertEqual(String(decoding: try XCTUnwrap(shown.stations.first).logo.dropFirst(8), as: UTF8.self).prefix(2), "0:")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent("demo-tiles").path), [],
+                       "the files are not kept")
+
+        let bare = await demo().guide()
+        let without = await until(bare.read) { $0.shows == "programmes" && !$0.stations.isEmpty }
+        XCTAssertTrue(without.stations.allSatisfy { $0.logo.isEmpty })
+    }
+
     @MainActor
     func testTheGuideFollowsWhatTheReaderChooses() async throws {
         let guide = await demo().guide()
@@ -815,6 +833,15 @@ extension AndroidBridgeTests {
 }
 
 struct StillWaiting: Error {}
+
+/// A drawer that writes what it was asked for as a PNG's signature and the text, so a test sees what reached it.
+final class Drawing: TileDrawer, @unchecked Sendable {
+    func draw(_ text: String, _ index: Int64, _ path: String) {
+        var bytes: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+        bytes += Array("\(index):\(text)".utf8)
+        FileManager.default.createFile(atPath: path, contents: Data(bytes))
+    }
+}
 
 final class Counting: ScreenListener, @unchecked Sendable {
     private let lock = NSLock()

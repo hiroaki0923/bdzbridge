@@ -242,8 +242,9 @@ private fun Programmes(guide: Guide, open: (Programme) -> Unit) {
             position.scrollToItem(opening)
         }
     }
-    // Each station's logo made once, not on each row it heads.
-    val logos = remember(guide.stations) {
+    // Each station's logo made once, not on each row it heads, nor at each read of the guide: a `Station` has no
+    // equals, so the list is keyed by what identifies a logo.
+    val logos = remember(guide.stations.map { it.serviceID to it.logo.size }) {
         guide.stations.filter { it.logo.isNotEmpty() }.associate { station ->
             station.serviceID to BitmapFactory.decodeByteArray(station.logo, 0, station.logo.size)?.asImageBitmap()
         }

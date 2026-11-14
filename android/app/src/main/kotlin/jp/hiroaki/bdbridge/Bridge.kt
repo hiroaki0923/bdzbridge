@@ -106,6 +106,8 @@ object RecBridge {
         val version = "${info.versionName} (${info.longVersionCode})"
         scope.launch {
             val app = call { RecBridgeApp.open(files, kept, version, arena) }
+            // Before the start, which seeds the demo's guide with its tiles when the demo is on.
+            app.drawsTiles(Tiles)
             val windows = Windows(app, app.devices(arena), app.guide(arena), call { app.reservations(arena) },
                                   call { app.recordings(arena) }, app.strip(arena), call { app.settings(arena) },
                                   call { app.search(arena) }, app.job(arena), call { app.duplicates(arena) })

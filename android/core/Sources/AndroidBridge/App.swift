@@ -16,6 +16,37 @@ public protocol ScreenListener {
     func changed()
 }
 
+/// What Kotlin implements to draw a demo station's logo tile: `text` is the station's two characters, `index` its place
+/// in its broadcasting type's line-up, and the PNG is written to the file `path` names. Only numbers and text cross
+/// this way, so the picture comes back as a file; nothing is written if the drawing fails, which is no logo.
+public protocol TileDrawer {
+    func draw(_ text: String, _ index: Int64, _ path: String)
+}
+
+/// Where the drawer is kept once Kotlin has handed it over, which is after the model's surroundings were made.
+final class Tiles: @unchecked Sendable {
+    private let lock = NSLock()
+    private var drawer: (any TileDrawer)?
+    let folder: URL
+
+    init(folder: URL) {
+        self.folder = folder
+    }
+
+    func set(_ drawer: any TileDrawer) { lock.withLock { self.drawer = drawer } }
+
+    /// The tile for `text` at `index`, as the PNG the drawer wrote, or nil with no drawer or no file.
+    func logo(_ text: String, _ index: Int) -> Data? {
+        guard let drawer = lock.withLock({ drawer }) else { return nil }
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("\(index)-\(text.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: "-")).png")
+        try? FileManager.default.removeItem(at: file)
+        drawer.draw(text, Int64(index), file.path)
+        defer { try? FileManager.default.removeItem(at: file) }
+        return try? Data(contentsOf: file)
+    }
+}
+
 /// The app: its one model, and the windows of its screens.
 public final class RecBridgeApp: Sendable {
     let model: AppModel
@@ -25,8 +56,10 @@ public final class RecBridgeApp: Sendable {
     /// Which view of the recordings is on, kept as the iOS screen keeps it.
     let recordingsMode: ShownMode
     let version: String
+    let tiles: Tiles
 
-    init(model: AppModel, quality: ChosenQuality, recordingsMode: ShownMode, version: String) {
+    init(model: AppModel, quality: ChosenQuality, recordingsMode: ShownMode, version: String, tiles: Tiles) {
+        self.tiles = tiles
         self.model = model
         self.quality = quality
         self.recordingsMode = recordingsMode
@@ -52,10 +85,15 @@ public final class RecBridgeApp: Sendable {
     @MainActor
     static func made(files: String, kept: String, version: String) -> RecBridgeApp {
         let defaults = WrittenDefaults.android(files: files)
-        let model = AppModel(surroundings: .android(files: files, kept: kept, defaults: defaults, version: version))
+        let tiles = Tiles(folder: URL(fileURLWithPath: files, isDirectory: true).appendingPathComponent("demo-tiles", isDirectory: true))
+        let model = AppModel(surroundings: .android(files: files, kept: kept, defaults: defaults, version: version,
+                                                    tiles: tiles))
         return RecBridgeApp(model: model, quality: ChosenQuality(defaults), recordingsMode: ShownMode(defaults),
-                            version: version)
+                            version: version, tiles: tiles)
     }
+
+    /// Who draws the demo's station tiles. Told before `start`, which seeds the demo's guide when the demo is on.
+    public func drawsTiles(_ drawer: some TileDrawer) { tiles.set(drawer) }
 
     /// Opens the cache and shows what it holds, and makes the first connect: what every iOS screen awaits first.
     public func start() async {
@@ -141,9 +179,8 @@ public final class RecBridgeApp: Sendable {
 extension Surroundings {
     /// What the model reaches on Android. The settings go in a file of the app's folder (`WrittenDefaults`), the
     /// television's registration and the helper's token in the folder that never leaves the device (`Kept.swift`).
-    /// What only the iOS app has yet -- notifications, the network's watcher, the demo's logos -- is left as the
-    /// model's own defaults give it, which do nothing.
-    static func android(files: String, kept: String, defaults: WrittenDefaults, version: String) -> Surroundings {
+    /// What only the iOS app has yet -- notifications -- is left as the model's own defaults give it, which do nothing.
+    static func android(files: String, kept: String, defaults: WrittenDefaults, version: String, tiles: Tiles) -> Surroundings {
         let folder = URL(fileURLWithPath: files, isDirectory: true)
         let keptFolder = URL(fileURLWithPath: kept, isDirectory: true)
         var android = Surroundings(defaults: defaults, folder: { folder }, transport: { _ in URLSessionTransport() },
@@ -157,6 +194,7 @@ extension Surroundings {
         android.tvCredentials = KeptTVCredentials(folder: keptFolder)
         android.tvHelperTokens = KeptTVHelperToken(folder: keptFolder)
         android.helperLabel = "RecBridge (Android)"
+        android.demoLogo = { text, index in tiles.logo(text, index) }
         // The step of a bulk job in hand when the reader leaves the app is finished, as on iOS: Swift's main queue
         // is run until its time is ended (`StepsHeld`, `runWhatWaitsOnTheMainQueue`).
         android.holdTime = { _ in
