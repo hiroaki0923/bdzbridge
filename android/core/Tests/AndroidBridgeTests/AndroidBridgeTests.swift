@@ -495,6 +495,78 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertFalse(closed.hasAsked)
     }
 
+    /// The recorder's own keyword conditions: the list read, a row's delete asked first and gone with its question's
+    /// own key, and a new condition typed, narrowed and registered from the form, which closes. Writes only to the
+    /// demo's recorder.
+    @MainActor
+    func testTheKeywordConditionsAreListedDeletedAndAdded() async throws {
+        let app = await demo()
+        let reservations = await app.reservations()
+        let shown = await until(reservations.read) { !$0.conditionsHeld }
+        XCTAssertFalse(shown.conditionsHeld)
+
+        let conditions = await app.conditions()
+        await conditions.load()
+        let listed = await until(conditions.read) { !$0.rows.isEmpty }
+        XCTAssertEqual(listed.title, "おまかせ・まる録")
+        XCTAssertEqual(listed.listSays, "")
+        XCTAssertFalse(listed.addHeld)
+        XCTAssertTrue(listed.footer.hasPrefix("レコーダー本体が番組を自動で探して録画する条件です。"))
+        let rule = try XCTUnwrap(listed.rows.first)
+        XCTAssertFalse(rule.details.isEmpty)
+
+        await conditions.delete(rule.id)
+        let asking = await until(conditions.read) { $0.hasAsked }
+        XCTAssertEqual(asking.asked.title, "この条件を削除しますか？")
+        XCTAssertTrue(asking.asked.message.contains(rule.name))
+        await conditions.act("another question")
+        await conditions.closeAsked(asking.asked.key)
+        _ = await until(conditions.read) { !$0.hasAsked }
+        await conditions.delete(rule.id)
+        let again = await until(conditions.read) { $0.hasAsked }
+        await conditions.act(again.asked.key)
+        let fewer = await until(conditions.read) { shown in !shown.rows.contains { $0.id == rule.id } }
+        XCTAssertFalse(fewer.hasAsked)
+
+        let form = await conditions.newCondition()
+        let blank = await form.read()
+        XCTAssertEqual(blank.keywords.count, 1)
+        XCTAssertFalse(blank.mayRemoveKeyword)
+        XCTAssertTrue(blank.registerHeld, "a condition with no keyword nor genre could be sent")
+        XCTAssertEqual(blank.keywordFooter, "キーワードかジャンルを指定してください。")
+        XCTAssertEqual(blank.genres.first?.label, "指定しない")
+        XCTAssertTrue(blank.subGenres.isEmpty)
+        // The demo's recorder has a USB disk: 録画先 is a choice, starting on the internal disk.
+        XCTAssertGreaterThan(blank.disks.count, 1)
+        XCTAssertEqual(blank.disk, blank.disks.first?.code)
+        XCTAssertEqual(blank.diskAlone, "")
+
+        let first = try XCTUnwrap(blank.keywords.first)
+        await form.typeKeyword(first.id, "ためしの言葉")
+        await form.addKeyword()
+        let two = await until(form.read) { $0.keywords.count == 2 }
+        XCTAssertFalse(two.registerHeld)
+        XCTAssertTrue(two.mayRemoveKeyword)
+        await form.typeKeyword(two.keywords[1].id, "もうひとつ")
+        let combined = await until(form.read) { $0.asksHowToCombine }
+        XCTAssertEqual(combined.logics.map(\.label), ["いずれかを含む", "すべてを含む"])
+        await form.chooseLogic("AND")
+        let genre = try XCTUnwrap(combined.genres.dropFirst().first)
+        await form.chooseGenre(genre.code)
+        let narrowed = await until(form.read) { $0.genre == genre.code }
+        XCTAssertEqual(narrowed.subGenres.first?.label, "すべて")
+        await form.removeKeyword(two.keywords[1].id)
+        _ = await until(form.read) { $0.keywords.count == 1 }
+
+        await form.register()
+        let made = await until(form.read) { $0.done }
+        XCTAssertEqual(made.failure, "")
+        await form.closed()
+        let more = await until(conditions.read) { $0.rows.count == fewer.rows.count + 1 }
+        XCTAssertTrue(more.rows.contains { $0.details.contains("ためしの言葉") })
+        await conditions.closed()
+    }
+
     @MainActor
     func testLeavingTheDemoGoesBackToNoRecorder() async throws {
         let app = await demo()

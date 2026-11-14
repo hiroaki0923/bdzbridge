@@ -6,6 +6,8 @@ import android.os.Looper
 import java.util.concurrent.CompletableFuture
 import jp.hiroaki.bdbridge.bridge.AndroidBridge
 import jp.hiroaki.bdbridge.bridge.ChannelsWindow
+import jp.hiroaki.bdbridge.bridge.ConditionFormWindow
+import jp.hiroaki.bdbridge.bridge.ConditionsWindow
 import jp.hiroaki.bdbridge.bridge.DevicesWindow
 import jp.hiroaki.bdbridge.bridge.DuplicatesWindow
 import jp.hiroaki.bdbridge.bridge.GroupWindow
@@ -281,6 +283,9 @@ object RecBridge {
     suspend fun openRecording(id: String): TitleSheetHandle? =
         ask { it.recordings.open(id, arena) }.orElse(null)?.let { TitleSheetHandle(it) }
 
+    /** The recorder's own keyword conditions (おまかせ・まる録), opened. */
+    suspend fun openConditions(): ConditionsHandle = ConditionsHandle(ask { it.app.conditions(arena) })
+
     /** The page of a programme in まとめ, opened: nil when the list no longer has it. */
     suspend fun openGroup(id: String): GroupHandle? =
         ask { it.recordings.openGroup(id, arena) }.orElse(null)?.let { GroupHandle(it) }
@@ -370,6 +375,50 @@ object RecBridge {
         suspend fun delete() = call<Void> { window.delete() }.let {}
         suspend fun confirmDelete(key: String) = call<Void> { window.confirmDelete(key) }.let {}
         suspend fun closeAsked(key: String) = call<Void> { window.closeAsked(key) }.let {}
+    }
+
+    /** The conditions' page: the list, a row's delete and its question, and the form for a new one. */
+    class ConditionsHandle(private val window: ConditionsWindow) :
+        Sheet<Conditions>({ window.observe(it) }, { Conditions(call { window.read(arena) }) }) {
+        override suspend fun ended() = call<Void> { window.closed() }.let {}
+        suspend fun load() = call<Void> { window.load() }.let {}
+        suspend fun pullDown() = call<Void> { window.pullDown() }.let {}
+        suspend fun delete(id: String) = call<Void> { window.delete(id) }.let {}
+        suspend fun act(key: String) = call<Void> { window.act(key) }.let {}
+        suspend fun closeAsked(key: String) = call<Void> { window.closeAsked(key) }.let {}
+        suspend fun newCondition(): ConditionFormHandle = ConditionFormHandle(call { window.newCondition(arena) })
+    }
+
+    /**
+     * The form for a new condition. What is typed and picked goes to Swift one after the other in the order it was
+     * done, and レコーダーに登録 after all of it, so that the condition sent is the one on screen.
+     */
+    class ConditionFormHandle(private val window: ConditionFormWindow) :
+        Sheet<ConditionForm>({ window.observe(it) }, { ConditionForm(call { window.read(arena) }) }) {
+        private val inTurn = Channel<suspend () -> Unit>(Channel.UNLIMITED).also { operations ->
+            scope.launch { for (operation in operations) operation() }
+        }
+        private fun later(operation: suspend () -> Unit) = inTurn.trySend(operation).let {}
+
+        override suspend fun ended() {
+            inTurn.send { call<Void> { window.closed() } }
+            inTurn.close()
+        }
+        fun typeKeyword(id: String, text: String) = later { call<Void> { window.typeKeyword(id, text) } }
+        fun typeExclusion(id: String, text: String) = later { call<Void> { window.typeExclusion(id, text) } }
+        fun addKeyword() = later { call<Void> { window.addKeyword() } }
+        fun addExclusion() = later { call<Void> { window.addExclusion() } }
+        fun removeKeyword(id: String) = later { call<Void> { window.removeKeyword(id) } }
+        fun removeExclusion(id: String) = later { call<Void> { window.removeExclusion(id) } }
+        fun chooseLogic(code: String) = later { call<Void> { window.chooseLogic(code) } }
+        fun chooseGenre(code: String) = later { call<Void> { window.chooseGenre(code) } }
+        fun chooseSubGenre(code: String) = later { call<Void> { window.chooseSubGenre(code) } }
+        fun chooseScope(code: String) = later { call<Void> { window.chooseScope(code) } }
+        fun chooseTime(code: String) = later { call<Void> { window.chooseTime(code) } }
+        fun chooseQuality(code: String) = later { call<Void> { window.chooseQuality(code) } }
+        fun chooseDisk(code: String) = later { call<Void> { window.chooseDisk(code) } }
+        fun register() = later { call<Void> { window.register() } }
+        fun failureClosed() = later { call<Void> { window.failureClosed() } }
     }
 
     /** A programme's page: its recordings, the selection, and what is asked of them. */
@@ -553,8 +602,8 @@ data class Programme(
 data class Reservations(
     val hasNoRecorder: Boolean, val noRecorder: NoRecorder, val isEmpty: Boolean, val emptyTitle: String,
     val emptyDetail: String, val subtitle: String, val kinds: List<Labelled>, val kind: String,
-    val sorts: List<Labelled>, val sort: String, val filtering: Boolean, val staleKey: String,
-    val waiting: List<Waiting>, val waitingSays: String, val sections: List<Section>, val asked: Asked?,
+    val sorts: List<Labelled>, val sort: String, val filtering: Boolean, val conditionsHeld: Boolean,
+    val staleKey: String, val waiting: List<Waiting>, val waitingSays: String, val sections: List<Section>, val asked: Asked?,
     val line: String, val lineIsAProblem: Boolean, val loadKey: String,
 )
 
@@ -625,6 +674,47 @@ private fun Group(it: jp.hiroaki.bdbridge.bridge.GroupScreen) = Group(
     it.getRows(arena).map { member -> GroupMember(RecordingItem(member.getRow(arena)), member.isSelected, member.isWouldBeDeleted) },
     it.count, it.isOffersActions, it.deleteLabel, it.isActionsHeld, asked(it.isHasAsked, it.getAsked(arena)),
     it.isActionHeld, it.isAsking, it.isDone,
+)
+
+/** The recorder's own keyword conditions (`ConditionsWindow`): `listSays` is `failed`, `empty`, `loading` or empty. */
+data class Conditions(
+    val title: String, val listSays: String, val saidTitle: String, val saidDetail: String,
+    val rows: List<ConditionItem>, val footer: String, val addHeld: Boolean, val deleteHeld: Boolean,
+    val asked: Asked?, val actionHeld: Boolean, val loadKey: String,
+)
+
+data class ConditionItem(val id: String, val name: String, val details: String)
+
+private fun Conditions(it: jp.hiroaki.bdbridge.bridge.ConditionsScreen) = it.getSaid(arena).let { said ->
+    Conditions(
+        it.title, it.listSays, said.title, said.detail,
+        it.getRows(arena).map { row -> ConditionItem(row.id, row.name, row.details) }, it.footer, it.isAddHeld,
+        it.isDeleteHeld, asked(it.isHasAsked, it.getAsked(arena)), it.isActionHeld, it.loadKey,
+    )
+}
+
+/** The form for a new condition (`ConditionFormWindow`). */
+data class ConditionForm(
+    val keywords: List<Word>, val mayAddKeyword: Boolean, val mayRemoveKeyword: Boolean, val keywordFooter: String,
+    val excluded: List<Word>, val mayAddExclusion: Boolean, val excludedFooter: String,
+    val asksHowToCombine: Boolean, val logics: List<Labelled>, val logic: String,
+    val genres: List<Labelled>, val genre: String, val subGenres: List<Labelled>, val subGenre: String,
+    val scopes: List<Labelled>, val scope: String, val times: List<Labelled>, val time: String,
+    val qualities: List<Labelled>, val quality: String, val disks: List<Labelled>, val disk: String,
+    val diskAlone: String, val narrowingFooter: String, val registerHeld: Boolean, val asking: Boolean,
+    val failure: String, val done: Boolean,
+)
+
+data class Word(val id: String, val text: String)
+
+private fun ConditionForm(it: jp.hiroaki.bdbridge.bridge.ConditionForm) = ConditionForm(
+    it.getKeywords(arena).map { word -> Word(word.id, word.text) }, it.isMayAddKeyword, it.isMayRemoveKeyword,
+    it.keywordFooter, it.getExcluded(arena).map { word -> Word(word.id, word.text) }, it.isMayAddExclusion,
+    it.excludedFooter, it.isAsksHowToCombine, labelled(it.getLogics(arena)), it.logic,
+    labelled(it.getGenres(arena)), it.genre, labelled(it.getSubGenres(arena)), it.subGenre,
+    labelled(it.getScopes(arena)), it.scope, labelled(it.getTimes(arena)), it.time,
+    labelled(it.getQualities(arena)), it.quality, labelled(it.getDisks(arena)), it.disk, it.diskAlone,
+    it.narrowingFooter, it.isRegisterHeld, it.isAsking, it.failure, it.isDone,
 )
 
 /** The recordings that look like copies of one broadcast (`DuplicatesWindow`). */
@@ -722,7 +812,8 @@ private fun Guide(it: jp.hiroaki.bdbridge.bridge.GuideScreen) = it.getSaid(arena
 private fun Reservations(it: jp.hiroaki.bdbridge.bridge.ReservationsScreen) = it.getEmpty(arena).let { empty ->
     Reservations(
         it.isHasNoRecorder, NoRecorder(it.getNoRecorder(arena)), it.isEmpty, empty.title, empty.detail, it.subtitle,
-        labelled(it.getKinds(arena)), it.kind, labelled(it.getSorts(arena)), it.sort, it.isFiltering, it.staleKey,
+        labelled(it.getKinds(arena)), it.kind, labelled(it.getSorts(arena)), it.sort, it.isFiltering,
+        it.isConditionsHeld, it.staleKey,
         it.getWaiting(arena).map { row ->
             Waiting(row.id, row.title, row.details, row.problem, row.isOffersSendingAgain, row.isHeld)
         },

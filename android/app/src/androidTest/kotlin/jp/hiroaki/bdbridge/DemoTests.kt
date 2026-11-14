@@ -10,6 +10,8 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.isEnabled
@@ -298,6 +300,30 @@ class DemoTests {
                 RecBridge.act { it.recordings.chooseMode("list") }
             }
         }
+    }
+
+    /**
+     * おまかせ・まる録 from the reservations: the demo's conditions listed, the form opened by +, held until a word is
+     * typed, and a condition registered, which closes the form and is listed. Writes only to the demo's recorder.
+     */
+    @Test fun aKeywordConditionIsAddedFromItsForm() {
+        openTheDemo()
+        destination("予約").performClick()
+        compose.waitUntilAtLeastOneExists(aDay, 30_000)
+        compose.waitUntilAtLeastOneExists(hasContentDescription("おまかせ・まる録") and isEnabled(), 30_000)
+        compose.onNodeWithContentDescription("おまかせ・まる録").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("レコーダー本体が番組を自動で探して録画する条件です。", substring = true), 10_000)
+        compose.waitUntilAtLeastOneExists(hasContentDescription("条件を追加") and isEnabled(), 30_000)
+        compose.onNodeWithContentDescription("条件を追加").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("レコーダーに登録"), 10_000)
+        compose.onNode(hasText("レコーダーに登録") and hasClickAction()).assertIsNotEnabled()
+        compose.onAllNodes(hasSetTextAction())[0].performTextInput("ためしの言葉")
+        compose.waitUntilAtLeastOneExists(hasText("レコーダーに登録") and isEnabled(), 10_000)
+        compose.onNodeWithText("レコーダーに登録").performClick()
+        compose.waitUntilDoesNotExist(hasText("レコーダーに登録"), 30_000)
+        compose.waitUntilAtLeastOneExists(hasText("ためしの言葉", substring = true) and !hasSetTextAction(), 30_000)
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntilAtLeastOneExists(aDay, 10_000)
     }
 
     @Test fun aRecordingsSheetOpensFromTheListWithItsPlaybackAndItsDelete() {
