@@ -130,7 +130,7 @@ struct RecordingsScreen: View {
                 Text(state.message(for: asked))
             }
         }
-        .welcomesHere($welcoming)
+        .welcomesHere($welcoming, model: model)
     }
 
     @ViewBuilder

@@ -129,7 +129,7 @@ struct ReservationsScreen: View {
                 }
             }
         }
-        .welcomesHere($welcoming)
+        .welcomesHere($welcoming, model: model)
     }
 
     private var list: some View {
