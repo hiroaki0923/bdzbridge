@@ -73,6 +73,7 @@
 		4579509AD72C3024BCD9BAAF /* DemoTiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoTiles.swift; sourceTree = "<group>"; };
 		46DA8FBD5CD0194B22078786 /* TheAppsOwnTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TheAppsOwnTests.swift; sourceTree = "<group>"; };
 		4733264672C0A733226AA131 /* KeychainTVCredentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainTVCredentials.swift; sourceTree = "<group>"; };
+		485C78395FD5CF0CA1D70D4B /* RecBridgeModel */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RecBridgeModel; path = RecBridgeModel; sourceTree = SOURCE_ROOT; };
 		48FFEE48446D96BAAA07AEEB /* ScreenshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotTests.swift; sourceTree = "<group>"; };
 		58160E6F634978F81AD1D797 /* DuplicatesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicatesView.swift; sourceTree = "<group>"; };
 		5B8C2E3D4DA26B4C5EF296B4 /* Notify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notify.swift; sourceTree = "<group>"; };
@@ -171,6 +172,7 @@
 		778AC710C9354BC4AAFA7639 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
+				485C78395FD5CF0CA1D70D4B /* RecBridgeModel */,
 				DCE17E7D5D88F5B7797F639F /* RecorderKit */,
 			);
 			name = Packages;
@@ -198,7 +200,7 @@
 			);
 			sourceTree = "<group>";
 		};
-		"TEMP_2CF009CD-4D0B-4928-A2EC-7EE6A4E6BC34" /* app */ = {
+		"TEMP_C33DF951-3278-4A59-A67A-498B06E56A30" /* app */ = {
 			isa = PBXGroup;
 			children = (
 				2D4AEFAFFC54143AC68C842F /* Signing.xcconfig */,
@@ -293,6 +295,7 @@
 			mainGroup = FF9ED223BA536CB4FC26BC79;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				E5BF8FB70766D9EAD0BE4C62 /* XCLocalSwiftPackageReference "RecBridgeModel" */,
 				B5D615D64E9A1A91ED98D1AF /* XCLocalSwiftPackageReference "RecorderKit" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -671,6 +674,10 @@
 		B5D615D64E9A1A91ED98D1AF /* XCLocalSwiftPackageReference "RecorderKit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = RecorderKit;
+		};
+		E5BF8FB70766D9EAD0BE4C62 /* XCLocalSwiftPackageReference "RecBridgeModel" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = RecBridgeModel;
 		};
 /* End XCLocalSwiftPackageReference section */
 

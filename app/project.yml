@@ -19,6 +19,8 @@ options:
 packages:
   RecorderKit:
     path: RecorderKit
+  RecBridgeModel:
+    path: RecBridgeModel
 
 targets:
   BDBridge:
@@ -34,7 +36,7 @@ targets:
     dependencies:
       - package: RecorderKit
         product: RecorderKit
-      - package: RecorderKit
+      - package: RecBridgeModel
         product: RecBridgeModel
     settings:
       base:

@@ -1,9 +1,10 @@
 # The iOS app
 
 - `RecorderKit/` — the recorder-facing Swift package: protocols, decoders, the HTTP client and the guide
-  cache. No UI, and testable from the command line. See its own README. Its second target, `RecBridgeModel`
-  (`RecorderKit/Sources/RecBridgeModel`), is the app's model below, which the app imports: public as far as the
-  app uses it, with what only an iPhone has handed in (`Surroundings`).
+  cache. No UI, and testable from the command line. See its own README.
+- `RecBridgeModel/` — a Swift package of its own beside it, depending on it: the app's model below, which the app
+  imports (`RecBridgeModel/Sources/RecBridgeModel`), public as far as the app uses it, with what only an iPhone
+  has handed in (`Surroundings`).
 - `BDBridge/` — the app itself: SwiftUI, five tabs, no server in the middle. What the screens share is
   `AppModel`, in `RecBridgeModel`: its state and its start in `AppModel.swift`, and what it does in extensions
   beside it, one file to a concern (`AppModelSession`, `AppModelSetup`, `AppModelGuide`, `AppModelReservations`,
@@ -96,7 +97,7 @@
   the app knows of the recorder and of the link to it -- described, unreachable, given up on, being woken -- is
   `SessionState`, which changes only by what happened to it; the screens read it through `AppModel`.
 - `BDBridgeTests/` — the few tests that need the app itself: the Keychain's, the guide grid's and the app's
-  own (`TheAppsOwnTests`). The model's unit tests are the package's (`RecorderKit/Tests/RecBridgeModelTests`,
+  own (`TheAppsOwnTests`). The model's unit tests are the model package's (`RecBridgeModel/Tests/RecBridgeModelTests`,
   below).
 - `BDBridgeUITests/` — the demo's UI tests (`DemoModeTests`, below) and the App Store screenshots, which skip
   themselves unless `BDBRIDGE_SHOTS` is set.
@@ -189,7 +190,7 @@ demo's guide deletes what waited for one (`DemoLineUp.seed`). `DemoTelevisionTes
 `RecBridgeModelTests`, in the package, tries `AppModel` as the app makes it at launch with a recorder saved,
 without a phone, a simulator, a recorder or the network: `swift test` runs it on a Mac, and the package's
 Android check on an emulator. The model takes what it reaches beyond itself as one value, `Surroundings`
-(`RecorderKit/Sources/RecBridgeModel/Surroundings.swift`): the defaults it keeps the address and the screens' choices in, the folder its
+(`RecBridgeModel/Sources/RecBridgeModel/Surroundings.swift`): the defaults it keeps the address and the screens' choices in, the folder its
 databases go in, how a request reaches the recorder, which network it takes itself to be on, and whether it may
 put anything on the LAN by itself -- the magic packet, the look at the local network permission, the search for
 a recorder the router has moved, the watch on the network -- or ask about notifications, and how long the
@@ -556,8 +557,8 @@ handed in (`BackgroundWork.refresh`, `sendWaiting(client:store:mac:told:nextRun:
 expiry are behind those entries, and equally out of reach.
 
 ```
-cd app/RecorderKit
-swift test --filter RecBridgeModelTests
+cd app/RecBridgeModel
+swift test
 ```
 
 The few that need the app itself are in `BDBridgeTests` (the Keychain's, the guide grid's and
@@ -761,7 +762,7 @@ Two scripts, each documented in its own header, and nothing about Apple's websit
 - `ci_scripts/ci_post_clone.sh` is what Xcode Cloud needs, and it has to sit at the root of the repository:
   it installs XcodeGen, regenerates the project from `project.yml` so a cloud build matches the definition,
   and writes `Signing.local.xcconfig` from the workflow's `DEVELOPMENT_TEAM` and `CI_BUILD_NUMBER`.
-- `ci_scripts/ci_pre_xcodebuild.sh` runs the package's `swift test`, RecorderKit's tests and the model's,
+- `ci_scripts/ci_pre_xcodebuild.sh` runs `swift test` in each of the two packages, RecorderKit's and the model's,
   before an archive, and a failure fails the build, so nothing goes to TestFlight that the package's tests would
   have stopped. The app's own few tests and the demo's UI tests need a simulator; a Test action in the workflow, which is set up in App Store
   Connect, runs both through the scheme.

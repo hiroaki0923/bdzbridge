@@ -10,14 +10,14 @@ import PackageDescription
 // SQLite have no Swift module of their own: the NDK's zlib is reached through a module map here, and SQLite,
 // which Android does not offer an app, is built from its own source.
 //
-// RecBridgeModel is the app's model over it: what the screens share and what the runs with no screen do, with
-// what only the platform has handed in (`Surroundings`). It has no UI either, so its tests run here as well.
+// The app's model over it is the package beside this one, app/RecBridgeModel.
 let package = Package(
     name: "RecorderKit",
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
         .library(name: "RecorderKit", targets: ["RecorderKit"]),
-        .library(name: "RecBridgeModel", targets: ["RecBridgeModel"]),
+        // The model's tests reach Android's SQLite through it.
+        .library(name: "CSQLite", targets: ["CSQLite"]),
     ],
     targets: [
         .target(name: "RecorderKit", dependencies: [
@@ -37,7 +37,5 @@ let package = Package(
             .define("SQLITE_TEMP_STORE", to: "2"),
         ]),
         .testTarget(name: "RecorderKitTests", dependencies: ["RecorderKit"]),
-        .target(name: "RecBridgeModel", dependencies: ["RecorderKit"]),
-        .testTarget(name: "RecBridgeModelTests", dependencies: ["RecBridgeModel"]),
     ]
 )

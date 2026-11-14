@@ -5,7 +5,7 @@ and is built for Android with the Swift SDK for Android, and the screens call it
 [swift-java](https://github.com/swiftlang/swift-java)'s JNI mode. Why this way, and what was measured on the way, is
 in `docs/android-port-study.md`.
 
-It is the iOS app's model with Android's screens over it: the same `AppModel` (`app/RecorderKit/Sources/
+It is the iOS app's model with Android's screens over it: the same `AppModel` (`app/RecBridgeModel/Sources/
 RecBridgeModel`), one for the process as the iOS app has one, with a window in front of it for each screen. So far it
 connects to a recorder as the iOS app's tutorial does -- by the search for both kinds (レコーダーとテレビを探す), by an
 address, or to the demo's invented recorder -- and shows the guide as the iOS guide's list does (a broadcasting type,

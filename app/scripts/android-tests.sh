@@ -1,18 +1,18 @@
 #!/bin/sh
-# Builds the package's tests for Android and runs them on the one device or emulator adb sees. The package's
-# Android check runs this (.github/workflows/android.yml), and so can anyone with the toolchain
+# Builds the tests of the app's two packages for Android and runs them on the one device or emulator adb sees.
+# The packages' Android check runs this (.github/workflows/android.yml), and so can anyone with the toolchain
 # (docs/android-port-study.md).
 #
-#   scripts/android-tests.sh build <arch>    arch: aarch64 or x86_64, the device's
-#   scripts/android-tests.sh run <arch> [<Target>.<Class>[/<test>][,...]]    all of them unless named
+#   app/scripts/android-tests.sh build <arch>    arch: aarch64 or x86_64, the device's
+#   app/scripts/android-tests.sh run <arch> [<Target>.<Class>[/<test>][,...]]    all of them unless named
 #
-# The targets are the package's two of tests, RecorderKitTests and RecBridgeModelTests (the app's model), each
-# built as a program of its own and run in turn; named tests run in the target they name, and a target none of
-# them names is not run.
+# The targets are the two of tests, RecorderKitTests (in app/RecorderKit) and RecBridgeModelTests (the app's
+# model, in app/RecBridgeModel), each package built on its own and each target run as a program of its own, in
+# turn; named tests run in the target they name, and a target none of them names is not run.
 #
 # SWIFT is the swift to build with, "swift" unless set. Xcode's cannot build for Android, so on a Mac it is
 # swiftly's: SWIFT="swiftly run swift +6.4.2". ANDROID_NDK_HOME is the NDK the Swift SDK for Android was set up
-# with, SCRATCH where the build goes (the package's .build unless set).
+# with, SCRATCH where the builds go (a folder for each package under it; each package's own .build unless set).
 set -eu
 
 command=${1:?build or run}
@@ -21,33 +21,45 @@ shift 2
 swift=${SWIFT:-swift}
 sdk=${SWIFT_ANDROID_SDK:-swift-6.4.2-RELEASE_android}
 triple=$arch-unknown-linux-android28
-package=$(cd "$(dirname "$0")/.." && pwd)
-scratch=${SCRATCH:-$package/.build}
+app=$(cd "$(dirname "$0")/.." && pwd)
 device=/data/local/tmp/recorderkit
+
+# The package a target of tests belongs to, and where that package is built.
+package_of() {
+    case $1 in
+    RecorderKitTests) echo RecorderKit ;;
+    RecBridgeModelTests) echo RecBridgeModel ;;
+    esac
+}
+scratch_of() {
+    if [ -n "${SCRATCH:-}" ]; then echo "$SCRATCH/$1"; else echo "$app/$1/.build"; fi
+}
 
 case $command in
 build)
     # $swift is split into words on purpose: it may be a command with arguments of its own.
-    $swift build --package-path "$package" --scratch-path "$scratch" --build-tests \
-        --swift-sdk "$sdk" --triple "$triple"
+    for name in RecorderKit RecBridgeModel; do
+        $swift build --package-path "$app/$name" --scratch-path "$(scratch_of $name)" --build-tests \
+            --swift-sdk "$sdk" --triple "$triple"
+    done
     ;;
 run)
     # XCTest is there only as a shared library, so the tests are run as a program that loads theirs, with
     # Swift's runtime and the NDK's C++ library beside it.
-    products=$scratch/out/Products/Debug-android-$arch
     resources=$($swift sdk configure --show-configuration "$sdk" "$triple" | sed -n 's/^swiftResourcesPath: //p')
     libcxx=$(ls "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/sysroot/usr/lib/"$arch"-linux-android/libc++_shared.so)
     adb shell rm -rf "$device"
     adb shell mkdir -p "$device/lib" "$device/tmp" "$device/docs"
     adb push "$resources"/android/*.so "$libcxx" "$device/lib/"
     # The vectors the tests check the package against, found by RECORDERKIT_VECTORS (Vectors.swift).
-    adb push "$package/../../docs/port" "$device/docs/"
+    adb push "$app/../docs/port" "$device/docs/"
     for target in RecorderKitTests RecBridgeModelTests; do
         named=""
         if [ $# -gt 0 ]; then
             named=$(printf '%s\n' "$*" | tr ', ' '\n\n' | grep "^$target\." | paste -sd, -) || true
             [ -n "$named" ] || continue
         fi
+        products=$(scratch_of "$(package_of $target)")/out/Products/Debug-android-$arch
         adb push "$products/$target-test-runner" "$products/$target.so" "$device/"
         adb shell "cd $device && TMPDIR=$device/tmp HOME=$device RECORDERKIT_VECTORS=$device/docs/port \
 LD_LIBRARY_PATH=$device:$device/lib ./$target-test-runner --testing-library xctest $named"
