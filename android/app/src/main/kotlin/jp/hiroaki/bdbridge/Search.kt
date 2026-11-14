@@ -103,10 +103,14 @@ fun SearchScreen() {
                     when (shown.scope) {
                         "guide" -> FoundProgrammes(shown) { programme = it }
                         "reservations" -> LazyColumn(Modifier.fillMaxSize(), state = listKeptAtItsTop()) {
-                            items(shown.reservations, key = { it.id }) { row -> ReservationRow(row, logos[row.logo]) { reservation = row } }
+                            items(shown.reservations, key = { it.id }) { row ->
+                                ReservationRow(row, logos[row.logo]) { reservation = row }
+                            }
                         }
                         else -> LazyColumn(Modifier.fillMaxSize(), state = listKeptAtItsTop()) {
-                            items(shown.recordings, key = { it.id }) { row -> RecordingRow(row, logo = logos[row.logo]) { recording = row } }
+                            items(shown.recordings, key = { it.id }) { row ->
+                                RecordingRow(row, logo = logos[row.logo]) { recording = row }
+                            }
                         }
                     }
                 }

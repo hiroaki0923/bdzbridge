@@ -202,7 +202,11 @@ fun GroupPage(group: GroupItem, close: () -> Unit) {
                             Icon(if (member.selected) Icons.Default.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
                                  contentDescription = null, Modifier.padding(start = 16.dp),
                                  tint = if (member.wouldBeDeleted) colors.primary else colors.onSurfaceVariant)
-                            Column(Modifier.weight(1f)) { RecordingRow(row, selected = member.selected, logo = logos[row.logo]) { act { toggle(row.id) } } }
+                            Column(Modifier.weight(1f)) {
+                                RecordingRow(row, selected = member.selected, logo = logos[row.logo]) {
+                                    act { toggle(row.id) }
+                                }
+                            }
                         }
                     } else {
                         RecordingSwipes(row, delete = { act { delete(row.id) } }, unprotect = { act { unprotect(row.id) } }) {

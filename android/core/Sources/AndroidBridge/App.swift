@@ -39,7 +39,8 @@ final class Tiles: @unchecked Sendable {
     func logo(_ text: String, _ index: Int) -> Data? {
         guard let drawer = lock.withLock({ drawer }) else { return nil }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let file = folder.appendingPathComponent("\(index)-\(text.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: "-")).png")
+        let name = text.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: "-")
+        let file = folder.appendingPathComponent("\(index)-\(name).png")
         try? FileManager.default.removeItem(at: file)
         drawer.draw(text, Int64(index), file.path)
         defer { try? FileManager.default.removeItem(at: file) }
@@ -113,7 +114,8 @@ public final class RecBridgeApp: Sendable {
     @MainActor
     static func made(files: String, kept: String, version: String) -> RecBridgeApp {
         let defaults = WrittenDefaults.android(files: files)
-        let tiles = Tiles(folder: URL(fileURLWithPath: files, isDirectory: true).appendingPathComponent("demo-tiles", isDirectory: true))
+        let tiles = Tiles(folder: URL(fileURLWithPath: files, isDirectory: true)
+            .appendingPathComponent("demo-tiles", isDirectory: true))
         let network = NetworkReports()
         let model = AppModel(surroundings: .android(files: files, kept: kept, defaults: defaults, version: version,
                                                     tiles: tiles, network: network))

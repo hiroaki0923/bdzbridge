@@ -70,18 +70,21 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertNil(nothing)
     }
 
-    /// The demo's stations get the tiles Kotlin draws, which come back as the guide's logos; with no drawer there are none.
+    /// The demo's stations get the tiles Kotlin draws, which come back as the guide's logos; with no drawer there are
+    /// none.
     @MainActor
     func testTheDemosStationsGetTheTilesKotlinDraws() async throws {
-        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path,
+                                    version: "0.1 (1)")
         app.drawsTiles(Drawing())
         await app.start()
         await app.devices().enterDemo()
         let shown = await until(app.guide().read) { $0.shows == "programmes" && !$0.stations.isEmpty }
         XCTAssertTrue(shown.stations.allSatisfy { $0.logo.starts(with: [0x89, 0x50, 0x4E, 0x47]) })
-        XCTAssertEqual(String(decoding: try XCTUnwrap(shown.stations.first).logo.dropFirst(8), as: UTF8.self).prefix(2), "0:")
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent("demo-tiles").path), [],
-                       "the files are not kept")
+        let first = try XCTUnwrap(shown.stations.first)
+        XCTAssertEqual(String(decoding: first.logo.dropFirst(8), as: UTF8.self).prefix(2), "0:")
+        let kept = folder.appendingPathComponent("demo-tiles").path
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: kept), [], "the files are not kept")
 
         // The rows of the reservations and the recordings name their stations' logos, which come once each.
         let reservationsWindow = await app.reservations()
@@ -89,7 +92,9 @@ final class AndroidBridgeTests: XCTestCase {
         let reservations = await until(reservationsWindow.read) { !$0.sections.isEmpty }
         let reserved = reservations.sections.flatMap(\.rows)
         XCTAssertTrue(reserved.contains { !$0.logo.isEmpty })
-        XCTAssertTrue(reserved.allSatisfy { row in row.logo.isEmpty || reservations.logos.contains { $0.key == row.logo } })
+        XCTAssertTrue(reserved.allSatisfy { row in
+            row.logo.isEmpty || reservations.logos.contains { $0.key == row.logo }
+        })
         XCTAssertEqual(Set(reservations.logos.map(\.key)).count, reservations.logos.count)
         let recordingsWindow = await app.recordings()
         await recordingsWindow.load()
@@ -121,7 +126,8 @@ final class AndroidBridgeTests: XCTestCase {
     /// A programme's page hands over its recordings' stations' logos, as the list does.
     @MainActor
     func testAProgrammesPageHasItsStationsLogos() async throws {
-        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path,
+                                    version: "0.1 (1)")
         app.drawsTiles(Drawing())
         await app.start()
         await app.devices().enterDemo()

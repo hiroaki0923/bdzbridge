@@ -267,7 +267,8 @@ public final class ReservationsWindow: Sendable {
                               conflict: reservation.conflict, byTheRecorder: reservation.createdByRecorder,
                               title: reservation.title, details: parts.joined(separator: " · "),
                               deleteHeld: model.isBusy(for: reservation.device),
-                              logo: shelf?.key(model.logo(for: reservation), broadcastingType: reservation.broadcastingType,
+                              logo: shelf?.key(model.logo(for: reservation),
+                                               broadcastingType: reservation.broadcastingType,
                                                serviceID: reservation.serviceID) ?? "")
     }
 }
