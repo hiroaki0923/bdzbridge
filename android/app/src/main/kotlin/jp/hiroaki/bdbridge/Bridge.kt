@@ -1,6 +1,9 @@
 package jp.hiroaki.bdbridge
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
 import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.CompletableFuture
@@ -108,6 +111,7 @@ object RecBridge {
             val app = call { RecBridgeApp.open(files, kept, version, arena) }
             // Before the start, which seeds the demo's guide with its tiles when the demo is on.
             app.drawsTiles(Tiles)
+            watchTheNetwork(context.applicationContext, app)
             val windows = Windows(app, app.devices(arena), app.guide(arena), call { app.reservations(arena) },
                                   call { app.recordings(arena) }, app.strip(arena), call { app.settings(arena) },
                                   call { app.search(arena) }, app.job(arena), call { app.duplicates(arena) })
@@ -131,6 +135,29 @@ object RecBridge {
             }
             opened.complete(windows)
             call<Void> { app.start() }
+        }
+    }
+
+    /**
+     * Tells the model when the network under the device changes, as the iOS app's monitor does: an address coming or
+     * going on the default network, or the default network lost. The model looks at the addresses itself. It lives as
+     * the process does, as the model does, so it is never unregistered.
+     */
+    private fun watchTheNetwork(context: Context, app: RecBridgeApp) {
+        try {
+            val manager = context.getSystemService(ConnectivityManager::class.java)
+            manager.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = told()
+                override fun onLost(network: Network) = told()
+
+                private fun told() {
+                    try {
+                        app.networkChanged()
+                    } catch (_: Throwable) {
+                    }
+                }
+            })
+        } catch (_: Throwable) {
         }
     }
 

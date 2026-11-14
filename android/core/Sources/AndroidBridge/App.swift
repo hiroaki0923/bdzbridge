@@ -47,6 +47,31 @@ final class Tiles: @unchecked Sendable {
     }
 }
 
+/// The network's watcher on Android: what the model hands to `Surroundings.watchTheNetwork` is kept here, and Android's
+/// own watcher (`ConnectivityManager`, in Kotlin) reaches it through `RecBridgeApp.networkChanged`. What the model
+/// holds as its watcher is the token, so the reports stop when the model lets go of it, as an iOS monitor's do.
+final class NetworkReports: @unchecked Sendable {
+    final class Watch: Sendable {
+        let reported: @Sendable () -> Void
+        init(_ reported: @escaping @Sendable () -> Void) { self.reported = reported }
+    }
+
+    private let lock = NSLock()
+    private weak var current: Watch?
+
+    /// The model's wish to be told, as the token it keeps.
+    func watch(_ reported: @escaping @Sendable () -> Void) -> AnyObject {
+        let watch = Watch(reported)
+        lock.withLock { current = watch }
+        return watch
+    }
+
+    /// The network has changed: tells the model, if it is watching.
+    func report() {
+        lock.withLock { current }?.reported()
+    }
+}
+
 /// The app: its one model, and the windows of its screens.
 public final class RecBridgeApp: Sendable {
     let model: AppModel
@@ -57,9 +82,12 @@ public final class RecBridgeApp: Sendable {
     let recordingsMode: ShownMode
     let version: String
     let tiles: Tiles
+    let network: NetworkReports
 
-    init(model: AppModel, quality: ChosenQuality, recordingsMode: ShownMode, version: String, tiles: Tiles) {
+    init(model: AppModel, quality: ChosenQuality, recordingsMode: ShownMode, version: String, tiles: Tiles,
+         network: NetworkReports) {
         self.tiles = tiles
+        self.network = network
         self.model = model
         self.quality = quality
         self.recordingsMode = recordingsMode
@@ -86,14 +114,20 @@ public final class RecBridgeApp: Sendable {
     static func made(files: String, kept: String, version: String) -> RecBridgeApp {
         let defaults = WrittenDefaults.android(files: files)
         let tiles = Tiles(folder: URL(fileURLWithPath: files, isDirectory: true).appendingPathComponent("demo-tiles", isDirectory: true))
+        let network = NetworkReports()
         let model = AppModel(surroundings: .android(files: files, kept: kept, defaults: defaults, version: version,
-                                                    tiles: tiles))
+                                                    tiles: tiles, network: network))
         return RecBridgeApp(model: model, quality: ChosenQuality(defaults), recordingsMode: ShownMode(defaults),
-                            version: version, tiles: tiles)
+                            version: version, tiles: tiles, network: network)
     }
 
     /// Who draws the demo's station tiles. Told before `start`, which seeds the demo's guide when the demo is on.
     public func drawsTiles(_ drawer: some TileDrawer) { tiles.set(drawer) }
+
+    /// The network under the device has changed (an address came or went, the default network was lost): what the
+    /// iOS app's `NWPathMonitor` tells the model at each path update. The model looks at the addresses itself and
+    /// asks again only if they have changed. Callable from any thread.
+    public func networkChanged() { network.report() }
 
     /// Opens the cache and shows what it holds, and makes the first connect: what every iOS screen awaits first.
     public func start() async {
@@ -180,7 +214,8 @@ extension Surroundings {
     /// What the model reaches on Android. The settings go in a file of the app's folder (`WrittenDefaults`), the
     /// television's registration and the helper's token in the folder that never leaves the device (`Kept.swift`).
     /// What only the iOS app has yet -- notifications -- is left as the model's own defaults give it, which do nothing.
-    static func android(files: String, kept: String, defaults: WrittenDefaults, version: String, tiles: Tiles) -> Surroundings {
+    static func android(files: String, kept: String, defaults: WrittenDefaults, version: String, tiles: Tiles,
+                         network: NetworkReports) -> Surroundings {
         let folder = URL(fileURLWithPath: files, isDirectory: true)
         let keptFolder = URL(fileURLWithPath: kept, isDirectory: true)
         var android = Surroundings(defaults: defaults, folder: { folder }, transport: { _ in URLSessionTransport() },
@@ -195,6 +230,7 @@ extension Surroundings {
         android.tvHelperTokens = KeptTVHelperToken(folder: keptFolder)
         android.helperLabel = "RecBridge (Android)"
         android.demoLogo = { text, index in tiles.logo(text, index) }
+        android.watchTheNetwork = { reported in network.watch(reported) }
         // The step of a bulk job in hand when the reader leaves the app is finished, as on iOS: Swift's main queue
         // is run until its time is ended (`StepsHeld`, `runWhatWaitsOnTheMainQueue`).
         android.holdTime = { _ in

@@ -103,6 +103,21 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertTrue(without.stations.allSatisfy { $0.logo.isEmpty })
     }
 
+    /// What Android's watcher reports reaches what the model handed over, for as long as the model holds its token.
+    func testTheNetworksChangesReachTheModelForAsLongAsItWatches() {
+        let reports = NetworkReports()
+        let told = NSLock()
+        nonisolated(unsafe) var count = 0
+        var token: AnyObject? = reports.watch { told.withLock { count += 1 } }
+        reports.report()
+        reports.report()
+        XCTAssertEqual(told.withLock { count }, 2)
+        token = nil
+        reports.report()
+        XCTAssertEqual(told.withLock { count }, 2, "nothing is told once the model has let go")
+        XCTAssertNil(token)
+    }
+
     @MainActor
     func testTheGuideFollowsWhatTheReaderChooses() async throws {
         let guide = await demo().guide()
