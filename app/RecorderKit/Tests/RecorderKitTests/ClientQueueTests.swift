@@ -321,11 +321,11 @@ final class ClientQueueTests: XCTestCase {
     /// client is retired while it waits for an answer, the recorder let go of: the waking ends at its next probe,
     /// and the check comes to the let-go. Nothing is written on the line -- not that the recorder did not answer,
     /// which is the newcomer's line by then -- and no packet goes after the let-go. The waking's own clock gives
-    /// it three seconds; it is to end well before them. So the waits before the let-go stop as soon as they see
-    /// what they wait for: the clock runs while they turn, and a wait that went on to its bound, a hop to the
-    /// recorder each turn, could outlast it.
+    /// it half a minute, which a machine that stands still for seconds does not use up: it is the probe that is
+    /// to end it, well before them, and the check is given ten seconds to come back. A waking ended by its clock
+    /// is `testAWakingWhoseTimeIsUpAfterTheLetGoSaysNothing`.
     func testAWakingWhoseClientIsRetiredEndsAndSaysNothing() async throws {
-        let driver = RecorderDriver(wakingLimit: 3, wakingInterval: .milliseconds(100), busyRetryDelay: 0...0)
+        let driver = RecorderDriver(wakingLimit: 30, wakingInterval: .milliseconds(100), busyRetryDelay: 0...0)
         let (world, link, recorder) = try await connected(mac: DeviceLinkTests.mac, driver: driver)
         await recorder.sayNothingOfWhoItIs()
         let checking = Task { await link.check(evenIfRecent: true) }
