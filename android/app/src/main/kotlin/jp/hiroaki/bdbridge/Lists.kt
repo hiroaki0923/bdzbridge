@@ -37,6 +37,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -81,8 +82,16 @@ fun ReservationsScreen(search: () -> Unit, openConditions: () -> Unit) {
         stale = if (shown.staleKey.isEmpty()) emptyList()
                 else RecBridge.ask { it.reservations.stale() }.lines().filter { it.isNotEmpty() }
     }
+    val wide = twoPanes()
+    // The reservation whose sheet is open, or that is open beside the list.
     var opened by remember { mutableStateOf<ReservationItem?>(null) }
-    opened?.let { row -> ReservationSheetView(row.title, open = { RecBridge.openReservation(row.id) }) { opened = null } }
+    if (!wide) {
+        opened?.let { row ->
+            ReservationSheetView(row.id, row.title, open = { RecBridge.openReservation(row.id) }) { opened = null }
+        }
+    }
+    // Not while the one open beside the list is held: it would take the request's answer with it.
+    val open = { row: ReservationItem -> if (!PaneHold.held) opened = row }
     shown.asked?.let { asked ->
         AskDialog(asked, act = { scope.launch { RecBridge.act { it.reservations.act(asked.key) } } },
                   closeAsked = { scope.launch { RecBridge.act { it.reservations.closeAsked(asked.key) } } })
@@ -92,7 +101,7 @@ fun ReservationsScreen(search: () -> Unit, openConditions: () -> Unit) {
     }
     var pulling by remember { mutableStateOf(false) }
     val logos = rememberLogos(shown.logos)
-    Scaffold(topBar = {
+    Scaffold(topBar = { Refused {
         Column {
             TopAppBar(title = { TitleWithSubtitle("予約", if (shown.hasNoRecorder) "" else shown.subtitle) },
                       actions = {
@@ -104,46 +113,69 @@ fun ReservationsScreen(search: () -> Unit, openConditions: () -> Unit) {
                       })
             StripBar()
         }
-    }, bottomBar = { Line(shown.line, shown.lineIsAProblem) }) { padding ->
+    } }, bottomBar = { Line(shown.line, shown.lineIsAProblem) }) { padding ->
         Box(Modifier.padding(padding)) {
-            if (shown.hasNoRecorder) return@Box NoRecorderView(Icons.Outlined.Schedule, shown.noRecorder, search)
-            PullToRefreshBox(isRefreshing = pulling, onRefresh = {
-                pulling = true
-                scope.launch {
-                    try {
-                        RecBridge.act { it.reservations.pullDown() }
-                    } finally {
-                        pulling = false
-                    }
+            ListAndDetail(opened != null, close = { opened = null },
+                          nothingOpened = {
+                              if (!shown.hasNoRecorder && !shown.isEmpty) {
+                                  NothingOpened(Icons.Outlined.Schedule, NothingOpenedSays.reservation)
+                              }
+                          },
+                          detail = {
+                              opened?.let { row ->
+                                  // By the reservation, so that nothing of one carries to the next.
+                                  key(row.id) {
+                                      ReservationSheetView(row.id, row.title,
+                                                           open = { RecBridge.openReservation(row.id) }, inPane = true,
+                                                           listed = shown.lists(row.id)) { opened = null }
+                                  }
+                              }
+                          }) {
+                if (shown.hasNoRecorder) {
+                    return@ListAndDetail NoRecorderView(Icons.Outlined.Schedule, shown.noRecorder, search)
                 }
-            }, modifier = Modifier.fillMaxSize()) {
-                // The empty state is the list's one item, so that an empty list can be pulled down as well.
-                LazyColumn(Modifier.fillMaxSize()) {
-                    if (shown.isEmpty) {
-                        item { Box(Modifier.fillParentMaxSize()) { Unavailable(Icons.Outlined.Schedule, shown.emptyTitle, shown.emptyDetail) } }
+                PullToRefreshBox(isRefreshing = pulling, onRefresh = {
+                    pulling = true
+                    scope.launch {
+                        try {
+                            RecBridge.act { it.reservations.pullDown() }
+                        } finally {
+                            pulling = false
+                        }
                     }
-                    items(stale, key = { "stale-$it" }) { line -> Footnote(line, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-                    if (shown.waiting.isNotEmpty()) {
-                        heading("送信待ち ${shown.waiting.size} 件")
-                        items(shown.waiting, key = { "waiting-" + it.id }) { waiting ->
-                            val again = if (!waiting.offersSendingAgain) null else
-                                SwipeAction("もう一度送る", colors.primaryContainer, colors.onPrimaryContainer, !waiting.held) {
-                                    scope.launch { RecBridge.act { it.reservations.sendAgain(waiting.id) } }
+                }, modifier = Modifier.fillMaxSize()) {
+                    // The empty state is the list's one item, so that an empty list can be pulled down as well.
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        if (shown.isEmpty) {
+                            item { Box(Modifier.fillParentMaxSize()) { Unavailable(Icons.Outlined.Schedule, shown.emptyTitle, shown.emptyDetail) } }
+                        }
+                        items(stale, key = { "stale-$it" }) { line -> Footnote(line, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                        if (shown.waiting.isNotEmpty()) {
+                            heading("送信待ち ${shown.waiting.size} 件")
+                            items(shown.waiting, key = { "waiting-" + it.id }) { waiting ->
+                                val again = if (!waiting.offersSendingAgain) null else
+                                    SwipeAction("もう一度送る", colors.primaryContainer, colors.onPrimaryContainer, !waiting.held) {
+                                        scope.launch { RecBridge.act { it.reservations.sendAgain(waiting.id) } }
+                                    }
+                                SwipeActions(toTheRight = again, toTheLeft = delete("削除", waiting.held) {
+                                    RecBridge.act { it.reservations.deleteWaiting(waiting.id) }
+                                }) { WaitingRow(waiting) }
+                            }
+                            if (shown.waitingSays.isNotEmpty()) {
+                                item(key = "waiting-says") { Footnote(shown.waitingSays, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                            }
+                        }
+                        for (section in shown.sections) {
+                            heading(section.title)
+                            items(section.rows, key = { it.id }) { row ->
+                                SwipeActions(toTheRight = null, toTheLeft = delete("削除", row.deleteHeld) {
+                                    RecBridge.act { it.reservations.delete(row.id) }
+                                }) {
+                                    ReservationRow(row, logos[row.logo], current = wide && row.id == opened?.id) {
+                                        open(row)
+                                    }
                                 }
-                            SwipeActions(toTheRight = again, toTheLeft = delete("削除", waiting.held) {
-                                RecBridge.act { it.reservations.deleteWaiting(waiting.id) }
-                            }) { WaitingRow(waiting) }
-                        }
-                        if (shown.waitingSays.isNotEmpty()) {
-                            item(key = "waiting-says") { Footnote(shown.waitingSays, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-                        }
-                    }
-                    for (section in shown.sections) {
-                        heading(section.title)
-                        items(section.rows, key = { it.id }) { row ->
-                            SwipeActions(toTheRight = null, toTheLeft = delete("削除", row.deleteHeld) {
-                                RecBridge.act { it.reservations.delete(row.id) }
-                            }) { ReservationRow(row, logos[row.logo]) { opened = row } }
+                            }
                         }
                     }
                 }
@@ -151,6 +183,10 @@ fun ReservationsScreen(search: () -> Unit, openConditions: () -> Unit) {
         }
     }
 }
+
+/** Whether the list under its headings has the reservation with `id`. */
+private fun Reservations.lists(id: String): Boolean =
+    !hasNoRecorder && sections.any { section -> section.rows.any { it.id == id } }
 
 /** The menu of which kind of reservation is listed and what the list is sorted by, its icon filled while either is not its default. */
 @Composable
@@ -199,9 +235,12 @@ private fun LazyListScope.heading(title: String) {
     }
 }
 
-/** One reservation, as the iOS row says it: when and how long, marked, the title, then the station and how it records. */
+/**
+ * One reservation, as the iOS row says it: when and how long, marked, the title, then the station and how it records.
+ * `current` when it is the one open beside the list.
+ */
 @Composable
-internal fun ReservationRow(item: ReservationItem, logo: ImageBitmap?, open: () -> Unit) {
+internal fun ReservationRow(item: ReservationItem, logo: ImageBitmap?, current: Boolean = false, open: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val marks = LocalMarks.current
     ListItem(
@@ -216,7 +255,8 @@ internal fun ReservationRow(item: ReservationItem, logo: ImageBitmap?, open: () 
         headlineContent = { Text(item.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         // The logo's space is held where a station has none, so that the names line up down the list.
         supportingContent = { LogoLine("", logo, item.details, holdSpace = true) },
-        modifier = Modifier.clickable(onClick = open),
+        colors = openedColors(current),
+        modifier = Modifier.clickable(onClick = open).saidOpened(current),
     )
     HorizontalDivider()
 }
@@ -257,12 +297,39 @@ fun RecordingsScreen(search: () -> Unit, openGroup: (GroupItem) -> Unit) {
         onDispose { RecBridge.recordingsShown(false) }
     }
     LaunchedEffect(shown.outdatedKey) { RecBridge.act { it.recordings.loadOutdated() } }
+    val wide = twoPanes()
+    // The recording whose sheet is open, or that is open beside the list.
     var opened by remember { mutableStateOf<RecordingItem?>(null) }
-    opened?.let { row -> TitleSheetView(row) { opened = null } }
+    if (!wide) opened?.let { row -> TitleSheetView(row) { opened = null } }
     val logos = rememberLogos(shown.logos)
     // A copy among the duplicates, whose sheet is opened from its set.
     var openedCopy by remember { mutableStateOf<RecordingItem?>(null) }
-    openedCopy?.let { row -> TitleSheetView(row, open = { RecBridge.openCopy(row.id) }) { openedCopy = null } }
+    if (!wide) {
+        openedCopy?.let { row -> TitleSheetView(row, open = { RecBridge.openCopy(row.id) }) { openedCopy = null } }
+    }
+    // Beside the list one at a time, a recording of 一覧 or a copy of 重複, and not while that one is held: it would
+    // take the request's answer with it.
+    val open = { row: RecordingItem ->
+        if (!PaneHold.held) {
+            opened = row
+            openedCopy = null
+        }
+    }
+    val openCopy = { row: RecordingItem ->
+        if (!PaneHold.held) {
+            openedCopy = row
+            opened = null
+        }
+    }
+    // まとめ has no pane, its programmes opening a page over the whole: what was open beside 一覧 or 重複 goes as the
+    // view turns to it, which is not while it is held.
+    LaunchedEffect(wide, shown.mode) {
+        if (wide && shown.mode == "groups") {
+            opened = null
+            openedCopy = null
+        }
+    }
+    val duplicates = RecBridge.duplicates.collectAsState().value
     shown.asked?.let { asked ->
         AskDialog(asked, act = { scope.launch { RecBridge.act { it.recordings.act(asked.key) } } },
                   closeAsked = { scope.launch { RecBridge.act { it.recordings.closeAsked(asked.key) } } },
@@ -282,14 +349,14 @@ fun RecordingsScreen(search: () -> Unit, openGroup: (GroupItem) -> Unit) {
         }, modifier = Modifier.fillMaxSize()) { content() }
     }
     Box(Modifier.fillMaxSize()) {
-        Scaffold(topBar = {
+        Scaffold(topBar = { Refused {
             Column {
                 TopAppBar(title = { TitleWithSubtitle(shown.heading, if (shown.hasNoRecorder || shown.isLoading) "" else shown.subtitle) },
                           navigationIcon = { Views(shown) }, actions = { Filters(shown) })
                 StripBar()
                 JobBarView()
             }
-        }, bottomBar = {
+        } }, bottomBar = {
             // Under a list that is drawn, as on iOS: not while it is being read, with no recorder, or over the
             // duplicates.
             if (shown.tvNote.isNotEmpty() && !shown.hasNoRecorder && !shown.isLoading && shown.mode != "dups") Line(shown.tvNote, false)
@@ -297,23 +364,57 @@ fun RecordingsScreen(search: () -> Unit, openGroup: (GroupItem) -> Unit) {
             Box(Modifier.padding(padding)) {
                 // The empty state is the list's one item, so that an empty list can be pulled down as well.
                 val empty = @Composable { Unavailable(Icons.Outlined.VideoLibrary, shown.emptyTitle, shown.emptyDetail) }
-                when {
-                    shown.hasNoRecorder -> NoRecorderView(Icons.Outlined.VideoLibrary, shown.noRecorder, search)
-                    shown.isLoading -> Unavailable(Icons.Outlined.VideoLibrary, shown.loadingTitle, shown.loadingDetail)
-                    shown.mode == "dups" -> DuplicatesView(pulled) { openedCopy = it }
-                    shown.mode == "groups" -> pulled {
-                        LazyColumn(Modifier.fillMaxSize()) {
-                            if (shown.groups.isEmpty()) item { Box(Modifier.fillParentMaxSize()) { empty() } }
-                            items(shown.groups, key = { it.id }) { programme -> GroupRowView(programme) { openGroup(programme) } }
+                val anything = !shown.hasNoRecorder && !shown.isLoading &&
+                    (if (shown.mode == "dups") duplicates?.hasSets == true else shown.rows.isNotEmpty())
+                ListAndDetail(opened != null || openedCopy != null,
+                              close = {
+                                  opened = null
+                                  openedCopy = null
+                              },
+                              nothingOpened = {
+                                  if (anything) NothingOpened(Icons.Outlined.VideoLibrary, NothingOpenedSays.recording)
+                              },
+                              detail = {
+                                  // By the recording, so that nothing of one carries to the next.
+                                  opened?.let { row ->
+                                      key(row.id) {
+                                          TitleSheetView(row, inPane = true, listed = shown.lists(row.id)) {
+                                              opened = null
+                                          }
+                                      }
+                                  }
+                                  openedCopy?.let { row ->
+                                      key("copy-" + row.id) {
+                                          TitleSheetView(row, open = { RecBridge.openCopy(row.id) }, inPane = true,
+                                                         listed = shown.mode == "dups" && duplicates.lists(row.id)) {
+                                              openedCopy = null
+                                          }
+                                      }
+                                  }
+                              },
+                              // まとめ's programmes open a page over the whole, not the pane: the list has the width.
+                              beside = shown.mode != "groups") {
+                    when {
+                        shown.hasNoRecorder -> NoRecorderView(Icons.Outlined.VideoLibrary, shown.noRecorder, search)
+                        shown.isLoading -> Unavailable(Icons.Outlined.VideoLibrary, shown.loadingTitle, shown.loadingDetail)
+                        shown.mode == "dups" -> {
+                            DuplicatesView(pulled, current = if (wide) openedCopy?.id else null, open = openCopy)
                         }
-                    }
-                    else -> pulled {
-                        LazyColumn(Modifier.fillMaxSize()) {
-                            if (shown.rows.isEmpty()) item { Box(Modifier.fillParentMaxSize()) { empty() } }
-                            items(shown.rows, key = { it.id }) { row ->
-                                RecordingSwipes(row, delete = { scope.launch { RecBridge.act { it.recordings.delete(row.id) } } },
-                                                unprotect = { scope.launch { RecBridge.act { it.recordings.unprotect(row.id) } } }) {
-                                    RecordingRow(row, logo = logos[row.logo]) { opened = row }
+                        shown.mode == "groups" -> pulled {
+                            LazyColumn(Modifier.fillMaxSize()) {
+                                if (shown.groups.isEmpty()) item { Box(Modifier.fillParentMaxSize()) { empty() } }
+                                items(shown.groups, key = { it.id }) { programme -> GroupRowView(programme) { openGroup(programme) } }
+                            }
+                        }
+                        else -> pulled {
+                            LazyColumn(Modifier.fillMaxSize()) {
+                                if (shown.rows.isEmpty()) item { Box(Modifier.fillParentMaxSize()) { empty() } }
+                                items(shown.rows, key = { it.id }) { row ->
+                                    RecordingSwipes(row, delete = { scope.launch { RecBridge.act { it.recordings.delete(row.id) } } },
+                                                    unprotect = { scope.launch { RecBridge.act { it.recordings.unprotect(row.id) } } }) {
+                                        val current = wide && row.id == opened?.id
+                                        RecordingRow(row, logo = logos[row.logo], current = current) { open(row) }
+                                    }
                                 }
                             }
                         }
@@ -323,6 +424,14 @@ fun RecordingsScreen(search: () -> Unit, openGroup: (GroupItem) -> Unit) {
         }
     }
 }
+
+/** Whether 一覧, as it is narrowed and with a recorder to list, has the recording with `id`. */
+private fun Recordings.lists(id: String): Boolean =
+    mode == "list" && !hasNoRecorder && !isLoading && rows.any { it.id == id }
+
+/** Whether the duplicates' sets have the copy with `id`. */
+private fun Duplicates?.lists(id: String): Boolean =
+    this != null && hasSets && sets.any { set -> set.copies.any { it.id == id } }
 
 /** 一覧, まとめ and 重複: the menu of the three views, under the icon of the one that is on. */
 @Composable
@@ -382,9 +491,13 @@ private fun Filters(shown: Recordings) {
     }
 }
 
-/** One recording, as the iOS row says it: the lock and 録画中 before the title, then when, where and how, then whether it was watched. */
+/**
+ * One recording, as the iOS row says it: the lock and 録画中 before the title, then when, where and how, then whether it
+ * was watched. `current` when it is the one open beside the list.
+ */
 @Composable
-internal fun RecordingRow(item: RecordingItem, selected: Boolean? = null, logo: ImageBitmap? = null, open: () -> Unit) {
+internal fun RecordingRow(item: RecordingItem, selected: Boolean? = null, logo: ImageBitmap? = null,
+                          current: Boolean = false, open: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     ListItem(
         headlineContent = {
@@ -408,10 +521,11 @@ internal fun RecordingRow(item: RecordingItem, selected: Boolean? = null, logo: 
                 }
             }
         },
+        colors = openedColors(current),
         // On a programme's page while picking, the tick is said to a screen reader as the row being selected, on the
         // node it reads, rather than as the name of a circle.
         modifier = Modifier.clickable(onClick = open).then(
-            if (selected == null) Modifier else Modifier.semantics { this.selected = selected }),
+            if (selected == null) Modifier else Modifier.semantics { this.selected = selected }).saidOpened(current),
     )
     HorizontalDivider()
 }

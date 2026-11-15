@@ -258,10 +258,11 @@ fun RecordingSwipes(row: RecordingItem, delete: () -> Unit, unprotect: () -> Uni
 
 /**
  * The recordings that look like copies of one broadcast. A tick deletes, and whatever is left unticked is marked as
- * kept. With no sets yet, what is said in their place and the scan it offers.
+ * kept. With no sets yet, what is said in their place and the scan it offers. `current` is the copy open beside it.
  */
 @Composable
-fun DuplicatesView(pulled: @Composable (@Composable () -> Unit) -> Unit, open: (RecordingItem) -> Unit) {
+fun DuplicatesView(pulled: @Composable (@Composable () -> Unit) -> Unit, current: String? = null,
+                   open: (RecordingItem) -> Unit) {
     val shown = RecBridge.duplicates.collectAsState().value ?: return
     val scope = rememberCoroutineScope()
     // The question goes with the view, as the iOS view's own does: drawn again later -- the recorder back, the view
@@ -300,7 +301,9 @@ fun DuplicatesView(pulled: @Composable (@Composable () -> Unit) -> Unit, open: (
                         }
                     }
                 }
-                items(set.copies, key = { set.id + "-" + it.id }) { copy -> CopyRow(copy, set.title, open) }
+                items(set.copies, key = { set.id + "-" + it.id }) { copy ->
+                    CopyRow(copy, set.title, copy.id == current, open)
+                }
             }
         } } }
         if (shown.deleteLabel.isNotEmpty()) {
@@ -318,10 +321,11 @@ fun DuplicatesView(pulled: @Composable (@Composable () -> Unit) -> Unit, open: (
  * was recorded and what it is. The row opens the recording's sheet.
  */
 @Composable
-private fun CopyRow(copy: Copy, title: String, open: (RecordingItem) -> Unit) {
+private fun CopyRow(copy: Copy, title: String, current: Boolean, open: (RecordingItem) -> Unit) {
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
-    Row(Modifier.fillMaxWidth().clickable { open(RecordingItem(copy.id, title)) }.padding(end = 16.dp),
+    Row(Modifier.fillMaxWidth().openedBeside(current).clickable { open(RecordingItem(copy.id, title)) }
+            .padding(end = 16.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Checkbox(checked = !copy.keeping, enabled = !copy.tickHeld,
                  onCheckedChange = { scope.launch { RecBridge.act { it.duplicates.toggle(copy.id) } } },

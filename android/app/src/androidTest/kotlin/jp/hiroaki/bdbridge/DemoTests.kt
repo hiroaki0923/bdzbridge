@@ -10,6 +10,8 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasContentDescription
@@ -19,13 +21,16 @@ import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.isOff
 import androidx.compose.ui.test.isOn
 import androidx.compose.ui.test.isSelectable
+import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
@@ -41,6 +46,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -511,6 +517,163 @@ class DemoTests {
         compose.waitUntilDoesNotExist(hasText("レコーダーとテレビの電源を入れる"), 10_000)
         compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("セットアップ手順を見る"))
         compose.onNodeWithText("セットアップ手順を見る").assertExists()
+    }
+
+    // MARK: a wide screen's two panes, tried only on a window 840 dp wide or more and skipped on any other
+
+    private fun assumeTwoPanes() {
+        var width = 0
+        scenario.onActivity { width = it.resources.configuration.screenWidthDp }
+        assumeTrue("two panes need a window 840 dp wide", width >= 840)
+    }
+
+    /** Whether a node is in the pane at the window's right, 400 dp wide, rather than on a sheet over the middle. */
+    private fun inThePane(node: SemanticsNodeInteraction): Boolean {
+        var density = 1f
+        scenario.onActivity { density = it.resources.displayMetrics.density }
+        val width = compose.onRoot().fetchSemanticsNode().size.width
+        return node.fetchSemanticsNode().boundsInRoot.left >= width - 400 * density - 1
+    }
+
+    /**
+     * Two reservations of the list in the order it shows them, each with a title that no other row has and that is no
+     * part of another's, so that what has a title can be counted: the row, and the pane's title while it is open.
+     */
+    private fun twoReservations(): Pair<String, String> {
+        val titles = RecBridge.reservations.value!!.sections.flatMap { section -> section.rows.map { it.title } }
+        val alone = titles.filter { title ->
+            titles.count { it == title } == 1 && titles.none { it != title && (it.contains(title) || title.contains(it)) }
+        }
+        return alone[0] to alone[1]
+    }
+
+    private fun count(title: String) = compose.onAllNodesWithText(title).fetchSemanticsNodes().size
+
+    private fun reservationRow(title: String): SemanticsNodeInteraction {
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(title))
+        return compose.onNode(hasText(title) and hasClickAction())
+    }
+
+    /** The reservations, read and with the recorder's line gone, opened at the reservation titled `title`. */
+    private fun openReservation(title: String) {
+        reservationRow(title).performClick()
+        compose.waitUntil(10_000) { count(title) == 2 }
+        compose.waitUntilAtLeastOneExists(hasText("予約を削除") and isEnabled(), 30_000)
+    }
+
+    private fun theReservations() {
+        destination("予約").performClick()
+        compose.waitUntilAtLeastOneExists(aTimeAndALength, 30_000)
+        compose.waitUntil(30_000) { RecBridge.reservations.value?.line?.isEmpty() == true }
+    }
+
+    /**
+     * A programme tapped opens beside the list, not on a sheet, and the list stays with the row marked as the one
+     * open; another day has the programme no more, and the pane says again that nothing is open.
+     */
+    @Test fun onAWideScreenAProgrammeOpensBesideTheListAndAnotherDayClearsIt() {
+        assumeTwoPanes()
+        openTheDemo()
+        // Today, whatever day the guide was left at.
+        compose.onNodeWithContentDescription("今").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("放送中"), 10_000)
+        compose.onNodeWithText(NothingOpenedSays.programme).assertExists()
+        compose.onAllNodesWithText("放送中")[0].performClick()
+        compose.waitUntilAtLeastOneExists(hasText("開始"), 10_000)
+        assertTrue("the programme is not in the pane", inThePane(compose.onNodeWithText("開始")))
+        compose.onAllNodesWithText(NothingOpenedSays.programme).assertCountEquals(0)
+        compose.onAllNodesWithText("放送中")[0].assertIsDisplayed()
+        compose.onNode(hasText("放送中") and isSelected()).assertExists()
+
+        compose.onNodeWithContentDescription("次の日").performClick()
+        compose.waitUntilDoesNotExist(hasText("開始"), 10_000)
+        compose.waitUntilAtLeastOneExists(hasText(NothingOpenedSays.programme), 10_000)
+        compose.onNodeWithContentDescription("今").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("放送中"), 10_000)
+    }
+
+    /**
+     * Another reservation tapped takes the place of the first in the pane, with nothing of the first carried over: its
+     * delete asks about the second. キャンセル deletes nothing, and the back key clears the pane.
+     */
+    @Test fun onAWideScreenAnotherReservationTakesThePlaceOfTheFirstWithNothingCarriedOver() {
+        assumeTwoPanes()
+        openTheDemo()
+        theReservations()
+        val (first, second) = twoReservations()
+        openReservation(first)
+        openReservation(second)
+        assertTrue("the first is still in the pane", count(first) == 1)
+        // At the pane's foot, under the programme's details.
+        compose.onNodeWithText("予約を削除").performScrollTo().performClick()
+        compose.waitUntilAtLeastOneExists(hasText("この予約を削除しますか？"), 10_000)
+        // The question says the second, beside its row and the pane's title; nothing says the first but its row.
+        val saying = { title: String -> compose.onAllNodes(hasText(title, substring = true)).fetchSemanticsNodes().size }
+        compose.waitUntil(10_000) { saying(second) == 3 }
+        assertTrue("the question is not about the second alone", saying(first) == 1)
+        compose.onNodeWithText("キャンセル").performClick()
+        compose.waitUntilDoesNotExist(hasText("この予約を削除しますか？"), 10_000)
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntil(10_000) { count(second) == 1 }
+        compose.waitUntilAtLeastOneExists(hasText(NothingOpenedSays.reservation), 10_000)
+    }
+
+    /**
+     * While what is open in the pane is held, another row, the top app bar, the navigation rail and the back key do
+     * nothing; let go, they do again. The hold is set here as the pane sets it from the model's while a request of
+     * the sheet's own is out (`PaneHold`): the demo's recorder answers in 120 ms, too soon to tap anything in.
+     */
+    @Test fun onAWideScreenAHeldPaneRefusesAnotherRowTheBarsAndTheBackKey() {
+        assumeTwoPanes()
+        openTheDemo()
+        theReservations()
+        val (first, second) = twoReservations()
+        openReservation(first)
+        // Where they are, found before the hold, under which they offer nothing to be found by.
+        val row = reservationRow(second).fetchSemanticsNode().boundsInRoot.center
+        val rail = destination("録画").fetchSemanticsNode().boundsInRoot.center
+        val menu = compose.onNodeWithContentDescription("並び順を変更").fetchSemanticsNode().boundsInRoot.center
+        try {
+            compose.runOnUiThread { PaneHold.held = true }
+            compose.waitForIdle()
+            for (place in listOf(row, rail, menu)) {
+                compose.onRoot().performTouchInput { click(place) }
+                compose.waitForIdle()
+            }
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            compose.waitForIdle()
+            // Only the pane is to be found while it is held: it has the first, and the sort's menu is not open.
+            compose.onNodeWithText(first).assertExists()
+            compose.onAllNodesWithText(second).assertCountEquals(0)
+            compose.onAllNodesWithText("種類").assertCountEquals(0)
+            compose.onNodeWithText("予約を削除").assertExists()
+        } finally {
+            compose.runOnUiThread { PaneHold.held = false }
+        }
+        compose.waitUntil(10_000) { count(first) == 2 }
+        openReservation(second)
+        assertTrue("the first is still in the pane", count(first) == 1)
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntilAtLeastOneExists(hasText(NothingOpenedSays.reservation), 10_000)
+    }
+
+    /**
+     * A reservation open in the pane, deleted from the list beside it by a swipe, goes from the pane as it goes from
+     * the list. Writes only to the demo's invented recorder, which leaving the demo forgets.
+     */
+    @Test fun onAWideScreenAReservationDeletedFromTheListBesideClearsThePane() {
+        assumeTwoPanes()
+        openTheDemo()
+        theReservations()
+        val (first, _) = twoReservations()
+        openReservation(first)
+        compose.waitUntil(30_000) { RecBridge.reservations.value?.line?.isEmpty() == true }
+        reservationRow(first).performTouchInput { swipeLeft() }
+        compose.waitUntilAtLeastOneExists(hasText("この予約を削除しますか？"), 10_000)
+        compose.onNodeWithText("削除する").performClick()
+        compose.waitUntil(30_000) { count(first) == 0 }
+        compose.waitUntilAtLeastOneExists(hasText(NothingOpenedSays.reservation), 10_000)
+        compose.onAllNodesWithText("予約を削除").assertCountEquals(0)
     }
 
     @Test fun leavingTheDemoSaysNoRecorderIsAddedAndOffersTheSearch() {

@@ -56,6 +56,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -84,17 +85,20 @@ import kotlinx.coroutines.launch
 fun GuideScreen(search: () -> Unit, arrange: () -> Unit) {
     val guide = RecBridge.guide.collectAsState().value ?: return
     val scope = rememberCoroutineScope()
-    // The programme whose sheet is open: shown at once with what its row says.
+    val wide = twoPanes()
+    // The programme whose sheet is open, or that is open beside the list: shown at once with what its row says.
     var opened by remember { mutableStateOf<Programme?>(null) }
+    // Not while the one open beside the list is held: it would take the request's answer with it.
+    val open = { programme: Programme -> if (!PaneHold.held) opened = programme }
     var failure by remember { mutableStateOf<String?>(null) }
     var refreshing by remember { mutableStateOf(false) }
-    opened?.let { ProgrammeSheetView(it) { opened = null } }
+    if (!wide) opened?.let { ProgrammeSheetView(it) { opened = null } }
     failure?.let { said ->
         AlertDialog(onDismissRequest = { failure = null },
                     confirmButton = { TextButton(onClick = { failure = null }) { Text("OK") } },
                     title = { Text("番組表を取得できませんでした") }, text = { Text(said) })
     }
-    Scaffold(topBar = {
+    Scaffold(topBar = { Refused {
         Column {
             TopAppBar(
                 title = { WhatIsShown(guide, arrange) },
@@ -123,29 +127,51 @@ fun GuideScreen(search: () -> Unit, arrange: () -> Unit) {
             DayBar(guide)
             StripBar()
         }
-    }) { padding ->
+    } }) { padding ->
         Box(Modifier.padding(padding)) {
-            when (guide.shows) {
-                "noRecorder" -> NoRecorderView(Icons.Outlined.GridView, guide.noRecorder, search)
-                "fetching" -> Unavailable(Icons.Outlined.GridView, guide.title, guide.detail) { CircularProgressIndicator() }
-                "empty" -> Unavailable(if (guide.offers == "arrange") Icons.Outlined.VisibilityOff else Icons.Outlined.GridView,
-                                       guide.title, guide.detail) {
-                    if (guide.offers == "arrange") Button(onClick = arrange) { Text("チャンネルの表示と並び順") }
-                    if (guide.offers == "everyStation") {
-                        TextButton(onClick = { scope.launch { RecBridge.act { it.guide.chooseStation(-1) } } }) {
-                            Text("すべての局を表示")
+            val shown = guide.shows == "programmes"
+            ListAndDetail(opened != null, close = { opened = null },
+                          nothingOpened = {
+                              if (shown) NothingOpened(Icons.Outlined.GridView, NothingOpenedSays.programme)
+                          },
+                          detail = {
+                              opened?.let { row ->
+                                  // By the programme, so that nothing of one carries to the next: its window, its
+                                  // pickers' menus, how far it was scrolled.
+                                  key(row.id) {
+                                      ProgrammeSheetView(row, inPane = true, listed = shown && guide.lists(row.id)) {
+                                          opened = null
+                                      }
+                                  }
+                              }
+                          }) {
+                when (guide.shows) {
+                    "noRecorder" -> NoRecorderView(Icons.Outlined.GridView, guide.noRecorder, search)
+                    "fetching" -> Unavailable(Icons.Outlined.GridView, guide.title, guide.detail) { CircularProgressIndicator() }
+                    "empty" -> Unavailable(if (guide.offers == "arrange") Icons.Outlined.VisibilityOff else Icons.Outlined.GridView,
+                                           guide.title, guide.detail) {
+                        if (guide.offers == "arrange") Button(onClick = arrange) { Text("チャンネルの表示と並び順") }
+                        if (guide.offers == "everyStation") {
+                            TextButton(onClick = { scope.launch { RecBridge.act { it.guide.chooseStation(-1) } } }) {
+                                Text("すべての局を表示")
+                            }
                         }
                     }
-                }
-                else -> {
-                    val logos = rememberStationLogos(guide.stations)
-                    if (guide.grid) GuideGrid(guide, logos) { programme -> opened = programme }
-                    else Programmes(guide, logos) { programme -> opened = programme }
+                    else -> {
+                        val logos = rememberStationLogos(guide.stations)
+                        val current = if (wide) opened?.id else null
+                        if (guide.grid) GuideGrid(guide, logos, current, open)
+                        else Programmes(guide, logos, current, open)
+                    }
                 }
             }
         }
     }
 }
+
+/** Whether what is shown -- the list, or the grid, which shows every station -- has the programme with `id`. */
+private fun Guide.lists(id: String): Boolean =
+    if (grid) layout.columns.any { column -> column.blocks.any { it.row.id == id } } else programmes.any { it.id == id }
 
 /** The type, or the station the list is narrowed to, as the top app bar's title: a menu of the types and the stations. */
 @Composable
@@ -241,7 +267,7 @@ private fun DayBar(guide: Guide) {
  * goes back there each time 今 is asked for.
  */
 @Composable
-private fun Programmes(guide: Guide, logos: Map<Long, ImageBitmap?>, open: (Programme) -> Unit) {
+private fun Programmes(guide: Guide, logos: Map<Long, ImageBitmap?>, current: String?, open: (Programme) -> Unit) {
     val now = minuteNow()
     val opening = guide.programmes.indexOfFirst { it.ends > now }.coerceAtLeast(0)
     // Made again for each list, so that a new one opens at its own place: by the programmes themselves, since the
@@ -258,7 +284,9 @@ private fun Programmes(guide: Guide, logos: Map<Long, ImageBitmap?>, open: (Prog
     }
     LazyColumn(Modifier.fillMaxSize(), state = position) {
         items(guide.programmes, key = { it.id }) { programme ->
-            ProgrammeRow(programme, logos[programme.serviceID], now) { open(programme) }
+            ProgrammeRow(programme, logos[programme.serviceID], now, current = programme.id == current) {
+                open(programme)
+            }
             HorizontalDivider()
         }
     }
@@ -278,17 +306,18 @@ private fun rememberStationLogos(stations: List<Station>): Map<Long, ImageBitmap
 
 /**
  * One programme, as the iOS row says it: the time and the length in a column of their own, then the title, the
- * station with its logo and the marks, and the summary. What is on air is marked; what is over is dimmed.
+ * station with its logo and the marks, and the summary. What is on air is marked; what is over is dimmed. `current`
+ * when it is the one open beside the list.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ProgrammeRow(item: Programme, logo: ImageBitmap?, now: Long, day: String = "",
-                          found: AnnotatedString? = null, open: () -> Unit) {
+                          found: AnnotatedString? = null, current: Boolean = false, open: () -> Unit) {
     val onAir = item.starts <= now && now < item.ends
     val ended = item.ends <= now
     val colors = MaterialTheme.colorScheme
     val marks = LocalMarks.current
-    Row(Modifier.fillMaxWidth().clickable(onClick = open).alpha(if (ended) 0.45f else 1f)
+    Row(Modifier.fillMaxWidth().openedBeside(current).clickable(onClick = open).alpha(if (ended) 0.45f else 1f)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.width(if (day.isEmpty()) 48.dp else 64.dp), horizontalAlignment = Alignment.End) {
