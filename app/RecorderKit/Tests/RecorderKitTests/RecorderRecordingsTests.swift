@@ -173,7 +173,9 @@ final class RecorderRecordingsTests: XCTestCase {
         ])
         let title = try await Self.titles().idle
 
+        let began = Date()
         expectEqual(await driver.play(title, "play"), .done(saying: nil))
+        let took = Int(Date().timeIntervalSince(began))
 
         expectEqual(await recorder.actions, ["X_PlayControlTitle", "X_PowerControl", "X_GetPlayStatus",
                                              "X_GetPlayStatus", "X_PlayControlTitle"])
@@ -182,7 +184,7 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertTrue(bodies[4].contains("<TitleID>0x1</TitleID>"), bodies[4])
         XCTAssertTrue(bodies[4].contains("<Operation>play</Operation>"), bodies[4])
         // The seconds are the clock's, which a machine that stands still moves on: held is the line once for
-        // each look at the status, with seconds that never go back.
+        // each look at the status, with seconds counted up from nothing and never past what the play took.
         let saying = "レコーダーの電源を入れています（", seconds = " 秒）"
         let said = world.updated.map { line in
             line.hasPrefix(saying) && line.hasSuffix(seconds)
@@ -192,6 +194,8 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertFalse(said.contains(nil), "not the line of the recorder turning on: \(world.updated)")
         let waited = said.compactMap { $0 }
         XCTAssertEqual(waited, waited.sorted(), "the seconds said went backwards")
+        XCTAssertTrue(waited.allSatisfy { (0...took).contains($0) },
+                      "the seconds said, \(waited), are not those waited: the play took \(took)")
     }
 
     /// A recorder that is on plays at once, and nothing about power is sent or asked: that is the usual case,

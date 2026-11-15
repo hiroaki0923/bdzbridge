@@ -1325,7 +1325,7 @@ extension AndroidBridgeTests {
         XCTAssertFalse(stale)
         // In the cache once the window's saves are done, each after the one before it: the list read again is
         // read from there.
-        _ = await until({ (try? await app.model.channelsToArrange(broadcasting: "td"))?.map(\.id) ?? [] }) {
+        _ = await until({ (try? await app.model.channelsToArrange(broadcasting: "td"))?.map(\.id) ?? [] }, tries: 800) {
             $0 == moved.stations.map(\.id)
         }
         let again = await app.channels()
