@@ -321,11 +321,11 @@ final class ClientQueueTests: XCTestCase {
     /// client is retired while it waits for an answer, the recorder let go of: the waking ends at its next probe,
     /// and the check comes to the let-go. Nothing is written on the line -- not that the recorder did not answer,
     /// which is the newcomer's line by then -- and no packet goes after the let-go. The waking's own clock gives
-    /// it three seconds; it is to end well before them. So the waits before the let-go stop as soon as they see
-    /// what they wait for: the clock runs while they turn, and a wait that went on to its bound, a hop to the
-    /// recorder each turn, could outlast it.
+    /// it half a minute, which a machine that stands still for seconds does not use up: it is the probe that is
+    /// to end it, well before them, and the check is given ten seconds to come back. A waking ended by its clock
+    /// is `testAWakingWhoseTimeIsUpAfterTheLetGoSaysNothing`.
     func testAWakingWhoseClientIsRetiredEndsAndSaysNothing() async throws {
-        let driver = RecorderDriver(wakingLimit: 3, wakingInterval: .milliseconds(100), busyRetryDelay: 0...0)
+        let driver = RecorderDriver(wakingLimit: 30, wakingInterval: .milliseconds(100), busyRetryDelay: 0...0)
         let (world, link, recorder) = try await connected(mac: DeviceLinkTests.mac, driver: driver)
         await recorder.sayNothingOfWhoItIs()
         let checking = Task { await link.check(evenIfRecent: true) }
@@ -344,6 +344,33 @@ final class ClientQueueTests: XCTestCase {
         XCTAssertNil(world.problem, "the waking wrote on the line after its client was retired")
         XCTAssertFalse(link.session.waking, "the waking still stands")
         XCTAssertEqual(world.count("packet"), packets, "a packet went for the recorder let go of")
+    }
+
+    /// A waking whose time is up during the wait in which the recorder is let go of: it ends by its clock, with no
+    /// probe after the let-go to end it, and still writes nothing on the line, which is the newcomer's by then.
+    /// The wait between its probes is longer than its time, so that the first wait is its last. Nothing is checked
+    /// on a run where the let-go came after that wait, the machine having stood still meanwhile: that is a waking
+    /// that ended in silence before anything was let go of.
+    func testAWakingWhoseTimeIsUpAfterTheLetGoSaysNothing() async throws {
+        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(500), busyRetryDelay: 0...0)
+        let (world, link, recorder) = try await connected(mac: DeviceLinkTests.mac, driver: driver)
+        await recorder.sayNothingOfWhoItIs()
+        let checking = Task { await link.check(evenIfRecent: true) }
+        // The check's own probe, and the waking's one.
+        func asked() async -> Int { await recorder.actions.filter { $0 == "description.xml" }.count }
+        await eventually { await asked() >= 2 }
+        expectTrue(await asked() >= 2, "the waking never asked who answers")
+        let packets = world.count("packet")
+
+        try XCTSkipUnless(link.session.waking, "the waking had ended before the let-go")
+        link.forgetTheDevice()
+        let checked = try await within(10, "the check never came back") { await checking.value }
+
+        guard case .notUp(.letGo) = checked else { return XCTFail("the check came to \(checked)") }
+        XCTAssertNil(world.problem, "the waking wrote on the line after the recorder was let go of")
+        XCTAssertFalse(link.session.waking, "the waking still stands")
+        XCTAssertEqual(world.count("packet"), packets, "a packet went for the recorder let go of")
+        expectEqual(await asked(), 2, "the waking asked again, and its time was not what ended it")
     }
 
     /// A reservation's change, queued on the link's client behind a request out when the link lets go of its
