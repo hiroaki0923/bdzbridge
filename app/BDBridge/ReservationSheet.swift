@@ -80,7 +80,7 @@ struct ReservationSheet: View {
                 }
             }
             .disabled(sheet.asking != nil)
-            .navigationTitle(ReservationSheetState.title)
+            .navigationTitle(ReservationSheetState.sheetTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseButton().disabled(sheet.asking != nil) }
             .interactiveDismissDisabled(sheet.asking != nil)
@@ -155,7 +155,7 @@ struct ReservationSheet: View {
     @ViewBuilder
     private var televisionsValues: some View {
         @Bindable var sheet = sheet
-        if let quality = sheet.televisionsQuality {
+        if let quality = sheet.qualityLabel {
             LabeledContent(SheetWords.quality, value: quality)
         }
         let offered = sheet.televisionsRepeats

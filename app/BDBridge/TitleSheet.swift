@@ -29,7 +29,7 @@ struct TitleSheet: View {
                         LabeledContent(TitleSheetState.sizeLabel,
                                        value: Format.gigabytes(megabytes: size, on: current.device))
                     }
-                    if let quality = sheet.qualityShown {
+                    if let quality = sheet.qualityLabel {
                         LabeledContent(SheetWords.quality, value: quality)
                     }
                     if let disk = model.diskShown(current) { LabeledContent(SheetWords.disk, value: disk) }
@@ -102,7 +102,7 @@ struct TitleSheet: View {
             // The strip, as on the screens, rather than the waking alone: turning the recorder on to play
             // takes as long as waking it, and the strip is what says how long it has been.
             .recorderActivity(inSheet: true)
-            .navigationTitle(TitleSheetState.title)
+            .navigationTitle(TitleSheetState.sheetTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseButton().disabled(sheet.asking) }
             .interactiveDismissDisabled(sheet.asking)

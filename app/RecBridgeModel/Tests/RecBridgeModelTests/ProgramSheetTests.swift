@@ -261,7 +261,7 @@ final class ProgramSheetTests: XCTestCase {
                         SheetWords.recordingLine, SheetWords.deleteReservationLabel],
                        ["放送", "開始", "長さ", "ジャンル", "録画モード", "毎回録画", "録画先", "番組内容", "詳細", "録画中です",
                         "予約を削除"])
-        XCTAssertEqual([ProgramSheetState.title, ProgramSheetState.destination, ProgramSheetState.reserveHeading,
+        XCTAssertEqual([ProgramSheetState.sheetTitle, ProgramSheetState.destination, ProgramSheetState.reserveHeading,
                         ProgramSheetState.reserveLabel, ProgramSheetState.changeLabel, ProgramSheetState.sendAgainLabel,
                         ProgramSheetState.deleteWaitingLabel],
                        ["番組", "予約先", "録画予約", "録画予約する", "予約を変更する", "もう一度送る", "送信待ちの予約を削除"])
@@ -286,11 +286,11 @@ final class ProgramSheetTests: XCTestCase {
         var held = try XCTUnwrap(model.reservations.first, "the demo has no reservation")
         held.qualityCode = try XCTUnwrap(Codes.quality["DR"])
         held.repeatCode = try XCTUnwrap(Codes.repeatCodes["daily"])
-        XCTAssertEqual(ProgramSheetState.qualityShown(held), "DR")
+        XCTAssertEqual(ProgramSheetState.qualityName(held), "DR")
         XCTAssertEqual(SheetWords.repeatShown(held), "毎日")
         held.qualityCode = -1
         held.repeatCode = "知らない"
-        XCTAssertEqual(ProgramSheetState.qualityShown(held), "-")
+        XCTAssertEqual(ProgramSheetState.qualityName(held), "-")
         XCTAssertEqual(SheetWords.repeatShown(held), "しない")
 
         let request = ReservationRequest(title: "朝の番組", start: Date(), durationSec: 1800,

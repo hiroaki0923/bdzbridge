@@ -428,7 +428,7 @@ public final class ProgrammeSheetWindow: Sendable {
                 deleteHeld: sheet.holdsDeletingWaiting(row))
         }
         let recorders = sheet.reservation.map { held in
-            HeldReservation(heading: sheet.recordersHeading, quality: ProgramSheetState.qualityShown(held),
+            HeldReservation(heading: sheet.recordersHeading, quality: ProgramSheetState.qualityName(held),
                             repeating: SheetWords.repeatShown(held), disk: model.diskShown(held) ?? "",
                             recording: held.recording,
                             offersChanging: sheet.offersChanging(held), changeHeld: sheet.holdsTheRecordersButtons,
@@ -600,7 +600,7 @@ public final class ReservationSheetWindow: Sendable {
             starts: Format.dateTime.string(from: reservation.start), length: Format.duration(reservation.durationSec),
             waking: sheet.onTelevision ? "" : waking(model), onTelevision: sheet.onTelevision,
             settled: sheet.onTelevision ? televisions.isEmpty : sheet.settled,
-            qualityValue: sheet.onTelevision ? sheet.televisionsQuality ?? "" : sheet.qualityShown,
+            qualityValue: sheet.onTelevision ? sheet.qualityLabel ?? "" : sheet.qualityShown,
             repeatValue: SheetWords.repeatShown(reservation),
             qualities: sheet.onTelevision ? [] : labelled(RecorderDriver.recordsIn, SheetWords.qualityLabel),
             quality: sheet.quality,
@@ -770,7 +770,7 @@ public final class TitleSheetWindow: Sendable {
             recorded: Format.dateTime.string(from: current.start),
             length: current.lengthKnown ? Format.duration(current.durationSec) : "",
             size: current.sizeMB.map { Format.gigabytes(megabytes: $0, on: current.device) } ?? "",
-            quality: sheet.qualityShown ?? "",
+            quality: sheet.qualityLabel ?? "",
             disk: model.diskShown(current) ?? "", viewing: sheet.viewing, genre: current.genre?.label ?? "",
             offersPlayback: sheet.offersPlayback, playLabel: sheet.playLabel,
             playHeld: sheet.whyNotPlayed != nil || sheet.holdsPlayback, playbackHeld: sheet.holdsPlayback,

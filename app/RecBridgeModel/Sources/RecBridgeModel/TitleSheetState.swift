@@ -104,7 +104,7 @@ public final class TitleSheetState {
     /// The sheet's title, and the words only this sheet says: the labels of when it was recorded, of its size and of
     /// how far it was watched, the section that plays it with its buttons beside 再生, and the button that deletes it.
     /// What it says as the other sheets do is `SheetWords`.
-    public static let title = "録画"
+    public static let sheetTitle = "録画"
     public static let recordedLabel = "録画"
     public static let sizeLabel = "サイズ"
     public static let viewingLabel = "視聴状態"
@@ -116,7 +116,7 @@ public final class TitleSheetState {
 
     /// The recording's mode as a value, in the words a picker offers it in: nil where its code is none the tables
     /// know, and the row is left out.
-    public var qualityShown: String? { current.qualityName.map(SheetWords.qualityLabel) }
+    public var qualityLabel: String? { current.qualityName.map(SheetWords.qualityLabel) }
 
     // MARK: - the question or the report
 

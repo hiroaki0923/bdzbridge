@@ -236,7 +236,7 @@ public final class ProgramSheetState {
     /// The sheet's title, and the words only this sheet says: where a new reservation goes, the section that makes
     /// one and its button, the way to the reservation's own sheet, and the two buttons of a row that waits. What it
     /// says as the other sheets do is `SheetWords`.
-    public static let title = "番組"
+    public static let sheetTitle = "番組"
     public static let destination = "予約先"
     public static let reserveHeading = "録画予約"
     public static let reserveLabel = "録画予約する"
@@ -244,9 +244,10 @@ public final class ProgramSheetState {
     public static let sendAgainLabel = "もう一度送る"
     public static let deleteWaitingLabel = "送信待ちの予約を削除"
 
-    /// The mode of the recorder's reservation as its section says it: the mode's name, - where its code is none the
-    /// tables know.
-    public static func qualityShown(_ reservation: Reservation) -> String { reservation.qualityName ?? "-" }
+    /// The mode of the recorder's reservation as its section says it: by its name, and - where its code is none the
+    /// tables know. Not the words a picker offers it in, which the reservation's own sheet says
+    /// (`ReservationSheetState.qualityShown`).
+    public static func qualityName(_ reservation: Reservation) -> String { reservation.qualityName ?? "-" }
 
     /// The mode and the repeat a row that waits asks for, in the words they were offered in: - and しない where its
     /// codes are none the tables know.

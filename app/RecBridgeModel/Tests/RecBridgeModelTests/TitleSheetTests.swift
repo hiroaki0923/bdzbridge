@@ -125,7 +125,7 @@ final class TitleSheetTests: XCTestCase {
     /// The words the sheet has always said, byte for byte: those only it says. What it says as the other sheets do is
     /// held in `ProgramSheetTests` and `ReservationSheetTests`.
     func testTheSheetSaysTheWordsItHasAlwaysSaid() {
-        XCTAssertEqual([TitleSheetState.title, TitleSheetState.recordedLabel, TitleSheetState.sizeLabel,
+        XCTAssertEqual([TitleSheetState.sheetTitle, TitleSheetState.recordedLabel, TitleSheetState.sizeLabel,
                         TitleSheetState.viewingLabel, TitleSheetState.playbackHeading, TitleSheetState.pauseLabel,
                         TitleSheetState.stopLabel, TitleSheetState.powerLabel, TitleSheetState.deleteLabel],
                        ["録画", "録画", "サイズ", "視聴状態", "テレビで再生", "一時停止 / 再開", "停止",
@@ -139,8 +139,8 @@ final class TitleSheetTests: XCTestCase {
         var title = try XCTUnwrap(model.titles.first)
         title.id = "not listed"
         title.qualityCode = try XCTUnwrap(Codes.quality["SR"])
-        XCTAssertEqual(TitleSheetState(title: title, model: model).qualityShown, "SR(標準)")
+        XCTAssertEqual(TitleSheetState(title: title, model: model).qualityLabel, "SR(標準)")
         title.qualityCode = -1
-        XCTAssertNil(TitleSheetState(title: title, model: model).qualityShown, "a mode said for an unknown code")
+        XCTAssertNil(TitleSheetState(title: title, model: model).qualityLabel, "a mode said for an unknown code")
     }
 }

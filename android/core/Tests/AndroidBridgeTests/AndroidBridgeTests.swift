@@ -859,7 +859,7 @@ extension AndroidBridgeTests {
         XCTAssertTrue(reserved.recorders.offersChanging)
         XCTAssertNotEqual(reserved.offer, "recorder", "a programme the recorder holds is not offered again")
         let held = try XCTUnwrap(again.sheet.reservation)
-        XCTAssertEqual(reserved.recorders.quality, ProgramSheetState.qualityShown(held))
+        XCTAssertEqual(reserved.recorders.quality, ProgramSheetState.qualityName(held))
         XCTAssertEqual(reserved.recorders.repeating, SheetWords.repeatShown(held))
 
         // 予約を変更する opens the reservation's own sheet over this one.
@@ -1021,7 +1021,7 @@ extension AndroidBridgeTests {
                        [TitleSheetState.recordedLabel, TitleSheetState.sizeLabel, TitleSheetState.viewingLabel,
                         TitleSheetState.playbackHeading, TitleSheetState.pauseLabel, TitleSheetState.stopLabel,
                         TitleSheetState.powerLabel, TitleSheetState.deleteLabel])
-        XCTAssertEqual(opened.quality, sheet.sheet.qualityShown ?? "")
+        XCTAssertEqual(opened.quality, sheet.sheet.qualityLabel ?? "")
 
         await sheet.setProtected(true)
         let protected = await until(sheet.read) { $0.protected && !$0.asking }
