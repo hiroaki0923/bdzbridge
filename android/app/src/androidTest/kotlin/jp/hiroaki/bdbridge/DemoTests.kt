@@ -424,6 +424,8 @@ class DemoTests {
         compose.waitUntilAtLeastOneExists(hasText("この録画を削除"), 30_000)
         compose.onNodeWithText("テレビで再生").assertExists()
         compose.onNodeWithText("視聴状態").assertExists()
+        // The sheet has the strip of its own, without the demo's line the screen's strip under it says.
+        assertTrue(compose.onAllNodes(hasText("サンプルデータを表示しています")).fetchSemanticsNodes().size <= 1)
         InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.waitUntilDoesNotExist(hasText("この録画を削除"), 10_000)
     }
