@@ -258,12 +258,33 @@ extension Surroundings {
 /// writes itself out at each change, as the model makes it. Measured on the emulator: without it nothing was written,
 /// and a second start read nothing.
 final class WrittenDefaults: UserDefaults {
-    /// The app's, in `<files>/settings`.
+    /// The app's, in `<files>/settings`: one object for the file in the process, made the first time it is asked
+    /// for. The screens' model and an overnight run in the same process then read and write the same one, as the iOS
+    /// app's share the standard defaults; whether two objects over one file would see each other's changes on Android
+    /// has not been looked into, and with one the question does not arise.
     static func android(files: String) -> WrittenDefaults {
         let settings = URL(fileURLWithPath: files, isDirectory: true).appendingPathComponent("settings", isDirectory: true)
-        try? FileManager.default.createDirectory(at: settings, withIntermediateDirectories: true)
-        // A suite is refused only by the name of the global domain, which a path is not.
-        return WrittenDefaults(suiteName: settings.appendingPathComponent("recbridge").path)!
+        let suite = settings.appendingPathComponent("recbridge").path
+        return made.withLock { made in
+            if let kept = made[suite] { return kept }
+            try? FileManager.default.createDirectory(at: settings, withIntermediateDirectories: true)
+            // A suite is refused only by the name of the global domain, which a path is not.
+            let defaults = WrittenDefaults(suiteName: suite)!
+            made[suite] = defaults
+            return defaults
+        }
+    }
+
+    /// Each one made, by its suite's path.
+    private static let made = Made()
+
+    private final class Made: @unchecked Sendable {
+        private let lock = NSLock()
+        private var bySuite: [String: WrittenDefaults] = [:]
+
+        func withLock<T>(_ body: (inout [String: WrittenDefaults]) -> T) -> T {
+            lock.withLock { body(&bySuite) }
+        }
     }
 
     override func set(_ value: Any?, forKey defaultName: String) {
