@@ -691,6 +691,7 @@ data class GridBlock(
 data class Programme(
     val id: String, val serviceID: Long, val time: String, val length: String, val title: String, val station: String, val mark: String,
     val markIsRed: Boolean, val genre: String, val summary: String, val starts: Long, val ends: Long,
+    val dated: String,
 )
 
 /**
@@ -851,7 +852,7 @@ private fun Duplicates(it: jp.hiroaki.bdbridge.bridge.DuplicatesScreen) = it.get
 
 private fun Programme(row: jp.hiroaki.bdbridge.bridge.GuideRow) =
     Programme(row.id, row.serviceID, row.time, row.length, row.title, row.station, row.mark, row.isMarkIsRed, row.genre,
-              row.summary, row.starts, row.ends)
+              row.summary, row.starts, row.ends, row.dated)
 
 private fun ReservationItem(row: jp.hiroaki.bdbridge.bridge.ReservationRow) =
     ReservationItem(row.id, row.time, row.length, row.isRecording, row.isConflict, row.isByTheRecorder, row.title,

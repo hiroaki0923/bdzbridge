@@ -78,7 +78,7 @@ fun SearchScreen() {
     var recording by remember { mutableStateOf<RecordingItem?>(null) }
     if (!wide) {
         programme?.let { found ->
-            ProgrammeSheetView(found.row, starts = "${found.day} ${found.row.time}",
+            ProgrammeSheetView(found.row,
                                open = { RecBridge.openFoundProgramme(found.row.id) }) { programme = null }
         }
         reservation?.let { row ->
@@ -130,7 +130,7 @@ fun SearchScreen() {
                 // of its own scope have it.
                 programme?.let { found ->
                     key("programme-" + found.row.id) {
-                        ProgrammeSheetView(found.row, starts = "${found.day} ${found.row.time}",
+                        ProgrammeSheetView(found.row,
                                            open = { RecBridge.openFoundProgramme(found.row.id) }, inPane = true,
                                            listed = results && shown.scope == "guide" &&
                                                shown.programmes.any { it.row.id == found.row.id }) { programme = null }

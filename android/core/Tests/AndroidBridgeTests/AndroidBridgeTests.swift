@@ -259,6 +259,8 @@ final class AndroidBridgeTests: XCTestCase {
         let sheet = try XCTUnwrap(opening)
         let opened = await sheet.read()
         XCTAssertEqual(opened.title, hit.row.title)
+        XCTAssertEqual(opened.starts, hit.row.dated, "the row says what the sheet says, so nothing swaps")
+        XCTAssertTrue(hit.row.dated.contains("("), "a day, not the time alone")
         await sheet.closed()
 
         // The recordings: read as the scope is turned to, and narrowed by the words in the box.

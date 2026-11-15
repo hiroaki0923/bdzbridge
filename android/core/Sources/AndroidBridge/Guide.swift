@@ -69,6 +69,9 @@ public struct GuideRow: Sendable {
     public var summary: String
     public var starts: Int64
     public var ends: Int64
+    /// The date and time as a sheet says 開始 (`Format.dateTime`), so that a sheet opened from this row has it from
+    /// the first frame, as the iOS sheet always has.
+    public var dated: String
 }
 
 /// The day as the grid lays it out (`GuideGridDay`), and how finely it is drawn (`GuideGridScale`): what the iOS
@@ -355,6 +358,7 @@ public final class GuideWindow: Sendable {
         GuideRow(id: program.id, serviceID: Int64(program.serviceID), time: Format.time.string(from: program.start),
                  length: Format.duration(program.durationSec), title: program.title, station: program.serviceName,
                  mark: mark?.word ?? "", markIsRed: mark?.isRed ?? false, genre: program.genre?.label ?? "",
-                 summary: program.summary, starts: seconds(program.start), ends: seconds(program.end))
+                 summary: program.summary, starts: seconds(program.start), ends: seconds(program.end),
+                 dated: Format.dateTime.string(from: program.start))
     }
 }

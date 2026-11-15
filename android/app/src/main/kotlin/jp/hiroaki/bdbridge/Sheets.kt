@@ -171,7 +171,7 @@ internal fun AskDialog(asked: Asked, act: () -> Unit, closeAsked: () -> Unit, ac
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProgrammeSheetView(row: Programme, starts: String = row.time,
+fun ProgrammeSheetView(row: Programme,
                        open: suspend () -> RecBridge.ProgrammeSheetHandle? = { RecBridge.openProgramme(row.id) },
                        inPane: Boolean = false, listed: Boolean = true, close: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -192,7 +192,7 @@ fun ProgrammeSheetView(row: Programme, starts: String = row.time,
         // Not on the pane, under the strip that says it already.
         if (!inPane) sheet?.waking?.takeIf { it.isNotEmpty() }?.let { Working(it) }
         Value("放送", sheet?.station ?: row.station)
-        Value("開始", sheet?.starts ?: starts)
+        Value("開始", sheet?.starts ?: row.dated)
         Value("長さ", sheet?.length ?: row.length)
         (sheet?.genre ?: row.genre).takeIf { it.isNotEmpty() }?.let { Value("ジャンル", it) }
         if (sheet == null) {
