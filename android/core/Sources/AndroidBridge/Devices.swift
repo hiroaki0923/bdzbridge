@@ -11,13 +11,14 @@ public struct DevicesScreen: Sendable {
     public var welcomes: Bool
     /// The close button's words: あとで設定 while nothing is set up, 閉じる after.
     public var closeLabel: String
-    /// Whether the search holds its button with its spinner (`searching`), whether it is held at all (`searchHeld`), and
-    /// how far it has got (`searched` of `toSearch`, both 0 when none runs).
+    /// Whether the search holds its button with its spinner (`searching`), whether it is held at all (`searchHeld`),
+    /// and how far it has got (`searched` of `toSearch`, both 0 when none runs).
     public var searching: Bool
     public var searchHeld: Bool
     public var searched: Int64
     public var toSearch: Int64
-    /// What is said under the button while local network privacy stands in the way of what the reader wants, or nothing.
+    /// What is said under the button while local network privacy stands in the way of what the reader wants, or
+    /// nothing.
     public var permissionNotice: String
     /// What the search came to, `failed` in red, then the line and the causes the iOS app puts under it.
     public var outcome: String
@@ -55,7 +56,6 @@ public struct DevicesScreen: Sendable {
 /// What `Tutorial` says, for the screen to lay out beside its own three sentences.
 public struct TutorialText: Sendable {
     public var heading: String
-    public var reviewRow: String
     public var step1Title: String
     public var step1Detail: String
     public var step2Detail: String
@@ -66,7 +66,7 @@ public struct TutorialText: Sendable {
     public var demoFooter: String
 
     static let all = TutorialText(
-        heading: Tutorial.heading, reviewRow: Tutorial.reviewRow, step1Title: Tutorial.step1Title,
+        heading: Tutorial.heading, step1Title: Tutorial.step1Title,
         step1Detail: Tutorial.step1Detail, step2Detail: Tutorial.step2Detail, step3Title: Tutorial.step3Title,
         step4Title: Tutorial.step4Title, step4Detail: Tutorial.step4Detail, addressFooter: Tutorial.addressFooter,
         demoFooter: Tutorial.demoFooter)
@@ -152,9 +152,9 @@ public final class DevicesWindow: Sendable {
         await MainActor.run { opening.state.typing = true }
     }
 
-    /// What the reader typed into the address field: `seen` is the field's count (`hostSet`) the screen had taken when it
-    /// was typed. Typed over a value the model has replaced since, it is dropped, as the screen drops it for the model's
-    /// when the count moves.
+    /// What the reader typed into the address field: `seen` is the field's count (`hostSet`) the screen had taken when
+    /// it was typed. Typed over a value the model has replaced since, it is dropped, as the screen drops it for the
+    /// model's when the count moves.
     public func typeHost(_ text: String, seen: Int64) async {
         await MainActor.run { if seen == opening.hostSet { opening.state.typedHost = text } }
     }
@@ -162,13 +162,11 @@ public final class DevicesWindow: Sendable {
     /// このアドレスに接続, which goes by what was typed and so comes after the keystrokes before it. Answers once the
     /// field is written back, as the iOS button's task goes on by itself; nothing while the button is held.
     public func connectTyped() async {
-        let connecting = await MainActor.run { () -> Task<Void, Never>? in
+        await MainActor.run {
             let state = opening.state
-            var connecting: Task<Void, Never>?
-            opening.counting { connecting = pressed(!state.holdsConnect) { await state.connectTyped() } }
-            return connecting
+            guard !state.holdsConnect else { return }
+            opening.counting { state.connectTyped() }
         }
-        await connecting?.value
     }
 
     /// The screen has closed: a search under way ends with it, and the next opening starts clean.

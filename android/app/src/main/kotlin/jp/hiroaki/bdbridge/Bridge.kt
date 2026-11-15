@@ -247,7 +247,9 @@ object RecBridge {
         scope.launch { for (operation in operations) operation(windows().devices) }
     }
 
-    val devicesHostField = Field { text, seen -> devicesTyping.trySend { window -> call<Void> { window.typeHost(text, seen) } } }
+    val devicesHostField = Field { text, seen ->
+        devicesTyping.trySend { window -> call<Void> { window.typeHost(text, seen) } }
+    }
 
     fun afterTypingInDevices(operation: (DevicesWindow) -> CompletableFuture<*>) {
         devicesTyping.trySend { window -> call<Any?> { operation(window).thenApply { it } } }
@@ -616,7 +618,7 @@ data class Devices(
 
 /** The tutorial's words that name no device and no system question (the model's `Tutorial`). */
 data class TutorialText(
-    val heading: String, val reviewRow: String, val step1Title: String, val step1Detail: String, val step2Detail: String,
+    val heading: String, val step1Title: String, val step1Detail: String, val step2Detail: String,
     val step3Title: String, val step4Title: String, val step4Detail: String, val addressFooter: String,
     val demoFooter: String,
 )
@@ -849,7 +851,7 @@ private fun Devices(it: jp.hiroaki.bdbridge.bridge.DevicesScreen) = Devices(
     televisions(it.getTelevisions(arena)), it.isChoosing, it.isCanChoose, it.isTyping, it.typedHost, it.hostSet,
     it.addressNote, it.isAddressWarning, it.isConnectHeld, it.isDemoHeld, it.isDemo, it.isDone,
     it.getTutorial(arena).let { text ->
-        TutorialText(text.heading, text.reviewRow, text.step1Title, text.step1Detail, text.step2Detail, text.step3Title,
+        TutorialText(text.heading, text.step1Title, text.step1Detail, text.step2Detail, text.step3Title,
                      text.step4Title, text.step4Detail, text.addressFooter, text.demoFooter)
     },
 )
@@ -1017,7 +1019,7 @@ data class Settings(
     val causes: List<String>, val recorders: List<FoundRecorder>, val televisions: List<FoundTelevision>,
     val canChoose: Boolean, val guideSources: List<Labelled>, val guideSource: String, val guideSourceAlone: String,
     val helperProblem: String, val guide: List<Fact>, val refreshHeld: Boolean, val demo: Boolean,
-    val version: String, val busy: String, val problem: String, val phoneProblem: String,
+    val version: String, val tutorialRow: String, val busy: String, val problem: String, val phoneProblem: String,
 )
 
 /** The television's part of the settings (`TelevisionPart`): with one added, or the way to add one. */
@@ -1060,7 +1062,7 @@ private fun Settings(it: jp.hiroaki.bdbridge.bridge.SettingsScreen) = Settings(
     it.getRecorders(arena).map { found -> FoundRecorder(found.host, found.name, found.details, found.isInUse) },
     televisions(it.getTelevisions(arena)), it.isCanChoose, labelled(it.getGuideSources(arena)), it.guideSource,
     it.guideSourceAlone, it.helperProblem, facts(it.getGuide(arena)), it.isRefreshHeld, it.isDemo, it.version,
-    it.busy, it.problem, it.phoneProblem,
+    it.tutorialRow, it.busy, it.problem, it.phoneProblem,
 )
 
 data class Disclaimer(val title: String, val opening: String, val sections: List<Fact>, val link: String, val url: String)
