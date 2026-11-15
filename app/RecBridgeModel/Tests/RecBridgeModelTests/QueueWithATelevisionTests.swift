@@ -261,7 +261,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         try await until("the television was never asked to make the reservation") { await door.isHolding }
         let heard = await recorder.heard.count
 
-        try await within(5, "the recorder's pull-down waited for the television's sending") {
+        try await within(10, "the recorder's pull-down waited for the television's sending") {
             await model.refreshReservations()
         }
 

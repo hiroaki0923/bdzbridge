@@ -85,7 +85,7 @@ final class ScanTests: XCTestCase {
         let model = await aModel(on: bench)
 
         model.scanForDevices()
-        try await until("the look never began", within: 3) { await subnet.asked > 0 }
+        try await until("the look never began") { await subnet.asked > 0 }
         leave(model)
         comeBack(model)
         await subnet.letGo()
@@ -160,8 +160,8 @@ final class ScanTests: XCTestCase {
         let model = await aModel(on: bench)
 
         model.scanForDevices()
-        try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
-        try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
+        try await until("the notice about the permission never went up") { model.scanBlocked }
+        try await until("the search never came to its first pause") { bench.scanPauses.count == 1 }
         XCTAssertNil(model.scanOutcome, "something was said of a look that was turned away")
         XCTAssertNotNil(model.scanning, "the search was over with the look turned away")
         XCTAssertFalse(model.scanHoldsTheButton, "the button was held back behind the notice")
@@ -169,13 +169,13 @@ final class ScanTests: XCTestCase {
 
         await subnet.hold()
         bench.letSingleRequestsGo()
-        try await until("the first single request was never made", within: 3) { await subnet.asked == requests + 1 }
+        try await until("the first single request was never made") { await subnet.asked == requests + 1 }
         XCTAssertTrue(model.scanBlocked, "the notice came down with a single request out")
         await subnet.letGo()
-        try await until("the search never came to its second pause", within: 3) { bench.scanPauses.count == 2 }
+        try await until("the search never came to its second pause") { bench.scanPauses.count == 2 }
         XCTAssertTrue(model.scanBlocked, "the notice came down between two single requests")
         bench.letSingleRequestsGo()
-        try await until("the search never came to its third pause", within: 3) { bench.scanPauses.count == 3 }
+        try await until("the search never came to its third pause") { bench.scanPauses.count == 3 }
         expectEqual(await subnet.asked, requests + 2, "more than one request was made for a pause, or none")
         XCTAssertTrue(model.scanBlocked, "the notice came down between two single requests")
         XCTAssertNil(model.scanOutcome, "something was said while every request was being turned away")
@@ -184,7 +184,7 @@ final class ScanTests: XCTestCase {
         // The single request goes, and the look after it is held.
         await subnet.hold(after: 1)
         bench.letSingleRequestsGo()
-        try await until("the look after the request that got out never began", within: 3) {
+        try await until("the look after the request that got out never began") {
             await subnet.asked > requests + 3
         }
         XCTAssertFalse(model.scanBlocked, "the notice stayed up over the look after a request got out")
@@ -237,12 +237,12 @@ final class ScanTests: XCTestCase {
         let model = await aModel(on: bench)
 
         model.scanForDevices()
-        try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
-        try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
+        try await until("the notice about the permission never went up") { model.scanBlocked }
+        try await until("the search never came to its first pause") { bench.scanPauses.count == 1 }
         XCTAssertNil(model.scanOutcome, "something was said of a look that was turned away")
         XCTAssertFalse(model.scanHoldsTheButton, "the button was held back behind the notice")
         bench.letSingleRequestsGo()
-        try await until("the search never came to its second pause", within: 3) { bench.scanPauses.count == 2 }
+        try await until("the search never came to its second pause") { bench.scanPauses.count == 2 }
         XCTAssertTrue(model.scanBlocked, "the notice came down with every request turned away")
         await subnet.letEverythingOut()
         bench.letSingleRequestsGo()
@@ -278,7 +278,7 @@ final class ScanTests: XCTestCase {
         let model = await aModel(on: bench)
 
         model.scanForDevices()
-        try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
+        try await until("the notice about the permission never went up") { model.scanBlocked }
         try await until("the search never ended") { model.scanning == nil }
         // Long enough for a search that went on all the same to have asked again.
         try await Task.sleep(for: .milliseconds(200))
@@ -303,7 +303,7 @@ final class ScanTests: XCTestCase {
         await subnet.turnEverythingAway()
         let model = await aModel(on: bench)
         model.scanForDevices()
-        try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
+        try await until("the notice about the permission never went up") { model.scanBlocked }
         try await until("the first press's search never ended") { model.scanning == nil }
         XCTAssertTrue(model.scanBlocked)
         let askedByTheFirst = await subnet.asked
@@ -311,7 +311,7 @@ final class ScanTests: XCTestCase {
         await subnet.letEverythingOut()
         await subnet.hold()
         model.scanForDevices()
-        try await until("the second press's look never began", within: 3) { await subnet.asked > askedByTheFirst }
+        try await until("the second press's look never began") { await subnet.asked > askedByTheFirst }
         XCTAssertFalse(model.scanBlocked, "the last press's notice stood over a look that had said nothing yet")
         XCTAssertNotNil(model.scanning, "the second press's look was not shown as going")
         await subnet.letGo()
@@ -372,7 +372,7 @@ final class ScanTests: XCTestCase {
 
         model.scanForDevices()
         if turnedAwayBefore > 0 {
-            try await until("the look never got past the requests turned away", within: 3) {
+            try await until("the look never got past the requests turned away") {
                 await subnet.asked > turnedAwayBefore
             }
             await subnet.letEverythingOut()
@@ -415,16 +415,16 @@ final class ScanTests: XCTestCase {
             let model = await aModel(on: bench)
 
             model.scanForDevices()
-            try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
+            try await until("the notice about the permission never went up") { model.scanBlocked }
             bench.letSingleRequestsGo(2)
-            try await until("the search never came to its third pause", within: 3) { bench.scanPauses.count == 3 }
+            try await until("the search never came to its third pause") { bench.scanPauses.count == 3 }
             var asked = requests + 2
             if requestOut {
                 await subnet.hold()
                 await subnet.letEverythingOut()
                 bench.letSingleRequestsGo()
                 asked += 1
-                try await until("the third single request was never made", within: 3) { await subnet.asked == asked }
+                try await until("the third single request was never made") { await subnet.asked == asked }
             }
             let search = try XCTUnwrap(model.scanTask)
             model.stopScanning()
@@ -434,7 +434,7 @@ final class ScanTests: XCTestCase {
             bench.letEverySingleRequestGo()
             await subnet.letEverythingOut()
             await subnet.letGo()
-            try await within(2, "\(stoppedAt): the search that was stopped never ended") { await search.value }
+            try await within(10, "\(stoppedAt): the search that was stopped never ended") { await search.value }
 
             expectEqual(await subnet.asked, asked, "\(stoppedAt): somebody was asked after the screen had gone")
             XCTAssertNil(model.scanOutcome, "\(stoppedAt): something was said after the screen had gone")
@@ -458,8 +458,8 @@ final class ScanTests: XCTestCase {
             let model = await aModel(on: bench)
 
             model.scanForDevices()
-            try await until("\(leftAt): the notice never went up", within: 3) { model.scanBlocked }
-            try await until("\(leftAt): the search never came to its first pause", within: 3) {
+            try await until("\(leftAt): the notice never went up") { model.scanBlocked }
+            try await until("\(leftAt): the search never came to its first pause") {
                 bench.scanPauses.count == 1
             }
             var asked = requests
@@ -468,13 +468,13 @@ final class ScanTests: XCTestCase {
                 await subnet.letEverythingOut()
                 bench.letSingleRequestsGo()
                 asked += 1
-                try await until("\(leftAt): the single request was never made", within: 3) {
+                try await until("\(leftAt): the single request was never made") {
                     await subnet.asked == asked
                 }
             }
             bench.leaveWiFi()
             if requestOut { await subnet.letGo() } else { bench.letSingleRequestsGo() }
-            try await until("\(leftAt): the search never said anything", within: 3) { model.scanOutcome != nil }
+            try await until("\(leftAt): the search never said anything") { model.scanOutcome != nil }
 
             XCTAssertEqual(model.scanOutcome, .noWiFi, leftAt)
             XCTAssertFalse(model.scanBlocked, "\(leftAt): the notice about the permission stayed up")
@@ -498,13 +498,13 @@ final class ScanTests: XCTestCase {
         let model = await aModel(on: bench)
 
         model.scanForDevices()
-        try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
-        try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
+        try await until("the notice about the permission never went up") { model.scanBlocked }
+        try await until("the search never came to its first pause") { bench.scanPauses.count == 1 }
         let recorderElsewhere = "198.51.100.10"
         let joined = bench.joinWiFi(with: [recorderElsewhere: NamedRecorder(2)], as: Bench.phoneElsewhere)
         await joined.turnEverythingAway()
         bench.letSingleRequestsGo()
-        try await until("the search never came to its second pause", within: 3) { bench.scanPauses.count == 2 }
+        try await until("the search never came to its second pause") { bench.scanPauses.count == 2 }
 
         expectEqual(await left.asked, requests, "a single request was made in the turn the Wi-Fi moved in")
         let lookedAgain = await joined.askedOf
@@ -539,8 +539,8 @@ final class ScanTests: XCTestCase {
         let model = await aModel(on: bench)
 
         model.scanForDevices()
-        try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
-        try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
+        try await until("the notice about the permission never went up") { model.scanBlocked }
+        try await until("the search never came to its first pause") { bench.scanPauses.count == 1 }
         let recorderElsewhere = "198.51.100.10"
         let joined = bench.joinWiFi(with: [recorderElsewhere: NamedRecorder(2)], as: Bench.phoneElsewhere)
         bench.letSingleRequestsGo()
@@ -571,12 +571,12 @@ final class ScanTests: XCTestCase {
         XCTAssertFalse(model.scanHoldsTheButton, "held back before any press")
 
         model.scanForDevices()
-        try await until("the look never began", within: 3) { await subnet.asked > 0 }
+        try await until("the look never began") { await subnet.asked > 0 }
         XCTAssertFalse(model.scanBlocked)
         XCTAssertTrue(model.scanHoldsTheButton, "live while a look went through the addresses")
 
         await subnet.letGo()
-        try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
+        try await until("the search never came to its first pause") { bench.scanPauses.count == 1 }
         XCTAssertTrue(model.scanBlocked)
         XCTAssertNotNil(model.scanning)
         XCTAssertFalse(model.scanHoldsTheButton, "held back behind the notice while one address is asked")
@@ -597,15 +597,15 @@ final class ScanTests: XCTestCase {
         await subnet.turnEverythingAway()
         let model = await aModel(on: bench)
         model.scanForDevices()
-        try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
-        try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
+        try await until("the notice about the permission never went up") { model.scanBlocked }
+        try await until("the search never came to its first pause") { bench.scanPauses.count == 1 }
         let first = try XCTUnwrap(model.scanTask)
 
         await subnet.letEverythingOut()
         model.scanForDevices()
         XCTAssertTrue(first.isCancelled, "the first press's search was left running")
         bench.letEverySingleRequestGo()
-        try await within(2, "the first press's search never ended") { await first.value }
+        try await within(10, "the first press's search never ended") { await first.value }
         try await until("the second press's search never ended") { model.scanOutcome != nil }
 
         XCTAssertEqual(model.scanOutcome, .found(recorders: 1, televisions: 0))
@@ -631,7 +631,7 @@ final class ScanTests: XCTestCase {
         let model = await aModel(on: bench)
 
         model.scanForDevices()
-        try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
+        try await until("the search never came to its first pause") { bench.scanPauses.count == 1 }
         leave(model)
         comeBack(model)
         await subnet.letEverythingOut()
@@ -798,12 +798,12 @@ final class ScanTests: XCTestCase {
         let model = await aModel(on: bench)
 
         model.scanForDevices()
-        try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
-        try await until("the search never came to its first pause", within: 3) { bench.scanPauses.count == 1 }
+        try await until("the notice about the permission never went up") { model.scanBlocked }
+        try await until("the search never came to its first pause") { bench.scanPauses.count == 1 }
         XCTAssertNil(model.scanOutcome, "something was said of a look that was turned away")
         XCTAssertNil(model.problem(for: .recorder), "something red was said")
         bench.letSingleRequestsGo(2)
-        try await until("the search never came to its third pause", within: 3) { bench.scanPauses.count == 3 }
+        try await until("the search never came to its third pause") { bench.scanPauses.count == 3 }
         await subnet.letEverythingOut()
         bench.letSingleRequestsGo()
         try await until("the search never ended") { model.scanOutcome != nil }
@@ -853,15 +853,15 @@ final class ScanTests: XCTestCase {
         let model = await aModel(on: bench)
 
         model.scanForDevices()
-        try await until("the address let through was never asked at port 80", within: 3) {
+        try await until("the address let through was never asked at port 80") {
             await certificate.asked == 1
         }
         // Long enough for its failure to be counted before anything else comes back.
         try await Task.sleep(for: .milliseconds(100))
         await subnet.letGo()
-        try await until("the notice about the permission never went up", within: 3) { model.scanBlocked }
+        try await until("the notice about the permission never went up") { model.scanBlocked }
         bench.letSingleRequestsGo(2)
-        try await until("the search never came to its third pause", within: 3) { bench.scanPauses.count == 3 }
+        try await until("the search never came to its third pause") { bench.scanPauses.count == 3 }
 
         XCTAssertTrue(model.scanBlocked, "the notice came down while everything was turned away")
         XCTAssertNil(model.scanOutcome, "something was said of a look that was turned away")

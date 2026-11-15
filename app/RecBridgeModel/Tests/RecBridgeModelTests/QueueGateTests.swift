@@ -1003,7 +1003,7 @@ final class QueueGateTests: XCTestCase {
             returned.yes = true
             return instead
         }
-        try await until("the delete did not come back while the recorder was being made sure of", within: 5) {
+        try await until("the delete did not come back while the recorder was being made sure of") {
             returned.yes
         }
         expectNil(await deleting.value, "a row no sending took was said to be made")

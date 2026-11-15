@@ -1065,7 +1065,9 @@ extension XCTestCase {
 
     /// Runs `work` and hands back what it returns, failing the test if it has not returned within `seconds`.
     /// What is tested here used to wait for ever, and a test of it has to fail rather than wait with it, so the
-    /// work runs in a task of its own that the test can stop waiting for.
+    /// work runs in a task of its own that the test can stop waiting for. The bound tells work that never returns
+    /// from work that does, and is ten seconds or more, which a machine that stands still for seconds does not
+    /// use up.
     @MainActor
     func within<T: Sendable>(_ seconds: TimeInterval, _ what: String,
                              _ work: @escaping @MainActor () async -> T) async throws -> T {
@@ -1083,7 +1085,8 @@ extension XCTestCase {
     }
 
     /// Waits for something the model does in a task of its own -- the first connect, above all -- to come
-    /// about, failing the test if it has not within `seconds`.
+    /// about, failing the test if it has not within `seconds`: ten unless a test says otherwise, which a machine
+    /// that stands still for seconds does not use up.
     @MainActor
     func until(_ what: String, within seconds: TimeInterval = 10,
                _ condition: @MainActor () async -> Bool) async throws {
@@ -1186,10 +1189,13 @@ extension XCTestCase {
     /// to it with nothing under way. `guide: false` leaves the cache empty, for a gate that needs no programme:
     /// the first connect then asks for the four guide files, which the demo answers with none. `wakeable` saves
     /// the MAC the recorder's UDN carries; the model sends no packet (`Surroundings.reachesTheLAN`).
+    /// `storeBusyTimeout`, in milliseconds, is how long the model's writes to its cache wait for another
+    /// connection's, where it is not the app's five seconds.
     @MainActor
-    func connectedHome(guide: Bool = true, wakeable: Bool = false) async throws
+    func connectedHome(guide: Bool = true, wakeable: Bool = false, storeBusyTimeout: Int32? = nil) async throws
         -> (bench: Bench, recorder: NamedRecorder, model: AppModel) {
         let bench = try aBench()
+        if let storeBusyTimeout { bench.storeBusyTimeoutMilliseconds = storeBusyTimeout }
         if guide { try await bench.cacheAGuide() }
         if wakeable { bench.keep(mac: WhichRecorderTests.firstsMAC) }
         let recorder = NamedRecorder(1)

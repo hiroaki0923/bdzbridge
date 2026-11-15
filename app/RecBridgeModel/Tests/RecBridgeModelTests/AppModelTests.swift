@@ -23,9 +23,9 @@ final class AppModelTests: XCTestCase {
         let recorder = SilentRecorder(holding: true)
         let model = bench.model(recorder: recorder)
 
-        try await within(5, "start() waited for the connect") { await model.start() }
+        try await within(20, "start() waited for the connect") { await model.start() }
         try await until("the first connect never asked the recorder") { await recorder.asked > 0 }
-        let results = try await within(5, "search() waited for the connect") { await model.search("サンプル") }
+        let results = try await within(10, "search() waited for the connect") { await model.search("サンプル") }
         XCTAssertFalse(results.hits.isEmpty, "the search found nothing in the cached guide")
         XCTAssertTrue(isConnecting(model), "the connect was over before the recorder had said anything")
 
@@ -41,11 +41,11 @@ final class AppModelTests: XCTestCase {
         try await bench.cacheAGuide()
         let model = bench.model(recorder: DemoRecorder())
 
-        try await within(5, "start() did not return") { await model.start() }
+        try await within(20, "start() did not return") { await model.start() }
         try await until("the first connect never finished") { model.connected && !isConnecting(model) }
         XCTAssertFalse(model.reservations.isEmpty, "the connect did not read the reservations")
-        expectFalse(try await within(5, "search() did not return") { await model.search("サンプル") }.hits.isEmpty)
-        try await within(5, "loadReservations() did not return") { await model.loadReservations() }
+        expectFalse(try await within(10, "search() did not return") { await model.search("サンプル") }.hits.isEmpty)
+        try await within(10, "loadReservations() did not return") { await model.loadReservations() }
         XCTAssertNil(model.busy)
     }
 

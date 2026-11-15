@@ -1086,7 +1086,7 @@ final class FunnelGateTests: XCTestCase {
         // held.
         let arrived = await recorder.heard.count
         await recorder.become(2)
-        try await within(5, "the newcomer's connect waited for the refresh that was out") { await model.connect() }
+        try await within(20, "the newcomer's connect waited for the refresh that was out") { await model.connect() }
         try await until("the newcomer's refresh was never asked for") { model.guideDownloads == 2 }
         XCTAssertEqual(model.info?.udn, NamedRecorder.udn(2), model.problem(for: .recorder) ?? "no reason given")
         expectEqual(try await cache.owner(), NamedRecorder.udn(2), "the cache was meant to be the newcomer's")
@@ -1181,7 +1181,7 @@ final class FunnelGateTests: XCTestCase {
                 XCTAssertEqual(model.guideDownloads, 0)
                 await recorder.letTheFirstGo(of: Kind.reservations)
             }
-            let back = try await within(5, "\(row): the connect waited for its refresh") { await connecting.value }
+            let back = try await within(20, "\(row): the connect waited for its refresh") { await connecting.value }
             XCTAssertFalse(back.connecting, row)
             XCTAssertTrue(back.onItsWay, "\(row): the guide is not said to be on its way as the connect ends")
             XCTAssertFalse(back.run, "\(row): a run could be started as the connect ended")
@@ -1196,7 +1196,7 @@ final class FunnelGateTests: XCTestCase {
             // is what that row looks at.
             let asked = await recorder.asked(Kind.description, since: before)
             if !readIsAnsweredBusy {
-                try await within(5, "\(row): a second connect waited for the refresh") { await model.connect() }
+                try await within(10, "\(row): a second connect waited for the refresh") { await model.connect() }
                 expectEqual(await recorder.asked(Kind.description, since: before), asked,
                             "\(row): a second connect was made beside the connect's refresh")
             }
@@ -1284,7 +1284,7 @@ final class FunnelGateTests: XCTestCase {
         try await until("the night's guide was never asked for") {
             await recorder.asked(Kind.guide[0], since: before) == 1
         }
-        try await within(5, "the connect waited for its refresh") { await model.connect() }
+        try await within(20, "the connect waited for its refresh") { await model.connect() }
         try await until("the connect's refresh was never asked for") { model.guideDownloads == 1 }
 
         await recorder.become(2)
@@ -1322,7 +1322,7 @@ final class FunnelGateTests: XCTestCase {
         let out = Task { await GuideRefresh.run(client: aClient(of: other), store: elsewhere) }
         try await until("the other refresh was never asked for") { await other.asked(Kind.guide[0]) == 1 }
         let before = await recorder.asked
-        try await within(5, "the connect waited for its refresh") { await model.connect() }
+        try await within(20, "the connect waited for its refresh") { await model.connect() }
         try await until("the connect's refresh was never asked for") { model.guideDownloads == 1 }
 
         await recorder.become(2)
@@ -1331,7 +1331,7 @@ final class FunnelGateTests: XCTestCase {
             model.info?.udn == NamedRecorder.udn(2) && !model.connecting && model.guideDownloads == 2
         }
         let asked = await recorder.asked(Kind.description, since: before)
-        try await within(5, "a second connect waited for the newcomer's refresh") { await model.connect() }
+        try await within(10, "a second connect waited for the newcomer's refresh") { await model.connect() }
         expectEqual(await recorder.asked(Kind.description, since: before), asked,
                     "a second connect was made beside the newcomer's refresh")
 

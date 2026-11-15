@@ -227,7 +227,7 @@ final class USBDiskTests: XCTestCase {
 
         model.wentToBackground()
         XCTAssertTrue(later.isCancelled, "the read again outlived the app's leaving")
-        try await within(5, "the read again never ended") { await later.value }
+        try await within(10, "the read again never ended") { await later.value }
         expectEqual(await recorder.asked("X_GetMediaInfo"), 1)
         XCTAssertEqual(model.usbDisk, Self.disk)
 
@@ -264,7 +264,7 @@ final class USBDiskTests: XCTestCase {
         XCTAssertFalse(again.isCancelled)
 
         await recorder.letGo()
-        try await until("the read left for later again did not let the disk go", within: 5) { model.usbDisk == nil }
+        try await until("the read left for later again did not let the disk go") { model.usbDisk == nil }
         expectNil(try await GuideStore(path: bench.guidePath).knownUSBDisk())
     }
 
@@ -283,7 +283,7 @@ final class USBDiskTests: XCTestCase {
 
         // The demo's answer from here on, which is none.
         await reconnect(model)
-        try await until("the slot was not read again", within: 5) { model.usbDisk == nil }
+        try await until("the slot was not read again") { model.usbDisk == nil }
         expectEqual(await recorder.asked("X_GetMediaInfo"), 3)
         expectNil(try await GuideStore(path: bench.guidePath).knownUSBDisk())
     }

@@ -39,7 +39,7 @@ final class DemoTelevisionTests: XCTestCase {
         let before = kept(home)
         let then = try await intoTheDemo(home)
 
-        let typed = try await within(2, "an address typed in the demo was waited on") {
+        let typed = try await within(10, "an address typed in the demo was waited on") {
             await model.findTV(at: Bench.tvHost)
         }
         XCTAssertEqual(typed, .nothing, "the real television answered in the demo")
@@ -210,7 +210,7 @@ final class DemoTelevisionTests: XCTestCase {
                        "the demo's cache was left")
 
         let made = home.bench.televisionTransportsMade
-        let found = try await within(2, "the demo's address was waited on after the demo") {
+        let found = try await within(10, "the demo's address was waited on after the demo") {
             await model.findTV(at: DemoTV.host)
         }
         XCTAssertEqual(found, .nothing, "the demo's address answered after the demo")

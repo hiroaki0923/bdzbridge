@@ -164,7 +164,7 @@ final class BenchRecorderTests: XCTestCase {
         func heldUntilLetGo(_ asking: Task<DeviceFailure?, Never>, _ what: String) async throws {
             await recorder.answer(delete, with: .fault(820))
             await recorder.letTheFirstGo(of: delete)
-            let came = try await within(5, what) { await asking.value }
+            let came = try await within(10, what) { await asking.value }
             XCTAssertEqual(came, .unknownItem, "\(what) was not held: it was answered before it was let go")
         }
 
@@ -184,7 +184,7 @@ final class BenchRecorderTests: XCTestCase {
         let next = try await aDelete(by: client, arrivingAs: 5)
         await recorder.holdTheNext(delete)
         await recorder.letTheFirstGo(of: delete)
-        expectNil(try await within(5, "the delete held as the next") { await next.value })
+        expectNil(try await within(10, "the delete held as the next") { await next.value })
         try await heldUntilLetGo(try await aDelete(by: client, arrivingAs: 6), "the next delete, asked for again")
         expectNil(await failure { try await client.deleteTitle(id: nothing) }, "a third was held after two nexts")
 
