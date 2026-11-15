@@ -32,6 +32,10 @@ extension AppModel {
         return rows
     }
 
+    /// What a sheet says at its top while the recorder is being woken, or its USB slot waited for before something
+    /// that names it is sent: the line of what is under way (`busy`). Nil at any other time.
+    public var wakingLine: String? { waking || settlingTheSlot ? busy : nil }
+
     /// What is about to go, and how much of the disk it gives back. Said in full because there is no undo.
     public static func deleteMessage(_ title: RecordedTitle) -> String {
         var lines = [title.title, Format.dateTime.string(from: title.start)]

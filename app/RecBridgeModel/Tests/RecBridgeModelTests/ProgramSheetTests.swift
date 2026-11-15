@@ -250,4 +250,93 @@ final class ProgramSheetTests: XCTestCase {
         after.televisionsListsLetGo()
         XCTAssertEqual(shown(after), "nothing", "a reservation of a television let go of stayed picked")
     }
+
+    // MARK: - what the sheet says
+
+    /// The words the sheet has always said, byte for byte: those it says as the other sheets do (`SheetWords`), and
+    /// its own.
+    func testTheSheetSaysTheWordsItHasAlwaysSaid() {
+        XCTAssertEqual([SheetWords.station, SheetWords.starts, SheetWords.length, SheetWords.genre, SheetWords.quality,
+                        SheetWords.repeating, SheetWords.disk, SheetWords.summaryHeading, SheetWords.detailsHeading,
+                        SheetWords.recordingLine, SheetWords.deleteReservationLabel],
+                       ["放送", "開始", "長さ", "ジャンル", "録画モード", "毎回録画", "録画先", "番組内容", "詳細", "録画中です",
+                        "予約を削除"])
+        XCTAssertEqual([ProgramSheetState.title, ProgramSheetState.destination, ProgramSheetState.reserveHeading,
+                        ProgramSheetState.reserveLabel, ProgramSheetState.changeLabel, ProgramSheetState.sendAgainLabel,
+                        ProgramSheetState.deleteWaitingLabel],
+                       ["番組", "予約先", "録画予約", "録画予約する", "予約を変更する", "もう一度送る", "送信待ちの予約を削除"])
+    }
+
+    /// The modes and the repeats offered are said in the tables' words, and by their names where the tables have
+    /// none; the television's one mode in its words.
+    func testTheModesAndTheRepeatsOfferedAreSaidInTheTablesWords() {
+        XCTAssertEqual(RecorderDriver.recordsIn.map(SheetWords.qualityLabel),
+                       ["DR(高画質)", "XR", "XSR", "SR(標準)", "LSR", "LR", "ER", "EER(長時間)"])
+        XCTAssertEqual(SheetWords.qualityLabel("知らない画質"), "知らない画質")
+        XCTAssertEqual(["none", "title", "daily", "mon"].map(SheetWords.repeatLabel), ["しない", "番組名", "毎日", "毎週(月)"])
+        XCTAssertEqual(SheetWords.repeatLabel("知らない繰り返し"), "知らない繰り返し")
+        XCTAssertEqual(ProgramSheetState.televisionsQuality, "DR(高画質)")
+    }
+
+    /// The recorder's reservation says its mode by the mode's name, and - where its code is none the tables know; its
+    /// repeat in the tables' words, and しない where its code is none they know. A row that waits says both in the
+    /// words they were offered in, with the same two fallbacks.
+    func testTheRowsSayTheModeAndTheRepeatAsTheyAlwaysHave() async throws {
+        let (_, model) = try await connected()
+        var held = try XCTUnwrap(model.reservations.first, "the demo has no reservation")
+        held.qualityCode = try XCTUnwrap(Codes.quality["DR"])
+        held.repeatCode = try XCTUnwrap(Codes.repeatCodes["daily"])
+        XCTAssertEqual(ProgramSheetState.qualityShown(held), "DR")
+        XCTAssertEqual(SheetWords.repeatShown(held), "毎日")
+        held.qualityCode = -1
+        held.repeatCode = "知らない"
+        XCTAssertEqual(ProgramSheetState.qualityShown(held), "-")
+        XCTAssertEqual(SheetWords.repeatShown(held), "しない")
+
+        let request = ReservationRequest(title: "朝の番組", start: Date(), durationSec: 1800,
+                                         repeatCode: try XCTUnwrap(Codes.repeatCodes["mon"]), broadcastingType: 0,
+                                         serviceID: 1, qualityCode: try XCTUnwrap(Codes.quality["SR"]))
+        var waiting = PendingReservation(request: request, serviceName: "サンプルテレビ")
+        XCTAssertEqual(ProgramSheetState.qualityShown(waiting), "SR(標準)")
+        XCTAssertEqual(ProgramSheetState.repeatShown(waiting), "毎週(月)")
+        waiting.request.qualityCode = -1
+        waiting.request.repeatCode = "知らない"
+        XCTAssertEqual(ProgramSheetState.qualityShown(waiting), "-")
+        XCTAssertEqual(ProgramSheetState.repeatShown(waiting), "しない")
+    }
+
+    /// Once the recorder has answered, the row of the clashes says that no reservation shares the hours, or how many
+    /// do.
+    func testTheClashesRowSaysThatNoneShareTheHoursOrHowManyDo() async throws {
+        let (_, model) = try await connected()
+        let two = Array(model.reservations.prefix(2))
+        XCTAssertEqual(two.count, 2, "the demo has fewer than two reservations")
+        XCTAssertEqual(ProgramSheetState.conflictsLine([]), "時間が重なる予約はありません")
+        XCTAssertEqual(ProgramSheetState.conflictsLine(two), "時間が重なる予約が 2 件あります")
+    }
+
+    /// What a sheet says at its top: the line of what is under way while the recorder is being woken, and nothing
+    /// while the recorder is awake, whether or not something is under way with it. The line while the USB slot is
+    /// waited for is held in `USBDiskChoiceTests`.
+    func testTheWakingLineIsSaidWhileTheRecorderIsWokenAndAtNoOtherTime() async throws {
+        let (_, recorder, model) = try await connectedHome(guide: false, wakeable: true)
+        addTeardownBlock { await recorder.letGo() }
+        XCTAssertNil(model.wakingLine, "a line said with the recorder awake")
+
+        await recorder.hold(only: "X_GetTitleList")
+        let reading = Task { await model.loadTitles(force: true) }
+        try await until("the recorder was never busy") { model.busy != nil }
+        XCTAssertFalse(model.waking)
+        XCTAssertNil(model.wakingLine, "a line said for work with the recorder awake")
+        await recorder.letGo()
+        await reading.value
+
+        await recorder.goQuiet(for: 2)
+        let connecting = Task { await model.connect() }
+        try await until("the recorder was never woken") { model.waking }
+        let busy = try XCTUnwrap(model.busy, "nothing under way while the recorder was woken")
+        XCTAssertEqual(model.wakingLine, busy)
+        await connecting.value
+        try await untilConnected(model, "the recorder woken never came back")
+    }
 }

@@ -186,35 +186,36 @@ fun ProgrammeSheetView(row: Programme,
     val held = sheet?.held ?: false
     // Up over it, the reservation's own sheet counts as its own: it may have a request out.
     val gone = (missing || !listed) && !held && sheet?.asked == null && editing == null
+    val words = RecBridge.sheetWords
 
     SheetOrPane(inPane, held, done = sheet?.done ?: false, gone = gone, close = close) {
         Title(sheet?.title ?: row.title)
         // Not on the pane, under the strip that says it already.
         if (!inPane) sheet?.waking?.takeIf { it.isNotEmpty() }?.let { Working(it) }
-        Value("放送", sheet?.station ?: row.station)
-        Value("開始", sheet?.starts ?: row.dated)
-        Value("長さ", sheet?.length ?: row.length)
-        (sheet?.genre ?: row.genre).takeIf { it.isNotEmpty() }?.let { Value("ジャンル", it) }
+        Value(words.station, sheet?.station ?: row.station)
+        Value(words.starts, sheet?.starts ?: row.dated)
+        Value(words.length, sheet?.length ?: row.length)
+        (sheet?.genre ?: row.genre).takeIf { it.isNotEmpty() }?.let { Value(words.genre, it) }
         if (sheet == null) {
             Working("")
         } else {
             sheet.recorders?.let { held ->
-                HeldSection(held, enabled = free, change = { editing = "recorder" }, delete = { act { delete("recorder") } })
+                HeldSection(held, sheet, enabled = free, change = { editing = "recorder" }, delete = { act { delete("recorder") } })
             }
             sheet.televisions?.let { held ->
-                HeldSection(held, enabled = free, change = { editing = "tv" }, delete = { act { delete("tv") } })
+                HeldSection(held, sheet, enabled = free, change = { editing = "tv" }, delete = { act { delete("tv") } })
             }
             sheet.waitingForTheRecorder?.let { waiting ->
-                WaitingSection(waiting, free, sendAgain = { act { sendAgain("recorder") } }, delete = { act { deleteWaiting("recorder") } })
+                WaitingSection(waiting, sheet, free, sendAgain = { act { sendAgain("recorder") } }, delete = { act { deleteWaiting("recorder") } })
             }
             sheet.waitingForTheTelevision?.let { waiting ->
-                WaitingSection(waiting, free, sendAgain = { act { sendAgain("tv") } }, delete = { act { deleteWaiting("tv") } })
+                WaitingSection(waiting, sheet, free, sendAgain = { act { sendAgain("tv") } }, delete = { act { deleteWaiting("tv") } })
             }
             if (sheet.asking.isNotEmpty()) Working(sheet.asking)
             if (sheet.offer.isNotEmpty()) Offer(sheet, free, act)
         }
-        (sheet?.summary ?: row.summary).takeIf { it.isNotEmpty() }?.let { Part("番組内容", it) }
-        sheet?.extended?.takeIf { it.isNotEmpty() }?.let { Part("詳細", it) }
+        (sheet?.summary ?: row.summary).takeIf { it.isNotEmpty() }?.let { Part(words.summaryHeading, it) }
+        sheet?.extended?.takeIf { it.isNotEmpty() }?.let { Part(words.detailsHeading, it) }
         sheet?.problem?.takeIf { it.isNotEmpty() }?.let { Problem(it) }
     }
     sheet?.asked?.let { asked -> AskDialog(asked, act = { act { act(asked.key) } }, closeAsked = { act { closeAsked(asked.key) } }) }
@@ -233,9 +234,10 @@ fun ProgrammeSheetView(row: Programme,
 @Composable
 private fun Offer(sheet: ProgrammeSheetScreen, free: Boolean,
                   act: (suspend RecBridge.ProgrammeSheetHandle.() -> Unit) -> Unit) {
-    SectionHeading("録画予約")
+    val words = RecBridge.sheetWords
+    SectionHeading(sheet.reserveHeading)
     if (sheet.destinations.isNotEmpty()) {
-        ListItem(headlineContent = { Text("予約先") }, colors = clear(), trailingContent = {
+        ListItem(headlineContent = { Text(sheet.destinationLabel) }, colors = clear(), trailingContent = {
             SingleChoiceSegmentedButtonRow {
                 sheet.destinations.forEachIndexed { index, choice ->
                     SegmentedButton(selected = sheet.device == choice.code, enabled = free,
@@ -245,16 +247,16 @@ private fun Offer(sheet: ProgrammeSheetScreen, free: Boolean,
             }
         })
     } else if (sheet.destinationAlone.isNotEmpty()) {
-        Value("予約先", sheet.destinationAlone)
+        Value(sheet.destinationLabel, sheet.destinationAlone)
     }
-    if (sheet.disks.isNotEmpty()) Pick("録画先", sheet.disks, sheet.disk, free) { act { chooseDisk(it) } }
-    else if (sheet.diskAlone.isNotEmpty()) Value("録画先", sheet.diskAlone)
-    if (sheet.qualities.isNotEmpty()) Pick("録画モード", sheet.qualities, sheet.quality, free) { act { chooseQuality(it) } }
-    else Value("録画モード", sheet.qualityAlone)
-    Pick("毎回録画", sheet.repeats, sheet.repeating, free) { act { chooseRepeat(it) } }
+    if (sheet.disks.isNotEmpty()) Pick(words.disk, sheet.disks, sheet.disk, free) { act { chooseDisk(it) } }
+    else if (sheet.diskAlone.isNotEmpty()) Value(words.disk, sheet.diskAlone)
+    if (sheet.qualities.isNotEmpty()) Pick(words.quality, sheet.qualities, sheet.quality, free) { act { chooseQuality(it) } }
+    else Value(words.quality, sheet.qualityAlone)
+    Pick(words.repeating, sheet.repeats, sheet.repeating, free) { act { chooseRepeat(it) } }
     if (sheet.offer == "recorder") Clashes(sheet)
     Button(onClick = { act { reserve() } }, enabled = free && !sheet.reserveHeld,
-           modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) { Text("録画予約する") }
+           modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) { Text(sheet.reserveLabel) }
 }
 
 /** What the recorder answers when asked what the reservation would clash with. */
@@ -276,34 +278,41 @@ private fun Clashes(sheet: ProgrammeSheetScreen) {
     }
 }
 
-/** A device's reservation of the programme, with the way to change it and to delete it. */
+/** A device's reservation of the programme, with the way to change it and to delete it, in the sheet's words. */
 @Composable
-private fun HeldSection(held: HeldReservation, enabled: Boolean, change: () -> Unit, delete: () -> Unit) {
+private fun HeldSection(held: HeldReservation, sheet: ProgrammeSheetScreen, enabled: Boolean, change: () -> Unit,
+                        delete: () -> Unit) {
+    val words = RecBridge.sheetWords
     SectionHeading(held.heading)
-    if (held.quality.isNotEmpty()) Value("録画モード", held.quality)
-    Value("毎回録画", held.repeating)
-    if (held.disk.isNotEmpty()) Value("録画先", held.disk)
-    if (held.recording) Problem("録画中です")
+    if (held.quality.isNotEmpty()) Value(words.quality, held.quality)
+    Value(words.repeating, held.repeating)
+    if (held.disk.isNotEmpty()) Value(words.disk, held.disk)
+    if (held.recording) Problem(words.recordingLine)
     Row(Modifier.padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (held.offersChanging) OutlinedButton(onClick = change, enabled = enabled && !held.changeHeld) { Text("予約を変更する") }
-        Destructive("予約を削除", enabled && !held.deleteHeld, delete)
+        if (held.offersChanging) OutlinedButton(onClick = change, enabled = enabled && !held.changeHeld) { Text(sheet.changeLabel) }
+        Destructive(words.deleteReservationLabel, enabled && !held.deleteHeld, delete)
     }
     if (held.problem.isNotEmpty()) Problem(held.problem)
 }
 
-/** A reservation waiting on this device: what was asked for, and what the device said if it refused it. */
+/**
+ * A reservation waiting on this device: what was asked for, and what the device said if it refused it, in the sheet's
+ * words.
+ */
 @Composable
-private fun WaitingSection(waiting: WaitingReservation, enabled: Boolean, sendAgain: () -> Unit, delete: () -> Unit) {
+private fun WaitingSection(waiting: WaitingReservation, sheet: ProgrammeSheetScreen, enabled: Boolean,
+                           sendAgain: () -> Unit, delete: () -> Unit) {
+    val words = RecBridge.sheetWords
     SectionHeading(waiting.heading)
-    Value("録画モード", waiting.quality)
-    Value("毎回録画", waiting.repeating)
-    if (waiting.disk.isNotEmpty()) Value("録画先", waiting.disk)
+    Value(words.quality, waiting.quality)
+    Value(words.repeating, waiting.repeating)
+    if (waiting.disk.isNotEmpty()) Value(words.disk, waiting.disk)
     if (waiting.problem.isNotEmpty()) Problem(waiting.problem) else Footnote(waiting.notYet, Modifier.padding(horizontal = 24.dp))
     Row(Modifier.padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (waiting.problem.isNotEmpty()) {
-            OutlinedButton(onClick = sendAgain, enabled = enabled && !waiting.sendAgainHeld) { Text("もう一度送る") }
+            OutlinedButton(onClick = sendAgain, enabled = enabled && !waiting.sendAgainHeld) { Text(sheet.sendAgainLabel) }
         }
-        Destructive("送信待ちの予約を削除", enabled && !waiting.deleteHeld, delete)
+        Destructive(sheet.deleteWaitingLabel, enabled && !waiting.deleteHeld, delete)
     }
 }
 

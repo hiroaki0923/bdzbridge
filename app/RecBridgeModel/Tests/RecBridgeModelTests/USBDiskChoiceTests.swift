@@ -190,6 +190,7 @@ final class USBDiskChoiceTests: XCTestCase {
         try await until("the slot was not waited for") { await recorder.asked("X_GetMediaInfo", since: before) == 1 }
         XCTAssertEqual(model.busy, Self.waitingForTheSlot)
         XCTAssertTrue(model.settlingTheSlot, "the sheet would not say the wait")
+        XCTAssertEqual(model.wakingLine, Self.waitingForTheSlot, "the sheet would not say the wait")
         XCTAssertTrue(model.working, "the sheet's buttons were left alive while the slot was waited for")
         await recorder.letGo()
         let made = await reserving.value

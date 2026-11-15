@@ -225,6 +225,42 @@ public final class ProgramSheetState {
     public static let checkingLine = "時間が重なる予約を確認中"
     public static func clashes(_ count: Int) -> String { "時間が重なる予約が \(count) 件あります" }
 
+    /// What the row of the clashes says once the recorder has answered: that no reservation shares the hours, or how
+    /// many do.
+    public static func conflictsLine(_ conflicts: [Reservation]) -> String {
+        conflicts.isEmpty ? RecorderDriver.noClashes : clashes(conflicts.count)
+    }
+
+    // MARK: - the sheet's words
+
+    /// The sheet's title, and the words only this sheet says: where a new reservation goes, the section that makes
+    /// one and its button, the way to the reservation's own sheet, and the two buttons of a row that waits. What it
+    /// says as the other sheets do is `SheetWords`.
+    public static let title = "番組"
+    public static let destination = "予約先"
+    public static let reserveHeading = "録画予約"
+    public static let reserveLabel = "録画予約する"
+    public static let changeLabel = "予約を変更する"
+    public static let sendAgainLabel = "もう一度送る"
+    public static let deleteWaitingLabel = "送信待ちの予約を削除"
+
+    /// The mode of the recorder's reservation as its section says it: the mode's name, - where its code is none the
+    /// tables know.
+    public static func qualityShown(_ reservation: Reservation) -> String { reservation.qualityName ?? "-" }
+
+    /// The mode and the repeat a row that waits asks for, in the words they were offered in: - and しない where its
+    /// codes are none the tables know.
+    public static func qualityShown(_ waiting: PendingReservation) -> String {
+        Codes.quality(code: waiting.request.qualityCode).map(SheetWords.qualityLabel) ?? "-"
+    }
+
+    public static func repeatShown(_ waiting: PendingReservation) -> String {
+        Codes.repeatLabel[Codes.repeatName(code: waiting.request.repeatCode) ?? ""] ?? "しない"
+    }
+
+    /// The one mode a television records in, as 録画予約 for it says it.
+    public static var televisionsQuality: String { SheetWords.qualityLabel(TVDriver.recordsIn) }
+
     // MARK: - the question or the answer
 
     /// 削除 throughout, as in the rest of the app, and not 取り消す beside the question's own キャンセル.

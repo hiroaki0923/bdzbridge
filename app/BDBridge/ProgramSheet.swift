@@ -24,26 +24,25 @@ struct ProgramSheet: View {
                 WakingSection()
                 Section {
                     Text(program.title).font(.headline)
-                    LabeledContent("放送", value: program.serviceName)
-                    LabeledContent("開始", value: Format.dateTime.string(from: program.start))
-                    LabeledContent("長さ", value: Format.duration(program.durationSec))
+                    LabeledContent(SheetWords.station, value: program.serviceName)
+                    LabeledContent(SheetWords.starts, value: Format.dateTime.string(from: program.start))
+                    LabeledContent(SheetWords.length, value: Format.duration(program.durationSec))
                     if let genre = program.genre?.label {
-                        LabeledContent("ジャンル", value: genre)
+                        LabeledContent(SheetWords.genre, value: genre)
                     }
                 }
 
                 if let reservation = sheet.reservation {
                     Section(sheet.recordersHeading) {
-                        LabeledContent("録画モード", value: reservation.qualityName ?? "-")
-                        LabeledContent("毎回録画",
-                                       value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
-                        if let shown = model.diskShown(reservation) { LabeledContent("録画先", value: shown) }
-                        if reservation.recording { Text("録画中です").foregroundStyle(.red) }
+                        LabeledContent(SheetWords.quality, value: ProgramSheetState.qualityShown(reservation))
+                        LabeledContent(SheetWords.repeating, value: SheetWords.repeatShown(reservation))
+                        if let shown = model.diskShown(reservation) { LabeledContent(SheetWords.disk, value: shown) }
+                        if reservation.recording { Text(SheetWords.recordingLine).foregroundStyle(.red) }
                         if sheet.offersChanging(reservation) {
-                            Button("予約を変更する") { sheet.change(reservation) }
+                            Button(ProgramSheetState.changeLabel) { sheet.change(reservation) }
                                 .disabled(sheet.holdsTheRecordersButtons)
                         }
-                        Button("予約を削除", role: .destructive) { sheet.delete(reservation) }
+                        Button(SheetWords.deleteReservationLabel, role: .destructive) { sheet.delete(reservation) }
                             .disabled(sheet.holdsTheRecordersButtons)
                     }
                 }
@@ -65,21 +64,21 @@ struct ProgramSheet: View {
                     }
                 }
                 if sheet.offersAReservation(on: .recorder) {
-                    Section("録画予約") {
+                    Section(ProgramSheetState.reserveHeading) {
                         destinationRow(.recorder)
                         NewDiskRow(chosen: $sheet.chosenDisk)
-                        Picker("録画モード", selection: $sheet.quality) {
+                        Picker(SheetWords.quality, selection: $sheet.quality) {
                             ForEach(RecorderDriver.recordsIn, id: \.self) { code in
-                                Text(Codes.qualityLabel[code] ?? code).tag(code)
+                                Text(SheetWords.qualityLabel(code)).tag(code)
                             }
                         }
-                        Picker("毎回録画", selection: $sheet.repeating) {
+                        Picker(SheetWords.repeating, selection: $sheet.repeating) {
                             ForEach(sheet.repeatOptions, id: \.self) { key in
-                                Text(Codes.repeatLabel[key] ?? key).tag(key)
+                                Text(SheetWords.repeatLabel(key)).tag(key)
                             }
                         }
                         conflictRow
-                        Button("録画予約する") { sheet.reserveOnTheRecorder() }
+                        Button(ProgramSheetState.reserveLabel) { sheet.reserveOnTheRecorder() }
                             .disabled(sheet.holdsReservingOnTheRecorder)
                     }
                 } else if sheet.offersAReservation(on: .tv) {
@@ -87,17 +86,17 @@ struct ProgramSheet: View {
                 }
 
                 if !program.summary.isEmpty {
-                    Section("番組内容") { Text(program.summary) }
+                    Section(SheetWords.summaryHeading) { Text(program.summary) }
                 }
                 if !program.extended.isEmpty {
-                    Section("詳細") { Text(program.extended) }
+                    Section(SheetWords.detailsHeading) { Text(program.extended) }
                 }
                 if let problem = model.problem(for: .recorder) {
                     Section { Text(problem.asABody).foregroundStyle(.red).font(.callout) }
                 }
             }
             .disabled(sheet.asking != nil)
-            .navigationTitle("番組")
+            .navigationTitle(ProgramSheetState.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseButton().disabled(sheet.holdsTheSheet) }
             .interactiveDismissDisabled(sheet.holdsTheSheet)
@@ -126,15 +125,15 @@ struct ProgramSheet: View {
     /// 録画予約 for the television: the one mode it records in and the repeats it is sent for this programme.
     private var televisionOffer: some View {
         @Bindable var sheet = sheet
-        return Section("録画予約") {
+        return Section(ProgramSheetState.reserveHeading) {
             destinationRow(.tv)
-            LabeledContent("録画モード", value: Codes.qualityLabel[TVDriver.recordsIn] ?? TVDriver.recordsIn)
-            Picker("毎回録画", selection: $sheet.repeating) {
+            LabeledContent(SheetWords.quality, value: ProgramSheetState.televisionsQuality)
+            Picker(SheetWords.repeating, selection: $sheet.repeating) {
                 ForEach(sheet.televisionRepeatOptions, id: \.self) { key in
-                    Text(Codes.repeatLabel[key] ?? key).tag(key)
+                    Text(SheetWords.repeatLabel(key)).tag(key)
                 }
             }
-            Button("録画予約する") { sheet.reserveOnTheTelevision() }
+            Button(ProgramSheetState.reserveLabel) { sheet.reserveOnTheTelevision() }
                 .disabled(sheet.holdsReservingOnTheTelevision)
         }
     }
@@ -144,11 +143,11 @@ struct ProgramSheet: View {
     @ViewBuilder
     private func destinationRow(_ device: DeviceSlot) -> some View {
         if let free = sheet.destinationChoices {
-            Picker("予約先", selection: Binding(get: { device }, set: { sheet.choose($0) })) {
+            Picker(ProgramSheetState.destination, selection: Binding(get: { device }, set: { sheet.choose($0) })) {
                 ForEach(free, id: \.self) { Text($0.label).tag($0) }
             }
         } else if sheet.showsTheDestinationAlone {
-            LabeledContent("予約先", value: device.label)
+            LabeledContent(ProgramSheetState.destination, value: device.label)
         }
     }
 
@@ -156,13 +155,13 @@ struct ProgramSheet: View {
     /// television is said under the button that ran into it, and not at the sheet's foot, which is the recorder's.
     private func televisionSection(_ reservation: Reservation) -> some View {
         Section(DeviceSlot.tv.label) {
-            LabeledContent("毎回録画", value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
-            if reservation.recording { Text("録画中です").foregroundStyle(.red) }
+            LabeledContent(SheetWords.repeating, value: SheetWords.repeatShown(reservation))
+            if reservation.recording { Text(SheetWords.recordingLine).foregroundStyle(.red) }
             if sheet.offersChanging(reservation) {
-                Button("予約を変更する") { sheet.change(reservation) }
+                Button(ProgramSheetState.changeLabel) { sheet.change(reservation) }
                     .disabled(sheet.holdsChangingTheTelevisions)
             }
-            Button("予約を削除", role: .destructive) { sheet.delete(reservation) }
+            Button(SheetWords.deleteReservationLabel, role: .destructive) { sheet.delete(reservation) }
                 .disabled(sheet.holdsDeletingTheTelevisions)
             if let problem = model.problem(for: .tv) {
                 Text(problem.asABody).foregroundStyle(.red).font(.callout)
@@ -174,23 +173,19 @@ struct ProgramSheet: View {
     /// made anything of it yet, and what the device said if it refused.
     private func pendingSection(_ waiting: PendingReservation) -> some View {
         Section(sheet.waitingHeading(waiting.target)) {
-            LabeledContent("録画モード",
-                           value: Codes.quality(code: waiting.request.qualityCode)
-                               .map { Codes.qualityLabel[$0] ?? $0 } ?? "-")
-            LabeledContent("毎回録画",
-                           value: Codes.repeatLabel[Codes.repeatName(code: waiting.request.repeatCode) ?? ""]
-                               ?? "しない")
-            if let shown = model.diskShown(waiting) { LabeledContent("録画先", value: shown) }
+            LabeledContent(SheetWords.quality, value: ProgramSheetState.qualityShown(waiting))
+            LabeledContent(SheetWords.repeating, value: ProgramSheetState.repeatShown(waiting))
+            if let shown = model.diskShown(waiting) { LabeledContent(SheetWords.disk, value: shown) }
             if let problem = waiting.problem {
                 Text(problem.asABody).foregroundStyle(.red).font(.callout)
-                Button("もう一度送る") { sheet.sendAgain(waiting) }
+                Button(ProgramSheetState.sendAgainLabel) { sheet.sendAgain(waiting) }
                     .disabled(sheet.holdsSendingAgain(waiting))
             } else {
                 Text(PendingQueue.notYetAt(waiting.target))
                     .foregroundStyle(.secondary)
                     .font(.callout)
             }
-            Button("送信待ちの予約を削除", role: .destructive) { sheet.deleteWaiting(waiting) }
+            Button(ProgramSheetState.deleteWaitingLabel, role: .destructive) { sheet.deleteWaiting(waiting) }
                 .disabled(sheet.holdsDeletingWaiting(waiting))
         }
     }
@@ -205,12 +200,12 @@ struct ProgramSheet: View {
             }
         } else if let conflicts = sheet.conflicts {
             if conflicts.isEmpty {
-                Label(RecorderDriver.noClashes, systemImage: "checkmark.circle")
+                Label(ProgramSheetState.conflictsLine(conflicts), systemImage: "checkmark.circle")
                     .foregroundStyle(.secondary)
                     .font(.callout)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label(ProgramSheetState.clashes(conflicts.count), systemImage: "exclamationmark.triangle")
+                    Label(ProgramSheetState.conflictsLine(conflicts), systemImage: "exclamationmark.triangle")
                         .foregroundStyle(Color.legibleOrange)
                         .font(.callout)
                     ForEach(conflicts) { conflict in
