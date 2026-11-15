@@ -21,9 +21,9 @@ import XCTest
 /// sending of the screens' own leaves none of its reservations waiting. What a night told is read from the
 /// bench's record (`Tellings`), which has each telling by the time it returns.
 ///
-/// The entries the system calls -- `BackgroundWork.refreshNow` and the argument-less `sendWaiting()`, which
-/// read the app's own settings, send a real packet and post -- are reached by none of these, nor by any other
-/// test: what is behind each is tried with its surroundings handed in.
+/// The entries the system calls, which read what the screens saved, open the cache, send the packet and post
+/// (`BackgroundWork.refreshNow(in:)`, `sendWaiting(in:)`), are `NoScreenEntryTests`': these try what is behind
+/// each with its client and cache handed in.
 ///
 /// No MAC is handed to either run, as in `WhichRecorderNoScreenTests`: a run with no screen sends its packet
 /// itself, not through the model, and a MAC would put one on the network this is run on.

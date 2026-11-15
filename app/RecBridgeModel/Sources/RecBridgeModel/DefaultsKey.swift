@@ -20,7 +20,7 @@ public enum DefaultsKey {
     /// What the runs with no screen have told of it (`ToldOnce`, in the recorder's words), as JSON: the stop told
     /// last, which for a recorder is another one answering, and the reservations warned of as not having
     /// reached it in time. Read and written by the overnight run and the Shortcuts action
-    /// (`BackgroundWork.refreshTheRecorderNow`, `sendWaiting()`), whether or not a notification could be heard;
+    /// (`BackgroundWork.refreshNow(in:)`, `sendWaiting(in:)`), whether or not a notification could be heard;
     /// written by the screens once none of the reservations warned of waits to go
     /// (`AppModel.forgetTheRecordersWarningOnceSent`); forgotten when the cache is made over to another recorder
     /// (`RecorderHost.cacheMadeOver`). The key is the package's (`KeptOnce.recorderKey`).
@@ -64,10 +64,10 @@ public enum DefaultsKey {
 
     // MARK: - the overnight run
 
-    /// When the overnight run last fetched a guide. Shown on the settings screen, so that something invisible
-    /// can still be seen to be working. Written by a run that still has its time and whose cache is still its
-    /// recorder's, when a broadcasting type answered. This and the two marks below go with the cache when it
-    /// is made over to another recorder.
+    /// When the overnight run last fetched a guide. Shown on the settings screen
+    /// (`AppModel.lastOvernightRefresh`), so that something invisible can still be seen to be working. Written
+    /// by a run that still has its time and whose cache is still its recorder's, when a broadcasting type
+    /// answered. This and the two marks below go with the cache when it is made over to another recorder.
     public static let lastBackgroundRefresh = "lastBackgroundRefresh"
     /// Whether the low-space warning has been given since the disk last had room. See `Notify.lowSpace`.
     public static let warnedLowSpace = "warnedLowSpace"
@@ -87,7 +87,7 @@ public enum DefaultsKey {
 }
 
 /// The defaults handed in, as the store what the runs with no screen told once is kept in (`KeptOnce`): the
-/// entries' own, `UserDefaults.standard`, or the screens' (`AppModel.defaults`).
+/// runs' own (`NoScreenSurroundings.defaults`), or the screens' (`AppModel.defaults`).
 ///
 /// Handed to a run's own task, and Sendable by hand for that: `UserDefaults` is not marked so, and Apple's page
 /// for it says that it "is thread-safe, and you can use the same object in multiple threads or tasks

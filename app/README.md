@@ -75,8 +75,10 @@
   the guide fetched by hand and after a connect (`refreshGuideByHand`, `refreshGuide`, in `RecorderGuide.swift`),
   which `AppModelGuide` asks for and puts on screen. And so are the recorder's two runs with no screen, the
   overnight run and the Shortcuts action's sending (`refreshWithNoScreen`, `sendWithNoScreen`, and what each
-  says, in `RecorderNoScreen.swift`): `BackgroundWork`, `Notify` and `SendWaitingIntent` keep the entries the
-  system calls, the magic packet, the posting of notifications and the record of what was told.
+  says, in `RecorderNoScreen.swift`): the model keeps the entries the system calls, the magic packet and the
+  record of what was told (`NoScreenRuns.swift`, handed what a run reaches of its platform, `NoScreenSurroundings`),
+  and `BackgroundWork`, `Notify` and `SendWaitingIntent` the task's registration and schedule, the posting of
+  notifications and the Shortcuts action.
   A television, once added in the settings, has a link of its own beside the recorder's, with a `TVDriver` and
   its host (`AppModelTV` makes and drops them), so that neither device's silence, trouble or work is the
   other's. Sending what waits in the phone's queue for the television is the driver's too
@@ -321,8 +323,8 @@ run, the sentences of a round and the rule of what is told once in the recorder'
 and what a night and an action hand over of it, and keep back once the cache is another recorder's
 (`RecorderToldOnceTests`). What the screens go by for a run's buttons is the model's, and held in `RunGateTests`
 (`canStartARun`, `canAlterARecording`, `scannedForDuplicates`); the views that read those, the line under what a
-run came to in the job bar and the two alerts of 番組表を更新 are reached by no test. Nor are the entries the system
-calls (below).
+run came to in the job bar and the two alerts of 番組表を更新 are reached by no test. Nor is what the app hands the
+entries the system calls (below).
 
 `QueueWithATelevisionTests` holds what a television being saved changes about the queue. Its words: each
 sentence then says which device the reservations went to, on the strip and in the Shortcuts action's answer.
@@ -551,12 +553,14 @@ moved. The sheet that adds a television reaches the same look and wait through i
 answers for: what the model does around them is held, not they.
 Nor what a screen decides for itself: what sets its list loading,
 closing what it holds of a recorder whose lists have gone, and the first screen telling the model each change
-of the app's phase. Nor the two entries with no screen as the
-system calls them (`BackgroundWork.refreshNow`, `sendWaiting()`), which read the app's own settings, send the
-magic packet, post its notifications and write back what was told: the work behind each is tried with those
-handed in (`BackgroundWork.refresh`, `sendWaiting(client:store:mac:told:nextRun:now:)`, and in RecorderKit
+of the app's phase. Nor what the app hands the entries with no screen (`NoScreenSurroundings.app`: its own
+defaults, folder, sessions, Keychain and notifications), nor the magic packet, which no test saves a MAC for: the
+entries themselves are tried with the bench's handed in (`NoScreenEntryTests`: nothing done in the demo or with no
+recorder saved, the night's order and the time the settings show, what is posted before what is kept, and the
+television's part taken away or out of time), and the work behind each with its client and cache handed in
+(`BackgroundWork.refresh`, `sendWaiting(client:store:mac:told:nextRun:now:)`, and in RecorderKit
 `RecorderDriver.refreshWithNoScreen` and `sendWithNoScreen`). The task's registration, its handler and its
-expiry are behind those entries, and equally out of reach.
+expiry are in front of those entries, and out of reach.
 
 ```
 cd app/RecBridgeModel

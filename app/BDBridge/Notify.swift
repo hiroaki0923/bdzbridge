@@ -91,7 +91,7 @@ enum Notify {
     /// earlier one. With a television saved the sentences say which device the reservations went to, by the
     /// rule the strip names it by (`PendingQueue.Outcome.said(withATelevisionSaved:)`).
     static func queueFlushed(_ outcome: PendingQueue.Outcome) async {
-        let device = BackgroundWork.televisionSaved() ? outcome.slot.label : nil
+        let device = BackgroundWork.televisionSaved(in: .standard) ? outcome.slot.label : nil
         guard let said = RecorderDriver.tells(outcome, naming: device) else { return }
         await post(id: "queue-flushed", title: "送信待ちの予約", body: said)
     }
@@ -236,12 +236,17 @@ enum Notify {
 }
 
 extension Notifications {
-    /// The system's, as the steps above take them (`Surroundings.app`).
+    /// The system's, as the steps above take them (`Surroundings.app`, `NoScreenSurroundings.app`).
     static let system = Notifications(
         permission: { await Notify.permission() },
         allowQuietly: { await Notify.allowQuietly() },
         askIfNeeded: { await Notify.askIfNeeded() },
         recorder: { await Notify.recorder(notYet: $0, withdraws: $1) },
         withdrawTelevision: { Notify.withdrawTelevision($0) },
-        withdrawTelevisionNotYet: { Notify.withdrawTelevisionNotYet() })
+        withdrawTelevisionNotYet: { Notify.withdrawTelevisionNotYet() },
+        queueFlushed: { await Notify.queueFlushed($0) },
+        queueHeldBack: { await Notify.queueHeldBack() },
+        lowSpace: { await Notify.lowSpace(freeBytes: $0, totalBytes: $1, naming: $2) },
+        usbLowSpace: { await Notify.lowSpace(on: $0) },
+        television: { await Notify.television($0) })
 }
