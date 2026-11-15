@@ -5,15 +5,39 @@ import RecorderKit
 
 // The programme's sheet and the reservation's, over the model's own states of them (`ProgramSheetState`,
 // `ReservationSheetState`): what each holds, offers, holds back and says, and what each press does, are the model's,
-// as on iOS. A window is made as its sheet opens and ended as it closes. While it is open it does for the sheet what
-// the iOS sheet does with `onChange` and `task(id:)`: it tells the state when the model's lists are let go of or a
-// recorder is attached, and asks the recorder again what a reservation would clash with when what it is asked for
-// changes.
+// as on iOS, and so are the words the programme's sheet labels its rows and buttons with (`SheetWords`, kept by Kotlin
+// as `SheetWordsText`, and the sheet's own in its read). A window is made as its sheet opens and ended as it closes.
+// While it is open it does for the sheet what the iOS sheet does with `onChange` and `task(id:)`: it tells the state
+// when the model's lists are let go of or a recorder is attached, and asks the recorder again what a reservation would
+// clash with when what it is asked for changes.
 
 /// A value with its words: what a picker offers and what a row says.
 public struct Labelled: Sendable {
     public var code: String
     public var label: String
+}
+
+/// The words the sheets say alike (`SheetWords`), for Kotlin to keep from the model's start: a programme's sheet
+/// opens with its rows' labels beside what its row already says, before its window is first read. What a sheet alone
+/// says comes with its window's read.
+public struct SheetWordsText: Sendable {
+    public var station: String
+    public var starts: String
+    public var length: String
+    public var genre: String
+    public var quality: String
+    public var repeating: String
+    public var disk: String
+    public var summaryHeading: String
+    public var detailsHeading: String
+    public var recordingLine: String
+    public var deleteReservationLabel: String
+
+    static let all = SheetWordsText(
+        station: SheetWords.station, starts: SheetWords.starts, length: SheetWords.length, genre: SheetWords.genre,
+        quality: SheetWords.quality, repeating: SheetWords.repeating, disk: SheetWords.disk,
+        summaryHeading: SheetWords.summaryHeading, detailsHeading: SheetWords.detailsHeading,
+        recordingLine: SheetWords.recordingLine, deleteReservationLabel: SheetWords.deleteReservationLabel)
 }
 
 /// The one question or answer up at a time: its title and what it says, the button that does something (`action`,
@@ -60,6 +84,14 @@ public struct WaitingReservation: Sendable {
 
 /// The programme's sheet (`ProgramSheet` on iOS).
 public struct ProgrammeSheetScreen: Sendable {
+    /// The words only this sheet says (`ProgramSheetState`): 予約先, the heading of 録画予約 and its button, the way to
+    /// the reservation's own sheet, and the two buttons of a row that waits.
+    public var destinationLabel: String
+    public var reserveHeading: String
+    public var reserveLabel: String
+    public var changeLabel: String
+    public var sendAgainLabel: String
+    public var deleteWaitingLabel: String
     public var title: String
     public var station: String
     public var starts: String
@@ -228,9 +260,15 @@ private func labelled(_ codes: [String], _ labels: [String: String]) -> [Labelle
     codes.map { Labelled(code: $0, label: labels[$0] ?? $0) }
 }
 
+/// Each value with the words the model gives it (`SheetWords.qualityLabel`, `repeatLabel`).
+private func labelled(_ codes: [String], _ label: (String) -> String) -> [Labelled] {
+    codes.map { Labelled(code: $0, label: label($0)) }
+}
+
+/// The line at the sheet's top, as the model says it (`AppModel.wakingLine`); empty when it says none.
 @MainActor
 private func waking(_ model: AppModel) -> String {
-    (model.waking || model.settlingTheSlot) ? model.busy ?? "" : ""
+    model.wakingLine ?? ""
 }
 
 public final class ProgrammeSheetWindow: Sendable {
@@ -383,24 +421,22 @@ public final class ProgrammeSheetWindow: Sendable {
         func waiting(_ device: DeviceSlot) -> WaitingReservation {
             guard let row = sheet.waiting(on: device) else { return nothingWaits }
             return WaitingReservation(
-                heading: sheet.waitingHeading(device),
-                quality: Codes.quality(code: row.request.qualityCode).map { Codes.qualityLabel[$0] ?? $0 } ?? "-",
-                repeating: Codes.repeatLabel[Codes.repeatName(code: row.request.repeatCode) ?? ""] ?? "しない",
-                disk: model.diskShown(row) ?? "", problem: row.problem?.asABody ?? "",
+                heading: sheet.waitingHeading(device), quality: ProgramSheetState.qualityShown(row),
+                repeating: ProgramSheetState.repeatShown(row), disk: model.diskShown(row) ?? "",
+                problem: row.problem?.asABody ?? "",
                 notYet: PendingQueue.notYetAt(device), sendAgainHeld: sheet.holdsSendingAgain(row),
                 deleteHeld: sheet.holdsDeletingWaiting(row))
         }
         let recorders = sheet.reservation.map { held in
-            HeldReservation(heading: sheet.recordersHeading, quality: held.qualityName ?? "-",
-                            repeating: Codes.repeatLabel[held.repeatName ?? ""] ?? "しない",
-                            disk: model.diskShown(held) ?? "", recording: held.recording,
+            HeldReservation(heading: sheet.recordersHeading, quality: ProgramSheetState.qualityShown(held),
+                            repeating: SheetWords.repeatShown(held), disk: model.diskShown(held) ?? "",
+                            recording: held.recording,
                             offersChanging: sheet.offersChanging(held), changeHeld: sheet.holdsTheRecordersButtons,
                             deleteHeld: sheet.holdsTheRecordersButtons, problem: "")
         }
         let televisions = sheet.televisions.map { held in
-            HeldReservation(heading: DeviceSlot.tv.label, quality: "",
-                            repeating: Codes.repeatLabel[held.repeatName ?? ""] ?? "しない", disk: "",
-                            recording: held.recording, offersChanging: sheet.offersChanging(held),
+            HeldReservation(heading: DeviceSlot.tv.label, quality: "", repeating: SheetWords.repeatShown(held),
+                            disk: "", recording: held.recording, offersChanging: sheet.offersChanging(held),
                             changeHeld: sheet.holdsChangingTheTelevisions, deleteHeld: sheet.holdsDeletingTheTelevisions,
                             problem: model.problem(for: .tv)?.asABody ?? "")
         }
@@ -415,6 +451,9 @@ public final class ProgrammeSheetWindow: Sendable {
                          destructive: action?.destructive ?? false, closing: sheet.closingLabel(for: asked))
         }
         return ProgrammeSheetScreen(
+            destinationLabel: ProgramSheetState.destination, reserveHeading: ProgramSheetState.reserveHeading,
+            reserveLabel: ProgramSheetState.reserveLabel, changeLabel: ProgramSheetState.changeLabel,
+            sendAgainLabel: ProgramSheetState.sendAgainLabel, deleteWaitingLabel: ProgramSheetState.deleteWaitingLabel,
             title: program.title, station: program.serviceName, starts: Format.dateTime.string(from: program.start),
             length: Format.duration(program.durationSec), genre: program.genre?.label ?? "", summary: program.summary,
             extended: program.extended, waking: waking(model),
@@ -431,15 +470,14 @@ public final class ProgrammeSheetWindow: Sendable {
                 ? offered.map { Labelled(code: $0.destination, label: RecorderDisk.label($0.destination, named: $0.name)) } : [],
             disk: model.diskOffered(sheet.chosenDisk),
             diskAlone: offer == .recorder && offered.isEmpty ? sheet.chosenDisk.map(model.diskLabel) ?? "" : "",
-            qualities: offer == .recorder ? labelled(RecorderDriver.recordsIn, Codes.qualityLabel) : [],
+            qualities: offer == .recorder ? labelled(RecorderDriver.recordsIn, SheetWords.qualityLabel) : [],
             quality: sheet.quality,
-            qualityAlone: offer == .tv ? Codes.qualityLabel[TVDriver.recordsIn] ?? TVDriver.recordsIn : "",
-            repeats: labelled(offer == .tv ? sheet.televisionRepeatOptions : sheet.repeatOptions, Codes.repeatLabel),
+            qualityAlone: offer == .tv ? ProgramSheetState.televisionsQuality : "",
+            repeats: labelled(offer == .tv ? sheet.televisionRepeatOptions : sheet.repeatOptions, SheetWords.repeatLabel),
             repeating: sheet.repeating,
             // Under the recorder's 録画予約 only, as on iOS: the television is asked nothing of what it would clash with.
             checking: offer == .recorder && sheet.checking, checkingLine: ProgramSheetState.checkingLine,
-            conflictsLine: offer == .recorder
-                ? conflicts.map { $0.isEmpty ? RecorderDriver.noClashes : ProgramSheetState.clashes($0.count) } ?? "" : "",
+            conflictsLine: offer == .recorder ? conflicts.map(ProgramSheetState.conflictsLine) ?? "" : "",
             clashes: offer == .recorder && !(conflicts?.isEmpty ?? true),
             conflicts: offer == .recorder ? (conflicts ?? []).map { "\(Format.dateTime.string(from: $0.start)) \($0.title)" } : [],
             reserveHeld: offer == .tv ? sheet.holdsReservingOnTheTelevision : sheet.holdsReservingOnTheRecorder,

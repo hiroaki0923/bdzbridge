@@ -803,6 +803,19 @@ extension AndroidBridgeTests {
         return try XCTUnwrap(shown.programmes.first { $0.mark.isEmpty })
     }
 
+    /// The words the sheets say alike, as Kotlin keeps them, are the model's (`SheetWords`).
+    @MainActor
+    func testTheSheetsWordsAreTheModels() {
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
+        let words = app.sheetWords()
+        XCTAssertEqual([words.station, words.starts, words.length, words.genre, words.quality, words.repeating,
+                        words.disk, words.summaryHeading, words.detailsHeading, words.recordingLine,
+                        words.deleteReservationLabel],
+                       [SheetWords.station, SheetWords.starts, SheetWords.length, SheetWords.genre, SheetWords.quality,
+                        SheetWords.repeating, SheetWords.disk, SheetWords.summaryHeading, SheetWords.detailsHeading,
+                        SheetWords.recordingLine, SheetWords.deleteReservationLabel])
+    }
+
     @MainActor
     func testAProgrammeIsReservedFromItsSheetAndTheGuideMarksIt() async throws {
         let app = await demo()
@@ -811,11 +824,22 @@ extension AndroidBridgeTests {
         let opening = await guide.open(row.id)
         let sheet = try XCTUnwrap(opening)
         defer { Task { await sheet.closed() } }
-        let opened = await until(sheet.read) { $0.offer == "recorder" && !$0.reserveHeld }
+        let opened = await until(sheet.read) { $0.offer == "recorder" && !$0.reserveHeld && !$0.conflictsLine.isEmpty }
         XCTAssertEqual(opened.title, row.title)
         XCTAssertFalse(opened.hasRecorders)
         XCTAssertTrue(opened.qualities.contains { $0.code == opened.quality }, "the mode starts at one offered")
         XCTAssertTrue(opened.repeats.contains { $0.code == "none" })
+        // In the model's words: its own, the modes and repeats offered, and what the recorder said of the clashes.
+        XCTAssertEqual([opened.destinationLabel, opened.reserveHeading, opened.reserveLabel, opened.changeLabel,
+                        opened.sendAgainLabel, opened.deleteWaitingLabel],
+                       [ProgramSheetState.destination, ProgramSheetState.reserveHeading, ProgramSheetState.reserveLabel,
+                        ProgramSheetState.changeLabel, ProgramSheetState.sendAgainLabel,
+                        ProgramSheetState.deleteWaitingLabel])
+        XCTAssertEqual(opened.qualities.map(\.label), RecorderDriver.recordsIn.map(SheetWords.qualityLabel))
+        XCTAssertEqual(opened.repeats.map(\.label), sheet.sheet.repeatOptions.map(SheetWords.repeatLabel))
+        XCTAssertEqual(opened.qualityAlone, "", "the recorder's mode is a choice")
+        XCTAssertEqual(opened.conflictsLine, sheet.sheet.conflicts.map(ProgramSheetState.conflictsLine))
+        XCTAssertEqual(opened.waking, "", "a line at the top with the recorder awake")
 
         await sheet.reserve()
         let asked = await until(sheet.read) { $0.hasAsked }
@@ -834,6 +858,9 @@ extension AndroidBridgeTests {
         let reserved = await until(again.read) { $0.hasRecorders }
         XCTAssertTrue(reserved.recorders.offersChanging)
         XCTAssertNotEqual(reserved.offer, "recorder", "a programme the recorder holds is not offered again")
+        let held = try XCTUnwrap(again.sheet.reservation)
+        XCTAssertEqual(reserved.recorders.quality, ProgramSheetState.qualityShown(held))
+        XCTAssertEqual(reserved.recorders.repeating, SheetWords.repeatShown(held))
 
         // 予約を変更する opens the reservation's own sheet over this one.
         let changing = await again.change("recorder")

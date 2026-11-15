@@ -100,6 +100,13 @@ object RecBridge {
     val isOpen: Boolean get() = opening
 
     /**
+     * The words the sheets say alike, as the model words them: kept as the model opens and before any window is read,
+     * so a sheet -- always opened from a row a window has read -- has them from its first frame.
+     */
+    lateinit var sheetWords: SheetWords
+        private set
+
+    /**
      * Opens the model the first time it is asked, with the app's folder and the folder of its that never leaves the
      * device -- no backup and no move to another device takes it -- where the television's registration is kept, and
      * starts it.
@@ -115,6 +122,7 @@ object RecBridge {
         val version = "${info.versionName} (${info.longVersionCode})"
         scope.launch {
             val app = call { RecBridgeApp.open(files, kept, version, arena) }
+            sheetWords = SheetWords(app.sheetWords(arena))
             // Before the start, which seeds the demo's guide with its tiles when the demo is on.
             app.drawsTiles(Tiles)
             watchTheNetwork(context.applicationContext, app)
@@ -1001,7 +1009,25 @@ data class WaitingReservation(
     val notYet: String, val sendAgainHeld: Boolean, val deleteHeld: Boolean,
 )
 
+/**
+ * The words the sheets say alike, as the model words them (`SheetWords`). Kept from the model's start
+ * (`RecBridge.sheetWords`): a programme's sheet labels its rows before its window is first read.
+ */
+data class SheetWords(
+    val station: String, val starts: String, val length: String, val genre: String, val quality: String,
+    val repeating: String, val disk: String, val summaryHeading: String, val detailsHeading: String,
+    val recordingLine: String, val deleteReservationLabel: String,
+)
+
+private fun SheetWords(it: jp.hiroaki.bdbridge.bridge.SheetWordsText) = SheetWords(
+    it.station, it.starts, it.length, it.genre, it.quality, it.repeating, it.disk, it.summaryHeading,
+    it.detailsHeading, it.recordingLine, it.deleteReservationLabel,
+)
+
+/** The programme's sheet. Its first six are the words only it says, as the model words them. */
 data class ProgrammeSheetScreen(
+    val destinationLabel: String, val reserveHeading: String, val reserveLabel: String, val changeLabel: String,
+    val sendAgainLabel: String, val deleteWaitingLabel: String,
     val title: String, val station: String, val starts: String, val length: String, val genre: String,
     val summary: String, val extended: String, val waking: String,
     val recorders: HeldReservation?, val televisions: HeldReservation?,
@@ -1041,6 +1067,7 @@ private fun waiting(present: Boolean, it: jp.hiroaki.bdbridge.bridge.WaitingRese
                                     it.isSendAgainHeld, it.isDeleteHeld) else null
 
 private fun ProgrammeSheetScreen(it: jp.hiroaki.bdbridge.bridge.ProgrammeSheetScreen) = ProgrammeSheetScreen(
+    it.destinationLabel, it.reserveHeading, it.reserveLabel, it.changeLabel, it.sendAgainLabel, it.deleteWaitingLabel,
     it.title, it.station, it.starts, it.length, it.genre, it.summary, it.extended, it.waking,
     held(it.isHasRecorders, it.getRecorders(arena)), held(it.isHasTelevisions, it.getTelevisions(arena)),
     waiting(it.isHasWaitingForTheRecorder, it.getWaitingForTheRecorder(arena)),

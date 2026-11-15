@@ -194,6 +194,8 @@ public final class RecBridgeApp: Sendable {
     public func strip() -> StripWindow { StripWindow(model) }
     /// The strip a sheet or a form has of its own (`recorderActivity(inSheet: true)`), without the demo's line.
     public func sheetStrip() -> StripWindow { StripWindow(model, inSheet: true) }
+    /// The words the sheets say alike, as the model has them, for Kotlin to keep (`SheetWordsText`).
+    public func sheetWords() -> SheetWordsText { .all }
     public func search() async -> SearchWindow {
         await MainActor.run { SearchWindow(model) }
     }
