@@ -8,6 +8,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -131,6 +132,85 @@ class DemoTests {
         compose.waitUntilAtLeastOneExists(hasText("04:00"), 10_000)
         compose.onNodeWithContentDescription("前の日").performClick()
         compose.waitUntilAtLeastOneExists(hasText("放送中"), 10_000)
+    }
+
+    /** A block of the grid on the air now: its sentence says so, and a tap opens it. */
+    private val aBlockOnAir = hasContentDescription("放送中", substring = true) and hasClickAction()
+
+    /** The guide turned to the grid, put back to the list whatever happens: the mode is kept, as the scale is. */
+    private fun inTheGrid(check: () -> Unit) {
+        compose.waitUntilAtLeastOneExists(hasText("放送中"), 10_000)
+        val scale = RecBridge.guide.value!!.layout.scale
+        try {
+            compose.onNodeWithContentDescription("表形式で表示").performClick()
+            compose.waitUntilAtLeastOneExists(hasContentDescription("リスト表示にする"), 10_000)
+            check()
+        } finally {
+            runBlocking {
+                RecBridge.act { it.guide.keepScale(scale) }
+                RecBridge.act { it.guide.showAs(false) }
+            }
+        }
+    }
+
+    /**
+     * The guide turned to the grid: the stations across its top, a block on the air whose sheet opens on a tap and
+     * closes on the back key, and the grid still there once the activity has been made again.
+     */
+    @Test fun theGuideTurnsToAGridWhoseBlocksOpenTheirSheets() {
+        openTheDemo()
+        inTheGrid {
+            compose.waitUntilAtLeastOneExists(hasText("サンプルテレビ"), 10_000)
+            compose.waitUntilAtLeastOneExists(aBlockOnAir, 10_000)
+            compose.onAllNodes(aBlockOnAir)[0].performClick()
+            compose.waitUntilAtLeastOneExists(hasText("開始"), 10_000)
+            compose.onNodeWithText("長さ").assertExists()
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            compose.waitUntilDoesNotExist(hasText("開始"), 10_000)
+
+            scenario.recreate()
+            compose.waitUntilAtLeastOneExists(hasContentDescription("リスト表示にする"), 10_000)
+            compose.waitUntilAtLeastOneExists(aBlockOnAir, 10_000)
+        }
+    }
+
+    /**
+     * The zoom buttons: a press of 表示を拡大 makes the blocks taller, and each button stops doing anything at its
+     * bound, as the model's scale says.
+     */
+    @Test fun theGridsZoomButtonsChangeItsScaleAndStopAtTheBounds() {
+        openTheDemo()
+        inTheGrid {
+            compose.waitUntilAtLeastOneExists(aBlockOnAir, 10_000)
+            val spoken = compose.onAllNodes(aBlockOnAir)[0].fetchSemanticsNode()
+                .config[SemanticsProperties.ContentDescription].first()
+            val block = compose.onNode(hasContentDescription(spoken))
+            val before = block.fetchSemanticsNode().size.height
+            val grow = compose.onNode(hasContentDescription("表示を拡大") and hasClickAction())
+            val shrink = compose.onNode(hasContentDescription("表示を縮小") and hasClickAction())
+            val scale = RecBridge.guide.value!!.layout.scale
+            grow.performClick()
+            compose.waitUntil(10_000) { RecBridge.guide.value!!.layout.scale > scale }
+            compose.waitUntil(10_000) { block.fetchSemanticsNode().size.height > before }
+
+            // Pressed until it does nothing more, each press waited for: at most as many as the scale has steps.
+            val presses = { button: SemanticsNodeInteraction, more: (GridDay) -> Boolean ->
+                var count = 0
+                while (more(RecBridge.guide.value!!.layout) && count < 10) {
+                    val was = RecBridge.guide.value!!.layout.scale
+                    button.performClick()
+                    compose.waitUntil(10_000) { RecBridge.guide.value!!.layout.scale != was }
+                    count++
+                }
+                count
+            }
+            assertTrue(presses(grow) { it.canGrow } < 10)
+            grow.assertIsNotEnabled()
+            assertTrue(RecBridge.guide.value!!.layout.let { it.scale == it.largest })
+            assertTrue(presses(shrink) { it.canShrink } < 10)
+            shrink.assertIsNotEnabled()
+            assertTrue(RecBridge.guide.value!!.layout.let { it.scale == it.smallest })
+        }
     }
 
     @Test fun theDemosReservationsAndRecordingsAreListed() {
