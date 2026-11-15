@@ -835,7 +835,7 @@ extension AndroidBridgeTests {
                         words.leaveDemoLabel, words.appHeading, words.disclaimerLabel, words.versionLabel],
                        [SettingsWords.title, SettingsWords.defaultQualityLabel, SettingsWords.defaultQualityFooter,
                         SettingsWords.searchLabel, SettingsWords.foundRecordersHeading, SettingsWords.channelsLabel,
-                        SettingsWords.channelsFooter, SettingsWords.guideHeading, SettingsWords.guideSourceLabel,
+                        SettingsWords.channelsFooter, SettingsWords.keptGuideHeading, SettingsWords.guideSourceLabel,
                         AppModel.refreshGuideLabel, AppModel.refreshFailedTitle, SettingsWords.enterDemoLabel,
                         SettingsWords.leaveDemoLabel, SettingsWords.appHeading, Disclaimer.title,
                         SettingsWords.versionLabel])

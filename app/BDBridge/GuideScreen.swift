@@ -120,7 +120,7 @@ struct GuideScreen: View {
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
-                    .accessibilityLabel("番組表を更新")
+                    .accessibilityLabel(AppModel.refreshGuideLabel)
                     .disabled(!model.canRefreshGuideByHand)
                 }
             }

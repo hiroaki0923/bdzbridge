@@ -125,7 +125,7 @@ public struct SettingsWordsText: Sendable {
         defaultQualityFooter: SettingsWords.defaultQualityFooter,
         searchLabel: SettingsWords.searchLabel, foundRecordersHeading: SettingsWords.foundRecordersHeading,
         channelsLabel: SettingsWords.channelsLabel, channelsFooter: SettingsWords.channelsFooter,
-        guideHeading: SettingsWords.guideHeading, guideSourceLabel: SettingsWords.guideSourceLabel,
+        guideHeading: SettingsWords.keptGuideHeading, guideSourceLabel: SettingsWords.guideSourceLabel,
         refreshGuideLabel: AppModel.refreshGuideLabel, refreshFailedTitle: AppModel.refreshFailedTitle,
         enterDemoLabel: SettingsWords.enterDemoLabel, leaveDemoLabel: SettingsWords.leaveDemoLabel,
         appHeading: SettingsWords.appHeading, disclaimerLabel: Disclaimer.title,

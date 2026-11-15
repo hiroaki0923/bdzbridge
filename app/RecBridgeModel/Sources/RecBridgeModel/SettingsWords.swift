@@ -44,7 +44,7 @@ public enum SettingsWords {
 
     // MARK: - the guide kept
 
-    public static let guideHeading = "保存されている番組表"
+    public static let keptGuideHeading = "保存されている番組表"
     public static let guideSourceLabel = "番組表の取得元"
     public static let lastRefreshLabel = "最終更新"
     public static let lastOvernightRefreshLabel = "最終自動更新"
@@ -59,7 +59,7 @@ public enum SettingsWords {
 
     /// A broadcasting type's stations and programmes kept, with the reader's grouping of digits as a screen's own text
     /// writes a number put into it.
-    public static func countsLine(channels: Int, programs: Int) -> String {
+    static func countsLine(channels: Int, programs: Int) -> String {
         "\(Format.count(channels)) 局 · \(Format.count(programs)) 番組"
     }
 

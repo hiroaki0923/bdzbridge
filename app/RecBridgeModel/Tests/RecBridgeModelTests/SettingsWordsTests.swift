@@ -3,7 +3,7 @@ import RecorderKit
 import XCTest
 @testable import RecBridgeModel
 
-/// The settings' words as the iOS screen words them, byte for byte (`SettingsWords`, the recorder's part's on
+/// The settings' words as the screen has always said them, byte for byte (`SettingsWords`, the recorder's part's on
 /// `RecorderSettingsState`, the press of 番組表を更新's on `AppModel`), and the small rules of what they say: the
 /// counts and the search's progress with the digits grouped as a screen's own text groups them, the footers in and out
 /// of the demo, where the guide comes from said alone, and when the search is held.
@@ -46,7 +46,7 @@ final class SettingsWordsTests: XCTestCase {
         XCTAssertEqual(SettingsWords.channelsFooter,
                        "番組表に出す局と、その並び順を放送ごとに選べます。この端末の番組表だけが変わり、"
                        + "レコーダーの録画には影響しません。")
-        XCTAssertEqual(SettingsWords.guideHeading, "保存されている番組表")
+        XCTAssertEqual(SettingsWords.keptGuideHeading, "保存されている番組表")
         XCTAssertEqual(SettingsWords.guideSourceLabel, "番組表の取得元")
         XCTAssertEqual(SettingsWords.guideSourceName(.recorder), "レコーダー")
         XCTAssertEqual(SettingsWords.guideSourceName(.tv), "テレビ")
@@ -138,7 +138,8 @@ final class SettingsWordsTests: XCTestCase {
     }
 
     /// Where the guide comes from is said alone, テレビ, where a helper gives it and there is no recorder to choose;
-    /// nothing where there is a choice, and nothing where the recorder gives it with no helper.
+    /// nothing where there is a choice, whichever of the two is chosen, and nothing where the recorder gives it
+    /// with no helper.
     func testWhereTheGuideComesFromIsSaidAloneOnlyForTheTelevision() async throws {
         let bench = try aBench()
         let alone = bench.modelWithNoRecorder()
@@ -152,6 +153,9 @@ final class SettingsWordsTests: XCTestCase {
         both.tvHelper = registeredHelper()
         XCTAssertTrue(both.guideSourceIsChoosable)
         XCTAssertNil(both.guideSourceAlone, "a source was said alone where there is a choice")
+        both.defaults.set(GuideSourceChoice.tv.rawValue, forKey: DefaultsKey.guideSource)
+        XCTAssertEqual(both.guideSource, .tv)
+        XCTAssertNil(both.guideSourceAlone, "the television chosen was said alone where there is a choice")
     }
 
     /// A helper the app is registered with, at an address reserved for documentation, which nothing here asks.

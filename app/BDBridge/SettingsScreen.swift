@@ -250,7 +250,7 @@ struct SettingsScreen: View {
             }
             .disabled(!model.canRefreshGuideByHand)
         } header: {
-            Text(SettingsWords.guideHeading)
+            Text(SettingsWords.keptGuideHeading)
         } footer: {
             if model.guideSourceIsChoosable {
                 Text(SettingsWords.guideSourceFooter(helperProblem: model.helperProblem))
