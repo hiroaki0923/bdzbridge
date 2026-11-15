@@ -205,4 +205,14 @@ extension AppModel {
         try await store.setChannelPreferences(broadcasting: broadcasting, order: order, hidden: hidden)
         await reloadFromCache()
     }
+
+    /// What the guide's title says: the channel when the list is narrowed to one, otherwise the broadcasting type.
+    /// The grid shows every channel, so it says the type.
+    public func guideHeading(grid: Bool) -> String {
+        if !grid, let serviceID = serviceFilter,
+           let channel = channels.first(where: { $0.serviceID == serviceID }) {
+            return channel.name
+        }
+        return Codes.broadcastingShortLabel[broadcasting] ?? Codes.broadcastingLabel[broadcasting] ?? "番組表"
+    }
 }

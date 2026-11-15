@@ -73,7 +73,7 @@ struct GuideScreen: View {
                         }
                     } label: {
                         HStack(spacing: 3) {
-                            Text(heading).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            Text(model.guideHeading(grid: grid)).font(.subheadline.weight(.semibold)).lineLimit(1)
                             // Only a sign that this opens a menu, which VoiceOver says of it anyway.
                             Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
                                 .accessibilityHidden(true)
@@ -135,15 +135,6 @@ struct GuideScreen: View {
             }
         }
         .welcomesHere($welcoming, model: model)
-    }
-
-    /// What the title says: the channel when one is picked, otherwise the broadcasting type.
-    private var heading: String {
-        if !grid, let serviceID = model.serviceFilter,
-           let channel = model.channels.first(where: { $0.serviceID == serviceID }) {
-            return channel.name
-        }
-        return Codes.broadcastingShortLabel[model.broadcasting] ?? Codes.broadcastingLabel[model.broadcasting] ?? "番組表"
     }
 
     /// An arrow beside the day. Its area runs up and down as far towards the 44 points a finger needs as the
@@ -337,9 +328,9 @@ struct ProgramRowView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     /// Marked as in the grid: a day's list opens at what is on now, and this says which row that is.
-    private var onAir: Bool { program.start <= now && now < program.end }
+    private var onAir: Bool { program.isOnAir(at: now) }
     /// Dimmed, as in the grid, so that the eye goes past what can no longer be watched or reserved.
-    private var ended: Bool { program.end <= now }
+    private var ended: Bool { program.hasEnded(at: now) }
 
     var body: some View {
         Group {
@@ -389,12 +380,9 @@ struct ProgramRowView: View {
         if onAir {
             line = line + Text.rowGap + Text("放送中").fontWeight(.semibold).foregroundStyle(.tint)
         }
-        if let reservation {
-            line = line + Text.rowGap + Text(reservation.recording ? "録画中" : "予約")
-                .foregroundStyle(reservation.recording ? Color.red : Color.legibleOrange)
-        } else if let pending {
-            line = line + Text.rowGap + Text("送信待ち")
-                .foregroundStyle(pending.problem == nil ? Color.legibleOrange : Color.red)
+        if let mark = GuideMark(reservation: reservation, pending: pending) {
+            line = line + Text.rowGap + Text(mark.word)
+                .foregroundStyle(mark.isRed ? Color.red : Color.legibleOrange)
         }
         if let genre = program.genre?.label {
             line = line + Text.rowGap + Text(genre)
