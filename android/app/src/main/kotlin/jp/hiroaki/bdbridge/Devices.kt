@@ -45,7 +45,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
-// The tutorial's three sentences that are Android's own. The model's `Tutorial` words the rest (the steps, the footers);
+// The tutorial's three sentences that are Android's own. The model's `Tutorial` words the rest (the steps, the
+// footers);
 // these name the device or the system's question, which differ here from the iOS app's: this device where iOS says
 // iPhone, and no detail under step 3, which on iOS describes the system's local network question, one this app does not
 // ask at the SDK it targets.
@@ -75,7 +76,9 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
         TopAppBar(
             title = { Text("レコーダーを探す") },
             navigationIcon = {
-                if (!shown.welcomes) IconButton(onClick = close) { Icon(Icons.Default.Close, contentDescription = shown.closeLabel) }
+                if (!shown.welcomes) IconButton(onClick = close) {
+                    Icon(Icons.Default.Close, contentDescription = shown.closeLabel)
+                }
             },
             actions = { if (shown.welcomes) TextButton(onClick = close) { Text(shown.closeLabel) } },
         )
@@ -91,7 +94,8 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
             }
             item {
                 Card(Modifier.fillMaxWidth()) {
-                    Text(tutorial.heading, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+                    Text(tutorial.heading, style = MaterialTheme.typography.titleSmall,
+                         color = MaterialTheme.colorScheme.primary,
                          modifier = Modifier.padding(start = 16.dp, top = 12.dp))
                     Step(1, tutorial.step1Title, tutorial.step1Detail)
                     Step(2, STEP_2_TITLE, tutorial.step2Detail)
@@ -112,7 +116,8 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
             }
             // Right under the button, where the reader is looking.
             if (shown.permissionNotice.isNotEmpty()) item {
-                Text(shown.permissionNotice, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                Text(shown.permissionNotice, color = MaterialTheme.colorScheme.error,
+                     style = MaterialTheme.typography.bodyMedium)
             }
             if (shown.toSearch > 0) item {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -145,11 +150,15 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (shown.typing) {
-                        OutlinedTextField(value = address, onValueChange = { RecBridge.devicesHostField.type(it) }, singleLine = true,
-                                          label = { Text("IP アドレス") }, placeholder = { Text("192.168.1.10") },
-                                          keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
+                        OutlinedTextField(value = address, onValueChange = { RecBridge.devicesHostField.type(it) },
+                                          singleLine = true, label = { Text("IP アドレス") },
+                                          placeholder = { Text("192.168.1.10") },
+                                          keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri,
+                                                                            autoCorrectEnabled = false),
                                           isError = shown.addressWarning, modifier = Modifier.fillMaxWidth(),
-                                          supportingText = if (shown.addressNote.isNotEmpty()) ({ Text(shown.addressNote) }) else null)
+                                          supportingText = if (shown.addressNote.isNotEmpty()) {
+                                              { Text(shown.addressNote) }
+                                          } else null)
                         Button(onClick = { RecBridge.afterTypingInDevices { it.connectTyped() } },
                                enabled = !shown.connectHeld) { Text("このアドレスに接続") }
                     } else {
@@ -174,14 +183,18 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
     }
 }
 
-/** One step of the setup: its number in a tonal circle, what to do, and under it what to know, when there is something. */
+/**
+ * One step of the setup: its number in a tonal circle, what to do, and under it what to know, when there is something.
+ */
 @Composable
 private fun Step(number: Int, title: String, detail: String) {
     ListItem(
         leadingContent = {
             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(28.dp)) {
-                Box(contentAlignment = Alignment.Center) { Text("$number", style = MaterialTheme.typography.labelLarge) }
+                Box(contentAlignment = Alignment.Center) {
+                    Text("$number", style = MaterialTheme.typography.labelLarge)
+                }
             }
         },
         headlineContent = { Text(title) },

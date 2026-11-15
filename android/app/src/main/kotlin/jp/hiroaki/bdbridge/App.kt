@@ -121,9 +121,9 @@ private fun Destinations(search: () -> Unit, open: (Page) -> Unit, openGroup: (G
             Destination.Search -> SearchScreen()
             Destination.Reservations -> ReservationsScreen(search) { open(Page.Conditions) }
             Destination.Recordings -> RecordingsScreen(search, openGroup)
-            Destination.Settings -> SettingsScreen({ open(Page.Channels) }, { open(Page.Disclaimer) }, { open(Page.Setup) }) {
-                open(Page.Capabilities)
-            }
+            Destination.Settings -> SettingsScreen(
+                { open(Page.Channels) }, { open(Page.Disclaimer) }, { open(Page.Setup) }, { open(Page.Capabilities) },
+            )
         }
     }
     if (LocalConfiguration.current.screenWidthDp >= 600) {
@@ -153,8 +153,8 @@ private fun Destinations(search: () -> Unit, open: (Page) -> Unit, openGroup: (G
 }
 
 /**
- * The place where a recorder is chosen, with its steps, opened again from the settings: over the whole as the other pages
- * are, so that the settings are where the reader left them when it closes.
+ * The place where a recorder is chosen, with its steps, opened again from the settings: over the whole as the other
+ * pages are, so that the settings are where the reader left them when it closes.
  */
 @Composable
 private fun SetupPage(back: () -> Unit) {

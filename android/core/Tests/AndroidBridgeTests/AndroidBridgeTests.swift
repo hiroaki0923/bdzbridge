@@ -684,8 +684,8 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertEqual(guide.noRecorder.said.title, AppModel.notAdded.title)
     }
 
-    /// The address field as the iOS tutorial's: what is typed is said back, a keystroke typed over a value the model has
-    /// replaced is dropped, and a window that has closed starts clean, with the field following the model.
+    /// The address field as the iOS tutorial's: what is typed is said back, a keystroke typed over a value the model
+    /// has replaced is dropped, and a window that has closed starts clean, with the field following the model.
     @MainActor
     func testTheTutorialsAddressFieldIsSaidAsTheIOSFieldSaysIt() async throws {
         let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")

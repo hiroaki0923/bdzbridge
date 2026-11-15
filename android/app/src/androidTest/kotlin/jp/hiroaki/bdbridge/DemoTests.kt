@@ -397,8 +397,8 @@ class DemoTests {
     }
 
     /**
-     * The first screen is the tutorial: what the app is, the four steps (this device's own words for the second), and the
-     * ways on, before the demo is entered.
+     * The first screen is the tutorial: what the app is, the four steps (this device's own words for the second),
+     * and the ways on, before the demo is entered.
      */
     @Test fun theFirstScreenTellsTheStepsBesideTheSearchAndTheDemo() {
         compose.waitUntilAtLeastOneExists(hasText("セットアップ"), 20_000)
