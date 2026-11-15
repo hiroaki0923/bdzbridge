@@ -17,7 +17,7 @@
   (`RecorderRulesState`, `RecorderRuleSheetState`), the channels' screen (`ChannelsState`), the recorder's part of
   the settings (`RecorderSettingsState`), the television's sheets and its part of the settings (`TVRegisterState`,
   `HelperRegisterState`, `TVSettingsState`), the tutorial (`WelcomeState`: what holds its buttons and when a recorder
-  chosen there has answered), and what an empty screen says (`AppModelEmptyScreens.swift`), with the
+  chosen there has answered), what an empty screen says (`AppModelEmptyScreens.swift`), and the guide grid's rules that are not drawing (`GuideGridDay`, `GuideGridScale`, `GuideMark`, `GuideGenre`; the points and the scrolling stay in `GuideGridView`), with the
   disclaimer's words (`Disclaimer`) and the tutorial's (`Tutorial`, but for the three that say iPhone or name the
   system's question, which the view keeps); the SwiftUI views lay them out and hand them the reader's presses. The connection to each device -- when it is
   asked, woken, made sure of, looked for at another address and given up on -- is RecorderKit's `DeviceLink`
