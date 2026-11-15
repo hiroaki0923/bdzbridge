@@ -52,7 +52,8 @@ public struct SettingsScreen: Sendable {
     public var guideSource: String
     public var guideSourceAlone: String
     public var helperProblem: String
-    /// 保存されている番組表: each broadcasting type's stations and programmes, and when the guide was last fetched.
+    /// 保存されている番組表: each broadcasting type's stations and programmes, when the guide was last fetched, and
+    /// when the overnight run last fetched it (最終自動更新).
     public var guide: [Fact]
     public var refreshHeld: Bool
     public var demo: Bool
@@ -285,9 +286,13 @@ public final class SettingsWindow: Sendable {
             return Fact(label: Codes.broadcastingLabel[broadcasting] ?? broadcasting,
                         value: "\(counts?.channels ?? 0) 局 · \(counts?.programs ?? 0) 番組")
         }
-        // Stored the way the recorder writes a time; what the reader wants to know is whether the guide is fresh.
         if let refreshed = model.counts["td"]?.refreshed {
-            guide.append(Fact(label: "最終更新", value: RecorderTime.parse(refreshed).map { Format.when($0) } ?? refreshed))
+            guide.append(Fact(label: "最終更新", value: Format.when(stored: refreshed)))
+        }
+        // Read from what the overnight run wrote each time the screen is made, as the iOS screen reads it: the run
+        // tells nothing of it, and a screen open as it ends says it the next time something else moves.
+        if let overnight = model.lastOvernightRefresh {
+            guide.append(Fact(label: "最終自動更新", value: overnight))
         }
         let note = recorder.tidied.note
         let outcome = model.scanOutcome

@@ -17,6 +17,7 @@ import jp.hiroaki.bdbridge.bridge.GroupWindow
 import jp.hiroaki.bdbridge.bridge.GuideWindow
 import jp.hiroaki.bdbridge.bridge.HelperRegisterWindow
 import jp.hiroaki.bdbridge.bridge.JobWindow
+import jp.hiroaki.bdbridge.bridge.NightRun
 import jp.hiroaki.bdbridge.bridge.ProgrammeSheetWindow
 import jp.hiroaki.bdbridge.bridge.RecBridgeApp
 import jp.hiroaki.bdbridge.bridge.RecordingsWindow
@@ -103,6 +104,8 @@ object RecBridge {
     fun open(context: Context) {
         if (opening) return
         opening = true
+        // At each start of the app, as the iOS app asks at each launch (Night.kt).
+        scope.launch { Night.ask(context) }
         val files = context.filesDir.absolutePath
         val kept = context.noBackupFilesDir.absolutePath
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
@@ -164,6 +167,18 @@ object RecBridge {
 
     /** The windows, once the model is open. */
     suspend fun windows(): Windows = opened.await()
+
+    /**
+     * The overnight run on the same two folders as the model (`NightRun`), for the worker (Night.kt), whether or not
+     * the model is open in the process: the run reads and writes the model's defaults object either way.
+     *
+     * Made on the main thread. The first call to Swift in a process loads it, and Foundation takes the thread that
+     * loads it for the main thread, whose run loop is the one that serves Swift's main queue (`MainQueue`): loaded
+     * first on a worker's thread, in a process WorkManager started, nothing on the main actor would ever run.
+     */
+    internal suspend fun night(context: Context): NightRun = withContext(Dispatchers.Main) {
+        NightRun.make(context.filesDir.absolutePath, context.noBackupFilesDir.absolutePath, arena)
+    }
 
     /** Does what the reader asked of a window, keeping Swift's main queue running until it is done. */
     suspend fun act(operation: (Windows) -> CompletableFuture<*>) {
