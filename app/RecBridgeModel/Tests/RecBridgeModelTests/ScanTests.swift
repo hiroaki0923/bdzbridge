@@ -90,11 +90,12 @@ final class ScanTests: XCTestCase {
         comeBack(model)
         await subnet.letGo()
         try await until("the search never asked everybody") { await subnet.asked >= requests }
-        try await until("nothing found was not said at once", within: 0.5) { model.scanOutcome != nil }
+        try await until("nothing found was not said at once") { model.scanOutcome != nil }
 
         XCTAssertEqual(model.scanOutcome, .nothing)
         XCTAssertNil(model.scanning, "the button was left held back after the search")
         expectEqual(await subnet.asked, requests, "the addresses were looked through more than once")
+        XCTAssertEqual(bench.scanPauses, [], "a pause was made before it was said")
         leave(model)
         comeBack(model)
         try await Task.sleep(for: .milliseconds(300))
@@ -124,7 +125,7 @@ final class ScanTests: XCTestCase {
         XCTAssertTrue(model.scanHoldsTheButton, "the button was live while the look went through the addresses")
         await subnet.letGo()
         try await until("the search never asked everybody") { await subnet.asked >= requests }
-        try await until("what was found was not said at once", within: 0.5) { model.scanOutcome != nil }
+        try await until("what was found was not said at once") { model.scanOutcome != nil }
         // Long enough for a single request, or another look, to have been made.
         try await Task.sleep(for: .milliseconds(200))
 
@@ -379,7 +380,7 @@ final class ScanTests: XCTestCase {
             await subnet.letGo()
         }
         try await until("the search never asked everybody") { await subnet.asked >= self.requests }
-        try await until("what the look found was not said at once", within: 0.5) { model.scanOutcome != nil }
+        try await until("what the look found was not said at once") { model.scanOutcome != nil }
         // Long enough for a single request, or another look, to have been made.
         try await Task.sleep(for: .milliseconds(200))
 
