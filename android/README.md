@@ -8,11 +8,15 @@ in `docs/android-port-study.md`.
 It is the iOS app's model with Android's screens over it: the same `AppModel` (`app/RecBridgeModel/Sources/
 RecBridgeModel`), one for the process as the iOS app has one, with a window in front of it for each screen. So far it
 connects to a recorder as the iOS app's tutorial does -- by the search for both kinds (レコーダーとテレビを探す), by an
-address, or to the demo's invented recorder -- and shows the guide as the iOS guide's list does (a broadcasting type,
-every station or one, a broadcast day, opening at what is on now, 今 and 番組表を更新, and what an empty guide says),
-the reservations and the recordings as lists -- the reservations' with its 種類 and 並び順, pulled down to send what
-waits and read again, a row swiped to the left to delete it after its question and a waiting row a device refused
-swiped to the right to send it again, over the model's state of the screen (`ReservationsState`), with the recorder's
+address, or to the demo's invented recorder -- and shows the guide as the iOS guide does (a broadcasting type, a
+broadcast day, opening at what is on now, 今 and 番組表を更新, and what an empty guide says), as its list, every station
+or one, or as its grid, time down and the stations across, laid out by the model's rules (`GuideGridDay`,
+`GuideGridScale`, `GuideMark`, `GuideGenre`) and kept as the iOS screens keep the list or the grid and the grid's
+scale; the grid moves either way at once under a finger and flings, and its time axis pinches or is zoomed by its
+buttons, the time under the fingers or in the middle held still, at the column the reader is at; the reservations and
+the recordings as lists -- the reservations' with its 種類 and 並び順, pulled down to send what waits and read again,
+a row swiped to the left to delete it after its question and a waiting row a device refused swiped to the right to
+send it again, over the model's state of the screen (`ReservationsState`), with the recorder's
 own keyword conditions (おまかせ・まる録) on a page of their own, a row swiped to delete it and a form for a new one
 (`RecorderRulesState`, `RecorderRuleSheetState`) -- and the two sheets
 that write: a programme's, which reserves it on the
@@ -48,7 +52,9 @@ announces to VoiceOver, is a polite live region for TalkBack.
 
 - `core/` — the Swift side and the Android library around it. `Sources/AndroidBridge` holds the windows over the
   model: `App.swift` (the model, made once, on `Surroundings` of Android's own, and how a window tells Kotlin that what
-  it shows has changed), `Devices.swift`, `Guide.swift`, `Lists.swift`, `Recordings.swift` (the bulk job's bar, a programme's page and the duplicates), `Conditions.swift`
+  it shows has changed), `Devices.swift`, `Guide.swift` (the list or the grid, made again as each minute turns while
+  the grid is shown, which is how its line at now and what is on the air move), `Lists.swift`, `Recordings.swift`
+  (the bulk job's bar, a programme's page and the duplicates), `Conditions.swift`
   (the keyword conditions and their form), `Strip.swift` (the strip at the top of
   every screen, as the model chooses its line), `Search.swift` (the search, whose window runs for as long as the
   screen is on what the iOS screen runs with `task(id:)`), `Settings.swift` (the settings, whose fields keep what is typed and
@@ -66,7 +72,10 @@ announces to VoiceOver, is a polite live region for TalkBack.
 - `app/` — the Compose app: `Bridge.kt` opens the model, keeps what each window shows for the screens and turns the
   windows' calls into suspending ones. The screens are Material 3's, as an Android app's are: `Theme.kt` (the colours,
   the text marked as Japanese), `App.kt` (the place to choose a recorder over the rest, and the navigation: a bar at
-  the foot of a phone, a rail down the side of anything 600 dp wide), `Guide.kt`, `Search.kt`, `Lists.kt`, `Recordings.kt` (the job's bar, a programme's page, the duplicates), `Conditions.kt` (the keyword conditions' page
+  the foot of a phone, a rail down the side of anything 600 dp wide), `Guide.kt`, `GuideGrid.kt` (the grid: one
+  gesture handler for the pan, the fling and the pinch, the rulers placed from the same position as the body, and only
+  the columns and the hours around what is in view composed), `Search.kt`, `Lists.kt`, `Recordings.kt` (the job's
+  bar, a programme's page, the duplicates), `Conditions.kt` (the keyword conditions' page
   and the full-screen form for a new one), `Devices.kt`, `Sheets.kt`
   (the sheets, which open at once with what the row says and fill in as their window is read), `Settings.kt` (the
   settings and ご利用上の注意), `Television.kt` (the television's sheets, the televisions a search found, and the
@@ -113,9 +122,9 @@ JAVA_HOME=<the JDK's home> swift test --disable-sandbox
 ```
 
 `app/src/androidTest` drives the demo through the screens on a device or an emulator: the guide opening at what is
-on now, a programme's sheet, another day, the reservations and the recordings, and leaving the demo. Before the model
-first opens it deletes what the app keeps, a saved address among it, and it uses only the demo, so it reaches nothing
-on the LAN. With more than one device attached, name the one to
+on now, a programme's sheet, another day, the grid with a block's sheet and its zoom buttons, the reservations and the
+recordings, and leaving the demo. Before the model first opens it deletes what the app keeps, a saved address among
+it, and it uses only the demo, so it reaches nothing on the LAN. With more than one device attached, name the one to
 use:
 
 ```
