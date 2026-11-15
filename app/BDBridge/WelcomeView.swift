@@ -108,9 +108,7 @@ struct WelcomeView: View {
                             .autocorrectionDisabled()
                             .keyboardType(.numbersAndPunctuation)
                         AddressNote(typed: welcome.tidied)
-                        Button("このアドレスに接続") {
-                            Task { await welcome.connectTyped() }
-                        }
+                        Button("このアドレスに接続") { welcome.connectTyped() }
                         .disabled(welcome.holdsConnect)
                     } else {
                         Button("IP アドレスを直接入力") { welcome.typing = true }

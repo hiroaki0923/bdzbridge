@@ -69,8 +69,8 @@ final class WelcomeTests: XCTestCase {
         XCTAssertTrue(welcome.done, "the recorder chosen again was not taken for an answer")
     }
 
-    /// With the system keeping the app off the local network, the connect waits for the permission: the choice stays out
-    /// after `take` returns, and the tutorial closes when the recorder answers after the permission comes.
+    /// With the system keeping the app off the local network, the connect waits for the permission: the choice stays
+    /// out after `take` returns, and the tutorial closes when the recorder answers after the permission comes.
     func testAChoiceWaitsForThePermissionAndClosesWhenTheRecorderAnswersAfterIt() async throws {
         let (bench, recorder, model) = try await connectedHome()
         addTeardownBlock { await recorder.letGo() }
@@ -125,7 +125,9 @@ final class WelcomeTests: XCTestCase {
         XCTAssertFalse(welcome.holdsConnect)
         XCTAssertEqual(welcome.tidied.host, Bench.otherHost)
 
-        await welcome.connectTyped()
+        let connecting = welcome.connectTyped()
+        XCTAssertEqual(welcome.typedHost, Bench.otherHost, "the field was not written back at the press")
+        await connecting.value
 
         XCTAssertEqual(welcome.typedHost, Bench.otherHost, "the field did not show what was connected to")
         XCTAssertEqual(model.host, Bench.otherHost)

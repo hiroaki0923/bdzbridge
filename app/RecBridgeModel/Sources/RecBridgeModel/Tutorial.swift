@@ -1,9 +1,9 @@
 import Foundation
 
 /// The words of the tutorial that name no device and no system dialog, for the screens to lay out beside it: the steps
-/// the reader goes through, the two footers, and the settings' row that opens it again. What says "iPhone" or "this
-/// device", the introduction and step 2's title, and what describes the system's own question, step 3's detail, are each
-/// platform's.
+/// the reader goes through, the two footers, and the settings' row that opens it again. What names the device the app
+/// runs on, the introduction and step 2's title, and what describes the system's own question, step 3's detail, are
+/// each platform's.
 public enum Tutorial {
     public static let heading = "セットアップ"
 

@@ -91,11 +91,13 @@ public final class WelcomeState {
         if model.timesAttached == before, !model.connectBlocked { chosenAt = nil }
     }
 
-    /// このアドレスに接続. The field shows what is saved, so that what was taken off can be seen to be gone.
-    public func connectTyped() async {
+    /// このアドレスに接続. The field shows what is saved, so that what was taken off can be seen to be gone: it is
+    /// written back at the press, and the connect goes on in the task handed back.
+    @discardableResult
+    public func connectTyped() -> Task<Void, Never> {
         let host = tidied.host
         typedHost = host
-        await take(host)
+        return Task { await take(host) }
     }
 
     /// サンプルデータで試す.
