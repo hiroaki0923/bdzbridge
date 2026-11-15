@@ -1,3 +1,6 @@
+#if canImport(Android)
+import Android
+#endif
 import Foundation
 import Observation
 import RecBridgeModel
@@ -236,6 +239,7 @@ extension Surroundings {
         android.lanInterfaces = LocalNetwork.lanInterfaces
         android.scanTransport = { URLSessionTransport.withoutCookies() }
         android.scanPause = { try? await Task.sleep(for: $0) }
+        android.scanLog = { SearchLog.note($0) }
         android.appVersion = { version }
         android.tvCredentials = KeptTVCredentials(folder: keptFolder)
         android.tvHelperTokens = KeptTVHelperToken(folder: keptFolder)
@@ -408,3 +412,16 @@ extension NoRecorder {
 
 /// Whole seconds since 1970, which is how a time crosses to Kotlin for the screen to compare with its clock.
 func seconds(_ date: Date) -> Int64 { Int64(date.timeIntervalSince1970.rounded(.down)) }
+
+/// What a search for devices leaves in the system log, as `ScanLog` does on iOS: under the tag `RecBridgeScan`, so that
+/// `adb logcat -s RecBridgeScan` shows a search afterwards. The lines are the model's own, counts and codes and words of
+/// the app's, never an address or a name. Off Android there is no system log, and nothing is written.
+enum SearchLog {
+    static let tag = "RecBridgeScan"
+
+    static func note(_ line: String) {
+        #if os(Android)
+        _ = __android_log_write(Int32(ANDROID_LOG_INFO.rawValue), tag, line)
+        #endif
+    }
+}
