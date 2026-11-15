@@ -346,6 +346,33 @@ final class ClientQueueTests: XCTestCase {
         XCTAssertEqual(world.count("packet"), packets, "a packet went for the recorder let go of")
     }
 
+    /// A waking whose time is up during the wait in which the recorder is let go of: it ends by its clock, with no
+    /// probe after the let-go to end it, and still writes nothing on the line, which is the newcomer's by then.
+    /// The wait between its probes is longer than its time, so that the first wait is its last. Nothing is checked
+    /// on a run where the let-go came after that wait, the machine having stood still meanwhile: that is a waking
+    /// that ended in silence before anything was let go of.
+    func testAWakingWhoseTimeIsUpAfterTheLetGoSaysNothing() async throws {
+        let driver = RecorderDriver(wakingLimit: 0.05, wakingInterval: .milliseconds(500), busyRetryDelay: 0...0)
+        let (world, link, recorder) = try await connected(mac: DeviceLinkTests.mac, driver: driver)
+        await recorder.sayNothingOfWhoItIs()
+        let checking = Task { await link.check(evenIfRecent: true) }
+        // The check's own probe, and the waking's one.
+        func asked() async -> Int { await recorder.actions.filter { $0 == "description.xml" }.count }
+        await eventually { await asked() >= 2 }
+        expectTrue(await asked() >= 2, "the waking never asked who answers")
+        let packets = world.count("packet")
+
+        try XCTSkipUnless(link.session.waking, "the waking had ended before the let-go")
+        link.forgetTheDevice()
+        let checked = try await within(10, "the check never came back") { await checking.value }
+
+        guard case .notUp(.letGo) = checked else { return XCTFail("the check came to \(checked)") }
+        XCTAssertNil(world.problem, "the waking wrote on the line after the recorder was let go of")
+        XCTAssertFalse(link.session.waking, "the waking still stands")
+        XCTAssertEqual(world.count("packet"), packets, "a packet went for the recorder let go of")
+        expectEqual(await asked(), 2, "the waking asked again, and its time was not what ended it")
+    }
+
     /// A reservation's change, queued on the link's client behind a request out when the link lets go of its
     /// device, is not sent, and says what a let-go says, as a delete does.
     func testARecordersChangeQueuedAcrossALetGoIsNotSent() async throws {

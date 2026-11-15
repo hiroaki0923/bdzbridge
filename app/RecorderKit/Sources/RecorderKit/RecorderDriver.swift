@@ -618,7 +618,8 @@ public final class RecorderDriver: LinkDriver {
     /// It ends at the next probe once its client is retired -- the recorder let go of: another chosen, another
     /// that described itself on a connect -- and says nothing, since what let go of the recorder says why and the
     /// line is the newcomer's; no packet goes for the recorder let go of from then on. Its task is never
-    /// cancelled, so a waking that comes to nothing so is one whose client was retired.
+    /// cancelled, so a waking that comes to nothing so is one whose client was retired. Nor does it say anything
+    /// when its time is up before that probe, the recorder let go of during its last wait.
     public func wakeAndAttach(_ link: DeviceLink, client: any LinkClient) async -> Bool {
         guard link.session.unreachable, link.session.mac != nil else { return false }
         let began = link.generation
@@ -647,8 +648,9 @@ public final class RecorderDriver: LinkDriver {
         if outcome == .answered {
             return await attach(link, client: client, what: Self.connectingLine, timeout: probeTimeout, quiet: false)
         }
-        // The client retired: the recorder was let go of, and whatever let go of it has said why.
-        if outcome == .cancelled { return false }
+        // The client retired, or the time up with no probe since the let-go: the recorder was let go of, and
+        // whatever let go of it has said why.
+        if outcome == .cancelled || link.letGo(since: began) { return false }
         if !Self.saysItMayHaveArrived(owner?.problem) {
             owner?.problem = "レコーダーが応答しません。電源とネットワーク接続を確かめてください。"
         }
