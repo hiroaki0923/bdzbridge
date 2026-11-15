@@ -305,6 +305,27 @@ final class ProgramSheetTests: XCTestCase {
         XCTAssertEqual(ProgramSheetState.repeatShown(waiting), "しない")
     }
 
+    /// The question before a delete and the answers that only say close with the buttons the other sheets' do, as
+    /// they always have: 削除する and キャンセル, and OK (`SheetWords`).
+    func testTheQuestionsButtonsAreTheOnesTheOtherSheetsHave() async throws {
+        let (_, model) = try await connected()
+        let programmes = try await programmesNotReserved(model, 1)
+        let sheet = ProgramSheetState(program: try XCTUnwrap(programmes.first), model: model)
+        let held = try XCTUnwrap(model.reservations.first, "the demo has no reservation")
+        let request = ReservationRequest(title: "朝の番組", start: Date(), durationSec: 1800, repeatCode: "1",
+                                         broadcastingType: 0, serviceID: 1,
+                                         qualityCode: try XCTUnwrap(Codes.quality["SR"]))
+        let waiting = PendingReservation(request: request, serviceName: "サンプルテレビ")
+        for asked in [ProgramSheetState.Ask.cancel(held), .cancelPending(waiting)] {
+            let action = try XCTUnwrap(sheet.actionLabel(for: asked))
+            XCTAssertEqual(action.label, "削除する")
+            XCTAssertTrue(action.destructive)
+            XCTAssertEqual(sheet.closingLabel(for: asked), "キャンセル")
+        }
+        XCTAssertEqual(sheet.closingLabel(for: .failed("断られました")), "OK")
+        XCTAssertEqual(sheet.closingLabel(for: .said("予約しました", .recorder)), "OK")
+    }
+
     /// Once the recorder has answered, the row of the clashes says that no reservation shares the hours, or how many
     /// do.
     func testTheClashesRowSaysThatNoneShareTheHoursOrHowManyDo() async throws {

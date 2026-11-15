@@ -308,7 +308,7 @@ public final class ProgramSheetState {
     public func actionLabel(for asked: Ask) -> (label: String, destructive: Bool)? {
         switch asked {
         case .reserve: ("予約する", false)
-        case .cancel, .cancelPending: ("削除する", true)
+        case .cancel, .cancelPending: (SheetWords.confirmDeleteLabel, true)
         case .wouldStop: ("それでも予約", false)
         case .failed, .kept, .said: nil
         }
@@ -317,8 +317,8 @@ public final class ProgramSheetState {
     /// The button that closes: OK for what only says, キャンセル for a question.
     public func closingLabel(for asked: Ask) -> String {
         switch asked {
-        case .kept, .said, .failed: "OK"
-        case .reserve, .cancel, .cancelPending, .wouldStop: "キャンセル"
+        case .kept, .said, .failed: SheetWords.okLabel
+        case .reserve, .cancel, .cancelPending, .wouldStop: SheetWords.cancelLabel
         }
     }
 

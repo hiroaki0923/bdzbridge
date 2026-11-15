@@ -98,4 +98,31 @@ final class ReservationSheetTests: XCTestCase {
         XCTAssertTrue(sheet.done, sheet.failure ?? "no report")
         XCTAssertFalse(model.reservations.contains { $0.id == row.id })
     }
+
+    // MARK: - what the sheet says
+
+    /// The words the sheet has always said, byte for byte: its own, and the buttons of its question and of its report,
+    /// which the other sheets say too (`SheetWords`).
+    func testTheSheetSaysTheWordsItHasAlwaysSaid() {
+        XCTAssertEqual([ReservationSheetState.title, ReservationSheetState.followsLabel,
+                        ReservationSheetState.madeByLabel, ReservationSheetState.sizeLabel],
+                       ["予約", "番組追従", "登録元", "録画サイズ"])
+        XCTAssertEqual([SheetWords.confirmDeleteLabel, SheetWords.cancelLabel, SheetWords.okLabel],
+                       ["削除する", "キャンセル", "OK"])
+    }
+
+    /// A row no longer changed says the recorder's mode in the words a picker offers it in, and - where its code is
+    /// none the tables know; a television's says its mode in the same words, and nothing where its row carries none.
+    func testTheModeIsSaidInThePickersWordsOrByItsFallback() async throws {
+        let (_, model, row) = try await withAReservation()
+        let known = ReservationSheetState(reservation: row, model: model)
+        XCTAssertEqual(known.qualityShown, "DR(高画質)")
+        XCTAssertEqual(known.televisionsQuality, "DR(高画質)")
+
+        var unknown = row
+        unknown.qualityCode = -1
+        let sheet = ReservationSheetState(reservation: unknown, model: model)
+        XCTAssertEqual(sheet.qualityShown, "-")
+        XCTAssertNil(sheet.televisionsQuality, "a mode said for a row that carries none")
+    }
 }
