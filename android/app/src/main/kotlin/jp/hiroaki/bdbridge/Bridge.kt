@@ -1010,8 +1010,9 @@ data class WaitingReservation(
 )
 
 /**
- * The words the sheets say alike, as the model words them (`SheetWords`). Kept from the model's start
- * (`RecBridge.sheetWords`): a programme's sheet labels its rows before its window is first read.
+ * The words the sheets say alike -- the programme's, the reservation's and the recording's -- as the model words them
+ * (`SheetWords`). Kept from the model's start (`RecBridge.sheetWords`): a programme's sheet labels its rows before its
+ * window is first read.
  */
 data class SheetWords(
     val station: String, val starts: String, val length: String, val genre: String, val quality: String,
@@ -1041,7 +1042,9 @@ data class ProgrammeSheetScreen(
     val conflicts: List<String>, val reserveHeld: Boolean, val problem: String, val asked: Asked?, val done: Boolean,
 )
 
+/** The reservation's sheet. Its first three are the labels only its rows have, as the model words them. */
 data class ReservationSheetScreen(
+    val followsLabel: String, val madeByLabel: String, val sizeLabel: String,
     val title: String, val station: String, val starts: String, val length: String, val waking: String,
     val onTelevision: Boolean, val settled: Boolean, val qualityValue: String, val repeatValue: String,
     val qualities: List<Labelled>, val quality: String, val repeats: List<Labelled>, val repeating: String,
@@ -1079,6 +1082,7 @@ private fun ProgrammeSheetScreen(it: jp.hiroaki.bdbridge.bridge.ProgrammeSheetSc
 )
 
 private fun ReservationSheetScreen(it: jp.hiroaki.bdbridge.bridge.ReservationSheetScreen) = ReservationSheetScreen(
+    it.followsLabel, it.madeByLabel, it.sizeLabel,
     it.title, it.station, it.starts, it.length, it.waking, it.isOnTelevision, it.isSettled, it.qualityValue,
     it.repeatValue, labelled(it.getQualities(arena)), it.quality, labelled(it.getRepeats(arena)), it.repeating,
     labelled(it.getDisks(arena)), it.disk, it.diskAlone, it.follows, it.madeBy, it.size, it.isRecording, it.isConflict,
@@ -1087,7 +1091,10 @@ private fun ReservationSheetScreen(it: jp.hiroaki.bdbridge.bridge.ReservationShe
     asked(it.isHasAsked, it.getAsked(arena)), it.isDone,
 )
 
+/** The recording's sheet. Its first eight are the words only it says, as the model words them. */
 data class TitleSheetScreen(
+    val recordedLabel: String, val sizeLabel: String, val viewingLabel: String, val playbackHeading: String,
+    val pauseLabel: String, val stopLabel: String, val powerLabel: String, val deleteLabel: String,
     val title: String, val station: String, val recorded: String, val length: String, val size: String,
     val quality: String, val disk: String, val viewing: String, val genre: String, val offersPlayback: Boolean,
     val playLabel: String, val playHeld: Boolean, val playbackHeld: Boolean, val offersPower: Boolean,
@@ -1098,6 +1105,8 @@ data class TitleSheetScreen(
 )
 
 private fun TitleSheetScreen(it: jp.hiroaki.bdbridge.bridge.TitleSheetScreen) = TitleSheetScreen(
+    it.recordedLabel, it.sizeLabel, it.viewingLabel, it.playbackHeading, it.pauseLabel, it.stopLabel, it.powerLabel,
+    it.deleteLabel,
     it.title, it.station, it.recorded, it.length, it.size, it.quality, it.disk, it.viewing, it.genre,
     it.isOffersPlayback, it.playLabel, it.isPlayHeld, it.isPlaybackHeld, it.isOffersPower, it.playbackNote,
     it.isProtected, it.protectLabel, it.isProtectHeld, it.isDeleteHeld, it.whyNotDeleted, it.summary,

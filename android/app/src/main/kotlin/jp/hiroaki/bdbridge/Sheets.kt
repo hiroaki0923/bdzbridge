@@ -332,6 +332,7 @@ fun ReservationSheetView(key: Any, title: String, open: suspend () -> RecBridge.
     val act = { work: suspend RecBridge.ReservationSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
     val free = sheet != null && sheet.asking.isEmpty()
     val held = sheet?.asking?.isNotEmpty() ?: false
+    val words = RecBridge.sheetWords
 
     SheetOrPane(inPane, held, done = sheet?.done ?: false, gone = (missing || !listed) && !held && sheet?.asked == null,
                 close = close) {
@@ -339,23 +340,23 @@ fun ReservationSheetView(key: Any, title: String, open: suspend () -> RecBridge.
         if (sheet == null) return@SheetOrPane Working("")
         // Not on the pane, under the strip that says it already.
         if (!inPane && sheet.waking.isNotEmpty()) Working(sheet.waking)
-        Value("放送", sheet.station)
-        Value("開始", sheet.starts)
-        Value("長さ", sheet.length)
+        Value(words.station, sheet.station)
+        Value(words.starts, sheet.starts)
+        Value(words.length, sheet.length)
         if (sheet.settled) {
-            if (sheet.qualityValue.isNotEmpty()) Value("録画モード", sheet.qualityValue)
-            Value("毎回録画", sheet.repeatValue)
+            if (sheet.qualityValue.isNotEmpty()) Value(words.quality, sheet.qualityValue)
+            Value(words.repeating, sheet.repeatValue)
         } else {
-            if (sheet.qualities.isNotEmpty()) Pick("録画モード", sheet.qualities, sheet.quality, free) { act { chooseQuality(it) } }
-            else if (sheet.qualityValue.isNotEmpty()) Value("録画モード", sheet.qualityValue)
-            Pick("毎回録画", sheet.repeats, sheet.repeating, free) { act { chooseRepeat(it) } }
+            if (sheet.qualities.isNotEmpty()) Pick(words.quality, sheet.qualities, sheet.quality, free) { act { chooseQuality(it) } }
+            else if (sheet.qualityValue.isNotEmpty()) Value(words.quality, sheet.qualityValue)
+            Pick(words.repeating, sheet.repeats, sheet.repeating, free) { act { chooseRepeat(it) } }
         }
-        if (sheet.disks.isNotEmpty()) Pick("録画先", sheet.disks, sheet.disk, free) { act { chooseDisk(it) } }
-        else if (sheet.diskAlone.isNotEmpty()) Value("録画先", sheet.diskAlone)
-        if (sheet.follows.isNotEmpty()) Value("番組追従", sheet.follows)
-        if (sheet.madeBy.isNotEmpty()) Value("登録元", sheet.madeBy)
-        if (sheet.size.isNotEmpty()) Value("録画サイズ", sheet.size)
-        if (sheet.recording) Problem("録画中です")
+        if (sheet.disks.isNotEmpty()) Pick(words.disk, sheet.disks, sheet.disk, free) { act { chooseDisk(it) } }
+        else if (sheet.diskAlone.isNotEmpty()) Value(words.disk, sheet.diskAlone)
+        if (sheet.follows.isNotEmpty()) Value(sheet.followsLabel, sheet.follows)
+        if (sheet.madeBy.isNotEmpty()) Value(sheet.madeByLabel, sheet.madeBy)
+        if (sheet.size.isNotEmpty()) Value(sheet.sizeLabel, sheet.size)
+        if (sheet.recording) Problem(words.recordingLine)
         if (sheet.conflict) {
             Column(Modifier.padding(horizontal = 24.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(sheet.clashLine, color = LocalMarks.current.onReserved, style = MaterialTheme.typography.bodyMedium)
@@ -367,15 +368,17 @@ fun ReservationSheetView(key: Any, title: String, open: suspend () -> RecBridge.
             }
         }
         if (sheet.madeByItself.isNotEmpty()) Footnote(sheet.madeByItself, Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
-        if (sheet.summary.isNotEmpty()) Part("番組内容", sheet.summary)
-        if (sheet.extended.isNotEmpty()) Part("詳細", sheet.extended)
+        if (sheet.summary.isNotEmpty()) Part(words.summaryHeading, sheet.summary)
+        if (sheet.extended.isNotEmpty()) Part(words.detailsHeading, sheet.extended)
         if (sheet.asking.isNotEmpty()) Working(sheet.asking)
         if (sheet.changed) {
             Button(onClick = { act { sendTheChange() } }, enabled = free && !sheet.buttonsHeld,
                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp)) { Text(sheet.changeLabel) }
             Footnote(sheet.changeFooter, Modifier.padding(horizontal = 24.dp))
         }
-        Box(Modifier.padding(horizontal = 24.dp)) { Destructive("予約を削除", free && !sheet.buttonsHeld) { act { delete() } } }
+        Box(Modifier.padding(horizontal = 24.dp)) {
+            Destructive(words.deleteReservationLabel, free && !sheet.buttonsHeld) { act { delete() } }
+        }
         if (sheet.problem.isNotEmpty()) Problem(sheet.problem)
     }
     sheet?.asked?.let { asked ->
@@ -397,6 +400,7 @@ fun TitleSheetView(row: RecordingItem, open: suspend () -> RecBridge.TitleSheetH
     val sheet = handle?.let { it.shown.collectAsState().value }
     val act = { work: suspend RecBridge.TitleSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
     val held = sheet?.asking ?: false
+    val words = RecBridge.sheetWords
 
     SheetOrPane(inPane, held, done = sheet?.done ?: false, gone = (missing || !listed) && !held && sheet?.asked == null,
                 close = close) {
@@ -408,16 +412,16 @@ fun TitleSheetView(row: RecordingItem, open: suspend () -> RecBridge.TitleSheetH
             Footnote(row.details, Modifier.padding(horizontal = 24.dp))
             return@SheetOrPane Working("")
         }
-        Value("放送", sheet.station)
-        Value("録画", sheet.recorded)
-        if (sheet.length.isNotEmpty()) Value("長さ", sheet.length)
-        if (sheet.size.isNotEmpty()) Value("サイズ", sheet.size)
-        if (sheet.quality.isNotEmpty()) Value("録画モード", sheet.quality)
-        if (sheet.disk.isNotEmpty()) Value("録画先", sheet.disk)
-        Value("視聴状態", sheet.viewing)
-        if (sheet.genre.isNotEmpty()) Value("ジャンル", sheet.genre)
+        Value(words.station, sheet.station)
+        Value(sheet.recordedLabel, sheet.recorded)
+        if (sheet.length.isNotEmpty()) Value(words.length, sheet.length)
+        if (sheet.size.isNotEmpty()) Value(sheet.sizeLabel, sheet.size)
+        if (sheet.quality.isNotEmpty()) Value(words.quality, sheet.quality)
+        if (sheet.disk.isNotEmpty()) Value(words.disk, sheet.disk)
+        Value(sheet.viewingLabel, sheet.viewing)
+        if (sheet.genre.isNotEmpty()) Value(words.genre, sheet.genre)
         if (sheet.offersPlayback) {
-            SectionHeading("テレビで再生")
+            SectionHeading(sheet.playbackHeading)
             FlowRowOfButtons {
                 OutlinedButton(onClick = { act { play("play") } }, enabled = !sheet.playHeld) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null, Modifier.size(18.dp))
@@ -425,17 +429,17 @@ fun TitleSheetView(row: RecordingItem, open: suspend () -> RecBridge.TitleSheetH
                 }
                 OutlinedButton(onClick = { act { play("pause") } }, enabled = !sheet.playbackHeld) {
                     Icon(Icons.Default.Pause, contentDescription = null, Modifier.size(18.dp))
-                    Text(" 一時停止 / 再開")
+                    Text(" " + sheet.pauseLabel)
                 }
                 OutlinedButton(onClick = { act { play("stop") } }, enabled = !sheet.playbackHeld) {
                     Icon(Icons.Default.Stop, contentDescription = null, Modifier.size(18.dp))
-                    Text(" 停止")
+                    Text(" " + sheet.stopLabel)
                 }
                 if (sheet.offersPower) {
                     OutlinedButton(onClick = { act { powerOn() } }, enabled = !sheet.playbackHeld) {
                         Icon(Icons.Default.PowerSettingsNew, contentDescription = null, Modifier.size(18.dp),
                              tint = LocalMarks.current.onReserved)
-                        Text(" レコーダーの電源を入れる", color = LocalMarks.current.onReserved)
+                        Text(" " + sheet.powerLabel, color = LocalMarks.current.onReserved)
                     }
                 }
             }
@@ -447,10 +451,10 @@ fun TitleSheetView(row: RecordingItem, open: suspend () -> RecBridge.TitleSheetH
                      Switch(checked = sheet.protected, enabled = !sheet.protectHeld,
                             onCheckedChange = { on -> act { setProtected(on) } })
                  })
-        Box(Modifier.padding(horizontal = 24.dp)) { Destructive("この録画を削除", !sheet.deleteHeld) { act { delete() } } }
+        Box(Modifier.padding(horizontal = 24.dp)) { Destructive(sheet.deleteLabel, !sheet.deleteHeld) { act { delete() } } }
         if (sheet.whyNotDeleted.isNotEmpty()) Footnote(sheet.whyNotDeleted, Modifier.padding(horizontal = 24.dp))
-        if (sheet.summary.isNotEmpty()) Part("番組内容", sheet.summary)
-        for (text in sheet.details) Part("詳細", text)
+        if (sheet.summary.isNotEmpty()) Part(words.summaryHeading, sheet.summary)
+        for (text in sheet.details) Part(words.detailsHeading, text)
         if (sheet.problem.isNotEmpty()) Problem(sheet.problem)
     }
     sheet?.asked?.let { asked ->

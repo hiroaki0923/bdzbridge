@@ -3,13 +3,13 @@ import Observation
 import RecBridgeModel
 import RecorderKit
 
-// The programme's sheet and the reservation's, over the model's own states of them (`ProgramSheetState`,
-// `ReservationSheetState`): what each holds, offers, holds back and says, and what each press does, are the model's,
-// as on iOS, and so are the words the programme's sheet labels its rows and buttons with (`SheetWords`, kept by Kotlin
-// as `SheetWordsText`, and the sheet's own in its read). A window is made as its sheet opens and ended as it closes.
-// While it is open it does for the sheet what the iOS sheet does with `onChange` and `task(id:)`: it tells the state
-// when the model's lists are let go of or a recorder is attached, and asks the recorder again what a reservation would
-// clash with when what it is asked for changes.
+// The programme's sheet, the reservation's and the recording's, over the model's own states of them
+// (`ProgramSheetState`, `ReservationSheetState`, `TitleSheetState`): what each holds, offers, holds back and says, and
+// what each press does, are the model's, as on iOS, and so are the words each labels its rows and buttons with
+// (`SheetWords`, kept by Kotlin as `SheetWordsText`, and each sheet's own in its read). A window is made as its sheet
+// opens and ended as it closes. While it is open it does for the sheet what the iOS sheet does with `onChange` and
+// `task(id:)`: it tells the state when the model's lists are let go of or a recorder is attached, and asks the
+// recorder again what a reservation would clash with when what it is asked for changes.
 
 /// A value with its words: what a picker offers and what a row says.
 public struct Labelled: Sendable {
@@ -147,6 +147,10 @@ public struct ProgrammeSheetScreen: Sendable {
 
 /// The reservation's sheet (`ReservationSheet` on iOS).
 public struct ReservationSheetScreen: Sendable {
+    /// The labels only this sheet's rows have (`ReservationSheetState`): 番組追従, 登録元 and 録画サイズ.
+    public var followsLabel: String
+    public var madeByLabel: String
+    public var sizeLabel: String
     public var title: String
     public var station: String
     public var starts: String
@@ -254,10 +258,6 @@ final class TaskByID {
         running = nil
         following = nil
     }
-}
-
-private func labelled(_ codes: [String], _ labels: [String: String]) -> [Labelled] {
-    codes.map { Labelled(code: $0, label: labels[$0] ?? $0) }
 }
 
 /// Each value with the words the model gives it (`SheetWords.qualityLabel`, `repeatLabel`).
@@ -488,6 +488,14 @@ public final class ProgrammeSheetWindow: Sendable {
     }
 }
 
+/// The question before a delete, with 削除する and キャンセル, or a report, with OK, as the reservation's and the
+/// recording's sheets put them up, in the words the sheets say alike (`SheetWords`).
+private func asked(_ key: String, _ title: String, _ message: String, asksBeforeDeleting: Bool) -> Asked {
+    Asked(key: key, title: title, message: message,
+          action: asksBeforeDeleting ? SheetWords.confirmDeleteLabel : "", destructive: asksBeforeDeleting,
+          closing: asksBeforeDeleting ? SheetWords.cancelLabel : SheetWords.okLabel)
+}
+
 /// What a reservation's window keeps of its own: whether the device that holds the row let its lists go while the
 /// sheet was up, which closes the sheet (`closesWithItsDevice` on iOS).
 @MainActor @Observable
@@ -586,15 +594,17 @@ public final class ReservationSheetWindow: Sendable {
         let offered = sheet.diskChoices
         let televisions = sheet.televisionsRepeats
         return ReservationSheetScreen(
+            followsLabel: ReservationSheetState.followsLabel, madeByLabel: ReservationSheetState.madeByLabel,
+            sizeLabel: ReservationSheetState.sizeLabel,
             title: reservation.title, station: model.channelName(for: reservation),
             starts: Format.dateTime.string(from: reservation.start), length: Format.duration(reservation.durationSec),
             waking: sheet.onTelevision ? "" : waking(model), onTelevision: sheet.onTelevision,
             settled: sheet.onTelevision ? televisions.isEmpty : sheet.settled,
-            qualityValue: reservation.qualityName.map { Codes.qualityLabel[$0] ?? $0 } ?? (sheet.onTelevision ? "" : "-"),
-            repeatValue: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない",
-            qualities: sheet.onTelevision ? [] : labelled(RecorderDriver.recordsIn, Codes.qualityLabel),
+            qualityValue: sheet.onTelevision ? sheet.televisionsQuality ?? "" : sheet.qualityShown,
+            repeatValue: SheetWords.repeatShown(reservation),
+            qualities: sheet.onTelevision ? [] : labelled(RecorderDriver.recordsIn, SheetWords.qualityLabel),
             quality: sheet.quality,
-            repeats: labelled(sheet.onTelevision ? televisions : sheet.repeatOptions, Codes.repeatLabel),
+            repeats: labelled(sheet.onTelevision ? televisions : sheet.repeatOptions, SheetWords.repeatLabel),
             repeating: sheet.repeating,
             disks: offered.map { Labelled(code: $0.destination, label: RecorderDisk.label($0.destination, named: $0.name)) },
             disk: sheet.disk, diskAlone: offered.isEmpty ? sheet.diskShown ?? "" : "",
@@ -611,15 +621,23 @@ public final class ReservationSheetWindow: Sendable {
             changeFooter: sheet.changeFooter, buttonsHeld: sheet.holdsItsButtons,
             problem: model.problem(for: reservation.device)?.asABody ?? "",
             hasAsked: sheet.isAsking,
-            asked: Asked(key: key(sheet), title: sheet.askTitle, message: sheet.askMessage,
-                         action: sheet.asksBeforeDeleting ? "削除する" : "", destructive: sheet.asksBeforeDeleting,
-                         closing: sheet.asksBeforeDeleting ? "キャンセル" : "OK"),
+            asked: asked(key(sheet), sheet.askTitle, sheet.askMessage, asksBeforeDeleting: sheet.asksBeforeDeleting),
             done: sheet.done || letGo.happened)
     }
 }
 
 /// The recording's sheet (`TitleSheet` on iOS).
 public struct TitleSheetScreen: Sendable {
+    /// The words only this sheet says (`TitleSheetState`): the labels of 録画, サイズ and 視聴状態, the heading of
+    /// テレビで再生 with its buttons beside 再生, and the button that deletes the recording.
+    public var recordedLabel: String
+    public var sizeLabel: String
+    public var viewingLabel: String
+    public var playbackHeading: String
+    public var pauseLabel: String
+    public var stopLabel: String
+    public var powerLabel: String
+    public var deleteLabel: String
     public var title: String
     public var station: String
     public var recorded: String
@@ -744,11 +762,15 @@ public final class TitleSheetWindow: Sendable {
     private static func screen(_ sheet: TitleSheetState, _ model: AppModel, _ letGo: LetGo) -> TitleSheetScreen {
         let current = sheet.current
         return TitleSheetScreen(
+            recordedLabel: TitleSheetState.recordedLabel, sizeLabel: TitleSheetState.sizeLabel,
+            viewingLabel: TitleSheetState.viewingLabel, playbackHeading: TitleSheetState.playbackHeading,
+            pauseLabel: TitleSheetState.pauseLabel, stopLabel: TitleSheetState.stopLabel,
+            powerLabel: TitleSheetState.powerLabel, deleteLabel: TitleSheetState.deleteLabel,
             title: current.title, station: model.channelName(for: current),
             recorded: Format.dateTime.string(from: current.start),
             length: current.lengthKnown ? Format.duration(current.durationSec) : "",
             size: current.sizeMB.map { Format.gigabytes(megabytes: $0, on: current.device) } ?? "",
-            quality: current.qualityName.map { Codes.qualityLabel[$0] ?? $0 } ?? "",
+            quality: sheet.qualityShown ?? "",
             disk: model.diskShown(current) ?? "", viewing: sheet.viewing, genre: current.genre?.label ?? "",
             offersPlayback: sheet.offersPlayback, playLabel: sheet.playLabel,
             playHeld: sheet.whyNotPlayed != nil || sheet.holdsPlayback, playbackHeld: sheet.holdsPlayback,
@@ -758,9 +780,7 @@ public final class TitleSheetWindow: Sendable {
             summary: sheet.detail?.summary ?? "", details: (sheet.detail?.details ?? []).filter { !$0.isEmpty },
             problem: model.problem(for: current.device)?.asABody ?? "",
             asking: sheet.asking, hasAsked: sheet.isAsking,
-            asked: Asked(key: key(sheet), title: sheet.askTitle, message: sheet.askMessage,
-                         action: sheet.asksBeforeDeleting ? "削除する" : "", destructive: sheet.asksBeforeDeleting,
-                         closing: sheet.asksBeforeDeleting ? "キャンセル" : "OK"),
+            asked: asked(key(sheet), sheet.askTitle, sheet.askMessage, asksBeforeDeleting: sheet.asksBeforeDeleting),
             actionHeld: sheet.holdsConfirmingDelete, done: sheet.done || letGo.happened)
     }
 }
