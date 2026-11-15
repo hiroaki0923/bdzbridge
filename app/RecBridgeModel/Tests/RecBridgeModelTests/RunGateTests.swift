@@ -878,8 +878,24 @@ final class RunGateTests: XCTestCase {
             await recorder.asked(Ask.deleteRecording, since: before) == 1
         }
         bench.network = "away"
+        // The order this fixes: the run comes to its door and waits for the check, and only then does the check
+        // end, in silence. Ended before the run arrived, the same look would stop it at a door shut for a recorder
+        // known to be away, with another sentence (rule 2 of `RecorderDriver.mayGoOn`): the model's rule as well,
+        // and the subject of other tests, but not this one's. So the check's own request is held when it comes, as
+        // the delete is, and goes only once the delete has been let go and counted.
+        let looking = await recorder.asked(Ask.description)
+        await recorder.holdTheNext(Ask.description)
         let check = Task { await lookAtTheNetwork(model) }
         try await until("the recorder was never made sure of") { isMakingSure(model) }
+        await recorder.letGo(only: Ask.deleteRecording)
+        try await until("the run never counted its first recording") { model.job?.done == 1 }
+        try await until("the check's request never went out") {
+            await recorder.asked(Ask.description) == looking + 1
+        }
+        // Its arrival at the door has no sign of its own: from there to its wait for the check the run has no
+        // other wait, as in the test above that waits for the check with a run begun (`startBulk`).
+        for _ in 0..<1_000 { await Task.yield() }
+        XCTAssertTrue(model.jobRunning && isMakingSure(model), "the run was meant to be waiting for the check")
         await recorder.goQuiet(on: Ask.description)
         await recorder.letGo()
         _ = await check.value
@@ -1115,8 +1131,24 @@ final class RunGateTests: XCTestCase {
             await recorder.asked(Ask.deleteRecording, since: before) == 1
         }
         bench.network = "away"
+        // The order this fixes: the run comes to its door and waits for the check, and only then does the check
+        // end, in silence. Ended before the run arrived, the same look would stop it at a door shut for a recorder
+        // known to be away, with another sentence (rule 2 of `RecorderDriver.mayGoOn`): the model's rule as well,
+        // and the subject of other tests, but not this one's. So the check's own request is held when it comes, as
+        // the delete is, and goes only once the delete has been let go and counted.
+        let looking = await recorder.asked(Ask.description)
+        await recorder.holdTheNext(Ask.description)
         let check = Task { await lookAtTheNetwork(model) }
         try await until("the recorder was never made sure of") { isMakingSure(model) }
+        await recorder.letGo(only: Ask.deleteRecording)
+        try await until("the run never counted its first recording") { model.job?.done == 1 }
+        try await until("the check's request never went out") {
+            await recorder.asked(Ask.description) == looking + 1
+        }
+        // Its arrival at the door has no sign of its own: from there to its wait for the check the run has no
+        // other wait, as in the test above that waits for the check with a run begun (`startBulk`).
+        for _ in 0..<1_000 { await Task.yield() }
+        XCTAssertTrue(model.jobRunning && isMakingSure(model), "the run was meant to be waiting for the check")
         await recorder.goQuiet(on: Ask.description)
         await recorder.letGo()
         _ = await check.value
