@@ -244,16 +244,21 @@ final class USBDiskTests: XCTestCase {
     func testAReturnWithNoAttachLeavesTheSlotsReadAgainForLater() async throws {
         let bench = try aBench()
         try await bench.cacheAGuide()
-        // Long enough for the leaving to come first, which the hold below makes sure of.
+        // A second after an answer of none: the read again is held below whenever it goes.
         bench.slotReadAgainAfter = .seconds(1)
         let recorder = NamedRecorder(1)
         await recorder.answer("X_GetMediaInfo", with: .result(Self.slot()), times: 1)
         let model = bench.model(recorders: [Bench.host: recorder])
         await model.start()
         try await untilConnected(model)
-        // The demo's answer from here on, which is none; and the read again held, should it go before the leaving.
-        await reconnect(model)
+        // The demo's answer from here on, which is none; every read of the slot held from the reconnect on, and the
+        // attach's own let go: the read again, should it go before the leaving, stays out until the end.
+        let before = await recorder.asked
         await recorder.hold(only: "X_GetMediaInfo")
+        let reconnecting = Task { await reconnect(model) }
+        try await until("the attach never read the slot") { await recorder.asked("X_GetMediaInfo", since: before) == 1 }
+        await recorder.letTheFirstGo(of: "X_GetMediaInfo")
+        await reconnecting.value
         let left = try XCTUnwrap(model.recorder.readLeftForLater, "the slot was not left to be read again")
 
         model.wentToBackground()

@@ -65,6 +65,16 @@ final class TVTitlesTests: XCTestCase {
     /// not use up: for a test in which the list adding up is what ends it, and not the wait running out.
     private static let aListThatComes = TVTitlesWait(every: .milliseconds(5), for: 60)
 
+    /// Waits for the read of the television's list a run makes as it ends to be over: the disk read once more
+    /// after the free space read as the run ended, `storageReads` being how often it was read before the run, and
+    /// the television's line down.
+    private func untilTheListIsReadAfterTheRun(_ home: Home, storageReads: Int) async throws {
+        try await until("the list was not read as the run ended") {
+            await home.television.calls.filter { $0.hasPrefix("getStorageList") }.count >= storageReads + 2
+                && !home.model.isBusy(for: .tv)
+        }
+    }
+
     private func tvRow(_ model: AppModel, _ number: Int = 1) throws -> RecordedTitle {
         try XCTUnwrap(model.tvHost?.titles.first { $0.id == Self.recording(number).uri })
     }
@@ -330,9 +340,11 @@ final class TVTitlesTests: XCTestCase {
         let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
         let ids = [try tvRow(model).id, title.id, try tvRow(model, 2).id]
         let calls = await home.television.calls.count
+        let storageReads = await home.television.calls.filter { $0.hasPrefix("getStorageList") }.count
 
         XCTAssertTrue(model.startBulk(.delete, ids: ids))
         try await until("the job never ended") { model.job?.finished == true }
+        try await untilTheListIsReadAfterTheRun(home, storageReads: storageReads)
 
         XCTAssertEqual(model.job?.outcome, "3 件を削除しました")
         XCTAssertEqual(model.job?.changed, ids)
@@ -556,6 +568,7 @@ final class TVTitlesTests: XCTestCase {
         let model = home.model
         let onTV = try tvRow(model)
         let onTheRecorder = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+        let storageReads = await home.television.calls.filter { $0.hasPrefix("getStorageList") }.count
 
         await home.door.hold(only: "deleteContent")
         XCTAssertTrue(model.startBulk(.delete, ids: [onTV.id]))
@@ -568,6 +581,8 @@ final class TVTitlesTests: XCTestCase {
         expectTrue(await home.recorder.asked("X_GetTitleList") > reads, "and the recorder's pull-down")
         await home.door.letGo()
         try await until("the job never ended") { model.job?.finished == true }
+        // The television's line is down once the list it reads as the run ends is in.
+        try await untilTheListIsReadAfterTheRun(home, storageReads: storageReads)
 
         await home.recorder.hold(only: "X_DeleteTitle")
         XCTAssertTrue(model.startBulk(.delete, ids: [onTheRecorder.id]))

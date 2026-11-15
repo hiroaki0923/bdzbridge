@@ -773,8 +773,11 @@ final class QueueGateTests: XCTestCase {
                 try await aClient(of: recorder).create(pressed.request)
             }
             let asking = Task { await model.sendAgain(pressed) }
-            // Long enough for the row sent again to be waiting for the queue's turn.
-            try await Task.sleep(for: .milliseconds(300))
+            // Its reason comes off once the row sent again has read it from the queue, on its way to the queue's
+            // turn: taken from the queue after that, it is a row another sending took while it waited.
+            try await until("the row sent again never took its reason off") {
+                model.pending.contains { $0.id == pressed.id && $0.problem == nil }
+            }
             try await store.removePending(pressed.id)
             await recorder.letGo()
             await pulling.value
@@ -864,8 +867,8 @@ final class QueueGateTests: XCTestCase {
             await recorder.heard(since: count).contains(Kind.description)
         }
         let asking = Task { await model.sendAgain(pressed) }
-        // Long enough for the row's check to be waiting on the one out before its probe is let go.
-        try await Task.sleep(for: .milliseconds(300))
+        // The row's line goes up as its check joins the one out: waiting on it before its probe is let go.
+        try await until("the row sent again never joined the check") { model.busy == RecorderDriver.sendingLine }
         await recorder.goQuiet(on: Kind.description)
         await recorder.letGo()
         expectTrue(await check.value, "the recorder was not woken")
@@ -896,8 +899,8 @@ final class QueueGateTests: XCTestCase {
             await recorder.asked(Kind.description, since: before) == 1
         }
         let asking = Task { await model.sendAgain(pressed) }
-        // Long enough for the row's check to be waiting on the one out before its probe is let go.
-        try await Task.sleep(for: .milliseconds(300))
+        // The row's line goes up as its check joins the one out: waiting on it before its probe is let go.
+        try await until("the row sent again never joined the check") { model.busy == RecorderDriver.sendingLine }
         await recorder.goQuiet(on: Kind.description)
         await recorder.become(2)
         await recorder.letGo()

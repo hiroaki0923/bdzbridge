@@ -301,7 +301,8 @@ final class TVLinkTests: XCTestCase {
         let model = bench.model(recorder: DemoRecorder(), television: television,
                                 credentials: await registered(with: television))
         await model.start()
-        try await until("the television was not connected") { model.tvDriver?.canBeAsked == true }
+        // Its connect over, which is once it has read the reservations: the client can be asked before that.
+        try await untilTheTelevisionIsConnected(model)
 
         await television.becomeAnother(mac: "f8:4e:17:00:00:0b")
         let before = await television.calls.count
@@ -328,7 +329,8 @@ final class TVLinkTests: XCTestCase {
         let model = bench.model(recorder: DemoRecorder(), television: faulting,
                                 credentials: await registered(with: television))
         await model.start()
-        try await until("the television was not connected") { model.tvDriver?.canBeAsked == true }
+        // Its connect over, which is once it has read the reservations: the client can be asked before that.
+        try await untilTheTelevisionIsConnected(model)
 
         await faulting.fail(with: 500)
         let before = await television.calls.count

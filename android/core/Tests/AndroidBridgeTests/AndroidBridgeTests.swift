@@ -1323,6 +1323,11 @@ extension AndroidBridgeTests {
         // A move for a list that has changed since -- the station is no longer where the drag began -- is refused.
         let stale = await channels.move(first.id, from: 0, to: 1)
         XCTAssertFalse(stale)
+        // In the cache once the window's saves are done, each after the one before it: the list read again is
+        // read from there.
+        _ = await until({ (try? await app.model.channelsToArrange(broadcasting: "td"))?.map(\.id) ?? [] }) {
+            $0 == moved.stations.map(\.id)
+        }
         let again = await app.channels()
         defer { Task { await again.closed() } }
         let reread = await until(again.read) { $0.loaded && !$0.stations.isEmpty }
