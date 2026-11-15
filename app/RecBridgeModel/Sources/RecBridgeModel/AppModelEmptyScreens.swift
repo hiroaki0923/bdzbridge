@@ -46,12 +46,25 @@ extension AppModel {
         return .notReached(why: why, phones: why != nil && why == phoneProblem)
     }
 
-    /// The words of each case but the blocked one, whose are the platform's.
+    /// The words of each case but the blocked one, whose title is the local network's and the rest the platform's.
     public static let notAdded = ScreenSays("レコーダーが追加されていません", "同じ Wi-Fi 上のレコーダーを探して追加してください")
     public static let wakingDetail = "レコーダーが起きるまで数秒かかります"
     public static func notReached(why: String?, phones: Bool) -> ScreenSays {
         ScreenSays(phones ? "エラー" : "レコーダーに接続できません",
                    why ?? "レコーダーの電源と、同じネットワークに接続されているかを確かめてください")
+    }
+
+    /// What the screen says in each case: the title, and what is said under it but while the permission is in the
+    /// way, when that is the way to the switch, the platform's. Under the words, the search is offered with nothing
+    /// set up; 再接続 with the search quieter below it for a recorder not reached; a wait while the app works on it;
+    /// and the platform's way to the switch while the permission is in the way (`Offer`, `holds`).
+    public func says(_ said: NoRecorderSays) -> ScreenSays {
+        switch said {
+        case .notAdded: Self.notAdded
+        case .working(let busy): ScreenSays(busy, Self.wakingDetail)
+        case .blocked: ScreenSays(LocalNetwork.accessNotAllowed)
+        case .notReached(let why, let phones): Self.notReached(why: why, phones: phones)
+        }
     }
 
     // MARK: - the guide

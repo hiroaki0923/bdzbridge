@@ -21,6 +21,29 @@ final class EmptyScreenTests: XCTestCase {
         XCTAssertTrue(model.recordingsHaveNoRecorder)
     }
 
+    /// Each case of the screen with no recorder in its words (`says`): the search's and 再接続's are the model's
+    /// (`Offer`), and the permission's case has the local network's sentence alone, what is said under it being the
+    /// way to the switch, the platform's. With nothing set up, the search is not held.
+    func testEachCaseOfTheScreenWithNoRecorderSaysItsWords() async throws {
+        let bench = try aBench()
+        let model = bench.modelWithNoRecorder()
+        await model.start()
+        XCTAssertEqual(model.says(model.noRecorderSays), AppModel.notAdded)
+        XCTAssertEqual(model.says(.notAdded), .init("レコーダーが追加されていません", "同じ Wi-Fi 上のレコーダーを探して追加してください"))
+        XCTAssertFalse(model.holds(.search), "the search was held with nothing set up")
+        XCTAssertEqual(AppModel.Offer.search.label, "レコーダーを探す")
+
+        XCTAssertEqual(model.says(.working("レコーダーを起動しています")),
+                       .init("レコーダーを起動しています", "レコーダーが起きるまで数秒かかります"))
+        XCTAssertEqual(model.says(.blocked), .init("ローカルネットワークへのアクセスが許可されていません"))
+        XCTAssertNil(model.says(.blocked).detail)
+        XCTAssertEqual(model.says(.notReached(why: nil, phones: false)),
+                       .init("レコーダーに接続できません", "レコーダーの電源と、同じネットワークに接続されているかを確かめてください"))
+        XCTAssertEqual(model.says(.notReached(why: "番組表を保存できませんでした", phones: true)),
+                       .init("エラー", "番組表を保存できませんでした"))
+        XCTAssertEqual(AppModel.Offer.reconnect.label, "再接続")
+    }
+
     /// A recorder set up that does not answer: said as not reached, with the power and the network to check, and
     /// the guide in the cache shown all the same. The reservations tab shows its queue once something waits.
     func testARecorderThatDoesNotAnswerIsSaidNotReachedAndTheCacheIsShownAllTheSame() async throws {
