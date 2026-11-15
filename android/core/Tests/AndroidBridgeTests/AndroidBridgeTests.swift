@@ -41,6 +41,16 @@ final class AndroidBridgeTests: XCTestCase {
         return shown
     }
 
+    /// A sheet's or a form's own strip leaves out the demo's line, which the screens' strip says (`strip(inSheet:)`).
+    @MainActor
+    func testASheetsStripLeavesOutTheDemosLine() async throws {
+        let app = await demo()
+        let screens = await until(app.strip().read) { $0.kind == "demo" }
+        XCTAssertEqual(screens.action, "leaveDemo")
+        let sheets = await app.sheetStrip().read()
+        XCTAssertNotEqual(sheets.kind, "demo")
+    }
+
     @MainActor
     func testTheDemosGuideIsWordedAsTheIOSListWordsIt() async throws {
         let guide = await demo().guide()
@@ -249,6 +259,8 @@ final class AndroidBridgeTests: XCTestCase {
         let sheet = try XCTUnwrap(opening)
         let opened = await sheet.read()
         XCTAssertEqual(opened.title, hit.row.title)
+        XCTAssertEqual(opened.starts, hit.row.dated, "the row says what the sheet says, so nothing swaps")
+        XCTAssertTrue(hit.row.dated.contains("("), "a day, not the time alone")
         await sheet.closed()
 
         // The recordings: read as the scope is turned to, and narrowed by the words in the box.
@@ -682,6 +694,8 @@ final class AndroidBridgeTests: XCTestCase {
         let guide = await until(app.guide().read) { $0.shows == "noRecorder" }
         XCTAssertEqual(guide.noRecorder.kind, "notAdded")
         XCTAssertEqual(guide.noRecorder.said.title, AppModel.notAdded.title)
+        XCTAssertFalse(guide.noRecorder.phones)
+        XCTAssertFalse(guide.noRecorder.held, "no job is running")
     }
 
     /// The address field as the iOS tutorial's: what is typed is said back, a keystroke typed over a value the model

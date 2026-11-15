@@ -63,6 +63,7 @@ object RecBridge {
     class Windows(
         val app: RecBridgeApp, val devices: DevicesWindow, val guide: GuideWindow,
         val reservations: ReservationsWindow, val recordings: RecordingsWindow, val strip: StripWindow,
+        val sheetStrip: StripWindow,
         val settings: SettingsWindow, val search: SearchWindow, val job: JobWindow, val duplicates: DuplicatesWindow,
     )
 
@@ -71,6 +72,7 @@ object RecBridge {
     private val _reservations = MutableStateFlow<Reservations?>(null)
     private val _recordings = MutableStateFlow<Recordings?>(null)
     private val _strip = MutableStateFlow<Strip?>(null)
+    private val _sheetStrip = MutableStateFlow<Strip?>(null)
     private val _settings = MutableStateFlow<Settings?>(null)
     private val _search = MutableStateFlow<Search?>(null)
     private val _job = MutableStateFlow<JobBar?>(null)
@@ -80,6 +82,7 @@ object RecBridge {
     val reservations: StateFlow<Reservations?> = _reservations
     val recordings: StateFlow<Recordings?> = _recordings
     val strip: StateFlow<Strip?> = _strip
+    val sheetStrip: StateFlow<Strip?> = _sheetStrip
     val settings: StateFlow<Settings?> = _settings
     val search: StateFlow<Search?> = _search
     val job: StateFlow<JobBar?> = _job
@@ -116,13 +119,15 @@ object RecBridge {
             app.drawsTiles(Tiles)
             watchTheNetwork(context.applicationContext, app)
             val windows = Windows(app, call { app.devices(arena) }, app.guide(arena), call { app.reservations(arena) },
-                                  call { app.recordings(arena) }, app.strip(arena), call { app.settings(arena) },
+                                  call { app.recordings(arena) }, app.strip(arena), app.sheetStrip(arena),
+                                  call { app.settings(arena) },
                                   call { app.search(arena) }, app.job(arena), call { app.duplicates(arena) })
             watch({ windows.devices.observe(it) }, { Devices(call { windows.devices.read(arena) }) }, _devices)
             watch({ windows.guide.observe(it) }, { Guide(call { windows.guide.read(arena) }) }, _guide)
             watch({ windows.reservations.observe(it) }, { Reservations(call { windows.reservations.read(arena) }) }, _reservations)
             watch({ windows.recordings.observe(it) }, { Recordings(call { windows.recordings.read(arena) }) }, _recordings)
             watch({ windows.strip.observe(it) }, { Strip(call { windows.strip.read(arena) }) }, _strip)
+            watch({ windows.sheetStrip.observe(it) }, { Strip(call { windows.sheetStrip.read(arena) }) }, _sheetStrip)
             watch({ windows.settings.observe(it) }, { Settings(call { windows.settings.read(arena) }) }, _settings)
             watch({ windows.search.observe(it) }, { Search(call { windows.search.read(arena) }) }, _search)
             watch({ windows.job.observe(it) }, { JobBar(call { windows.job.read(arena) }) }, _job)
@@ -626,7 +631,7 @@ private object MainQueue {
     }
 }
 
-data class NoRecorder(val kind: String, val title: String, val detail: String)
+data class NoRecorder(val kind: String, val title: String, val detail: String, val phones: Boolean, val held: Boolean)
 
 data class Choice(val code: String, val label: String)
 
@@ -686,6 +691,7 @@ data class GridBlock(
 data class Programme(
     val id: String, val serviceID: Long, val time: String, val length: String, val title: String, val station: String, val mark: String,
     val markIsRed: Boolean, val genre: String, val summary: String, val starts: Long, val ends: Long,
+    val dated: String,
 )
 
 /**
@@ -846,7 +852,7 @@ private fun Duplicates(it: jp.hiroaki.bdbridge.bridge.DuplicatesScreen) = it.get
 
 private fun Programme(row: jp.hiroaki.bdbridge.bridge.GuideRow) =
     Programme(row.id, row.serviceID, row.time, row.length, row.title, row.station, row.mark, row.isMarkIsRed, row.genre,
-              row.summary, row.starts, row.ends)
+              row.summary, row.starts, row.ends, row.dated)
 
 private fun ReservationItem(row: jp.hiroaki.bdbridge.bridge.ReservationRow) =
     ReservationItem(row.id, row.time, row.length, row.isRecording, row.isConflict, row.isByTheRecorder, row.title,
@@ -887,7 +893,7 @@ private fun Search(it: jp.hiroaki.bdbridge.bridge.SearchScreen) = it.getSaid(are
 }
 
 private fun NoRecorder(said: jp.hiroaki.bdbridge.bridge.NoRecorder) =
-    said.getSaid(arena).let { NoRecorder(said.kind, it.title, it.detail) }
+    said.getSaid(arena).let { NoRecorder(said.kind, it.title, it.detail, said.isPhones, said.isHeld) }
 
 private fun Devices(it: jp.hiroaki.bdbridge.bridge.DevicesScreen) = Devices(
     it.isWelcomes, it.closeLabel, it.isSearching, it.isSearchHeld, it.searched, it.toSearch, it.permissionNotice,
@@ -1050,7 +1056,7 @@ data class TitleSheetScreen(
     val playLabel: String, val playHeld: Boolean, val playbackHeld: Boolean, val offersPower: Boolean,
     val playbackNote: String, val protected: Boolean, val protectLabel: String, val protectHeld: Boolean,
     val deleteHeld: Boolean, val whyNotDeleted: String, val summary: String, val details: List<String>,
-    val line: String, val problem: String, val asking: Boolean, val asked: Asked?, val actionHeld: Boolean,
+    val problem: String, val asking: Boolean, val asked: Asked?, val actionHeld: Boolean,
     val done: Boolean,
 )
 
@@ -1058,7 +1064,7 @@ private fun TitleSheetScreen(it: jp.hiroaki.bdbridge.bridge.TitleSheetScreen) = 
     it.title, it.station, it.recorded, it.length, it.size, it.quality, it.disk, it.viewing, it.genre,
     it.isOffersPlayback, it.playLabel, it.isPlayHeld, it.isPlaybackHeld, it.isOffersPower, it.playbackNote,
     it.isProtected, it.protectLabel, it.isProtectHeld, it.isDeleteHeld, it.whyNotDeleted, it.summary,
-    it.details.toList(), it.line, it.problem, it.isAsking, asked(it.isHasAsked, it.getAsked(arena)), it.isActionHeld,
+    it.details.toList(), it.problem, it.isAsking, asked(it.isHasAsked, it.getAsked(arena)), it.isActionHeld,
     it.isDone,
 )
 

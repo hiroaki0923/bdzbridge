@@ -1,3 +1,6 @@
+#if canImport(Android)
+import Android
+#endif
 import Foundation
 import Observation
 import RecBridgeModel
@@ -187,6 +190,8 @@ public final class RecBridgeApp: Sendable {
         await MainActor.run { DuplicatesWindow(DuplicatesState(model: model), model: model) }
     }
     public func strip() -> StripWindow { StripWindow(model) }
+    /// The strip a sheet or a form has of its own (`recorderActivity(inSheet: true)`), without the demo's line.
+    public func sheetStrip() -> StripWindow { StripWindow(model, inSheet: true) }
     public func search() async -> SearchWindow {
         await MainActor.run { SearchWindow(model) }
     }
@@ -236,6 +241,7 @@ extension Surroundings {
         android.lanInterfaces = LocalNetwork.lanInterfaces
         android.scanTransport = { URLSessionTransport.withoutCookies() }
         android.scanPause = { try? await Task.sleep(for: $0) }
+        android.scanLog = { SearchLog.note($0) }
         android.appVersion = { version }
         android.tvCredentials = KeptTVCredentials(folder: keptFolder)
         android.tvHelperTokens = KeptTVHelperToken(folder: keptFolder)
@@ -381,25 +387,43 @@ public struct Choice: Sendable {
 /// What a screen with no recorder to talk to says, in the four cases the iOS app tells apart
 /// (`AppModel.noRecorderSays`): `kind` is `notAdded` (offer the search), `working` (the recorder's line, with a
 /// wait), `blocked` (the local network's permission) or `notReached` (offer 再接続 and the search).
+/// `phones` is set when what went wrong is the phone's own cache (the iOS screen shows a warning triangle then), and
+/// `held` while a bulk job runs, when 再接続 and レコーダーを探す are held as the iOS screen holds them.
 public struct NoRecorder: Sendable {
     public var kind: String
     public var said: Said
+    public var phones: Bool
+    public var held: Bool
 }
 
 extension NoRecorder {
     @MainActor init(_ model: AppModel) {
         switch model.noRecorderSays {
         case .notAdded:
-            self.init(kind: "notAdded", said: Said(AppModel.notAdded))
+            self.init(kind: "notAdded", said: Said(AppModel.notAdded), phones: false, held: false)
         case .working(let busy):
-            self.init(kind: "working", said: Said(busy, AppModel.wakingDetail))
+            self.init(kind: "working", said: Said(busy, AppModel.wakingDetail), phones: false, held: false)
         case .blocked:
-            self.init(kind: "blocked", said: Said(LocalNetwork.accessNotAllowed))
+            self.init(kind: "blocked", said: Said(LocalNetwork.accessNotAllowed), phones: false, held: false)
         case .notReached(let why, let phones):
-            self.init(kind: "notReached", said: Said(AppModel.notReached(why: why, phones: phones)))
+            self.init(kind: "notReached", said: Said(AppModel.notReached(why: why, phones: phones)), phones: phones,
+                      held: model.jobRunning)
         }
     }
 }
 
 /// Whole seconds since 1970, which is how a time crosses to Kotlin for the screen to compare with its clock.
 func seconds(_ date: Date) -> Int64 { Int64(date.timeIntervalSince1970.rounded(.down)) }
+
+/// What a search for devices leaves in the system log, as `ScanLog` does on iOS: under the tag `RecBridgeScan`, so that
+/// `adb logcat -s RecBridgeScan` shows a search afterwards. The lines are the model's own, counts and codes and words of
+/// the app's, never an address or a name. Off Android there is no system log, and nothing is written.
+enum SearchLog {
+    static let tag = "RecBridgeScan"
+
+    static func note(_ line: String) {
+        #if os(Android)
+        _ = __android_log_write(Int32(ANDROID_LOG_INFO.rawValue), tag, line)
+        #endif
+    }
+}
