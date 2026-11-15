@@ -6,12 +6,7 @@ import SwiftUI
 /// the channel names across the top, a red line at the current time, and a time axis that pinches. Both rulers
 /// are drawn over the scrolling content and moved by its offset, which is how they stay put on iOS 17.
 struct GuideGridView: View {
-    private typealias Column = (channel: Channel, programs: [GuideProgramRow])
-
-    /// Channels that have nothing on that day are left out, which drops the sub-channels that only mirror
-    /// their parent.
-    private let columns: [Column]
-    private let dayStart: Date
+    private let day: GuideGridDay
     /// The channels' logos, decoded, by service id.
     private let logos: [Int: UIImage]
     /// Counts the times the reader has asked to be taken back to now. Watched rather than acted on, so the
@@ -22,7 +17,7 @@ struct GuideGridView: View {
     let pendingFor: (GuideProgramRow) -> PendingReservation?
     let onSelect: (GuideProgramRow) -> Void
 
-    @AppStorage(DefaultsKey.gridPointsPerMinute) private var pointsPerMinute = 3.0
+    @AppStorage(DefaultsKey.gridPointsPerMinute) private var pointsPerMinute = GuideGridScale.standard
     /// The time of day to open at instead of now, as `HH:mm`. Nothing in the app writes it; it is passed on
     /// the command line (`-guideOpenAt 19:00`) so that the store screenshots land on the evening whatever
     /// time of day they are taken. See app/scripts/screenshots.
@@ -46,14 +41,10 @@ struct GuideGridView: View {
          reservationFor: @escaping (GuideProgramRow) -> Reservation?,
          pendingFor: @escaping (GuideProgramRow) -> PendingReservation?,
          onSelect: @escaping (GuideProgramRow) -> Void) {
-        let byService = Dictionary(grouping: programs, by: \.serviceID)
-        columns = channels.compactMap { channel in
-            guard let programs = byService[channel.serviceID], !programs.isEmpty else { return nil }
-            return (channel, programs)
-        }
-        dayStart = GuideStore.dayRange(containing: day).start
+        let gridDay = GuideGridDay(channels: channels, programs: programs, day: day)
+        self.day = gridDay
         var logos: [Int: UIImage] = [:]
-        for entry in columns {
+        for entry in gridDay.columns {
             guard let logo = entry.channel.logo, let image = UIImage(data: logo) else { continue }
             logos[entry.channel.serviceID] = image
         }
@@ -67,15 +58,11 @@ struct GuideGridView: View {
     private static let column = 132.0
     private static let gutter = 30.0
     private let header = 54.0
-    private let dayMinutes = 1440.0
-    private let smallest = 1.5
-    private let largest = 8.0
     private let space = "guide-grid"
 
+    private var columns: [GuideGridDay.Column] { day.columns }
     private var contentWidth: Double { Self.gutter + Double(columns.count) * Self.column }
-    private var contentHeight: Double { header + dayMinutes * pointsPerMinute }
-    private var nowMinutes: Double { Date().timeIntervalSince(dayStart) / 60 }
-    private var showsNow: Bool { (0..<dayMinutes).contains(nowMinutes) }
+    private var contentHeight: Double { header + GuideGridDay.minutes * pointsPerMinute }
 
     var body: some View {
         if columns.isEmpty {
@@ -115,11 +102,11 @@ struct GuideGridView: View {
                             blocks(entry.programs, atColumn: index)
                         }
                     }
-                    if showsNow {
+                    if let nowMinute = day.nowMinute(at: Date()) {
                         Rectangle()
                             .fill(.red)
                             .frame(width: contentWidth, height: 2)
-                            .offset(y: header + nowMinutes * pointsPerMinute)
+                            .offset(y: header + nowMinute * pointsPerMinute)
                     }
                 }
                 .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
@@ -135,7 +122,7 @@ struct GuideGridView: View {
                             // it is the one measurement that does not depend on how far the grid is scrolled
                             hold = holdingTime(atScreenY: value.startAnchor.y * viewport.height, scale: start)
                         }
-                        pointsPerMinute = min(largest, max(smallest, start * value.magnification))
+                        pointsPerMinute = GuideGridScale.clamped(start * value.magnification)
                     }
                     .onEnded { _ in pinchStart = nil }
             )
@@ -157,7 +144,7 @@ struct GuideGridView: View {
                 Task {
                     for wait in [0, 120, 300] {
                         try? await Task.sleep(for: .milliseconds(wait))
-                        show(minute: showsNow ? nowMinutes : 0, with: scroller)
+                        show(minute: day.nowMinute(at: Date()) ?? 0, with: scroller)
                     }
                 }
             }
@@ -166,13 +153,13 @@ struct GuideGridView: View {
 
     /// Where the grid opens: the current time, or the top of the day when another day is showing.
     private var openingMinute: Double {
-        GuideStore.minuteOfTheBroadcastDay(openAt) ?? (showsNow ? nowMinutes : 0)
+        day.openingMinute(pinned: openAt, now: Date())
     }
 
     /// Puts a minute of the day at the top of the screen, aiming high enough that the quarter hour before
     /// it clears the channel names drawn over the top.
     private func show(minute: Double, with scroller: ScrollViewProxy) {
-        let wanted = max(0, minute - 15 - header / pointsPerMinute)
+        let wanted = max(0, minute - GuideGridDay.leadIn - header / pointsPerMinute)
         withAnimation(.none) {
             scroller.scrollTo(anchorName(forMinute: wanted), anchor: .topLeading)
         }
@@ -196,7 +183,7 @@ struct GuideGridView: View {
     private var anchors: some View {
         VStack(spacing: 0) {
             Color.clear.frame(width: 1, height: header)
-            ForEach(0..<Int(dayMinutes / 15), id: \.self) { step in
+            ForEach(0..<Int(GuideGridDay.minutes / 15), id: \.self) { step in
                 Color.clear
                     .frame(width: 1, height: 15 * pointsPerMinute)
                     // The mark is a point tall and sits at the top of its quarter hour. `scrollTo(anchor:)`
@@ -219,7 +206,7 @@ struct GuideGridView: View {
     }
 
     private func blocks(_ programs: [GuideProgramRow], atColumn index: Int) -> some View {
-        ForEach(programs.filter { visibleMinutes.overlaps(minutes(of: $0)) }) { program in
+        ForEach(programs.filter { visibleMinutes.overlaps(day.span(of: $0)) }) { program in
             ProgramBlock(program: program, height: height(of: program), width: Self.column - 2,
                          labelOffset: labelOffset(for: program), reservation: reservationFor(program),
                          pending: pendingFor(program), onSelect: onSelect)
@@ -232,7 +219,7 @@ struct GuideGridView: View {
     private func hourRuler(height: Double) -> some View {
         ZStack(alignment: .topLeading) {
             ForEach(0..<24, id: \.self) { index in
-                Text("\((index + GuideStore.dayStartHour) % 24)")
+                Text("\(GuideGridDay.hourLabel(index))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .frame(width: Self.gutter, alignment: .center)
@@ -275,8 +262,8 @@ struct GuideGridView: View {
 
     private var zoomButtons: some View {
         HStack(spacing: 8) {
-            zoomButton("minus", factor: 1 / 1.4, enabled: pointsPerMinute > smallest)
-            zoomButton("plus", factor: 1.4, enabled: pointsPerMinute < largest)
+            zoomButton("minus", factor: 1 / GuideGridScale.step, enabled: GuideGridScale.canShrink(pointsPerMinute))
+            zoomButton("plus", factor: GuideGridScale.step, enabled: GuideGridScale.canGrow(pointsPerMinute))
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -285,7 +272,7 @@ struct GuideGridView: View {
     private func zoomButton(_ symbol: String, factor: Double, enabled: Bool) -> some View {
         Button {
             hold = holdingTime(atScreenY: viewport.height / 2, scale: pointsPerMinute)
-            pointsPerMinute = min(largest, max(smallest, pointsPerMinute * factor))
+            pointsPerMinute = GuideGridScale.clamped(pointsPerMinute * factor)
         } label: {
             // Drawn at 36 and tapped at 44, which is where the two areas meet in the gap between them.
             Image(systemName: symbol)
@@ -303,7 +290,7 @@ struct GuideGridView: View {
 
     // MARK: - geometry
 
-    private var dayKey: String { "\(Int(dayStart.timeIntervalSince1970))-\(columns.count)" }
+    private var dayKey: String { day.key }
 
     /// What to hold still while the scale changes: the quarter-hour mark nearest a point on screen, and the
     /// fraction of the viewport it is at right now. Without this the grid simply grows downwards from the
@@ -311,7 +298,7 @@ struct GuideGridView: View {
     private func holdingTime(atScreenY screenY: Double, scale: Double) -> Hold? {
         guard viewport.height > 0 else { return nil }
         let minute = (screenY - offset.y - header) / scale
-        let quarter = min(max(0, (minute / 15).rounded() * 15), dayMinutes - 15)
+        let quarter = min(max(0, (minute / 15).rounded() * 15), GuideGridDay.minutes - 15)
         let markY = header + quarter * scale + offset.y
         return Hold(minute: quarter, unit: min(max(0, markY / viewport.height), 1))
     }
@@ -320,20 +307,12 @@ struct GuideGridView: View {
         "minute-\(Int((minute / 15).rounded(.down)) * 15)"
     }
 
-    private func minutes(of program: GuideProgramRow) -> ClosedRange<Double> {
-        let start = program.start.timeIntervalSince(dayStart) / 60
-        // The end is the guide file's own, stored as it came, and nothing holds it after the start.
-        return start...(start + Double(max(0, program.durationSec)) / 60)
-    }
-
     private func top(of program: GuideProgramRow) -> Double {
-        max(0, program.start.timeIntervalSince(dayStart) / 60) * pointsPerMinute
+        day.top(of: program) * pointsPerMinute
     }
 
     private func height(of program: GuideProgramRow) -> Double {
-        let start = max(program.start, dayStart)
-        let end = min(program.end, dayStart.addingTimeInterval(dayMinutes * 60))
-        return max(10, end.timeIntervalSince(start) / 60 * pointsPerMinute - 2)
+        max(10, day.shown(of: program) * pointsPerMinute - 2)
     }
 
     /// Keeps a long programme's title in view while its block scrolls past, the way the web grid does.
@@ -372,15 +351,12 @@ private struct ProgramBlock: View {
     let pending: PendingReservation?
     let onSelect: (GuideProgramRow) -> Void
 
-    private var ended: Bool { program.end <= Date() }
-    private var onAir: Bool { program.start <= Date() && Date() < program.end }
+    private var ended: Bool { program.hasEnded(at: Date()) }
+    private var onAir: Bool { program.isOnAir(at: Date()) }
 
     /// How much of the programme has gone. Shading that part is what marks the one on air: it meets the red
     /// line at the current time exactly, and says how far in you are.
-    private var elapsed: Double {
-        guard onAir, program.durationSec > 0 else { return 0 }
-        return min(1, max(0, Date().timeIntervalSince(program.start) / Double(program.durationSec)))
-    }
+    private var elapsed: Double { program.elapsed(at: Date()) }
 
     var body: some View {
         Button { onSelect(program) } label: {
@@ -425,27 +401,13 @@ private struct ProgramBlock: View {
         guard let mark else { return Text("") }
         return Text(verbatim: " ") + Text(mark.word)
             .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(mark.colour)
+            .foregroundStyle(mark.isRed ? Color.red : Color.legibleOrange)
     }
 
-    private var mark: (word: String, colour: Color)? {
-        if let reservation {
-            return reservation.recording ? ("録画中", .red) : ("予約", .legibleOrange)
-        } else if let pending {
-            return ("送信待ち", pending.problem == nil ? .legibleOrange : .red)
-        }
-        return nil
-    }
+    private var mark: GuideMark? { GuideMark(reservation: reservation, pending: pending) }
 
     /// What VoiceOver reads for the block: the channel, when and for how long, the title, and the marks.
-    private var spoken: String {
-        var parts = [program.serviceName,
-                     "\(Format.time.string(from: program.start))から\(Format.duration(program.durationSec))",
-                     program.title]
-        if onAir { parts.append("放送中") }
-        if let mark { parts.append(mark.word) }
-        return parts.joined(separator: "、")
-    }
+    private var spoken: String { program.spoken(mark: mark, at: Date()) }
 
     /// Tinted for a reservation, and more faintly for one that has not reached the recorder yet.
     private var background: Color {
@@ -456,21 +418,7 @@ private struct ProgramBlock: View {
 
     /// ARIB level-1 genre to an accent colour, the same mapping the web app uses.
     private var genreColor: Color {
-        switch program.genre?.level1 {
-        case 0: Color(red: 0.56, green: 0.56, blue: 0.58)
-        case 1: Color(red: 0.20, green: 0.78, blue: 0.35)
-        case 2: Color(red: 1.00, green: 0.58, blue: 0.00)
-        case 3: Color(red: 1.00, green: 0.18, blue: 0.33)
-        case 4: Color(red: 0.69, green: 0.32, blue: 0.87)
-        case 5: Color(red: 1.00, green: 0.80, blue: 0.00)
-        case 6: Color(red: 0.00, green: 0.48, blue: 1.00)
-        case 7: Color(red: 0.35, green: 0.78, blue: 0.98)
-        case 8: Color(red: 0.19, green: 0.69, blue: 0.78)
-        case 9: Color(red: 0.64, green: 0.52, blue: 0.37)
-        case 10: Color(red: 0.35, green: 0.34, blue: 0.84)
-        case 11: Color(red: 0.00, green: 0.78, blue: 0.75)
-        default: Color(.separator)
-        }
+        guard let accent = GuideGenre.accent(level1: program.genre?.level1) else { return Color(.separator) }
+        return Color(red: accent.red, green: accent.green, blue: accent.blue)
     }
 }
-
