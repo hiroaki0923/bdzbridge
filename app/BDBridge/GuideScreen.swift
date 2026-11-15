@@ -112,7 +112,7 @@ struct GuideScreen: View {
                     } label: {
                         Image(systemName: grid ? "tablecells" : "list.bullet")
                     }
-                    .accessibilityLabel(grid ? "リスト表示にする" : "表形式で表示")
+                    .accessibilityLabel(AppModel.guideModeLabel(grid: grid))
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {

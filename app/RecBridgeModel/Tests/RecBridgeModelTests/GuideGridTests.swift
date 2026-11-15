@@ -227,6 +227,16 @@ final class GuideGridTests: XCTestCase {
         XCTAssertEqual(model.guideHeading(grid: true), "地デジ")
     }
 
+    // MARK: - the buttons' names
+
+    /// The switch says what a press does from the mode on screen, and the zoom buttons what they do to the guide.
+    func testWhatTheGuidesButtonsAreCalled() {
+        XCTAssertEqual(AppModel.guideModeLabel(grid: false), "表形式で表示")
+        XCTAssertEqual(AppModel.guideModeLabel(grid: true), "リスト表示にする")
+        XCTAssertEqual(GuideGridScale.growLabel, "表示を拡大")
+        XCTAssertEqual(GuideGridScale.shrinkLabel, "表示を縮小")
+    }
+
     private func pending(for program: GuideProgramRow) throws -> PendingReservation {
         let request = try XCTUnwrap(ReservationRequest(program: program, quality: "DR", repeating: "none"))
         return PendingReservation(request: request, serviceName: program.serviceName)
