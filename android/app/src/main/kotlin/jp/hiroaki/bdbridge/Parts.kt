@@ -73,6 +73,7 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -175,7 +176,8 @@ fun FoundRecordersCard(recorders: List<FoundRecorder>, canChoose: Boolean, choos
                         Text("接続する", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                     }
                 },
-                modifier = Modifier.clickable(enabled = canChoose) { choose(found.host) },
+                // As on iOS, the row in use is selected to the screen reader.
+                modifier = Modifier.semantics { selected = found.inUse }.clickable(enabled = canChoose) { choose(found.host) },
             )
         }
     }

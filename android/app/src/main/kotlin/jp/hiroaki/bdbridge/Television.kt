@@ -45,6 +45,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
@@ -172,7 +174,10 @@ fun FoundTelevisionsCard(televisions: List<FoundTelevision>, enabled: Boolean, r
                             Text("登録する", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                         }
                     },
-                    modifier = if (found.registers) Modifier.clickable(enabled = enabled) { register(found.host) } else Modifier,
+                    // As on iOS, the row in use is selected to the screen reader.
+                    modifier = Modifier.semantics { selected = found.inUse }.let {
+                        if (found.registers) it.clickable(enabled = enabled) { register(found.host) } else it
+                    },
                 )
             }
         }
