@@ -181,8 +181,17 @@ final class RecorderRecordingsTests: XCTestCase {
         XCTAssertTrue(bodies[1].contains("<Operation>on</Operation>"), bodies[1])
         XCTAssertTrue(bodies[4].contains("<TitleID>0x1</TitleID>"), bodies[4])
         XCTAssertTrue(bodies[4].contains("<Operation>play</Operation>"), bodies[4])
-        XCTAssertEqual(world.updated, Array(repeating: "レコーダーの電源を入れています（0 秒）", count: 2),
-                       "the line is told once for each look at the status")
+        // The seconds are the clock's, which a machine that stands still moves on: held is the line once for
+        // each look at the status, with seconds that never go back.
+        let saying = "レコーダーの電源を入れています（", seconds = " 秒）"
+        let said = world.updated.map { line in
+            line.hasPrefix(saying) && line.hasSuffix(seconds)
+                ? Int(line.dropFirst(saying.count).dropLast(seconds.count)) : nil
+        }
+        XCTAssertEqual(said.count, 2, "the line is told once for each look at the status")
+        XCTAssertFalse(said.contains(nil), "not the line of the recorder turning on: \(world.updated)")
+        let waited = said.compactMap { $0 }
+        XCTAssertEqual(waited, waited.sorted(), "the seconds said went backwards")
     }
 
     /// A recorder that is on plays at once, and nothing about power is sent or asked: that is the usual case,

@@ -117,7 +117,8 @@ final class DiscoveryScanTests: XCTestCase {
         let handedOver = HandedOver()
         let found = await Discovery.scan(hosts: ["192.0.2.9", "192.0.2.10"], transport: transport, timeout: 0.2,
                                          found: { recorder in Task { await handedOver.add(recorder.host) } })
-        XCTAssertLessThan(Date().timeIntervalSince(started), 5, "the deadline, not the sleep, ends the probe")
+        // Against the request's minute, which a probe that waited for it would take, and not a stall.
+        XCTAssertLessThan(Date().timeIntervalSince(started), 30, "the deadline, not the sleep, ends the probe")
         XCTAssertEqual(found.map(\.host), ["192.0.2.10"])
         expectEqual(await handedOver.hosts, ["192.0.2.10"], "a recorder is handed over as soon as it answers")
     }

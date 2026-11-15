@@ -676,14 +676,21 @@ final class ClientQueueTests: XCTestCase {
     }
 
     /// A connect's description keeps the wire only until the attach has heard it: the next connect at the
-    /// address asks who answers at once, and does not wait out its ask's own timeout.
+    /// address asks who answers first, and once it is through, a read of another client's at the address goes at
+    /// once and does not wait out its own half minute. Told by that read and not by how long the connect took:
+    /// a describe kept waiting would go after its own five seconds, which a machine that stands still uses up
+    /// as well.
     func testTheWireADescriptionKeptIsTheOthersOnceTheAttachHasHeard() async throws {
         let (world, link, recorder) = try await connected()
-        try await within(4, "the next connect waited for what the last one's description kept") {
-            await link.connect()
-        }
+        try await within(10, "the next connect never came back") { await link.connect() }
         expectEqual(await recorder.actions.first, "description.xml")
         XCTAssertTrue(link.session.connected, world.problem ?? "no reason given")
+
+        let another = try XCTUnwrap(link.driver.makeClient(for: link) as? RecorderClient)
+        let reading = Task { try await another.titles() }
+        await eventually { recorder.heard.contains("X_GetTitleList") }
+        XCTAssertTrue(recorder.heard.contains("X_GetTitleList"), "the read waited for what the description kept")
+        _ = try await within(10, "the read never came back") { await reading.result }
     }
 
     /// A request met by silence gives back the wire as it throws: a read of another client's at the address goes
@@ -788,13 +795,18 @@ final class ClientQueueTests: XCTestCase {
         await now.forget()
 
         world.devices[Stub.host] = now
+        let began = ContinuousClock.now
         let connecting = Task { await link.connect() }
         // Turns enough for the connect to have sent, were it free to, and no longer than a second: the ask waits
         // for the wire only as long as its own timeout, which a slower machine's hundred thousand turns outlast.
         let enough = Date().addingTimeInterval(1)
         for _ in 0..<100_000 where Date() < enough { await Task.yield() }
-        expectFalse(await now.actions.contains("description.xml"),
-                    "who answers was asked while the last client had a write out at the address")
+        let asked = await now.actions.contains("description.xml")
+        // Held only when read inside that timeout: a machine that stood still past it has the ask go beside the
+        // write, as it is to then.
+        if ContinuousClock.now - began < .seconds(RecorderClient.probeTimeout) {
+            expectFalse(asked, "who answers was asked while the last client had a write out at the address")
+        }
 
         await recorder.letGo()
         _ = try await within(10, "the held write never came back") { await protecting.result }

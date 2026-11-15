@@ -90,13 +90,15 @@ final class GuideRefreshTests: XCTestCase {
     func testA4KFileThatNeverCameIsNoFailureOnceAnotherTypeHasComeIn() async throws {
         let (client, _) = try recorder(serving: ["td", "bs", "cs"]) { _ in HTTPResponse(statusCode: 500) }
         let store = try GuideStore(path: ":memory:")
+        // Looked at as of before the run, so that a run across 01:00, the rebuild, has no mark older than it.
+        let before = Date()
 
         let outcome = await GuideRefresh.run(client: client, store: store)
 
         XCTAssertEqual(outcome.failed, [])
         XCTAssertEqual(outcome.answered, ["td", "bs", "cs"])
         let counts = try await store.counts()
-        XCTAssertEqual(GuideRefresh.staleTypes(counts), [])
+        XCTAssertEqual(GuideRefresh.staleTypes(counts, now: before), [])
         XCTAssertEqual(GuideRefresh.offeredTypes(counts), ["td", "bs", "cs"])
     }
 

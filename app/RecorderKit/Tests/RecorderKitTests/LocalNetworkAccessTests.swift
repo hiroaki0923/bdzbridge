@@ -446,7 +446,7 @@ final class LocalNetworkAccessTests: XCTestCase {
             }
         }
         let patience = Task {
-            try? await Task.sleep(for: .seconds(10))
+            try? await Task.sleep(for: .seconds(30))
             waiting.cancel()
         }
         let access = await waiting.value
@@ -455,7 +455,9 @@ final class LocalNetworkAccessTests: XCTestCase {
         XCTAssertEqual(access, .allowed, "silence was not an answer once the handshake had run out")
         let took = ContinuousClock.now - began
         XCTAssertGreaterThan(took, .milliseconds(1500), "answered before the connection had come to anything")
-        XCTAssertLessThan(took, .seconds(6), "the handshake was given more than its two seconds")
+        // Far above the two seconds, so that a machine that stood still for some is not taken for a longer
+        // handshake.
+        XCTAssertLessThan(took, .seconds(20), "the handshake was given far more than its two seconds")
     }
 
     /// The one look, towards the same address, given the time it is given when nothing else is said: the

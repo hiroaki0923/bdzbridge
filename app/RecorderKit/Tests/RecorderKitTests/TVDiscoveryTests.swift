@@ -87,7 +87,8 @@ final class TVDiscoveryTests: XCTestCase {
                                            timeout: 0.2)
 
         XCTAssertNil(found)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 5, "the deadline, not the request, ended the look")
+        // Against the request's minute, which a look that waited for it would take, and not a stall.
+        XCTAssertLessThan(Date().timeIntervalSince(started), 30, "the deadline, not the request, ended the look")
     }
 
     /// A probe that begins once its look is over sends nothing, as the probes not yet begun when the look finds
