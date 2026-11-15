@@ -135,49 +135,32 @@ struct RecorderActivityBar: View {
             .sheet(isPresented: $registeringTV) { TVRegisterSheet(model: model, host: model.tv?.host ?? "", again: true) }
     }
 
+    /// The line the model chose, in its words and with its button (`AppModel.Strip.says`, `offer`).
     @ViewBuilder
     private var content: some View {
         if let chosen = model.strip(inSheet: inSheet) {
             switch chosen {
-            case .busy(let busy):
+            case .busy:
                 strip {
                     ProgressView().controlSize(.small)
-                    Text(busy).font(.footnote)
+                    Text(chosen.says).font(.footnote)
                     Spacer()
                 }
             case .anotherTookOver:
-                report(AppModel.anotherTookOverLine, icon: "arrow.left.arrow.right") {
-                    model.anotherTookOver = false
-                }
-            case .report(let line, let inFull):
+                report(chosen, icon: "arrow.left.arrow.right")
+            case .report(_, let inFull):
                 // For the recorder and then for the television, whichever screen the app came back to.
-                report(line, icon: "clock.arrow.trianglehead.counterclockwise.rotate.90", inFull: inFull) {
-                    model.closeQueueReport()
-                }
+                report(chosen, icon: "clock.arrow.trianglehead.counterclockwise.rotate.90", inFull: inFull)
             case .demo:
                 // Said on every screen, because everything on them is invented and a reader who forgets
                 // that would take the free space, the recordings and the reservations for their own.
-                strip {
-                    Image(systemName: "theatermasks").font(.footnote)
-                    Text("サンプルデータを表示しています").font(.footnote)
-                    Spacer()
-                    // Not while a connect or a job is under way, which `busy` alone does not always show:
-                    // see `canChangeRecorder`.
-                    Button { Task { await model.leaveDemo() } } label: {
-                        Text("終了").hitArea(horizontal: 13, vertical: Self.rim)
-                    }
-                    .font(.footnote.weight(.semibold))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.tint)
-                    .disabled(!model.canChangeRecorder)
-                }
+                line(chosen, icon: "theatermasks")
             case .blocked:
-                // Not given up: the app connects the moment the permission comes. Giving it is the one
-                // thing the app cannot do, so the strip offers the way to the switch instead of 再接続,
-                // which would only run into the same refusal.
+                // Not given up: the app connects the moment the permission comes. Beside it, the way to the
+                // switch, which is the system's (`AppModel.Strip.offer`).
                 strip {
                     Image(systemName: "lock.shield").font(.footnote)
-                    Text("ローカルネットワークが許可されていません").font(.footnote)
+                    Text(chosen.says).font(.footnote)
                     Spacer()
                     OpenSettingsButton()
                         .font(.footnote.weight(.semibold))
@@ -189,52 +172,17 @@ struct RecorderActivityBar: View {
                 // that never fill. Trying again is the reader's to ask for: on this network the answer
                 // will be the same, at the cost of half a minute of waking. It asks by itself only when
                 // the network changes.
-                strip {
-                    Image(systemName: "wifi.exclamationmark").font(.footnote)
-                    Text("レコーダーの応答がありません").font(.footnote)
-                    Spacer()
-                    // Not while a bulk job runs, when a connect is only owed until it ends, and dropped if it
-                    // meets silence first (`DeviceLink.connect`).
-                    Button { Task { await model.connect() } } label: {
-                        Text("再接続").hitArea(horizontal: 13, vertical: Self.rim)
-                    }
-                    .font(.footnote.weight(.semibold))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.tint)
-                    .disabled(model.jobRunning)
-                }
+                line(chosen, icon: "wifi.exclamationmark")
             case .tvNeedsPairing:
                 // It answers, so it is there; nothing can be asked of it until the app is registered with
                 // it again.
-                strip {
-                    Image(systemName: "tv").font(.footnote)
-                    Text("テレビの登録が必要です").font(.footnote)
-                    Spacer()
-                    Button { registeringTV = true } label: {
-                        Text("登録").hitArea(horizontal: 13, vertical: Self.rim)
-                    }
-                    .font(.footnote.weight(.semibold))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.tint)
-                }
+                line(chosen, icon: "tv")
             case .tvGaveUp:
-                strip {
-                    Image(systemName: "tv").font(.footnote)
-                    Text("テレビの応答がありません").font(.footnote)
-                    Spacer()
-                    Button { Task { await model.tv?.connect() } } label: {
-                        Text("再接続").hitArea(horizontal: 13, vertical: Self.rim)
-                    }
-                    .font(.footnote.weight(.semibold))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.tint)
-                }
+                line(chosen, icon: "tv")
             case .tvDiskAway:
-                // No button: the disk is put back at the television, and the next sending of what waits
-                // reads it again, which pulling the reservations down asks for.
                 strip {
                     Image(systemName: "externaldrive.badge.xmark").font(.footnote)
-                    Text(TVDriver.diskNotFound).font(.footnote)
+                    Text(chosen.says).font(.footnote)
                     Spacer(minLength: 0)
                 }
             }
@@ -246,20 +194,51 @@ struct RecorderActivityBar: View {
     /// the demo without a question, or wake a recorder the app had given up on.
     private static let rim: CGFloat = 8
 
-    /// A line that stays until the reader closes it: cut at three lines, unless it is to be read `inFull`.
-    private func report(_ text: String, icon: String, inFull: Bool = false,
-                        close: @escaping () -> Void) -> some View {
+    /// A line with a button beside it.
+    private func line(_ chosen: AppModel.Strip, icon: String) -> some View {
         strip {
             Image(systemName: icon).font(.footnote)
-            Text(text).font(.footnote).lineLimit(inFull ? nil : 3)
+            Text(chosen.says).font(.footnote)
+            Spacer()
+            button(of: chosen)
+        }
+    }
+
+    /// A line that stays until the reader closes it: cut at three lines, unless it is to be read `inFull`.
+    private func report(_ chosen: AppModel.Strip, icon: String, inFull: Bool = false) -> some View {
+        strip {
+            Image(systemName: icon).font(.footnote)
+            Text(chosen.says).font(.footnote).lineLimit(inFull ? nil : 3)
             Spacer(minLength: 0)
-            Button(action: close) {
+            button(of: chosen)
+        }
+    }
+
+    /// The line's button, held and pressed as the model says (`AppModel.holds`, `act(on:)`, `close(_:)`): 閉じる
+    /// as a mark, the others in words. 登録 opens the sheet that registers with the television again.
+    @ViewBuilder
+    private func button(of chosen: AppModel.Strip) -> some View {
+        switch chosen.offer {
+        case .close?:
+            Button { model.close(chosen) } label: {
                 Image(systemName: "xmark").font(.caption.weight(.semibold))
                     .hitArea(horizontal: 16, vertical: Self.rim)
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .accessibilityLabel("閉じる")
+            .accessibilityLabel(AppModel.Offer.close.label)
+        case let offer?:
+            Button {
+                if offer == .registerTV { registeringTV = true } else { Task { await model.act(on: offer) } }
+            } label: {
+                Text(offer.label).hitArea(horizontal: 13, vertical: Self.rim)
+            }
+            .font(.footnote.weight(.semibold))
+            .buttonStyle(.plain)
+            .foregroundStyle(.tint)
+            .disabled(model.holds(offer))
+        case nil:
+            EmptyView()
         }
     }
 
@@ -370,37 +349,41 @@ struct NoRecorderView: View {
 
     var body: some View { states }
 
+    /// The model's words for each case (`AppModel.says`), and its buttons with their words and holds
+    /// (`AppModel.Offer`, `holds`).
     @ViewBuilder
     private var states: some View {
-        switch model.noRecorderSays {
+        let said = model.noRecorderSays
+        let says = model.says(said)
+        switch said {
         case .notAdded:
             ContentUnavailableView {
-                Label(AppModel.notAdded.title, systemImage: icon)
+                Label(says.title, systemImage: icon)
             } description: {
-                Text(AppModel.notAdded.detail ?? "")
+                Text(says.detail ?? "")
             } actions: {
-                Button("レコーダーを探す") { welcoming = true }
+                Button(AppModel.Offer.search.label) { welcoming = true }
                     .buttonStyle(.borderedProminent)
+                    .disabled(model.holds(.search))
             }
-        case .working(let busy):
+        case .working:
             ContentUnavailableView {
-                Label(busy, systemImage: icon)
+                Label(says.title, systemImage: icon)
             } description: {
-                Text(AppModel.wakingDetail)
+                Text(says.detail ?? "")
             } actions: {
                 ProgressView()
             }
         case .blocked:
             ContentUnavailableView {
-                Label(LocalNetworkNotice.title, systemImage: "lock.shield")
+                Label(says.title, systemImage: "lock.shield")
             } description: {
                 Text(LocalNetworkNotice.detail(scanning: false))
             } actions: {
                 OpenSettingsButton()
                     .buttonStyle(.borderedProminent)
             }
-        case .notReached(let why, let phones):
-            let says = AppModel.notReached(why: why, phones: phones)
+        case .notReached(_, let phones):
             ContentUnavailableView {
                 Label(says.title, systemImage: phones ? "exclamationmark.triangle" : icon)
             } description: {
@@ -409,16 +392,17 @@ struct NoRecorderView: View {
                 VStack(spacing: 12) {
                     // Connecting sends a magic packet by itself when the recorder answered nothing at all, so
                     // there is nothing here about waking: trying again is the whole of it.
-                    Button("再接続") { Task { await model.connect() } }
+                    Button(AppModel.Offer.reconnect.label) { Task { await model.act(on: .reconnect) } }
                         .buttonStyle(.borderedProminent)
+                        .disabled(model.holds(.reconnect))
                     // The address itself may be what is wrong: typed with a digit out -- which is saved all
                     // the same, so the tutorial never comes back by itself -- or given to something else by
                     // the router, where the connect's own look round had no MAC to go by. Quieter than 再接続,
                     // which is still what usually works.
-                    Button("レコーダーを探す") { welcoming = true }
+                    Button(AppModel.Offer.search.label) { welcoming = true }
                         .buttonStyle(.borderless)
+                        .disabled(model.holds(.search))
                 }
-                .disabled(model.jobRunning)
             }
         }
     }

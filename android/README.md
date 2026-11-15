@@ -64,8 +64,9 @@ settings say when it last fetched it (最終自動更新): below, "The overnight
   the grid is shown, which is how its line at now and what is on the air move), `Lists.swift`, `Recordings.swift`
   (the bulk job's bar, a programme's page and the duplicates), `Conditions.swift`
   (the keyword conditions and their form), `Strip.swift` (the strip at the top of
-  every screen, as the model chooses its line, and the one a recording's sheet and a new condition's form have of
-  their own, without the demo's line), `Search.swift` (the search, whose window runs for as long as the
+  every screen, as the model chooses and words its line and its button, and the one a recording's sheet and a new
+  condition's form have of their own, without the demo's line),
+  `Search.swift` (the search, whose window runs for as long as the
   screen is on what the iOS screen runs with `task(id:)`), `Settings.swift` (the settings, whose fields keep what is typed and
   take the model's value when the model sets them itself), `Television.swift` (the television's sheets, its part of
   the settings and the televisions a search found), `Kept.swift` (where the television's registration and the

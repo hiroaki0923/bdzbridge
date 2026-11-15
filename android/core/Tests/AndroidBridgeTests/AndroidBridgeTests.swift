@@ -51,6 +51,33 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertNotEqual(sheets.kind, "demo")
     }
 
+    /// The strip's line and its button are the model's (`AppModel.Strip.says`, `offer`, `AppModel.holds`): the demo's,
+    /// with 終了 held while the recorder in play may not be changed. A press of a button the line does not offer does
+    /// nothing, and 終了 leaves the demo, after which the screens say that no recorder has been added, with the
+    /// search in the model's words.
+    @MainActor
+    func testTheStripsLineAndItsButtonAreTheModels() async throws {
+        let app = await demo()
+        let strip = app.strip()
+        let shown = await until(strip.read) { $0.kind == "demo" && $0.actionEnabled }
+        XCTAssertEqual(shown.text, "サンプルデータを表示しています")
+        XCTAssertEqual(shown.action, "leaveDemo")
+        XCTAssertEqual(shown.actionLabel, AppModel.Offer.leaveDemo.label)
+
+        await strip.press("reconnect")
+        await strip.press("reconnectTV")
+        let devices = await app.devices()
+        let still = await devices.read()
+        XCTAssertTrue(still.demo, "a button the line does not offer did something")
+
+        await strip.press("leaveDemo")
+        _ = await until(devices.read) { !$0.demo }
+        let guide = await until(app.guide().read) { $0.shows == "noRecorder" }
+        XCTAssertEqual(guide.noRecorder.kind, "notAdded")
+        XCTAssertEqual(guide.noRecorder.search.label, "レコーダーを探す")
+        XCTAssertEqual(guide.noRecorder.reconnect.label, "再接続")
+    }
+
     @MainActor
     func testTheDemosGuideIsWordedAsTheIOSListWordsIt() async throws {
         let guide = await demo().guide()
@@ -695,7 +722,8 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertEqual(guide.noRecorder.kind, "notAdded")
         XCTAssertEqual(guide.noRecorder.said.title, AppModel.notAdded.title)
         XCTAssertFalse(guide.noRecorder.phones)
-        XCTAssertFalse(guide.noRecorder.held, "no job is running")
+        XCTAssertFalse(guide.noRecorder.search.held, "the search is held with nothing set up")
+        XCTAssertFalse(guide.noRecorder.reconnect.held, "no job is running")
     }
 
     /// The address field as the iOS tutorial's: what is typed is said back, a keystroke typed over a value the model

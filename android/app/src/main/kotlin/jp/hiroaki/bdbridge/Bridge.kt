@@ -631,7 +631,11 @@ private object MainQueue {
     }
 }
 
-data class NoRecorder(val kind: String, val title: String, val detail: String, val phones: Boolean, val held: Boolean)
+data class NoRecorder(val kind: String, val title: String, val detail: String, val phones: Boolean, val search: Offered,
+                      val reconnect: Offered)
+
+/** A button in the model's words, and whether it is held now. */
+data class Offered(val label: String, val held: Boolean)
 
 data class Choice(val code: String, val label: String)
 
@@ -893,7 +897,12 @@ private fun Search(it: jp.hiroaki.bdbridge.bridge.SearchScreen) = it.getSaid(are
 }
 
 private fun NoRecorder(said: jp.hiroaki.bdbridge.bridge.NoRecorder) =
-    said.getSaid(arena).let { NoRecorder(said.kind, it.title, it.detail, said.isPhones, said.isHeld) }
+    said.getSaid(arena).let {
+        NoRecorder(said.kind, it.title, it.detail, said.isPhones, Offered(said.getSearch(arena)),
+                   Offered(said.getReconnect(arena)))
+    }
+
+private fun Offered(it: jp.hiroaki.bdbridge.bridge.Offered) = Offered(it.label, it.isHeld)
 
 private fun Devices(it: jp.hiroaki.bdbridge.bridge.DevicesScreen) = Devices(
     it.isWelcomes, it.closeLabel, it.isSearching, it.isSearchHeld, it.searched, it.toSearch, it.permissionNotice,
@@ -966,10 +975,11 @@ private fun Recordings(it: jp.hiroaki.bdbridge.bridge.RecordingsScreen): Recordi
 }
 
 /** The strip at the top of every screen (`StripWindow`): `kind` is empty when it has nothing to say. */
-data class Strip(val kind: String, val text: String, val inFull: Boolean, val action: String, val actionEnabled: Boolean)
+data class Strip(val kind: String, val text: String, val inFull: Boolean, val action: String, val actionLabel: String,
+                 val actionEnabled: Boolean)
 
 private fun Strip(it: jp.hiroaki.bdbridge.bridge.StripLine) =
-    Strip(it.kind, it.text, it.isInFull, it.action, it.isActionEnabled)
+    Strip(it.kind, it.text, it.isInFull, it.action, it.actionLabel, it.isActionEnabled)
 
 
 /** A value with its words, as a picker offers it. */
