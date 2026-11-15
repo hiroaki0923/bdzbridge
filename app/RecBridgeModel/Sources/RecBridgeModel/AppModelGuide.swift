@@ -72,6 +72,12 @@ extension AppModel {
         defaults.string(forKey: DefaultsKey.lastBackgroundRefresh).map { Format.when(stored: $0) }
     }
 
+    /// When the guide was last fetched, as the settings say it (最終更新): by the terrestrial type's mark, nil while
+    /// it has none.
+    public var lastGuideRefresh: String? {
+        counts["td"]?.refreshed.map { Format.when(stored: $0) }
+    }
+
     /// Downloads the broadcasting types told and replaces what the cache holds for each, as a connect asks for
     /// it: the driver's step (`RecorderDriver.refreshGuide`). A connect asks with nobody having pressed, and
     /// lets what it came to go: what failed is on the line.

@@ -203,6 +203,14 @@ extension AppModel {
         scanBlocked = false
     }
 
+    /// Whether レコーダーとテレビを探す is held in the settings and the tutorial: while a scan holds it, with its small
+    /// spinner (`scanHoldsTheButton`), and while the recorder works.
+    public var holdsTheSearchButton: Bool { scanHoldsTheButton || busy != nil }
+
+    /// How far the scan under way has got, as the settings and the tutorial say it under the button: none while it is
+    /// held up by the local network permission, whose notice is up instead.
+    public var searchProgress: (done: Int, total: Int)? { scanBlocked ? nil : scanning }
+
     /// How many single requests one press may come to after a look that was turned away: two minutes of them, a
     /// second apart.
     static let singleRequestsAllowed = 120
