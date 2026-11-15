@@ -96,7 +96,7 @@ fun GuideScreen(search: () -> Unit, arrange: () -> Unit) {
     failure?.let { said ->
         AlertDialog(onDismissRequest = { failure = null },
                     confirmButton = { TextButton(onClick = { failure = null }) { Text("OK") } },
-                    title = { Text("番組表を取得できませんでした") }, text = { Text(said) })
+                    title = { Text(RecBridge.settingsWords.refreshFailedTitle) }, text = { Text(said) })
     }
     Scaffold(topBar = { Refused {
         Column {

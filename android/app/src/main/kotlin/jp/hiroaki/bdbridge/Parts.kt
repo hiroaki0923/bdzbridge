@@ -159,7 +159,8 @@ fun SearchOutcome(outcome: String, failed: Boolean, note: String, causes: List<S
 @Composable
 fun FoundRecordersCard(recorders: List<FoundRecorder>, canChoose: Boolean, choose: (String) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
-        Text("見つかったレコーダー", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+        Text(RecBridge.settingsWords.foundRecordersHeading, style = MaterialTheme.typography.titleSmall,
+             color = MaterialTheme.colorScheme.primary,
              modifier = Modifier.padding(start = 16.dp, top = 12.dp))
         recorders.forEachIndexed { index, found ->
             if (index > 0) HorizontalDivider()

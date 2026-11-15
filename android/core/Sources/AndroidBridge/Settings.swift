@@ -6,7 +6,9 @@ import RecorderKit
 /// The settings, as the iOS app's settings screen has them, of what Android has yet: the recorder -- what it says of
 /// itself, how the link stands, its address and MAC --, the mode a new reservation starts at, the television, the
 /// search and the recorders and televisions it found, the guide kept on the phone and where it is fetched from, the
-/// demo, and the app. The notifications and the Shortcuts action are the iOS app's own.
+/// demo, and the app. The notifications and the Shortcuts action are the iOS app's own. The labels and the sentences
+/// that never change are the model's, kept by Kotlin from the model's start (`SettingsWordsText`); what is said by
+/// what the model holds comes with each read.
 public struct SettingsScreen: Sendable {
     /// What the recorder says of itself once connected: 機種, 名前, ファームウェア, 番組表, and its disks.
     public var facts: [Fact]
@@ -32,10 +34,13 @@ public struct SettingsScreen: Sendable {
     /// The television's part.
     public var television: TelevisionPart
     /// レコーダーとテレビを探す, whether it is held, and how far the search has got (`searched` of `toSearch`, both 0
-    /// when none runs); what it came to, `outcomeFailed` in red, with the line and the causes under it.
+    /// when none runs, said as `searchingLine`); what it came to, `outcomeFailed` in red, with the line and the causes
+    /// under it; and what is said under the search, in the demo or out of it.
     public var searchHeld: Bool
     public var searched: Int64
     public var toSearch: Int64
+    public var searchingLine: String
+    public var searchFooter: String
     public var outcome: String
     public var outcomeFailed: Bool
     public var outcomeNote: String
@@ -47,16 +52,20 @@ public struct SettingsScreen: Sendable {
     public var canChoose: Bool
     /// 番組表の取得元: a choice where both a recorder and a registered helper could give the guide, said alone where the
     /// television gives it with no choice to make (`guideSourceAlone`), and nothing otherwise; what the helper's last
-    /// fetch said.
+    /// fetch said, as a body says it, in red where there is no choice; and what is said under the guide where there
+    /// is one, which says what the helper said as it said it (`guideSourceFooter`, empty otherwise).
     public var guideSources: [Labelled]
     public var guideSource: String
     public var guideSourceAlone: String
     public var helperProblem: String
+    public var guideSourceFooter: String
     /// 保存されている番組表: each broadcasting type's stations and programmes, when the guide was last fetched, and
     /// when the overnight run last fetched it (最終自動更新).
     public var guide: [Fact]
     public var refreshHeld: Bool
+    /// Whether the demo is on, and what is said under its button.
     public var demo: Bool
+    public var demoFooter: String
     public var version: String
     /// The row that opens the tutorial again (`Tutorial.reviewRow`).
     public var tutorialRow: String
@@ -71,6 +80,56 @@ public struct SettingsScreen: Sendable {
 public struct Fact: Sendable {
     public var label: String
     public var value: String
+}
+
+/// The settings' labels and sentences that never change, as the model words them -- the recorder's part's
+/// (`RecorderSettingsState`), the rest of the screen's (`SettingsWords`), 番組表を更新's with the title of what it had
+/// to say (`AppModel.refreshGuideLabel`, `refreshFailedTitle`), and ご利用上の注意 (`Disclaimer.title`) -- for Kotlin
+/// to keep from the model's start. The tutorial says the search's button, the recorders it found, the address field's
+/// label and placeholder, このアドレスに接続 and サンプルデータで試す in the same words, and the guide's tab the title
+/// of what 番組表を更新 had to say.
+public struct SettingsWordsText: Sendable {
+    public var title: String
+    public var recorderHeading: String
+    public var recorderFooter: String
+    public var standingLabel: String
+    public var hostLabel: String
+    public var hostPlaceholder: String
+    public var macLabel: String
+    public var macPlaceholder: String
+    public var connectLabel: String
+    public var reconnectLabel: String
+    public var defaultQualityLabel: String
+    public var defaultQualityFooter: String
+    public var searchLabel: String
+    public var foundRecordersHeading: String
+    public var channelsLabel: String
+    public var channelsFooter: String
+    public var guideHeading: String
+    public var guideSourceLabel: String
+    public var refreshGuideLabel: String
+    public var refreshFailedTitle: String
+    public var enterDemoLabel: String
+    public var leaveDemoLabel: String
+    public var appHeading: String
+    public var disclaimerLabel: String
+    public var versionLabel: String
+
+    static let all = SettingsWordsText(
+        title: SettingsWords.title, recorderHeading: RecorderSettingsState.heading,
+        recorderFooter: RecorderSettingsState.footer, standingLabel: RecorderSettingsState.standingLabel,
+        hostLabel: RecorderSettingsState.hostLabel, hostPlaceholder: RecorderSettingsState.hostPlaceholder,
+        macLabel: RecorderSettingsState.macLabel, macPlaceholder: RecorderSettingsState.macPlaceholder,
+        connectLabel: RecorderSettingsState.connectLabel, reconnectLabel: RecorderSettingsState.reconnectLabel,
+        defaultQualityLabel: SettingsWords.defaultQualityLabel,
+        defaultQualityFooter: SettingsWords.defaultQualityFooter,
+        searchLabel: SettingsWords.searchLabel, foundRecordersHeading: SettingsWords.foundRecordersHeading,
+        channelsLabel: SettingsWords.channelsLabel, channelsFooter: SettingsWords.channelsFooter,
+        guideHeading: SettingsWords.guideHeading, guideSourceLabel: SettingsWords.guideSourceLabel,
+        refreshGuideLabel: AppModel.refreshGuideLabel, refreshFailedTitle: AppModel.refreshFailedTitle,
+        enterDemoLabel: SettingsWords.enterDemoLabel, leaveDemoLabel: SettingsWords.leaveDemoLabel,
+        appHeading: SettingsWords.appHeading, disclaimerLabel: Disclaimer.title,
+        versionLabel: SettingsWords.versionLabel)
 }
 
 /// How many times the model has set each of the settings' fields to something else itself, rather than taken what was
@@ -239,7 +298,7 @@ public final class SettingsWindow: Sendable {
 
     /// レコーダーとテレビを探す.
     public func search() async {
-        await MainActor.run { if !(model.scanHoldsTheButton || model.busy != nil) { model.scanForDevices() } }
+        await MainActor.run { if !model.holdsTheSearchButton { model.scanForDevices() } }
     }
 
     /// 番組表を更新: what it had to say, for the question that says it, or nothing.
@@ -273,51 +332,58 @@ public final class SettingsWindow: Sendable {
                                _ quality: ChosenQuality, _ typing: Typing, _ version: String) -> SettingsScreen {
         var facts: [Fact] = []
         if let info = model.info {
-            facts.append(Fact(label: "機種", value: info.product))
-            facts.append(Fact(label: "名前", value: info.friendlyName))
+            facts.append(Fact(label: RecorderSettingsState.productLabel, value: info.product))
+            facts.append(Fact(label: RecorderSettingsState.nameLabel, value: info.friendlyName))
             // empty when the recorder would not say, which another model may not
-            if !model.firmware.isEmpty { facts.append(Fact(label: "ファームウェア", value: model.firmware)) }
-            facts.append(Fact(label: "番組表", value: info.epgCapable ? "あり" : "なし"))
+            if !model.firmware.isEmpty {
+                facts.append(Fact(label: RecorderSettingsState.firmwareLabel, value: model.firmware))
+            }
+            facts.append(Fact(label: RecorderSettingsState.guideLabel,
+                              value: RecorderSettingsState.guideShown(info.epgCapable)))
             facts += AppModel.storageRows(storage: model.storage, usb: model.usbDisk)
                 .map { Fact(label: $0.label, value: $0.value) }
         }
         var guide = GuideRefresh.offeredTypes(model.counts).map { broadcasting in
-            let counts = model.counts[broadcasting]
-            return Fact(label: Codes.broadcastingLabel[broadcasting] ?? broadcasting,
-                        value: "\(counts?.channels ?? 0) 局 · \(counts?.programs ?? 0) 番組")
+            Fact(label: Codes.broadcastingLabel[broadcasting] ?? broadcasting,
+                 value: SettingsWords.countsLine(model.counts[broadcasting]))
         }
-        if let refreshed = model.counts["td"]?.refreshed {
-            guide.append(Fact(label: "最終更新", value: Format.when(stored: refreshed)))
+        if let refreshed = model.lastGuideRefresh {
+            guide.append(Fact(label: SettingsWords.lastRefreshLabel, value: refreshed))
         }
         // Read from what the overnight run wrote each time the screen is made, as the iOS screen reads it: the run
         // tells nothing of it, and a screen open as it ends says it the next time something else moves.
         if let overnight = model.lastOvernightRefresh {
-            guide.append(Fact(label: "最終自動更新", value: overnight))
+            guide.append(Fact(label: SettingsWords.lastOvernightRefreshLabel, value: overnight))
         }
         let note = recorder.tidied.note
         let outcome = model.scanOutcome
-        let scanning = model.scanBlocked ? nil : model.scanning
+        let scanning = model.searchProgress
         return SettingsScreen(
             facts: facts, standing: recorder.standing ?? "",
             typedHost: recorder.typedHost, hostSet: typing.hostSet, typedMac: recorder.typedMac, macSet: typing.macSet,
             addressNote: note?.text ?? "", addressWarning: note?.warning ?? false,
             offersConnect: recorder.offersConnect, connectHeld: recorder.holdsConnect,
             offersReconnect: recorder.offersReconnect, reconnectHeld: recorder.holdsReconnect,
-            qualities: RecorderDriver.recordsIn.map { Labelled(code: $0, label: Codes.qualityLabel[$0] ?? $0) },
+            qualities: RecorderDriver.recordsIn.map { Labelled(code: $0, label: SheetWords.qualityLabel($0)) },
             quality: quality.code, television: TelevisionPart(model, television),
-            searchHeld: model.scanHoldsTheButton || model.busy != nil,
+            searchHeld: model.holdsTheSearchButton,
             searched: Int64(scanning?.done ?? 0), toSearch: Int64(scanning?.total ?? 0),
+            searchingLine: scanning.map(SettingsWords.searchingLine) ?? "",
+            searchFooter: SettingsWords.searchFooter(inDemo: model.demo),
             outcome: outcome?.text ?? "", outcomeFailed: outcome?.failed ?? false,
             outcomeNote: outcome?.noRecorderBeside ?? "", causes: outcome?.causes ?? [],
             recorders: model.found.map { FoundRecorder($0, inUse: model.inUse($0)) },
             televisions: FoundTelevision.all(model), canChoose: model.canChangeRecorder,
             guideSources: model.guideSourceIsChoosable
-                ? [Labelled(code: GuideSourceChoice.recorder.rawValue, label: "レコーダー"),
-                   Labelled(code: GuideSourceChoice.tv.rawValue, label: "テレビ")] : [],
+                ? [Labelled(code: GuideSourceChoice.recorder.rawValue, label: SettingsWords.guideSourceName(.recorder)),
+                   Labelled(code: GuideSourceChoice.tv.rawValue, label: SettingsWords.guideSourceName(.tv))] : [],
             guideSource: model.guideSourcePreference.rawValue,
-            guideSourceAlone: !model.guideSourceIsChoosable && model.guideSource == .tv ? "テレビ" : "",
+            guideSourceAlone: model.guideSourceAlone ?? "",
             helperProblem: model.helperProblem?.asABody ?? "",
-            guide: guide, refreshHeld: !model.canRefreshGuideByHand, demo: model.demo, version: version,
+            guideSourceFooter: model.guideSourceIsChoosable
+                ? SettingsWords.guideSourceFooter(helperProblem: model.helperProblem) : "",
+            guide: guide, refreshHeld: !model.canRefreshGuideByHand, demo: model.demo,
+            demoFooter: SettingsWords.demoFooter(inDemo: model.demo), version: version,
             tutorialRow: Tutorial.reviewRow,
             busy: model.busy ?? "", problem: model.problem(for: .recorder)?.asABody ?? "",
             phoneProblem: model.phoneProblem?.asABody ?? "")

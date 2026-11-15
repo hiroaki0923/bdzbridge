@@ -816,6 +816,69 @@ extension AndroidBridgeTests {
                         SheetWords.recordingLine, SheetWords.deleteReservationLabel])
     }
 
+    /// The settings' words, as Kotlin keeps them, are the model's (`RecorderSettingsState`, `SettingsWords`, 番組表を更新's
+    /// on `AppModel`, `Disclaimer.title`).
+    @MainActor
+    func testTheSettingsWordsAreTheModels() {
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
+        let words = app.settingsWords()
+        XCTAssertEqual([words.recorderHeading, words.recorderFooter, words.standingLabel, words.hostLabel,
+                        words.hostPlaceholder, words.macLabel, words.macPlaceholder, words.connectLabel,
+                        words.reconnectLabel],
+                       [RecorderSettingsState.heading, RecorderSettingsState.footer,
+                        RecorderSettingsState.standingLabel, RecorderSettingsState.hostLabel, RecorderSettingsState.hostPlaceholder,
+                        RecorderSettingsState.macLabel, RecorderSettingsState.macPlaceholder,
+                        RecorderSettingsState.connectLabel, RecorderSettingsState.reconnectLabel])
+        XCTAssertEqual([words.title, words.defaultQualityLabel, words.defaultQualityFooter, words.searchLabel,
+                        words.foundRecordersHeading, words.channelsLabel, words.channelsFooter, words.guideHeading,
+                        words.guideSourceLabel, words.refreshGuideLabel, words.refreshFailedTitle, words.enterDemoLabel,
+                        words.leaveDemoLabel, words.appHeading, words.disclaimerLabel, words.versionLabel],
+                       [SettingsWords.title, SettingsWords.defaultQualityLabel, SettingsWords.defaultQualityFooter,
+                        SettingsWords.searchLabel, SettingsWords.foundRecordersHeading, SettingsWords.channelsLabel,
+                        SettingsWords.channelsFooter, SettingsWords.guideHeading, SettingsWords.guideSourceLabel,
+                        AppModel.refreshGuideLabel, AppModel.refreshFailedTitle, SettingsWords.enterDemoLabel,
+                        SettingsWords.leaveDemoLabel, SettingsWords.appHeading, Disclaimer.title,
+                        SettingsWords.versionLabel])
+    }
+
+    /// What the settings say by what the model holds is the model's too: the recorder's facts, the modes offered, the
+    /// guide's counts and its last refresh, the footers in the demo and out of it, and how far a search has got, which
+    /// the tutorial says in the same words.
+    @MainActor
+    func testTheSettingsSayWhatTheModelHoldsInItsWords() async throws {
+        let app = await demo()
+        let settings = await app.settings()
+        let shown = await until(settings.read) { !$0.facts.isEmpty && !$0.guide.isEmpty }
+        let info = try XCTUnwrap(app.model.info)
+        XCTAssertEqual(Array(shown.facts.map(\.label).prefix(2)),
+                       [RecorderSettingsState.productLabel, RecorderSettingsState.nameLabel])
+        let guideRow = shown.facts.first { $0.label == RecorderSettingsState.guideLabel }
+        XCTAssertEqual(guideRow?.value, RecorderSettingsState.guideShown(info.epgCapable))
+        XCTAssertEqual(shown.qualities.map(\.label), RecorderDriver.recordsIn.map(SheetWords.qualityLabel))
+        XCTAssertEqual(shown.guide.first { $0.label == Codes.broadcastingLabel["td"] }?.value,
+                       SettingsWords.countsLine(app.model.counts["td"]))
+        XCTAssertTrue(shown.guide.contains { $0.label == SettingsWords.lastRefreshLabel && !$0.value.isEmpty })
+        XCTAssertEqual(shown.searchFooter, SettingsWords.searchFooter(inDemo: true))
+        XCTAssertEqual(shown.demoFooter, SettingsWords.demoFooter(inDemo: true))
+        XCTAssertEqual(shown.guideSourceFooter, "", "a footer of a choice was said with no choice to make")
+        XCTAssertEqual(shown.guideSourceAlone, "")
+        XCTAssertEqual(shown.searchingLine, "")
+
+        let devices = await app.devices()
+        app.model.scanning = (done: 3, total: 1024)
+        let searching = await until(settings.read) { $0.toSearch == 1024 }
+        XCTAssertTrue(searching.searchHeld)
+        XCTAssertEqual(searching.searchingLine, SettingsWords.searchingLine((done: 3, total: 1024)))
+        let tutorial = await until(devices.read) { $0.toSearch == 1024 }
+        XCTAssertEqual(tutorial.searchingLine, SettingsWords.searchingLine((done: 3, total: 1024)))
+        app.model.scanning = nil
+
+        await settings.leaveDemo()
+        let after = await until(settings.read) { !$0.demo }
+        XCTAssertEqual(after.searchFooter, SettingsWords.searchFooter(inDemo: false))
+        XCTAssertEqual(after.demoFooter, SettingsWords.demoFooter(inDemo: false))
+    }
+
     @MainActor
     func testAProgrammeIsReservedFromItsSheetAndTheGuideMarksIt() async throws {
         let app = await demo()

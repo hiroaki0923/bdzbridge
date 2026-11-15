@@ -107,6 +107,13 @@ object RecBridge {
         private set
 
     /**
+     * The settings' words that never change, as the model words them, kept the same way: the tutorial and the guide
+     * say some of them too, and the found recorders' card is drawn on both the tutorial and the settings.
+     */
+    lateinit var settingsWords: SettingsWords
+        private set
+
+    /**
      * Opens the model the first time it is asked, with the app's folder and the folder of its that never leaves the
      * device -- no backup and no move to another device takes it -- where the television's registration is kept, and
      * starts it.
@@ -119,10 +126,13 @@ object RecBridge {
         val files = context.filesDir.absolutePath
         val kept = context.noBackupFilesDir.absolutePath
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
-        val version = "${info.versionName} (${info.longVersionCode})"
+        // Said by the model's rule (`SettingsWords.version`). The Gradle file always names the version.
+        val release = info.versionName ?: "?"
+        val build = info.longVersionCode.toString()
         scope.launch {
-            val app = call { RecBridgeApp.open(files, kept, version, arena) }
+            val app = call { RecBridgeApp.open(files, kept, release, build, arena) }
             sheetWords = SheetWords(app.sheetWords(arena))
+            settingsWords = SettingsWords(app.settingsWords(arena))
             // Before the start, which seeds the demo's guide with its tiles when the demo is on.
             app.drawsTiles(Tiles)
             watchTheNetwork(context.applicationContext, app)
@@ -652,7 +662,7 @@ class Station(val serviceID: Long, val name: String, val logo: ByteArray)
 
 data class Devices(
     val welcomes: Boolean, val closeLabel: String, val searching: Boolean, val searchHeld: Boolean,
-    val searched: Long, val toSearch: Long, val permissionNotice: String,
+    val searched: Long, val toSearch: Long, val searchingLine: String, val permissionNotice: String,
     val outcome: String, val outcomeFailed: Boolean, val outcomeNote: String, val causes: List<String>,
     val busy: String, val problem: String, val recorders: List<FoundRecorder>, val televisions: List<FoundTelevision>,
     val choosing: Boolean, val canChoose: Boolean, val typing: Boolean, val typedHost: String, val hostSet: Long,
@@ -913,7 +923,8 @@ private fun NoRecorder(said: jp.hiroaki.bdbridge.bridge.NoRecorder) =
 private fun Offered(it: jp.hiroaki.bdbridge.bridge.Offered) = Offered(it.label, it.isHeld)
 
 private fun Devices(it: jp.hiroaki.bdbridge.bridge.DevicesScreen) = Devices(
-    it.isWelcomes, it.closeLabel, it.isSearching, it.isSearchHeld, it.searched, it.toSearch, it.permissionNotice,
+    it.isWelcomes, it.closeLabel, it.isSearching, it.isSearchHeld, it.searched, it.toSearch, it.searchingLine,
+    it.permissionNotice,
     it.outcome, it.isOutcomeFailed, it.outcomeNote, it.causes.toList(), it.busy, it.problem,
     it.getRecorders(arena).map { found -> FoundRecorder(found.host, found.name, found.details, found.isInUse) },
     televisions(it.getTelevisions(arena)), it.isChoosing, it.isCanChoose, it.isTyping, it.typedHost, it.hostSet,
@@ -1117,16 +1128,45 @@ private fun TitleSheetScreen(it: jp.hiroaki.bdbridge.bridge.TitleSheetScreen) = 
 /** A label and what is said beside it. */
 data class Fact(val label: String, val value: String)
 
-/** The settings (`SettingsWindow`): the fields' `hostSet` and `macSet` move when the model sets them itself. */
+/**
+ * The settings' words that never change, as the model words them (`SettingsWordsText`): the recorder's part's, the
+ * rest of the screen's, 番組表を更新's with the title of what it had to say, and ご利用上の注意. Kept from the model's
+ * start (`RecBridge.settingsWords`).
+ */
+data class SettingsWords(
+    val title: String, val recorderHeading: String, val recorderFooter: String, val standingLabel: String,
+    val hostLabel: String, val hostPlaceholder: String, val macLabel: String, val macPlaceholder: String,
+    val connectLabel: String, val reconnectLabel: String, val defaultQualityLabel: String,
+    val defaultQualityFooter: String, val searchLabel: String, val foundRecordersHeading: String,
+    val channelsLabel: String, val channelsFooter: String, val guideHeading: String, val guideSourceLabel: String,
+    val refreshGuideLabel: String, val refreshFailedTitle: String, val enterDemoLabel: String,
+    val leaveDemoLabel: String, val appHeading: String, val disclaimerLabel: String, val versionLabel: String,
+)
+
+private fun SettingsWords(it: jp.hiroaki.bdbridge.bridge.SettingsWordsText) = SettingsWords(
+    it.title, it.recorderHeading, it.recorderFooter, it.standingLabel, it.hostLabel, it.hostPlaceholder, it.macLabel,
+    it.macPlaceholder, it.connectLabel, it.reconnectLabel, it.defaultQualityLabel, it.defaultQualityFooter,
+    it.searchLabel, it.foundRecordersHeading, it.channelsLabel, it.channelsFooter, it.guideHeading,
+    it.guideSourceLabel, it.refreshGuideLabel, it.refreshFailedTitle, it.enterDemoLabel, it.leaveDemoLabel,
+    it.appHeading, it.disclaimerLabel, it.versionLabel,
+)
+
+/**
+ * The settings (`SettingsWindow`): the fields' `hostSet` and `macSet` move when the model sets them itself. What is
+ * said by what the model holds -- how far a search has got, the footers in the demo or out of it, the guide's footer
+ * where there is a source to choose -- comes with each read, in the model's words.
+ */
 data class Settings(
     val facts: List<Fact>, val standing: String, val typedHost: String, val hostSet: Long, val typedMac: String,
     val macSet: Long, val addressNote: String, val addressWarning: Boolean, val offersConnect: Boolean,
     val connectHeld: Boolean, val offersReconnect: Boolean, val reconnectHeld: Boolean, val qualities: List<Labelled>,
     val quality: String, val television: TelevisionPart, val searchHeld: Boolean, val searched: Long,
-    val toSearch: Long, val outcome: String, val outcomeFailed: Boolean, val outcomeNote: String,
+    val toSearch: Long, val searchingLine: String, val searchFooter: String, val outcome: String,
+    val outcomeFailed: Boolean, val outcomeNote: String,
     val causes: List<String>, val recorders: List<FoundRecorder>, val televisions: List<FoundTelevision>,
     val canChoose: Boolean, val guideSources: List<Labelled>, val guideSource: String, val guideSourceAlone: String,
-    val helperProblem: String, val guide: List<Fact>, val refreshHeld: Boolean, val demo: Boolean,
+    val helperProblem: String, val guideSourceFooter: String, val guide: List<Fact>, val refreshHeld: Boolean,
+    val demo: Boolean, val demoFooter: String,
     val version: String, val tutorialRow: String, val busy: String, val problem: String, val phoneProblem: String,
 )
 
@@ -1166,11 +1206,12 @@ private fun Settings(it: jp.hiroaki.bdbridge.bridge.SettingsScreen) = Settings(
     facts(it.getFacts(arena)), it.standing, it.typedHost, it.hostSet, it.typedMac, it.macSet, it.addressNote,
     it.isAddressWarning, it.isOffersConnect, it.isConnectHeld, it.isOffersReconnect, it.isReconnectHeld,
     labelled(it.getQualities(arena)), it.quality, TelevisionPart(it.getTelevision(arena)), it.isSearchHeld,
-    it.searched, it.toSearch, it.outcome, it.isOutcomeFailed, it.outcomeNote, it.causes.toList(),
+    it.searched, it.toSearch, it.searchingLine, it.searchFooter, it.outcome, it.isOutcomeFailed, it.outcomeNote,
+    it.causes.toList(),
     it.getRecorders(arena).map { found -> FoundRecorder(found.host, found.name, found.details, found.isInUse) },
     televisions(it.getTelevisions(arena)), it.isCanChoose, labelled(it.getGuideSources(arena)), it.guideSource,
-    it.guideSourceAlone, it.helperProblem, facts(it.getGuide(arena)), it.isRefreshHeld, it.isDemo, it.version,
-    it.tutorialRow, it.busy, it.problem, it.phoneProblem,
+    it.guideSourceAlone, it.helperProblem, it.guideSourceFooter, facts(it.getGuide(arena)), it.isRefreshHeld,
+    it.isDemo, it.demoFooter, it.version, it.tutorialRow, it.busy, it.problem, it.phoneProblem,
 )
 
 data class Disclaimer(val title: String, val opening: String, val sections: List<Fact>, val link: String, val url: String)

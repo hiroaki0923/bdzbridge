@@ -109,11 +109,12 @@ public final class RecBridgeApp: Sendable {
     /// The app's model, made the first time and the same one after that: one model for the process, since each
     /// has its own link to the recorder, which answers one request at a time. `files` is the app's own folder, where
     /// the settings and the guide are kept; `kept`, the folder of its that never leaves the device, where the
-    /// television's registration is (`KeptTVCredentials`); `version` is what the app's version is called (`0.1 (1)`).
-    public static func open(files: String, kept: String, version: String) async -> RecBridgeApp {
+    /// television's registration is (`KeptTVCredentials`); `release` and `build`, the app's version and its build,
+    /// which the settings say as the model words them (`SettingsWords.version`: `0.1 (1)`).
+    public static func open(files: String, kept: String, release: String, build: String) async -> RecBridgeApp {
         await MainActor.run {
             if let opened { return opened }
-            let app = made(files: files, kept: kept, version: version)
+            let app = made(files: files, kept: kept, version: SettingsWords.version(release: release, build: build))
             opened = app
             return app
         }
@@ -196,6 +197,8 @@ public final class RecBridgeApp: Sendable {
     public func sheetStrip() -> StripWindow { StripWindow(model, inSheet: true) }
     /// The words the sheets say alike, as the model has them, for Kotlin to keep (`SheetWordsText`).
     public func sheetWords() -> SheetWordsText { .all }
+    /// The settings' words that never change, as the model has them, for Kotlin to keep (`SettingsWordsText`).
+    public func settingsWords() -> SettingsWordsText { .all }
     public func search() async -> SearchWindow {
         await MainActor.run { SearchWindow(model) }
     }

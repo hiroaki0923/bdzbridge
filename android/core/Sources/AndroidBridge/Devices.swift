@@ -12,11 +12,13 @@ public struct DevicesScreen: Sendable {
     /// The close button's words: あとで設定 while nothing is set up, 閉じる after.
     public var closeLabel: String
     /// Whether the search holds its button with its spinner (`searching`), whether it is held at all (`searchHeld`),
-    /// and how far it has got (`searched` of `toSearch`, both 0 when none runs).
+    /// and how far it has got (`searched` of `toSearch`, both 0 when none runs), as the settings say it
+    /// (`searchingLine`, `SettingsWords.searchingLine`).
     public var searching: Bool
     public var searchHeld: Bool
     public var searched: Int64
     public var toSearch: Int64
+    public var searchingLine: String
     /// What is said under the button while local network privacy stands in the way of what the reader wants, or
     /// nothing.
     public var permissionNotice: String
@@ -194,6 +196,7 @@ public final class DevicesWindow: Sendable {
         return DevicesScreen(
             welcomes: model.welcomes, closeLabel: state.closeLabel, searching: state.searching,
             searchHeld: state.holdsSearch, searched: Int64(progress?.done ?? 0), toSearch: Int64(progress?.total ?? 0),
+            searchingLine: progress.map(SettingsWords.searchingLine) ?? "",
             permissionNotice: state.showsPermissionNotice ? LocalNetwork.accessNotAllowed : "",
             outcome: outcome?.text ?? "", outcomeFailed: outcome?.failed ?? false,
             outcomeNote: outcome?.noRecorderBeside ?? "", causes: outcome?.causes ?? [],

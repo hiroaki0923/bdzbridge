@@ -69,6 +69,7 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
     val address by RecBridge.devicesHostField.text.collectAsState()
     var tvSheet by remember { mutableStateOf<TVSheetRequest?>(null) }
     val tutorial = shown.tutorial
+    val words = RecBridge.settingsWords
     LaunchedEffect(shown.done) { if (shown.done) close() }
     tvSheet?.let { request -> TVRegisterSheetView(request) { tvSheet = null } }
     BackHandler(onBack = close)
@@ -108,9 +109,9 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
                        enabled = !shown.searchHeld, modifier = Modifier.fillMaxWidth()) {
                     if (shown.searching) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Text("  レコーダーとテレビを探す")
+                        Text("  " + words.searchLabel)
                     } else {
-                        Text("レコーダーとテレビを探す")
+                        Text(words.searchLabel)
                     }
                 }
             }
@@ -122,7 +123,7 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
             if (shown.toSearch > 0) item {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     LinearProgressIndicator(progress = { shown.searched.toFloat() / shown.toSearch }, Modifier.fillMaxWidth())
-                    Footnote("検索中 ${shown.searched} / ${shown.toSearch}")
+                    Footnote(shown.searchingLine)
                 }
             }
             if (shown.outcome.isNotEmpty()) item {
@@ -151,8 +152,8 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (shown.typing) {
                         OutlinedTextField(value = address, onValueChange = { RecBridge.devicesHostField.type(it) },
-                                          singleLine = true, label = { Text("IP アドレス") },
-                                          placeholder = { Text("192.168.1.10") },
+                                          singleLine = true, label = { Text(words.hostLabel) },
+                                          placeholder = { Text(words.hostPlaceholder) },
                                           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri,
                                                                             autoCorrectEnabled = false),
                                           isError = shown.addressWarning, modifier = Modifier.fillMaxWidth(),
@@ -160,7 +161,7 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
                                               { Text(shown.addressNote) }
                                           } else null)
                         Button(onClick = { RecBridge.afterTypingInDevices { it.connectTyped() } },
-                               enabled = !shown.connectHeld) { Text("このアドレスに接続") }
+                               enabled = !shown.connectHeld) { Text(words.connectLabel) }
                     } else {
                         OutlinedButton(onClick = { scope.launch { RecBridge.act { it.devices.showAddress() } } },
                                        modifier = Modifier.fillMaxWidth()) { Text("IP アドレスを直接入力") }
@@ -175,7 +176,7 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
                             RecBridge.act { it.devices.enterDemo() }
                             close()
                         }
-                    }, enabled = !shown.demoHeld) { Text("サンプルデータで試す") }
+                    }, enabled = !shown.demoHeld) { Text(words.enterDemoLabel) }
                     Footnote(tutorial.demoFooter)
                 }
             }
