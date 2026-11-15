@@ -18,9 +18,8 @@ import RecorderKit
 /// package's invented one, receiving the guide's stations and listing what it records under the guide's titles.
 /// It is kept in memory alone, with its registration, and goes with the demo.
 public enum DemoData {
-    public static var on: Bool { on(in: .standard) }
-
-    /// The same, in the defaults a model was given (`Surroundings.defaults`).
+    /// Whether the demo is on, in the defaults a model was given (`Surroundings.defaults`) or a run with no screen
+    /// was (`NoScreenSurroundings.defaults`).
     static func on(in defaults: UserDefaults) -> Bool { defaults.bool(forKey: DefaultsKey.demoData) }
 
     /// Whether to say on screen that the data is invented. On, always, for anyone using the demo -- the free

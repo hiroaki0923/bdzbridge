@@ -65,6 +65,13 @@ extension AppModel {
         if let store, let cached = try? await store.counts(), cached != counts { await reloadFromCache() }
     }
 
+    /// When the overnight run last fetched a guide, as the settings say it under the guide's own last refresh
+    /// (最終自動更新), or nil while no run has. Read from where the run wrote it (`DefaultsKey.lastBackgroundRefresh`)
+    /// each time it is asked: the run writes it with no model to tell.
+    public var lastOvernightRefresh: String? {
+        defaults.string(forKey: DefaultsKey.lastBackgroundRefresh).map { Format.when(stored: $0) }
+    }
+
     /// Downloads the broadcasting types told and replaces what the cache holds for each, as a connect asks for
     /// it: the driver's step (`RecorderDriver.refreshGuide`). A connect asks with nobody having pressed, and
     /// lets what it came to go: what failed is on the line.

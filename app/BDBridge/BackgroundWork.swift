@@ -67,139 +67,29 @@ extension BackgroundWork {
         try? BGTaskScheduler.shared.submit(request)
     }
 
-    /// The work itself, with no screen behind it -- the television's part beside the recorder's. The
-    /// television's runs whether or not a recorder is saved, so a home with a television alone has one too.
-    /// Both are awaited before the task is completed, unless its time runs out first: the handler then
-    /// completes it (`register`), and each part sees the cancellation only where it looks for it. An
-    /// `async let` left unawaited is cancelled as the scope ends, so each is awaited on the one way out.
+    /// The work itself, with no screen behind it, as the model does it with the app's own surroundings
+    /// (`refreshNow(in:)`): the television's part beside the recorder's, both awaited.
     @discardableResult
-    static func refreshNow() async -> Bool {
-        async let television = sendToTheTelevisionNow()
-        let refreshed = await refreshTheRecorderNow()
-        _ = await television
-        return refreshed
-    }
+    static func refreshNow() async -> Bool { await refreshNow(in: .app) }
 
-    /// The recorder's part: the address comes from what the app saved, and the cache is opened directly. The
-    /// recorder is asleep most of the time -- measured over twelve hours, it was answering for a quarter of
-    /// it -- so this wakes it rather than give up. Whatever is waiting in the queue goes out while the recorder
-    /// is up, and the reader is told.
-    ///
-    /// What the runs with no screen told of the recorder before is handed in to be read
-    /// (`DefaultsKey.recorderTold`, `KeptOnce`) with the hour of the next run, so that another recorder
-    /// answering, and a reservation that will start before that run and has not reached the recorder, are told
-    /// once (`RecorderDriver.refreshWithNoScreen`). What has been told from then on is written back as the run
-    /// hands it over (`Telling.system`), whether or not a notification could be heard, as the television's is
-    /// (`sendToTheTelevisionNow`).
-    ///
-    /// Stops between steps once its time is up (see `register`): the task has been completed by then, and
-    /// what the system allows after that is not to be counted on. Nothing is told or written from then on but
-    /// what became of the waiting reservations, when that is news.
-    private static func refreshTheRecorderNow() async -> Bool {
-        // Nothing to fetch and nobody to wake while the demo is on the screen.
-        guard !DemoData.on else { return false }
-        guard let host = UserDefaults.standard.string(forKey: DefaultsKey.recorderHost), !host.isEmpty,
-              let path = try? Storage.guidePath(), let store = try? GuideStore(path: path) else {
-            return false
-        }
-        return await refresh(client: RecorderClient(host: host), store: store,
-                             mac: UserDefaults.standard.string(forKey: DefaultsKey.recorderMac), telling: .system,
-                             told: KeptOnce.recorder(in: .standard).reading, nextRun: nextNightlyRun())
-    }
-
-    /// The television's part of a run with no screen, from what the screens saved: its address and MAC in the
-    /// defaults, its registration in the Keychain, the cache opened directly, a transport that keeps no
-    /// cookies. What it found is told in notifications (`Notify.television`), what was told is written back
-    /// (`KeptOnce`), as the run hands them over, and what it came to is handed back for the Shortcuts action to
-    /// say. Nil, with nothing opened, asked, posted or written, in the demo, with no television saved, and with
-    /// no cache.
-    ///
-    /// Nothing is posted or written when the television was taken away while the run was out. Once the task's
-    /// time is up, only what the queue says of its rows is posted, without its sentence for a round cut short
-    /// by silence, and nothing is written. That is inferred, not seen: a request the suspension cut would come
-    /// back, once the process resumes, as a failure of the transport, which the client reads as silence.
-    /// Apple's page on `BGProcessingTask` says that "the system can interrupt the process". Its archived
-    /// TN2277, "Networking and Multitasking", is about BSD sockets and what was built on them before
-    /// `URLSession`: once an app is suspended, "the socket's resources might get reclaimed by the kernel, after
-    /// which all networking operations on the socket will fail". What becomes of a `URLSession` request then
-    /// is in no page read. Silence so read is not the television's doing.
-    ///
-    /// What was told is written whether or not a notification could be heard: one posted with the quiet
-    /// permission the app takes at its first connect still reaches Notification Centre, and a reader who
-    /// said no would hear nothing either way.
+    /// The television's part of it, which the Shortcuts action runs beside the recorder's sending
+    /// (`sendToTheTelevisionNow(in:)`).
     @discardableResult
-    static func sendToTheTelevisionNow() async -> NoScreenSending? {
-        let defaults = UserDefaults.standard
-        guard !DemoData.on, let host = defaults.string(forKey: DefaultsKey.tvHost), !host.isEmpty,
-              let path = try? Storage.guidePath(), let store = try? GuideStore(path: path) else {
-            return nil
-        }
-        let client = ScalarClient(host: host, transport: URLSessionTransport.withoutCookies(),
-                                  credentials: KeychainTVCredentials())
-        let kept = KeptOnce.television(in: defaults)
-        let now = Date()
-        let run = await sendToTheTelevision(client: client, store: store,
-                                            mac: defaults.string(forKey: DefaultsKey.tvMac), told: kept.reading,
-                                            nextRun: nextNightlyRun(after: now), now: now) { sending, notices, told in
-            // Taken away while the run was out: what it found is no longer anybody's to be told.
-            guard televisionSaved() else { return }
-            // The task's time ran out while the run was out (`register`).
-            if Task.isCancelled {
-                if case .sent(var outcome) = sending, !outcome.isEmpty {
-                    // The suspension may be what cut the round short, and the television is not to be said to.
-                    if outcome.interrupted { outcome.stopped = nil }
-                    await Notify.television(NoScreenNotices(queue: outcome.says(naming: DeviceSlot.tv.label)))
-                }
-                return
-            }
-            await Notify.television(notices)
-            kept.keep(told)
-        }
-        return run.sending
-    }
+    static func sendToTheTelevisionNow() async -> NoScreenSending? { await sendToTheTelevisionNow(in: .app) }
 
-    /// Sends what is waiting in the queue, for the Shortcuts action (`SendWaitingIntent`), which an automation
-    /// runs as the phone joins the home Wi-Fi. The reader hears the outcome the way the overnight run tells it:
-    /// what became of a round, when it has news (`Notify.queueFlushed`); that another recorder answered, when
-    /// that is news; and the warning of reservations that have not reached the recorder in time, posted or
-    /// taken away (`Notify.recorder`).
-    ///
-    /// What was told before is handed in to be read (`DefaultsKey.recorderTold`, `KeptOnce`) with the hour of the
-    /// next overnight run, and what the sending hands over to keep is written under the same key, whether or not
-    /// a notification could be heard. Whether each is told, and whether anything is kept, is the driver's
-    /// (`RecorderDriver.sendWithNoScreen`): nothing is written for a sending whose task was cancelled, or whose
-    /// cache became another recorder's while it was out.
-    static func sendWaiting() async -> Sending {
-        guard !DemoData.on else { return .demo }
-        guard let host = UserDefaults.standard.string(forKey: DefaultsKey.recorderHost), !host.isEmpty,
-              let path = try? Storage.guidePath(), let store = try? GuideStore(path: path) else {
-            return .noRecorder
-        }
-        let kept = KeptOnce.recorder(in: .standard)
-        let (sending, _) = await sendWaiting(client: RecorderClient(host: host), store: store,
-                                             mac: UserDefaults.standard.string(forKey: DefaultsKey.recorderMac),
-                                             told: kept.reading, nextRun: nextNightlyRun()) { sending, news in
-            if case .sent(let outcome) = sending { await Notify.queueFlushed(outcome) }
-            if news.heldBackIsNews { await Notify.queueHeldBack() }
-            await Notify.recorder(notYet: news.notYet, withdraws: news.withdrawsNotYet)
-            if let told = news.kept { kept.keep(told) }
-        }
-        return sending
-    }
+    /// Sends what is waiting in the queue to the recorder, for the Shortcuts action (`SendWaitingIntent`,
+    /// `sendWaiting(in:)`).
+    static func sendWaiting() async -> Sending { await sendWaiting(in: .app) }
 }
 
-extension BackgroundWork.Telling {
-    /// Notifications, and the time the settings show.
-    static let system = BackgroundWork.Telling(
-        heldBack: { await Notify.queueHeldBack() },
-        flushed: { await Notify.queueFlushed($0) },
-        freeSpace: { await Notify.lowSpace(freeBytes: $0, totalBytes: $1, naming: $2) },
-        usbSpace: { await Notify.lowSpace(on: $0) },
-        kept: { notYet, withdraws, told in
-            await Notify.recorder(notYet: notYet, withdraws: withdraws)
-            KeptOnce.recorder(in: .standard).keep(told)
-        },
-        fetched: {
-            UserDefaults.standard.set(RecorderTime.format($0), forKey: DefaultsKey.lastBackgroundRefresh)
-        })
+extension NoScreenSurroundings {
+    /// The app's own, as the model's are (`Surroundings.app`): the standard defaults, the guide's folder, the
+    /// real sessions -- the television's keeping no cookies -- the registration in the Keychain, and the
+    /// system's notifications.
+    static var app: NoScreenSurroundings {
+        NoScreenSurroundings(defaults: .standard, folder: Storage.directory,
+                             transport: { _ in URLSessionTransport() },
+                             tvTransport: { _ in URLSessionTransport.withoutCookies() },
+                             tvCredentials: KeychainTVCredentials(), notifications: .system)
+    }
 }

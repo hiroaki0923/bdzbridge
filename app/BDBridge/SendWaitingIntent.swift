@@ -8,8 +8,8 @@ import RecorderKit
 /// Made for an automation on joining the home Wi-Fi, which is the only thing that can have the queue sent on
 /// arriving home: iOS wakes no app because a network has come, and without it the queue waits for the app to
 /// be opened, or for the overnight run. Since iOS 17 such an automation can run without asking. It runs in
-/// the background; see `BackgroundWork.sendWaiting` and `BackgroundWork.sendToTheTelevisionNow` for what it
-/// does and does not do.
+/// the background; see `BackgroundWork.sendWaiting(in:)` and `BackgroundWork.sendToTheTelevisionNow(in:)` in the
+/// model for what it does and does not do.
 struct SendWaitingIntent: AppIntent {
     static let title: LocalizedStringResource = "送信待ちの予約を送る"
     static let description = IntentDescription("""
@@ -21,7 +21,8 @@ struct SendWaitingIntent: AppIntent {
         // Beside the recorder's, whose waking can take a minute: not after it.
         async let television = BackgroundWork.sendToTheTelevisionNow()
         let sending = await BackgroundWork.sendWaiting()
-        let said = BackgroundWork.saying(sending, beside: await television, televisionSaved: BackgroundWork.televisionSaved())
+        let said = BackgroundWork.saying(sending, beside: await television,
+                                         televisionSaved: BackgroundWork.televisionSaved(in: .standard))
         return .result(dialog: IntentDialog(stringLiteral: said))
     }
 }

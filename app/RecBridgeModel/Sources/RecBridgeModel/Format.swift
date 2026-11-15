@@ -15,6 +15,13 @@ public enum Format {
         return date.formatted(.relative(presentation: .named).locale(Locale(identifier: "ja_JP")))
     }
 
+    /// The same of a time stored the way the recorder writes one, `2026-09-20T18:27:36+09:00`, as the guide's
+    /// last refresh and the overnight run's are kept: nobody reads that, and what they want to know is whether
+    /// the guide is fresh. What does not read as such a time is said as it was stored.
+    public static func when(stored: String) -> String {
+        RecorderTime.parse(stored).map { when($0) } ?? stored
+    }
+
     private static func formatter(_ pattern: String) -> DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ja_JP")

@@ -13,8 +13,8 @@ import RecorderKit
 ///
 /// It is also how the model reaches what only the platform has -- the Keychain, notifications, a background
 /// task, VoiceOver, a watcher of the network, UIKit's drawing -- so that the model itself names none of them:
-/// the app's are in `SurroundingsApp.swift`. The overnight run, the demo's own switch and the screens still
-/// read the shared defaults for themselves.
+/// the app's are in `SurroundingsApp.swift`. The runs with no screen, which have no model, are handed what they
+/// reach apart (`NoScreenSurroundings`); the screens still read the shared defaults for themselves.
 public struct Surroundings {
     /// Where the address, the MAC and the screens' choices are kept, and whether the demo is on.
     var defaults: UserDefaults
@@ -133,8 +133,9 @@ extension Surroundings {
     }
 }
 
-/// What the model has the system do about notifications (`Surroundings.notifications`), a step at a time:
-/// the app's are `Notify`'s. Nothing, unless a test or the app says otherwise.
+/// What the model has the system do about notifications (`Surroundings.notifications`), a step at a time, and
+/// what the runs with no screen have it post (`NoScreenSurroundings.notifications`): the app's are `Notify`'s.
+/// Nothing, unless a test or the app says otherwise.
 public struct Notifications: Sendable {
     /// Where the reader stands on them, for the settings to say.
     var permission: @Sendable () async -> NotificationPermission
@@ -148,19 +149,41 @@ public struct Notifications: Sendable {
     var withdrawTelevision: @Sendable (NoScreenNotices) -> Void
     /// The television's warning of reservations not yet there, taken away (`Notify.withdrawTelevisionNotYet`).
     var withdrawTelevisionNotYet: @Sendable () -> Void
+    /// What became of the recorder's queue, as a run with no screen tells it (`Notify.queueFlushed`).
+    var queueFlushed: @Sendable (PendingQueue.Outcome) async -> Void
+    /// That the recorder's queue was held back, another recorder having answered (`Notify.queueHeldBack`).
+    var queueHeldBack: @Sendable () async -> Void
+    /// The internal disk's free space as a night read it, with its label while a USB disk beside it takes
+    /// recordings (`Notify.lowSpace(freeBytes:totalBytes:naming:)`).
+    var lowSpace: @Sendable (_ freeBytes: Int, _ totalBytes: Int, _ naming: String?) async -> Void
+    /// The USB disk's, when it takes recordings (`Notify.lowSpace(on:)`).
+    var usbLowSpace: @Sendable (RecorderDisk) async -> Void
+    /// What a run with no screen tells of the television (`Notify.television`).
+    var television: @Sendable (NoScreenNotices) async -> Void
 
     public init(permission: @escaping @Sendable () async -> NotificationPermission = { .notDetermined },
                 allowQuietly: @escaping @Sendable () async -> Void = {},
                 askIfNeeded: @escaping @Sendable () async -> Void = {},
                 recorder: @escaping @Sendable (_ notYet: String?, _ withdraws: Bool) async -> Void = { _, _ in },
                 withdrawTelevision: @escaping @Sendable (NoScreenNotices) -> Void = { _ in },
-                withdrawTelevisionNotYet: @escaping @Sendable () -> Void = {}) {
+                withdrawTelevisionNotYet: @escaping @Sendable () -> Void = {},
+                queueFlushed: @escaping @Sendable (PendingQueue.Outcome) async -> Void = { _ in },
+                queueHeldBack: @escaping @Sendable () async -> Void = {},
+                lowSpace: @escaping @Sendable (_ freeBytes: Int, _ totalBytes: Int, _ naming: String?) async -> Void
+                    = { _, _, _ in },
+                usbLowSpace: @escaping @Sendable (RecorderDisk) async -> Void = { _ in },
+                television: @escaping @Sendable (NoScreenNotices) async -> Void = { _ in }) {
         self.permission = permission
         self.allowQuietly = allowQuietly
         self.askIfNeeded = askIfNeeded
         self.recorder = recorder
         self.withdrawTelevision = withdrawTelevision
         self.withdrawTelevisionNotYet = withdrawTelevisionNotYet
+        self.queueFlushed = queueFlushed
+        self.queueHeldBack = queueHeldBack
+        self.lowSpace = lowSpace
+        self.usbLowSpace = usbLowSpace
+        self.television = television
     }
 }
 

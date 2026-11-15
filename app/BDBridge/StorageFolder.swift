@@ -3,12 +3,6 @@ import RecBridgeModel
 import os
 
 extension Storage {
-    /// The guide's path in the app's own folder (`directory()`), for the entries the system calls, which
-    /// have no model to ask.
-    static func guidePath(demo: Bool = DemoData.on) throws -> String {
-        guidePath(demo: demo, in: try directory())
-    }
-
     /// A folder of their own under Application Support, left out of the phone's backups: the guide is some
     /// 28 MB that the recorder hands over again every night. The mark is on the folder rather than on the
     /// files because SQLite deletes its write-ahead log and shared-memory file and makes them again, and a

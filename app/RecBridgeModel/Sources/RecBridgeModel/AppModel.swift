@@ -335,7 +335,7 @@ public final class AppModel {
 
     /// True while the app is showing the invented recorder rather than a real one. Every screen says so, and
     /// the demo writes its guide to a database of its own, so nothing of it is left behind afterwards. A copy
-    /// of `DemoData.on` rather than a read of it: that lives in UserDefaults, where no screen sees it change.
+    /// of `DemoData.on(in:)` rather than a read of it: that lives in UserDefaults, where no screen sees it change.
     public var demo: Bool
 
     /// True while something is going on that a second request would only get in the way of. Waking is not
