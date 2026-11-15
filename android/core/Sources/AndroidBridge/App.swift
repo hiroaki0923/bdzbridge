@@ -190,6 +190,8 @@ public final class RecBridgeApp: Sendable {
         await MainActor.run { DuplicatesWindow(DuplicatesState(model: model), model: model) }
     }
     public func strip() -> StripWindow { StripWindow(model) }
+    /// The strip a sheet or a form has of its own (`recorderActivity(inSheet: true)`), without the demo's line.
+    public func sheetStrip() -> StripWindow { StripWindow(model, inSheet: true) }
     public func search() async -> SearchWindow {
         await MainActor.run { SearchWindow(model) }
     }

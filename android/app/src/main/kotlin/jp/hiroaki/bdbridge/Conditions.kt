@@ -173,7 +173,7 @@ private fun ConditionFormPage(page: RecBridge.ConditionsHandle, close: () -> Uni
                 },
             )
             // The registration's line from the press, the waking and the wait for the USB slot.
-            StripBar()
+            StripBar(inSheet = true)
         }
     }) { padding ->
         if (form == null || handle == null) {

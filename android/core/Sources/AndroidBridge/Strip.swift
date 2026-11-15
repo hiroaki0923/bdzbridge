@@ -20,13 +20,14 @@ public struct StripLine: Sendable {
     public var actionEnabled: Bool
 }
 
+/// `inSheet` is a sheet's own strip, which leaves out the demo's line, as `recorderActivity(inSheet:)` does on iOS.
 public final class StripWindow: Sendable {
     let model: AppModel
     private let shown: Watched<StripLine>
 
-    init(_ model: AppModel) {
+    init(_ model: AppModel, inSheet: Bool = false) {
         self.model = model
-        shown = Watched { StripWindow.line(model) }
+        shown = Watched { StripWindow.line(model, inSheet: inSheet) }
     }
 
     public func read() async -> StripLine { await shown.read() }
@@ -55,12 +56,12 @@ public final class StripWindow: Sendable {
     }
 
     @MainActor
-    private static func line(_ model: AppModel) -> StripLine {
+    private static func line(_ model: AppModel, inSheet: Bool) -> StripLine {
         func line(_ kind: String, _ text: String, inFull: Bool = false, action: String = "", enabled: Bool = true)
             -> StripLine {
             StripLine(kind: kind, text: text, inFull: inFull, action: action, actionEnabled: enabled)
         }
-        switch model.strip() {
+        switch model.strip(inSheet: inSheet) {
         case nil: return line("", "")
         case .busy(let busy): return line("busy", busy)
         case .anotherTookOver: return line("anotherTookOver", AppModel.anotherTookOverLine, action: "close")

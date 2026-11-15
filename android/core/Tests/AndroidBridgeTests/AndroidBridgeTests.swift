@@ -41,6 +41,16 @@ final class AndroidBridgeTests: XCTestCase {
         return shown
     }
 
+    /// A sheet's or a form's own strip leaves out the demo's line, which the screens' strip says (`strip(inSheet:)`).
+    @MainActor
+    func testASheetsStripLeavesOutTheDemosLine() async throws {
+        let app = await demo()
+        let screens = await until(app.strip().read) { $0.kind == "demo" }
+        XCTAssertEqual(screens.action, "leaveDemo")
+        let sheets = await app.sheetStrip().read()
+        XCTAssertNotEqual(sheets.kind, "demo")
+    }
+
     @MainActor
     func testTheDemosGuideIsWordedAsTheIOSListWordsIt() async throws {
         let guide = await demo().guide()

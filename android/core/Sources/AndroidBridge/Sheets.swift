@@ -608,8 +608,6 @@ public struct TitleSheetScreen: Sendable {
     public var whyNotDeleted: String
     public var summary: String
     public var details: [String]
-    /// The recorder's line while it works -- turning it on to play takes as long as waking it -- or nothing.
-    public var line: String
     public var problem: String
     public var asking: Bool
     public var hasAsked: Bool
@@ -720,7 +718,7 @@ public final class TitleSheetWindow: Sendable {
             protected: current.protected, protectLabel: sheet.protectLabel, protectHeld: sheet.holdsProtect,
             deleteHeld: sheet.holdsDelete, whyNotDeleted: sheet.whyNotDeleted?.asABody ?? "",
             summary: sheet.detail?.summary ?? "", details: (sheet.detail?.details ?? []).filter { !$0.isEmpty },
-            line: model.busy ?? "", problem: model.problem(for: current.device)?.asABody ?? "",
+            problem: model.problem(for: current.device)?.asABody ?? "",
             asking: sheet.asking, hasAsked: sheet.isAsking,
             asked: Asked(key: key(sheet), title: sheet.askTitle, message: sheet.askMessage,
                          action: sheet.asksBeforeDeleting ? "削除する" : "", destructive: sheet.asksBeforeDeleting,

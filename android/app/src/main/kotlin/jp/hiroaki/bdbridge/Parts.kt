@@ -185,11 +185,12 @@ fun FoundRecordersCard(recorders: List<FoundRecorder>, canChoose: Boolean, choos
 
 /**
  * The strip under every screen's top app bar (`RecorderActivityBar` on iOS): what the app is doing with a device, or
- * what the reader is to know of now, one thing at a time, as the model chooses it.
+ * what the reader is to know of now, one thing at a time, as the model chooses it. `inSheet` is a sheet's or a form's
+ * own, which leaves out the demo's line.
  */
 @Composable
-fun StripBar() {
-    val strip = RecBridge.strip.collectAsState().value
+fun StripBar(inSheet: Boolean = false) {
+    val strip = (if (inSheet) RecBridge.sheetStrip else RecBridge.strip).collectAsState().value
     val scope = rememberCoroutineScope()
     // The last line shown, kept while the strip slides away, so that it does not empty itself as it goes.
     var last by remember { mutableStateOf<Strip?>(null) }

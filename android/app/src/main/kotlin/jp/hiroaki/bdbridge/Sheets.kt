@@ -392,12 +392,13 @@ fun TitleSheetView(row: RecordingItem, open: suspend () -> RecBridge.TitleSheetH
     SheetOrPane(inPane, held, done = sheet?.done ?: false, gone = (missing || !listed) && !held && sheet?.asked == null,
                 close = close) {
         Title(sheet?.title ?: row.title)
+        // Not on the pane, under the strip that says it already. The strip, as on iOS, rather than the waking alone:
+        // turning the recorder on to play takes as long as waking it, and the strip says how long it has been.
+        if (!inPane) StripBar(inSheet = true)
         if (sheet == null) {
             Footnote(row.details, Modifier.padding(horizontal = 24.dp))
             return@SheetOrPane Working("")
         }
-        // Not on the pane, under the strip that says it already.
-        if (!inPane && sheet.line.isNotEmpty()) Working(sheet.line)
         Value("放送", sheet.station)
         Value("録画", sheet.recorded)
         if (sheet.length.isNotEmpty()) Value("長さ", sheet.length)
