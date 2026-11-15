@@ -34,7 +34,7 @@ struct ProgramSheet: View {
 
                 if let reservation = sheet.reservation {
                     Section(sheet.recordersHeading) {
-                        LabeledContent(SheetWords.quality, value: ProgramSheetState.qualityShown(reservation))
+                        LabeledContent(SheetWords.quality, value: ProgramSheetState.qualityName(reservation))
                         LabeledContent(SheetWords.repeating, value: SheetWords.repeatShown(reservation))
                         if let shown = model.diskShown(reservation) { LabeledContent(SheetWords.disk, value: shown) }
                         if reservation.recording { Text(SheetWords.recordingLine).foregroundStyle(.red) }
@@ -96,7 +96,7 @@ struct ProgramSheet: View {
                 }
             }
             .disabled(sheet.asking != nil)
-            .navigationTitle(ProgramSheetState.title)
+            .navigationTitle(ProgramSheetState.sheetTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseButton().disabled(sheet.holdsTheSheet) }
             .interactiveDismissDisabled(sheet.holdsTheSheet)

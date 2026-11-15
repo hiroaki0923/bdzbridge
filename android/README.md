@@ -23,9 +23,9 @@ that write: a programme's, which reserves it on the
 recorder or the television (where it goes, the disk, the mode, the repeat, what it would clash with) and deletes or
 sends again what waits for it, and a reservation's, which changes and deletes it; and a recording's, which plays,
 protects and deletes it. What each sheet holds, offers, holds back and says is the model's own state of it
-(`ProgramSheetState`, `ReservationSheetState`, `TitleSheetState`), as on iOS, and a programme's sheet labels its rows
-and buttons in the model's words too: its state's own, and those the sheets say alike (`SheetWords`), which Kotlin
-keeps from the model's start for the rows the sheet shows before its window is first read. The recordings are a list,
+(`ProgramSheetState`, `ReservationSheetState`, `TitleSheetState`), as on iOS, and each sheet labels its rows and
+buttons in the model's words too: its state's own, and those the sheets say alike (`SheetWords`), which Kotlin keeps
+from the model's start for the rows a programme's sheet shows before its window is first read. The recordings are a list,
 the same recordings gathered into programmes, or the ones recorded more than once (一覧, まとめ, 重複): a row swiped to the left
 asks to delete it or takes the protection off a protected one, a programme opens a page with the selection that bulk
 deletes and protects need, the duplicates are scanned for and their ticked copies deleted, and the bulk job's bar

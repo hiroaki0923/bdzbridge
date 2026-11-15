@@ -2,9 +2,9 @@ import Foundation
 import RecorderKit
 
 /// The words the sheets of a programme, a reservation and a recording say alike, for each sheet to lay out: the
-/// labels of their rows, the headings of what the guide says of the programme, the line while a reservation is being
-/// recorded and the button that deletes one, and how a mode, a repeat and a reservation's repeat are worded. What
-/// only one sheet says is that sheet's state's.
+/// labels of their rows, the headings of what is said of the programme, the line while a reservation is being
+/// recorded and the button that deletes one, the buttons of the question before a delete and of a report, and how a
+/// mode, a repeat and a reservation's repeat are worded. What only one sheet says is that sheet's state's.
 public enum SheetWords {
     public static let station = "放送"
     public static let starts = "開始"
@@ -14,13 +14,18 @@ public enum SheetWords {
     public static let repeating = "毎回録画"
     public static let disk = "録画先"
 
-    /// The headings of the programme's summary and of the rest the guide says of it.
+    /// The headings of the programme's summary and of the rest that is said of it.
     public static let summaryHeading = "番組内容"
     public static let detailsHeading = "詳細"
 
     /// Said in red while the reservation is being recorded.
     public static let recordingLine = "録画中です"
     public static let deleteReservationLabel = "予約を削除"
+
+    /// The buttons of the question before a delete, 削除する and キャンセル, and the one of a report, OK.
+    public static let confirmDeleteLabel = "削除する"
+    public static let cancelLabel = "キャンセル"
+    public static let okLabel = "OK"
 
     /// A mode in the words a picker offers it in (`Codes.qualityLabel`), or its name where the table has none.
     public static func qualityLabel(_ name: String) -> String { Codes.qualityLabel[name] ?? name }

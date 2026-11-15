@@ -137,6 +137,22 @@ public final class ReservationSheetState {
         }
     }
 
+    // MARK: - the sheet's words
+
+    /// The sheet's title, and the labels only this sheet's rows have: whether the reservation goes after its
+    /// programme, who made it, and how large it will be. What it says as the other sheets do is `SheetWords`.
+    public static let sheetTitle = "予約"
+    public static let followsLabel = "番組追従"
+    public static let madeByLabel = "登録元"
+    public static let sizeLabel = "録画サイズ"
+
+    /// The reservation's mode in the words a picker offers it in: nil where its row carries none the tables know,
+    /// which a television's need not, and its row is left out.
+    public var qualityLabel: String? { reservation.qualityName.map(SheetWords.qualityLabel) }
+
+    /// The recorder's mode as a value, on a row no longer changed: those words, and - where there are none.
+    public var qualityShown: String { qualityLabel ?? "-" }
+
     // MARK: - the question or the report
 
     /// Whether the one question or report is up.

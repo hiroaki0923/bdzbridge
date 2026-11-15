@@ -261,7 +261,7 @@ final class ProgramSheetTests: XCTestCase {
                         SheetWords.recordingLine, SheetWords.deleteReservationLabel],
                        ["放送", "開始", "長さ", "ジャンル", "録画モード", "毎回録画", "録画先", "番組内容", "詳細", "録画中です",
                         "予約を削除"])
-        XCTAssertEqual([ProgramSheetState.title, ProgramSheetState.destination, ProgramSheetState.reserveHeading,
+        XCTAssertEqual([ProgramSheetState.sheetTitle, ProgramSheetState.destination, ProgramSheetState.reserveHeading,
                         ProgramSheetState.reserveLabel, ProgramSheetState.changeLabel, ProgramSheetState.sendAgainLabel,
                         ProgramSheetState.deleteWaitingLabel],
                        ["番組", "予約先", "録画予約", "録画予約する", "予約を変更する", "もう一度送る", "送信待ちの予約を削除"])
@@ -286,11 +286,11 @@ final class ProgramSheetTests: XCTestCase {
         var held = try XCTUnwrap(model.reservations.first, "the demo has no reservation")
         held.qualityCode = try XCTUnwrap(Codes.quality["DR"])
         held.repeatCode = try XCTUnwrap(Codes.repeatCodes["daily"])
-        XCTAssertEqual(ProgramSheetState.qualityShown(held), "DR")
+        XCTAssertEqual(ProgramSheetState.qualityName(held), "DR")
         XCTAssertEqual(SheetWords.repeatShown(held), "毎日")
         held.qualityCode = -1
         held.repeatCode = "知らない"
-        XCTAssertEqual(ProgramSheetState.qualityShown(held), "-")
+        XCTAssertEqual(ProgramSheetState.qualityName(held), "-")
         XCTAssertEqual(SheetWords.repeatShown(held), "しない")
 
         let request = ReservationRequest(title: "朝の番組", start: Date(), durationSec: 1800,
@@ -303,6 +303,27 @@ final class ProgramSheetTests: XCTestCase {
         waiting.request.repeatCode = "知らない"
         XCTAssertEqual(ProgramSheetState.qualityShown(waiting), "-")
         XCTAssertEqual(ProgramSheetState.repeatShown(waiting), "しない")
+    }
+
+    /// The question before a delete and the answers that only say close with the buttons the other sheets' do, as
+    /// they always have: 削除する and キャンセル, and OK (`SheetWords`).
+    func testTheQuestionsButtonsAreTheOnesTheOtherSheetsHave() async throws {
+        let (_, model) = try await connected()
+        let programmes = try await programmesNotReserved(model, 1)
+        let sheet = ProgramSheetState(program: try XCTUnwrap(programmes.first), model: model)
+        let held = try XCTUnwrap(model.reservations.first, "the demo has no reservation")
+        let request = ReservationRequest(title: "朝の番組", start: Date(), durationSec: 1800, repeatCode: "1",
+                                         broadcastingType: 0, serviceID: 1,
+                                         qualityCode: try XCTUnwrap(Codes.quality["SR"]))
+        let waiting = PendingReservation(request: request, serviceName: "サンプルテレビ")
+        for asked in [ProgramSheetState.Ask.cancel(held), .cancelPending(waiting)] {
+            let action = try XCTUnwrap(sheet.actionLabel(for: asked))
+            XCTAssertEqual(action.label, "削除する")
+            XCTAssertTrue(action.destructive)
+            XCTAssertEqual(sheet.closingLabel(for: asked), "キャンセル")
+        }
+        XCTAssertEqual(sheet.closingLabel(for: .failed("断られました")), "OK")
+        XCTAssertEqual(sheet.closingLabel(for: .said("予約しました", .recorder)), "OK")
     }
 
     /// Once the recorder has answered, the row of the clashes says that no reservation shares the hours, or how many

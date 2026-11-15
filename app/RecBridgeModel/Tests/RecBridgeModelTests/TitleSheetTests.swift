@@ -119,4 +119,28 @@ final class TitleSheetTests: XCTestCase {
         sheet.askClosed()
         XCTAssertTrue(sheet.done, "a recording gone from the list left its sheet open")
     }
+
+    // MARK: - what the sheet says
+
+    /// The words the sheet has always said, byte for byte: those only it says. What it says as the other sheets do is
+    /// held in `ProgramSheetTests` and `ReservationSheetTests`.
+    func testTheSheetSaysTheWordsItHasAlwaysSaid() {
+        XCTAssertEqual([TitleSheetState.sheetTitle, TitleSheetState.recordedLabel, TitleSheetState.sizeLabel,
+                        TitleSheetState.viewingLabel, TitleSheetState.playbackHeading, TitleSheetState.pauseLabel,
+                        TitleSheetState.stopLabel, TitleSheetState.powerLabel, TitleSheetState.deleteLabel],
+                       ["録画", "録画", "サイズ", "視聴状態", "テレビで再生", "一時停止 / 再開", "停止",
+                        "レコーダーの電源を入れる", "この録画を削除"])
+    }
+
+    /// A recording's mode is said in the words a picker offers it in, and its row is left out where its code is none
+    /// the tables know. Of a recording the list does not have, so that the sheet's live copy is the one given.
+    func testTheModeIsSaidInThePickersWordsOrLeftOut() async throws {
+        let model = try await withRecordings()
+        var title = try XCTUnwrap(model.titles.first)
+        title.id = "not listed"
+        title.qualityCode = try XCTUnwrap(Codes.quality["SR"])
+        XCTAssertEqual(TitleSheetState(title: title, model: model).qualityLabel, "SR(標準)")
+        title.qualityCode = -1
+        XCTAssertNil(TitleSheetState(title: title, model: model).qualityLabel, "a mode said for an unknown code")
+    }
 }

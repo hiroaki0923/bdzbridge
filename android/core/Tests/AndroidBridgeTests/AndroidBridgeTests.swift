@@ -859,7 +859,7 @@ extension AndroidBridgeTests {
         XCTAssertTrue(reserved.recorders.offersChanging)
         XCTAssertNotEqual(reserved.offer, "recorder", "a programme the recorder holds is not offered again")
         let held = try XCTUnwrap(again.sheet.reservation)
-        XCTAssertEqual(reserved.recorders.quality, ProgramSheetState.qualityShown(held))
+        XCTAssertEqual(reserved.recorders.quality, ProgramSheetState.qualityName(held))
         XCTAssertEqual(reserved.recorders.repeating, SheetWords.repeatShown(held))
 
         // 予約を変更する opens the reservation's own sheet over this one.
@@ -900,6 +900,14 @@ extension AndroidBridgeTests {
         XCTAssertEqual(opened.title, row.title)
         XCTAssertFalse(opened.changed, "nothing changed yet")
         let other = try XCTUnwrap(opened.qualities.first { $0.code != opened.quality })
+        // In the model's words: its own labels, the modes and repeats offered, and the mode and the repeat as values.
+        XCTAssertEqual([opened.followsLabel, opened.madeByLabel, opened.sizeLabel],
+                       [ReservationSheetState.followsLabel, ReservationSheetState.madeByLabel,
+                        ReservationSheetState.sizeLabel])
+        XCTAssertEqual(opened.qualities.map(\.label), RecorderDriver.recordsIn.map(SheetWords.qualityLabel))
+        XCTAssertEqual(opened.repeats.map(\.label), sheet.sheet.repeatOptions.map(SheetWords.repeatLabel))
+        XCTAssertEqual(opened.qualityValue, sheet.sheet.qualityShown)
+        XCTAssertEqual(opened.repeatValue, SheetWords.repeatShown(sheet.sheet.reservation))
 
         await sheet.chooseQuality(other.code)
         let changed = await until(sheet.read) { $0.changed }
@@ -919,6 +927,8 @@ extension AndroidBridgeTests {
         let question = await until(deleting.read) { $0.hasAsked }
         XCTAssertEqual(question.asked.title, "この予約を削除しますか？")
         XCTAssertEqual(question.asked.action, "削除する")
+        XCTAssertEqual([question.asked.action, question.asked.closing],
+                       [SheetWords.confirmDeleteLabel, SheetWords.cancelLabel])
         await deleting.confirmDelete("not the question shown")
         let stillAsked = await deleting.read()
         XCTAssertTrue(stillAsked.hasAsked, "a press for another question does nothing")
@@ -1005,6 +1015,13 @@ extension AndroidBridgeTests {
         XCTAssertEqual(opened.title, row.title)
         XCTAssertTrue(opened.offersPlayback)
         XCTAssertEqual(opened.protectLabel, "保護（自動削除の対象外にする）")
+        // In the model's words: its own, and the mode as a value.
+        XCTAssertEqual([opened.recordedLabel, opened.sizeLabel, opened.viewingLabel, opened.playbackHeading,
+                        opened.pauseLabel, opened.stopLabel, opened.powerLabel, opened.deleteLabel],
+                       [TitleSheetState.recordedLabel, TitleSheetState.sizeLabel, TitleSheetState.viewingLabel,
+                        TitleSheetState.playbackHeading, TitleSheetState.pauseLabel, TitleSheetState.stopLabel,
+                        TitleSheetState.powerLabel, TitleSheetState.deleteLabel])
+        XCTAssertEqual(opened.quality, sheet.sheet.qualityLabel ?? "")
 
         await sheet.setProtected(true)
         let protected = await until(sheet.read) { $0.protected && !$0.asking }
@@ -1020,6 +1037,8 @@ extension AndroidBridgeTests {
         await sheet.delete()
         let question = await until(sheet.read) { $0.hasAsked }
         XCTAssertEqual(question.asked.title, "この録画を削除しますか？")
+        XCTAssertEqual([question.asked.action, question.asked.closing],
+                       [SheetWords.confirmDeleteLabel, SheetWords.cancelLabel])
         await sheet.confirmDelete(question.asked.key)
         _ = await until(sheet.read) { $0.done }
         let after = await until(recordings.read) { shown in !shown.rows.contains { $0.id == row.id } }

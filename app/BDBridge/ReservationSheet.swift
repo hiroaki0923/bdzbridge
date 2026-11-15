@@ -23,9 +23,9 @@ struct ReservationSheet: View {
                 if !sheet.onTelevision { WakingSection() }
                 Section {
                     Text(reservation.title).font(.headline)
-                    LabeledContent("放送", value: model.channelName(for: reservation))
-                    LabeledContent("開始", value: Format.dateTime.string(from: reservation.start))
-                    LabeledContent("長さ", value: Format.duration(reservation.durationSec))
+                    LabeledContent(SheetWords.station, value: model.channelName(for: reservation))
+                    LabeledContent(SheetWords.starts, value: Format.dateTime.string(from: reservation.start))
+                    LabeledContent(SheetWords.length, value: Format.duration(reservation.durationSec))
                     if sheet.onTelevision {
                         televisionsValues
                     } else {
@@ -35,7 +35,7 @@ struct ReservationSheet: View {
 
                 if reservation.recording || reservation.conflict || reservation.createdByRecorder {
                     Section {
-                        if reservation.recording { Text("録画中です").foregroundStyle(.red) }
+                        if reservation.recording { Text(SheetWords.recordingLine).foregroundStyle(.red) }
                         if reservation.conflict { conflictRow }
                         if reservation.createdByRecorder {
                             Text(RecorderDriver.madeByItself)
@@ -46,10 +46,10 @@ struct ReservationSheet: View {
                 }
 
                 if let program = sheet.program, !program.summary.isEmpty {
-                    Section("番組内容") { Text(program.summary) }
+                    Section(SheetWords.summaryHeading) { Text(program.summary) }
                 }
                 if let program = sheet.program, !program.extended.isEmpty {
-                    Section("詳細") { Text(program.extended) }
+                    Section(SheetWords.detailsHeading) { Text(program.extended) }
                 }
 
                 if let asking = sheet.asking {
@@ -71,7 +71,7 @@ struct ReservationSheet: View {
                 }
 
                 Section {
-                    Button("予約を削除", role: .destructive) { sheet.delete() }
+                    Button(SheetWords.deleteReservationLabel, role: .destructive) { sheet.delete() }
                         .disabled(sheet.holdsItsButtons)
                 }
 
@@ -80,7 +80,7 @@ struct ReservationSheet: View {
                 }
             }
             .disabled(sheet.asking != nil)
-            .navigationTitle("予約")
+            .navigationTitle(ReservationSheetState.sheetTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseButton().disabled(sheet.asking != nil) }
             .interactiveDismissDisabled(sheet.asking != nil)
@@ -89,10 +89,10 @@ struct ReservationSheet: View {
             // reporting never happen at once. The red line further up the sheet was missed.
             .alert(sheet.askTitle, isPresented: Binding(get: { sheet.isAsking }, set: { if !$0 { sheet.askClosed() } })) {
                 if sheet.asksBeforeDeleting {
-                    Button("削除する", role: .destructive) { sheet.confirmDelete() }
-                    Button("キャンセル", role: .cancel) {}
+                    Button(SheetWords.confirmDeleteLabel, role: .destructive) { sheet.confirmDelete() }
+                    Button(SheetWords.cancelLabel, role: .cancel) {}
                 } else {
-                    Button("OK", role: .cancel) {}
+                    Button(SheetWords.okLabel, role: .cancel) {}
                 }
             } message: {
                 Text(sheet.askMessage)
@@ -108,28 +108,28 @@ struct ReservationSheet: View {
     private var recordersValues: some View {
         @Bindable var sheet = sheet
         if sheet.settled {
-            LabeledContent("録画モード", value: Codes.qualityLabel[reservation.qualityName ?? ""]
-                           ?? reservation.qualityName ?? "-")
-            LabeledContent("毎回録画", value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
+            LabeledContent(SheetWords.quality, value: sheet.qualityShown)
+            LabeledContent(SheetWords.repeating, value: SheetWords.repeatShown(reservation))
         } else {
-            Picker("録画モード", selection: $sheet.quality) {
+            Picker(SheetWords.quality, selection: $sheet.quality) {
                 ForEach(RecorderDriver.recordsIn, id: \.self) { code in
-                    Text(Codes.qualityLabel[code] ?? code).tag(code)
+                    Text(SheetWords.qualityLabel(code)).tag(code)
                 }
             }
-            Picker("毎回録画", selection: $sheet.repeating) {
+            Picker(SheetWords.repeating, selection: $sheet.repeating) {
                 ForEach(sheet.repeatOptions, id: \.self) { key in
-                    Text(Codes.repeatLabel[key] ?? key).tag(key)
+                    Text(SheetWords.repeatLabel(key)).tag(key)
                 }
             }
         }
         diskRow
         if let follows = reservation.followsItsProgramme {
-            LabeledContent("番組追従", value: follows)
+            LabeledContent(ReservationSheetState.followsLabel, value: follows)
         }
-        LabeledContent("登録元", value: reservation.madeBy)
+        LabeledContent(ReservationSheetState.madeByLabel, value: reservation.madeBy)
         if let size = reservation.sizeMB {
-            LabeledContent("録画サイズ", value: Format.gigabytes(megabytes: size, on: reservation.device))
+            LabeledContent(ReservationSheetState.sizeLabel,
+                           value: Format.gigabytes(megabytes: size, on: reservation.device))
         }
     }
 
@@ -138,13 +138,13 @@ struct ReservationSheet: View {
     private var diskRow: some View {
         let offered = sheet.diskChoices
         if !offered.isEmpty {
-            Picker("録画先", selection: Binding(get: { sheet.disk }, set: { sheet.pick(disk: $0) })) {
+            Picker(SheetWords.disk, selection: Binding(get: { sheet.disk }, set: { sheet.pick(disk: $0) })) {
                 ForEach(offered, id: \.destination) { choice in
                     Text(RecorderDisk.label(choice.destination, named: choice.name)).tag(choice.destination)
                 }
             }
         } else if let shown = sheet.diskShown {
-            LabeledContent("録画先", value: shown)
+            LabeledContent(SheetWords.disk, value: shown)
         }
     }
 
@@ -155,16 +155,16 @@ struct ReservationSheet: View {
     @ViewBuilder
     private var televisionsValues: some View {
         @Bindable var sheet = sheet
-        if let quality = reservation.qualityName {
-            LabeledContent("録画モード", value: Codes.qualityLabel[quality] ?? quality)
+        if let quality = sheet.qualityLabel {
+            LabeledContent(SheetWords.quality, value: quality)
         }
         let offered = sheet.televisionsRepeats
         if offered.isEmpty {
-            LabeledContent("毎回録画", value: Codes.repeatLabel[reservation.repeatName ?? ""] ?? "しない")
+            LabeledContent(SheetWords.repeating, value: SheetWords.repeatShown(reservation))
         } else {
-            Picker("毎回録画", selection: $sheet.repeating) {
+            Picker(SheetWords.repeating, selection: $sheet.repeating) {
                 ForEach(offered, id: \.self) { key in
-                    Text(Codes.repeatLabel[key] ?? key).tag(key)
+                    Text(SheetWords.repeatLabel(key)).tag(key)
                 }
             }
         }
