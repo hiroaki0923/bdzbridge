@@ -301,6 +301,18 @@ object RecBridge {
     }
 
     /**
+     * The grid's scale as the reader leaves it -- a pinch ended, a zoom button pressed -- sent to Swift one after the
+     * other in the order it was done: a press after a pinch steps from where the pinch left the scale.
+     */
+    private val scaling = Channel<suspend (GuideWindow) -> Unit>(Channel.UNLIMITED).also { operations ->
+        scope.launch { for (operation in operations) operation(windows().guide) }
+    }
+
+    fun keepScale(scale: Double) = scaling.trySend { window -> call<Void> { window.keepScale(scale) } }.let {}
+
+    fun zoom(growing: Boolean) = scaling.trySend { window -> call<Void> { window.zoom(growing) } }.let {}
+
+    /**
      * Reads what a window shows each time it says it changed, one read at a time and only the latest: told twice while
      * a read is out, it reads once more after it. The job handed back ends the reading, for a sheet that closes.
      */
@@ -635,7 +647,25 @@ data class Guide(
     val shows: String, val noRecorder: NoRecorder, val title: String, val detail: String, val offers: String,
     val heading: String, val broadcastings: List<Choice>, val broadcasting: String, val stations: List<Station>,
     val station: Long, val days: List<String>, val day: Int, val programmes: List<Programme>, val nowRequests: Long,
-    val canRefresh: Boolean, val demo: Boolean,
+    val canRefresh: Boolean, val demo: Boolean, val grid: Boolean, val modeLabel: String, val layout: GridDay,
+)
+
+/**
+ * The day as the grid lays it out (`GridDay`): its columns, in minutes of the day, and what the model says of where it
+ * opens, of now (-1 outside the day), of its hours and of its scale, in dp a minute.
+ */
+data class GridDay(
+    val columns: List<GridColumn>, val key: String, val minutes: Double, val leadIn: Double, val opening: Double,
+    val now: Double, val hours: List<String>, val scale: Double, val smallest: Double, val largest: Double,
+    val canShrink: Boolean, val canGrow: Boolean, val growLabel: String, val shrinkLabel: String,
+)
+
+data class GridColumn(val serviceID: Long, val name: String, val blocks: List<GridBlock>)
+
+/** A programme's block: `top` and `length` in minutes of the day, `accent` as 0xRRGGBB or -1 for none. */
+data class GridBlock(
+    val row: Programme, val top: Double, val length: Double, val accent: Long, val onAir: Boolean, val ended: Boolean,
+    val elapsed: Double, val spoken: String, val held: Boolean, val waiting: Boolean,
 )
 
 data class Programme(
@@ -863,9 +893,20 @@ private fun Guide(it: jp.hiroaki.bdbridge.bridge.GuideScreen) = it.getSaid(arena
         it.getStations(arena).map { station -> Station(station.serviceID, station.name, station.logo) }, it.station,
         it.days.toList(), it.day.toInt(),
         it.getProgrammes(arena).map { row -> Programme(row) },
-        it.nowRequests, it.isCanRefresh, it.isDemo,
+        it.nowRequests, it.isCanRefresh, it.isDemo, it.isGrid, it.modeLabel, GridDay(it.getLayout(arena)),
     )
 }
+
+private fun GridDay(it: jp.hiroaki.bdbridge.bridge.GridDay) = GridDay(
+    it.getColumns(arena).map { column ->
+        GridColumn(column.serviceID, column.name, column.getBlocks(arena).map { block ->
+            GridBlock(Programme(block.getRow(arena)), block.top, block.length, block.accent, block.isOnAir,
+                      block.isEnded, block.elapsed, block.spoken, block.isHeld, block.isWaiting)
+        })
+    },
+    it.key, it.minutes, it.leadIn, it.opening, it.now, it.hours.toList(), it.scale, it.smallest, it.largest,
+    it.isCanShrink, it.isCanGrow, it.growLabel, it.shrinkLabel,
+)
 
 private fun Reservations(it: jp.hiroaki.bdbridge.bridge.ReservationsScreen) = it.getEmpty(arena).let { empty ->
     Reservations(

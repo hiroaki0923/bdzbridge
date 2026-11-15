@@ -79,19 +79,25 @@ public final class RecBridgeApp: Sendable {
     /// The setting the settings screen writes itself, as the iOS screen writes it, and what the app's version is
     /// called, for the settings to say.
     let quality: ChosenQuality
-    /// Which view of the recordings is on, kept as the iOS screen keeps it.
+    /// Which view of the recordings is on, and the guide's list or grid and the grid's scale, kept as the iOS screens
+    /// keep them.
     let recordingsMode: ShownMode
+    let guideChoices: GuideChoices
+    /// The minute it is, for the grid.
+    let clock: MinuteClock
     let version: String
     let tiles: Tiles
     let network: NetworkReports
 
-    init(model: AppModel, quality: ChosenQuality, recordingsMode: ShownMode, version: String, tiles: Tiles,
-         network: NetworkReports) {
+    init(model: AppModel, quality: ChosenQuality, recordingsMode: ShownMode, guideChoices: GuideChoices,
+         clock: MinuteClock, version: String, tiles: Tiles, network: NetworkReports) {
         self.tiles = tiles
         self.network = network
         self.model = model
         self.quality = quality
         self.recordingsMode = recordingsMode
+        self.guideChoices = guideChoices
+        self.clock = clock
         self.version = version
     }
 
@@ -120,7 +126,8 @@ public final class RecBridgeApp: Sendable {
         let model = AppModel(surroundings: .android(files: files, kept: kept, defaults: defaults, version: version,
                                                     tiles: tiles, network: network))
         return RecBridgeApp(model: model, quality: ChosenQuality(defaults), recordingsMode: ShownMode(defaults),
-                            version: version, tiles: tiles, network: network)
+                            guideChoices: GuideChoices(defaults), clock: MinuteClock(), version: version, tiles: tiles,
+                            network: network)
     }
 
     /// Who draws the demo's station tiles. Told before `start`, which seeds the demo's guide when the demo is on.
@@ -159,7 +166,7 @@ public final class RecBridgeApp: Sendable {
     public func devices() async -> DevicesWindow {
         await MainActor.run { DevicesWindow(model) }
     }
-    public func guide() -> GuideWindow { GuideWindow(model) }
+    public func guide() -> GuideWindow { GuideWindow(model, choices: guideChoices, clock: clock) }
     public func reservations() async -> ReservationsWindow {
         await MainActor.run { ReservationsWindow(model) }
     }

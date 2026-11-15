@@ -1194,3 +1194,171 @@ extension AndroidBridgeTests {
         XCTAssertEqual(still.broadcasting, "bs")
     }
 }
+
+// MARK: - the grid
+
+extension AndroidBridgeTests {
+    /// The guide turned to the grid, as the iOS screen turns it: kept under the iOS key, so that another model on the
+    /// same files opens on it; the type in the heading whatever the list is narrowed to; every station's programmes
+    /// in columns of the stations that have any, in the reader's order, and none in the list's place.
+    @MainActor
+    func testTheGuideTurnsToTheGridAndIsKeptSo() async throws {
+        let app = await demo()
+        let guide = app.guide()
+        let list = await until(guide.read) { $0.shows == "programmes" }
+        XCTAssertFalse(list.grid, "the list, until the reader turns it")
+        XCTAssertEqual(list.modeLabel, AppModel.guideModeLabel(grid: false))
+        XCTAssertTrue(list.layout.columns.isEmpty)
+        let station = try XCTUnwrap(list.stations.last)
+        await guide.chooseStation(station.serviceID)
+        _ = await until(guide.read) { $0.heading == station.name }
+
+        await guide.showAs(grid: true)
+        let shown = await until(guide.read) { $0.grid && !$0.layout.columns.isEmpty }
+        XCTAssertEqual(shown.shows, "programmes")
+        XCTAssertEqual(shown.modeLabel, AppModel.guideModeLabel(grid: true))
+        XCTAssertEqual(shown.heading, app.model.guideHeading(grid: true))
+        XCTAssertEqual(shown.heading, "地デジ", "the grid shows every station")
+        XCTAssertTrue(shown.programmes.isEmpty, "the list's rows are not made for the grid")
+        let day = GuideGridDay(channels: app.model.channels, programs: app.model.programs, day: app.model.day)
+        XCTAssertGreaterThan(day.columns.count, 1)
+        XCTAssertEqual(shown.layout.columns.map(\.serviceID), day.columns.map { Int64($0.channel.serviceID) })
+        XCTAssertEqual(shown.layout.columns.map(\.name), day.columns.map(\.channel.name))
+        XCTAssertEqual(shown.layout.columns.flatMap { $0.blocks.map(\.row.id) },
+                       day.columns.flatMap { $0.programs.map(\.id) })
+        XCTAssertEqual(app.guideChoices.defaults.string(forKey: DefaultsKey.guideMode), "grid")
+
+        let again = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path,
+                                      version: "0.1 (1)")
+        let kept = await again.guide().read()
+        XCTAssertTrue(kept.grid, "kept for the next start")
+        await guide.showAs(grid: false)
+        let back = await until(guide.read) { !$0.grid }
+        XCTAssertEqual(back.heading, station.name, "the list is still narrowed")
+        XCTAssertFalse(back.programmes.isEmpty)
+        XCTAssertEqual(app.guideChoices.defaults.string(forKey: DefaultsKey.guideMode), "list")
+    }
+
+    /// Every block where the model's day puts it, in minutes, with the model's accent, mark, words and clock; the
+    /// day's own numbers as the model has them; and on another day, no line at now and the top to open at.
+    @MainActor
+    func testTheGridsBlocksAreWhereTheModelPutsThem() async throws {
+        let app = await demo()
+        let guide = app.guide()
+        await guide.showAs(grid: true)
+        let shown = await until(guide.read) { $0.grid && !$0.layout.columns.isEmpty }
+        let model = app.model
+        let day = GuideGridDay(channels: model.channels, programs: model.programs, day: model.day)
+        let layout = shown.layout
+        XCTAssertEqual(layout.key, day.key)
+        XCTAssertEqual(layout.minutes, GuideGridDay.minutes)
+        XCTAssertEqual(layout.leadIn, GuideGridDay.leadIn)
+        XCTAssertEqual(layout.hours, (0..<24).map { "\(GuideGridDay.hourLabel($0))" })
+        // The clock the screen was made at, which turns over each minute: within a minute of now.
+        let minute = try XCTUnwrap(day.nowMinute(at: Date()))
+        XCTAssertEqual(layout.now, minute, accuracy: 1.1, "the minute it is")
+        let at = day.dayStart.addingTimeInterval(layout.now * 60)
+        XCTAssertEqual(layout.opening, day.openingMinute(pinned: "", now: at))
+
+        let programs = Dictionary(uniqueKeysWithValues: model.programs.map { ($0.id, $0) })
+        var onAir = 0
+        for block in layout.columns.flatMap(\.blocks) {
+            let program = try XCTUnwrap(programs[block.row.id])
+            XCTAssertEqual(block.top, day.top(of: program))
+            XCTAssertEqual(block.length, day.shown(of: program))
+            let accent = try XCTUnwrap(GuideGenre.accent(level1: program.genre?.level1),
+                                       "the demo's programmes all have a genre")
+            let rgb = [accent.red, accent.green, accent.blue].map { Int64(($0 * 255).rounded()) }
+            XCTAssertEqual(block.accent, rgb[0] << 16 | rgb[1] << 8 | rgb[2])
+            let mark = GuideMark(reservation: model.reservation(for: program), pending: model.pending(for: program))
+            XCTAssertEqual(block.row.mark, mark?.word ?? "")
+            XCTAssertEqual(block.held, model.reservation(for: program) != nil)
+            XCTAssertEqual(block.waiting, model.pending(for: program) != nil)
+            XCTAssertEqual(block.onAir, program.isOnAir(at: at))
+            XCTAssertEqual(block.ended, program.hasEnded(at: at))
+            XCTAssertEqual(block.elapsed, program.elapsed(at: at), accuracy: 1e-6)
+            XCTAssertEqual(block.spoken, program.spoken(mark: mark, at: at))
+            if block.onAir { onAir += 1 }
+        }
+        XCTAssertGreaterThan(onAir, 0, "some on air now")
+
+        await guide.chooseDay(1)
+        let tomorrow = await until(guide.read) { $0.day == 1 && !$0.layout.columns.isEmpty }
+        XCTAssertEqual(tomorrow.layout.now, -1, "no line at now on another day")
+        XCTAssertEqual(tomorrow.layout.opening, 0, "another day opens at its top")
+        XCTAssertNotEqual(tomorrow.layout.key, layout.key)
+        XCTAssertFalse(tomorrow.layout.columns.flatMap(\.blocks).contains { $0.onAir })
+    }
+
+    /// The scale starts at the model's standard and is kept under the iOS key: a pinch's held to its bounds, a zoom
+    /// button's a step of the model's, and neither past the bounds, where the button no longer does anything.
+    @MainActor
+    func testTheScaleIsKeptHeldToItsBoundsAndSteppedAsTheModelSteps() async throws {
+        let app = await demo()
+        let guide = app.guide()
+        let first = await until(guide.read) { $0.shows == "programmes" }
+        XCTAssertEqual(first.layout.scale, GuideGridScale.standard)
+        XCTAssertEqual(first.layout.smallest, GuideGridScale.smallest)
+        XCTAssertEqual(first.layout.largest, GuideGridScale.largest)
+        XCTAssertEqual(first.layout.growLabel, GuideGridScale.growLabel)
+        XCTAssertEqual(first.layout.shrinkLabel, GuideGridScale.shrinkLabel)
+        XCTAssertTrue(first.layout.canGrow && first.layout.canShrink)
+
+        await guide.zoom(growing: true)
+        let grown = await until(guide.read) { $0.layout.scale != GuideGridScale.standard }
+        XCTAssertEqual(grown.layout.scale, GuideGridScale.standard * GuideGridScale.step, accuracy: 1e-9)
+        await guide.zoom(growing: false)
+        let back = await until(guide.read) { abs($0.layout.scale - GuideGridScale.standard) < 1e-9 }
+        XCTAssertTrue(back.layout.canGrow)
+
+        await guide.keepScale(100)
+        let largest = await until(guide.read) { $0.layout.scale == GuideGridScale.largest }
+        XCTAssertFalse(largest.layout.canGrow)
+        XCTAssertTrue(largest.layout.canShrink)
+        await guide.zoom(growing: true)
+        let still = await guide.read()
+        XCTAssertEqual(still.layout.scale, GuideGridScale.largest, "not past the bound")
+
+        await guide.keepScale(4.2)
+        _ = await until(guide.read) { $0.layout.scale == 4.2 }
+        XCTAssertEqual(app.guideChoices.defaults.double(forKey: DefaultsKey.gridPointsPerMinute), 4.2)
+        let again = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path,
+                                      version: "0.1 (1)")
+        let kept = await again.guide().read()
+        XCTAssertEqual(kept.layout.scale, 4.2, "kept for the next start")
+
+        await guide.keepScale(0)
+        let smallest = await until(guide.read) { $0.layout.scale == GuideGridScale.smallest }
+        XCTAssertFalse(smallest.layout.canShrink)
+        XCTAssertTrue(smallest.layout.canGrow)
+    }
+
+    /// A reservation made from a block's sheet marks the block with the model's mark and tints it, and the sentence
+    /// a screen reader reads says it.
+    @MainActor
+    func testAReservationMarksItsBlockInTheGrid() async throws {
+        let app = await demo()
+        let guide = app.guide()
+        let row = try await aProgrammeToReserve(guide)
+        await guide.showAs(grid: true)
+        let shown = await until(guide.read) { $0.grid && $0.day == 1 && !$0.layout.columns.isEmpty }
+        let before = try XCTUnwrap(shown.layout.columns.flatMap(\.blocks).first { $0.row.id == row.id })
+        XCTAssertFalse(before.held)
+        XCTAssertEqual(before.row.mark, "")
+
+        let opening = await guide.open(row.id)
+        let sheet = try XCTUnwrap(opening)
+        defer { Task { await sheet.closed() } }
+        _ = await until(sheet.read) { $0.offer == "recorder" && !$0.reserveHeld }
+        await sheet.reserve()
+        let asked = await until(sheet.read) { $0.hasAsked }
+        await sheet.act(asked.asked.key)
+        let marked = await until(guide.read) { shown in
+            shown.layout.columns.flatMap(\.blocks).contains { $0.row.id == row.id && $0.held }
+        }
+        let block = try XCTUnwrap(marked.layout.columns.flatMap(\.blocks).first { $0.row.id == row.id })
+        XCTAssertEqual(block.row.mark, "予約")
+        XCTAssertFalse(block.row.markIsRed)
+        XCTAssertTrue(block.spoken.hasSuffix("、予約"), block.spoken)
+    }
+}

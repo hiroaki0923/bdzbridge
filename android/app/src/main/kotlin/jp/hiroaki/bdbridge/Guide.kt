@@ -26,10 +26,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.outlined.CalendarViewWeek
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -72,9 +74,10 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
 /**
- * The guide as the iOS guide's list shows it: one broadcasting type and one broadcast day, every station or one. The
- * top app bar holds what is shown -- the type and the station in its title, which opens a menu of both -- with 今 and
- * 番組表を更新; the day is under it, a step either side.
+ * The guide as the iOS guide shows it: one broadcasting type and one broadcast day, as the list -- every station or one
+ * -- or as the grid. The top app bar holds what is shown -- the type and, in the list, the station in its title, which
+ * opens a menu of both -- with the switch between the list and the grid, 今 and 番組表を更新; the day is under it, a
+ * step either side.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,6 +99,12 @@ fun GuideScreen(search: () -> Unit, arrange: () -> Unit) {
             TopAppBar(
                 title = { WhatIsShown(guide, arrange) },
                 actions = {
+                    // What a press turns it to, as Android's switches between views show it, and says so: the iOS
+                    // button shows the one on screen.
+                    IconButton(onClick = { scope.launch { RecBridge.act { it.guide.showAs(!guide.grid) } } }) {
+                        Icon(if (guide.grid) Icons.AutoMirrored.Outlined.ViewList else Icons.Outlined.CalendarViewWeek,
+                             contentDescription = guide.modeLabel)
+                    }
                     IconButton(onClick = { scope.launch { RecBridge.act { it.guide.goToNow() } } }) {
                         Icon(Icons.Outlined.Today, contentDescription = "今")
                     }
@@ -128,7 +137,11 @@ fun GuideScreen(search: () -> Unit, arrange: () -> Unit) {
                         }
                     }
                 }
-                else -> Programmes(guide) { programme -> opened = programme }
+                else -> {
+                    val logos = rememberStationLogos(guide.stations)
+                    if (guide.grid) GuideGrid(guide, logos) { programme -> opened = programme }
+                    else Programmes(guide, logos) { programme -> opened = programme }
+                }
             }
         }
     }
@@ -159,7 +172,8 @@ private fun WhatIsShown(guide: Guide, arrange: () -> Unit) {
                                  open = false
                                  arrange()
                              })
-            if (guide.stations.isNotEmpty()) {
+            // The grid shows every station, whatever the list is narrowed to.
+            if (!guide.grid && guide.stations.isNotEmpty()) {
                 HorizontalDivider()
                 Choosable("すべての局", guide.station < 0) {
                     open = false
@@ -227,7 +241,7 @@ private fun DayBar(guide: Guide) {
  * goes back there each time 今 is asked for.
  */
 @Composable
-private fun Programmes(guide: Guide, open: (Programme) -> Unit) {
+private fun Programmes(guide: Guide, logos: Map<Long, ImageBitmap?>, open: (Programme) -> Unit) {
     val now = minuteNow()
     val opening = guide.programmes.indexOfFirst { it.ends > now }.coerceAtLeast(0)
     // Made again for each list, so that a new one opens at its own place: by the programmes themselves, since the
@@ -242,13 +256,6 @@ private fun Programmes(guide: Guide, open: (Programme) -> Unit) {
             position.scrollToItem(opening)
         }
     }
-    // Each station's logo made once, not on each row it heads, nor at each read of the guide: a `Station` has no
-    // equals, so the list is keyed by what identifies a logo.
-    val logos = remember(guide.stations.map { it.serviceID to it.logo.size }) {
-        guide.stations.filter { it.logo.isNotEmpty() }.associate { station ->
-            station.serviceID to BitmapFactory.decodeByteArray(station.logo, 0, station.logo.size)?.asImageBitmap()
-        }
-    }
     LazyColumn(Modifier.fillMaxSize(), state = position) {
         items(guide.programmes, key = { it.id }) { programme ->
             ProgrammeRow(programme, logos[programme.serviceID], now) { open(programme) }
@@ -256,6 +263,18 @@ private fun Programmes(guide: Guide, open: (Programme) -> Unit) {
         }
     }
 }
+
+/**
+ * Each station's logo made once, not on each row or column it heads, nor at each read of the guide: a `Station` has no
+ * equals, so the list is keyed by what identifies a logo.
+ */
+@Composable
+private fun rememberStationLogos(stations: List<Station>): Map<Long, ImageBitmap?> =
+    remember(stations.map { it.serviceID to it.logo.size }) {
+        stations.filter { it.logo.isNotEmpty() }.associate { station ->
+            station.serviceID to BitmapFactory.decodeByteArray(station.logo, 0, station.logo.size)?.asImageBitmap()
+        }
+    }
 
 /**
  * One programme, as the iOS row says it: the time and the length in a column of their own, then the title, the

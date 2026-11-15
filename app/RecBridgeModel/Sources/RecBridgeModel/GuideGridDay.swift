@@ -79,6 +79,9 @@ public enum GuideGridScale {
     public static let largest = 8.0
     /// What one press of a zoom button multiplies or divides by.
     public static let step = 1.4
+    /// What the two zoom buttons are called: what they do to the guide, which their plus and minus do not say.
+    public static let growLabel = "表示を拡大"
+    public static let shrinkLabel = "表示を縮小"
 
     public static func clamped(_ scale: Double) -> Double {
         min(largest, max(smallest, scale))

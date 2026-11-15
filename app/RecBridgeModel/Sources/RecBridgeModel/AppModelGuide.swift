@@ -215,4 +215,10 @@ extension AppModel {
         }
         return Codes.broadcastingShortLabel[broadcasting] ?? Codes.broadcastingLabel[broadcasting] ?? "番組表"
     }
+
+    /// What the button that turns the guide between the list and the grid is called: what a press of it does, from
+    /// the one on screen.
+    public static func guideModeLabel(grid: Bool) -> String {
+        grid ? "リスト表示にする" : "表形式で表示"
+    }
 }
