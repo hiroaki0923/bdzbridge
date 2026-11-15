@@ -13,7 +13,8 @@ import RecorderKit
 /// The overnight run, for Kotlin's worker: the model's, handed what it reaches of Android -- the model's own defaults
 /// object, the app's folder for the guide, the sessions the screens send through, the television's registration in the
 /// folder that stays on the device, and notifications that do nothing, since the Android app posts none yet. One rule
-/// is Android's own and comes first: the run goes only on the network of a recorder or a television saved (`mayGo`).
+/// is Android's own and comes first: the run goes only on the network of a recorder or a television saved, where it
+/// can tell (`mayGo`).
 public final class NightRun: Sendable {
     /// The app's folder, by which the rule finds the defaults object the run is handed: the process's one for the file
     /// (`WrittenDefaults.android`).
@@ -64,18 +65,22 @@ public final class NightRun: Sendable {
     public func stop() { work.stop() }
 
     /// Android's own rule, the run's first step: it goes only while this device is on the network of a recorder or a
-    /// television saved, which is the home's. WorkManager can be told to wait for Wi-Fi, but not for which one. A saved
-    /// address goes when it is an IPv4 address on the network of one of `interfaces`, by that interface's mask; a name,
-    /// or an IPv6 address, cannot be placed without asking somebody, and does not. With neither device placed, the run
-    /// ends there: nothing is opened, no packet is sent, nothing is written.
+    /// television saved, which is the home's. WorkManager can be told to wait for Wi-Fi, but not for which one. Either
+    /// saved address lets it go (`onTheNetwork`). With neither, the run ends there: nothing is opened, no packet is
+    /// sent, nothing is written.
     static func mayGo(in defaults: UserDefaults, on interfaces: [LocalNetwork.Interface]) -> Bool {
         [DefaultsKey.recorderHost, DefaultsKey.tvHost].contains { key in
             defaults.string(forKey: key).map { onTheNetwork($0, of: interfaces) } ?? false
         }
     }
 
+    /// An IPv4 address is on the network when it is on that of one of `interfaces`, by that interface's mask. Any other
+    /// address saved -- a name, an IPv6 address -- cannot be placed without asking somebody, and goes, as the iOS run
+    /// goes whenever it has a connection: a rule that cannot tell must not be the one that stops every night for good.
+    /// An empty one is none saved.
     static func onTheNetwork(_ host: String, of interfaces: [LocalNetwork.Interface]) -> Bool {
-        guard let address = packed(host) else { return false }
+        guard !host.isEmpty else { return false }
+        guard let address = packed(host) else { return true }
         return interfaces.contains { interface in
             guard let own = packed(interface.address), let mask = packed(interface.netmask) else { return false }
             return own & mask == address & mask

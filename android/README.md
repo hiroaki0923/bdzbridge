@@ -110,7 +110,8 @@ under way is left alone, since replacing it would stop it.
 WorkManager can wait for Wi-Fi but not for the home's, so the run's first step is a rule of Android's own
 (`NightRun.mayGo`): the recorder or the television saved is at an IPv4 address on the network of one of the device's
 interfaces, by that interface's mask. Otherwise it ends there, with nothing opened, sent or written. No location
-permission is asked for and no network's name is read; an address saved as a name cannot be placed, and lets no run go.
+permission is asked for and no network's name is read. An address the rule cannot place -- a name, an IPv6 address --
+lets the run go, as the iOS run goes whenever it has a connection, rather than stop every night for good.
 
 It goes through the bridge's call, which runs Swift's main queue while it is out, with no Activity as with one. When
 the system stops the worker, the Swift task is cancelled (`NightRun.stop`), which is what the model's rules for a run

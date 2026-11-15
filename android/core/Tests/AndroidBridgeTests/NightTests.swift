@@ -61,8 +61,8 @@ final class NightTests: XCTestCase {
     // MARK: - the rule
 
     /// The run goes with a recorder or a television saved at an IPv4 address on the network of an interface handed
-    /// in, by that interface's mask, and not with none saved, an address saved empty, an address on another network,
-    /// or a name.
+    /// in, by that interface's mask, and not with none saved, an address saved empty, or an address on another network.
+    /// An address the rule cannot place -- a name, an IPv6 address -- lets it go, on either device.
     func testARunGoesOnlyWithADeviceSavedOnTheNetworkOfAnInterface() {
         let defaults = defaults
         XCTAssertFalse(NightRun.mayGo(in: defaults, on: [home]), "with nothing saved")
@@ -90,10 +90,19 @@ final class NightTests: XCTestCase {
         XCTAssertTrue(NightRun.mayGo(in: defaults, on: [home]))
         XCTAssertFalse(NightRun.mayGo(in: defaults, on: [elsewhere]))
 
-        // A name cannot be placed without asking somebody.
-        defaults.removeObject(forKey: DefaultsKey.tvHost)
+        // What cannot be placed goes, on either device, beside an IPv4 address off every interface or none.
         defaults.set("recorder.local", forKey: DefaultsKey.recorderHost)
-        XCTAssertFalse(NightRun.mayGo(in: defaults, on: [home]))
+        XCTAssertTrue(NightRun.mayGo(in: defaults, on: [elsewhere]), "a name beside a television off the network")
+        defaults.removeObject(forKey: DefaultsKey.tvHost)
+        XCTAssertTrue(NightRun.mayGo(in: defaults, on: [home]), "a name alone")
+        XCTAssertTrue(NightRun.mayGo(in: defaults, on: []), "a name with no interface")
+        defaults.set("198.51.100.63", forKey: DefaultsKey.recorderHost)
+        defaults.set("2001:db8::64", forKey: DefaultsKey.tvHost)
+        XCTAssertTrue(NightRun.mayGo(in: defaults, on: [home]), "an IPv6 address beside a recorder off the network")
+        defaults.set("television.local", forKey: DefaultsKey.tvHost)
+        XCTAssertTrue(NightRun.mayGo(in: defaults, on: [home]), "a television's name beside a recorder off the network")
+        defaults.set("", forKey: DefaultsKey.tvHost)
+        XCTAssertFalse(NightRun.mayGo(in: defaults, on: [home]), "an empty address let it go")
     }
 
     // MARK: - the runs
