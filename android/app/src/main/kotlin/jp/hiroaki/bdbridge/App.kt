@@ -61,7 +61,6 @@ fun App() {
         scope.launch { RecBridge.act { it.devices.closed() } }
         Unit
     }
-    LaunchedEffect(shown.chosenAnswered) { if (shown.chosenAnswered) close() }
     if (choosing ?: shown.welcomes) DevicesScreen(shown, close) else RecorderScreen { choosing = true }
 }
 
@@ -76,9 +75,9 @@ enum class Destination(val label: String, val icon: ImageVector, val selectedIco
 
 /**
  * A page over the destinations, with the way back: the stations' settings, ご利用上の注意, the television's 対応状況,
- * and the recorder's own keyword conditions.
+ * the recorder's own keyword conditions, and the tutorial's steps again.
  */
-enum class Page { Channels, Disclaimer, Capabilities, Conditions }
+enum class Page { Channels, Disclaimer, Capabilities, Conditions, Setup }
 
 /**
  * The destinations, with Material's navigation for the width: a bar along the foot of a phone, a rail down the side
@@ -100,6 +99,7 @@ fun RecorderScreen(search: () -> Unit) {
             Page.Disclaimer -> DisclaimerPage { page = null }
             Page.Capabilities -> CapabilitiesPage { page = null }
             Page.Conditions -> ConditionsPage { page = null }
+            Page.Setup -> SetupPage { page = null }
             null -> {}
         }
         group?.let { programme -> GroupPage(programme) { group = null } }
@@ -121,7 +121,9 @@ private fun Destinations(search: () -> Unit, open: (Page) -> Unit, openGroup: (G
             Destination.Search -> SearchScreen()
             Destination.Reservations -> ReservationsScreen(search) { open(Page.Conditions) }
             Destination.Recordings -> RecordingsScreen(search, openGroup)
-            Destination.Settings -> SettingsScreen({ open(Page.Channels) }, { open(Page.Disclaimer) }) { open(Page.Capabilities) }
+            Destination.Settings -> SettingsScreen(
+                { open(Page.Channels) }, { open(Page.Disclaimer) }, { open(Page.Setup) }, { open(Page.Capabilities) },
+            )
         }
     }
     if (LocalConfiguration.current.screenWidthDp >= 600) {
@@ -147,5 +149,19 @@ private fun Destinations(search: () -> Unit, open: (Page) -> Unit, openGroup: (G
         }) { padding ->
             Box(Modifier.padding(padding).consumeWindowInsets(padding)) { screen() }
         }
+    }
+}
+
+/**
+ * The place where a recorder is chosen, with its steps, opened again from the settings: over the whole as the other
+ * pages are, so that the settings are where the reader left them when it closes.
+ */
+@Composable
+private fun SetupPage(back: () -> Unit) {
+    val shown = RecBridge.devices.collectAsState().value ?: return
+    val scope = rememberCoroutineScope()
+    DevicesScreen(shown) {
+        back()
+        scope.launch { RecBridge.act { it.devices.closed() } }
     }
 }

@@ -13,15 +13,17 @@ import SwiftUI
 struct WelcomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    @State private var typing = false
-    @State private var typedHost = ""
+    /// What the reader has typed and chosen here, and what holds the buttons.
+    @State private var welcome: WelcomeState
     /// The television's sheet, for a television the search found, tapped.
     @State private var tvSheet: TVSheetRequest?
-    /// The model's `timesAttached` when a recorder was chosen here, kept while that choice has yet to be
-    /// answered. See `take`.
-    @State private var chosenAt: Int?
+
+    init(model: AppModel) {
+        _welcome = State(initialValue: WelcomeState(model: model))
+    }
 
     var body: some View {
+        @Bindable var welcome = welcome
         NavigationStack {
             List {
                 Section {
@@ -39,40 +41,33 @@ struct WelcomeView: View {
                     .padding(.vertical, 6)
                     .listRowBackground(Color.clear)
                 }
-                Section("セットアップ") {
-                    step(1, "レコーダーとテレビの電源を入れる",
-                         "レコーダーの電源が入っている必要があるのは最初に追加するときだけです。"
-                         + "次回からはアプリがレコーダーを自動で起動します。"
-                         + "レコーダーは、電源を入れた直後は見つからないことがあるので、少し待ってから探してください。"
-                         + "テレビは、登録のときに画面に番号が出るので、放送を映しておいてください。")
-                    step(2, "iPhone をレコーダーやテレビと同じ Wi-Fi につなぐ",
-                         "同じネットワーク上にある機器だけが見つかります。")
-                    step(3, "「レコーダーとテレビを探す」をタップする",
+                Section(Tutorial.heading) {
+                    step(1, Tutorial.step1Title, Tutorial.step1Detail)
+                    step(2, "iPhone をレコーダーやテレビと同じ Wi-Fi につなぐ", Tutorial.step2Detail)
+                    step(3, Tutorial.step3Title,
                          "「ローカルネットワークへのアクセス」の確認が表示されたら「許可」を選んでください。"
                          + "そのまま検索が始まります。")
-                    step(4, "見つかったレコーダーやテレビをタップする",
-                         "レコーダーはそのまま接続します。テレビは登録を始めるので、テレビの画面に出る 4 桁の番号を"
-                         + "入力してください。")
+                    step(4, Tutorial.step4Title, Tutorial.step4Detail)
                 }
                 Section {
                     Button {
-                        model.scanForDevices()
+                        welcome.search()
                     } label: {
                         HStack {
                             Spacer()
-                            if model.scanHoldsTheButton { ProgressView().controlSize(.small).padding(.trailing, 6) }
+                            if welcome.searching { ProgressView().controlSize(.small).padding(.trailing, 6) }
                             Text("レコーダーとテレビを探す").bold()
                             Spacer()
                         }
                     }
-                    .disabled(model.scanHoldsTheButton || model.busy != nil)
+                    .disabled(welcome.holdsSearch)
                     // Right under the button, which is where the reader is looking: the foot of this list is
                     // below the fold on most iPhones.
-                    if model.lanBlocked {
+                    if welcome.showsPermissionNotice {
                         LocalNetworkNotice()
                         OpenSettingsButton()
                     }
-                    if let scanning = model.scanning, !model.scanBlocked {
+                    if let scanning = welcome.progress {
                         VStack(alignment: .leading, spacing: 4) {
                             ProgressView(value: Double(scanning.done), total: Double(max(1, scanning.total)))
                             Text("検索中 \(scanning.done) / \(scanning.total)")
@@ -94,89 +89,61 @@ struct WelcomeView: View {
                 if !model.found.isEmpty {
                     Section("見つかったレコーダー") {
                         ForEach(model.found, id: \.host) { recorder in
-                            Button { Task { await take(recorder.host) } } label: {
+                            Button { Task { await welcome.take(recorder.host) } } label: {
                                 FoundRecorderRow(recorder: recorder, inUse: model.inUse(recorder))
                             }
                             .buttonStyle(.plain)
-                            .disabled(!model.canChangeRecorder)
+                            .disabled(welcome.holdsRecorders)
                         }
                     }
                 }
                 // Not while a recorder chosen here is being connected to: its answer closes the tutorial, which
                 // would take a television's registration with it, its number left on the panel for nobody.
                 FoundTelevisionsSection(sheet: $tvSheet)
-                    .disabled(chosenAt != nil)
+                    .disabled(welcome.holdsTelevisions)
                 Section {
-                    if typing {
-                        let typed = RecorderAddress.tidy(typedHost)
-                        TextField("192.168.1.10", text: $typedHost)
+                    if welcome.typing {
+                        TextField("192.168.1.10", text: $welcome.typedHost)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.numbersAndPunctuation)
-                        AddressNote(typed: typed)
-                        Button("このアドレスに接続") {
-                            // the field shows what is saved, so that what was taken off can be seen to be gone
-                            typedHost = typed.host
-                            Task { await take(typed.host) }
-                        }
-                        .disabled(!RecorderAddress.isUsable(typed.host) || !model.canChangeRecorder)
+                        AddressNote(typed: welcome.tidied)
+                        Button("このアドレスに接続") { welcome.connectTyped() }
+                        .disabled(welcome.holdsConnect)
                     } else {
-                        Button("IP アドレスを直接入力") { typing = true }
+                        Button("IP アドレスを直接入力") { welcome.typing = true }
                     }
                 } footer: {
-                    Text("見つからない場合は、レコーダーの設定画面で確認できる IP アドレスを直接入力できます。"
-                         + "テレビは、あとで設定の「テレビ」からアドレスを入力して追加できます。")
+                    Text(Tutorial.addressFooter)
                 }
                 Section {
                     Button("サンプルデータで試す") {
                         Task {
-                            await model.enterDemo()
+                            await welcome.enterDemo()
                             dismiss()
                         }
                     }
-                    .disabled(!model.canChangeRecorder)
+                    .disabled(welcome.holdsDemo)
                 } footer: {
-                    Text("レコーダーが無くても、架空の番組表と録画一覧でアプリの動きを確かめられます。"
-                         + "実在の放送局・番組ではありません。いつでも設定から終了できます。")
+                    Text(Tutorial.demoFooter)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
             // A scan waiting on the system's question must not outlive the screen that asked it. A sheet over
             // this one is not its going: the search goes on behind the television's.
-            .onDisappear { model.stopScanning() }
+            .onDisappear { welcome.closed() }
             .sheet(item: $tvSheet) {
                 TVRegisterSheet(model: model, host: $0.host, connectAtOnce: $0.connectAtOnce, again: $0.again)
             }
-            .onChange(of: model.timesAttached) {
-                if let chosenAt, model.timesAttached > chosenAt { dismiss() }
-            }
+            .onChange(of: welcome.done) { if $1 { dismiss() } }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     // Opened again from the settings, or once a television is registered here, there is nothing
                     // to put off, only a screen to leave.
-                    Button(model.welcomes ? "あとで設定" : "閉じる") { dismiss() }
+                    Button(welcome.closeLabel) { dismiss() }
                 }
             }
         }
-    }
-
-    /// Choosing a recorder ends the tutorial as soon as it answers, which is in the middle of the connect.
-    /// The reservations and the guide are still to be read, the longest wait in the app on a first run, and
-    /// the screens behind this one can show them arriving.
-    ///
-    /// The connect is not split to get there: the reservations and the lists are read inside it, with
-    /// `connecting` on, so that no second connect starts beside them, and the guide is fetched after it, by a
-    /// refresh that holds a second connect off in its own right (`RecorderHost.holdsOffConnect`). It says
-    /// instead that it has reached the recorder (`timesAttached`), and the count taken here tells that answer
-    /// from a connection that was already up, as it is when the tutorial is opened again from the settings.
-    ///
-    /// A connect held up by the local network permission answers later, when the reader allows it; the
-    /// screen waits for that. Any other that returns without an answer is over, and the choice with it.
-    private func take(_ host: String) async {
-        let before = model.timesAttached
-        chosenAt = before
-        await model.adopt(host: host)
-        if model.timesAttached == before, !model.connectBlocked { chosenAt = nil }
     }
 
     private func step(_ number: Int, _ title: String, _ detail: String) -> some View {

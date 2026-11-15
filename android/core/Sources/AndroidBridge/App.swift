@@ -156,7 +156,9 @@ public final class RecBridgeApp: Sendable {
         await model.returnedToForeground()
     }
 
-    public func devices() -> DevicesWindow { DevicesWindow(model) }
+    public func devices() async -> DevicesWindow {
+        await MainActor.run { DevicesWindow(model) }
+    }
     public func guide() -> GuideWindow { GuideWindow(model) }
     public func reservations() async -> ReservationsWindow {
         await MainActor.run { ReservationsWindow(model) }

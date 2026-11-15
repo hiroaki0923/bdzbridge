@@ -57,6 +57,8 @@ public struct SettingsScreen: Sendable {
     public var refreshHeld: Bool
     public var demo: Bool
     public var version: String
+    /// The row that opens the tutorial again (`Tutorial.reviewRow`).
+    public var tutorialRow: String
     /// The recorder's line while the app works on it, what went wrong with it, and what went wrong with the phone's
     /// own cache.
     public var busy: String
@@ -311,6 +313,7 @@ public final class SettingsWindow: Sendable {
             guideSourceAlone: !model.guideSourceIsChoosable && model.guideSource == .tv ? "テレビ" : "",
             helperProblem: model.helperProblem?.asABody ?? "",
             guide: guide, refreshHeld: !model.canRefreshGuideByHand, demo: model.demo, version: version,
+            tutorialRow: Tutorial.reviewRow,
             busy: model.busy ?? "", problem: model.problem(for: .recorder)?.asABody ?? "",
             phoneProblem: model.phoneProblem?.asABody ?? "")
     }

@@ -179,7 +179,7 @@ struct SettingsScreen: View {
                 }
 
                 Section {
-                    Button("セットアップ手順を見る") { showingGuide = true }
+                    Button(Tutorial.reviewRow) { showingGuide = true }
                 }
 
                 Section("このアプリ") {
@@ -210,7 +210,7 @@ struct SettingsScreen: View {
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { Task { await model.readNotifications() } }
             }
-            .sheet(isPresented: $showingGuide) { WelcomeView() }
+            .sheet(isPresented: $showingGuide) { WelcomeView(model: model) }
             .sheet(isPresented: $showingDisclaimer) { DisclaimerView() }
             // On the form and not on the television's section: one presenter, on a view that is still there
             // when the section turns from one form to the other as a registration is made.

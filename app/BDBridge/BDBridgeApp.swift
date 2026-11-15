@@ -84,7 +84,7 @@ struct RootView: View {
             default: break
             }
         }
-        .fullScreenCover(isPresented: $welcoming) { WelcomeView() }
+        .fullScreenCover(isPresented: $welcoming) { WelcomeView(model: model) }
     }
 }
 
@@ -427,8 +427,8 @@ struct NoRecorderView: View {
 extension View {
     /// The tutorial a screen's `NoRecorderView` opens, hung on the screen itself so that it stays up whatever
     /// that screen shows meanwhile.
-    func welcomesHere(_ welcoming: Binding<Bool>) -> some View {
-        sheet(isPresented: welcoming) { WelcomeView() }
+    func welcomesHere(_ welcoming: Binding<Bool>, model: AppModel) -> some View {
+        sheet(isPresented: welcoming) { WelcomeView(model: model) }
     }
 }
 

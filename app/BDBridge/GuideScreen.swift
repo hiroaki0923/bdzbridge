@@ -134,7 +134,7 @@ struct GuideScreen: View {
                 Text(failure?.asABody ?? "")
             }
         }
-        .welcomesHere($welcoming)
+        .welcomesHere($welcoming, model: model)
     }
 
     /// What the title says: the channel when one is picked, otherwise the broadcasting type.

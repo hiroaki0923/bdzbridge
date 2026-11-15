@@ -112,7 +112,7 @@ object RecBridge {
             // Before the start, which seeds the demo's guide with its tiles when the demo is on.
             app.drawsTiles(Tiles)
             watchTheNetwork(context.applicationContext, app)
-            val windows = Windows(app, app.devices(arena), app.guide(arena), call { app.reservations(arena) },
+            val windows = Windows(app, call { app.devices(arena) }, app.guide(arena), call { app.reservations(arena) },
                                   call { app.recordings(arena) }, app.strip(arena), call { app.settings(arena) },
                                   call { app.search(arena) }, app.job(arena), call { app.duplicates(arena) })
             watch({ windows.devices.observe(it) }, { Devices(call { windows.devices.read(arena) }) }, _devices)
@@ -126,6 +126,7 @@ object RecBridge {
             watch({ windows.duplicates.observe(it) }, { Duplicates(call { windows.duplicates.read(arena) }) }, _duplicates)
             // The box starts with what the model has in it; nothing but the reader changes it after that.
             launch { searchField.follow(search.filterNotNull().first().query, 0) }
+            launch { devices.collect { shown -> shown?.let { devicesHostField.follow(it.typedHost, it.hostSet) } } }
             launch {
                 settings.collect { shown ->
                     shown ?: return@collect
@@ -174,11 +175,6 @@ object RecBridge {
     suspend fun <T> ask(operation: (Windows) -> CompletableFuture<T>): T {
         val windows = windows()
         return call { operation(windows) }
-    }
-
-    /** A typed address as the iOS field says it. */
-    suspend fun typed(text: String): Typed = windows().devices.typed(text, arena).let {
-        Typed(it.host, it.isUsable, it.note, it.isWarning)
     }
 
     /**
@@ -241,6 +237,22 @@ object RecBridge {
             typed = value
             _text.value = value
         }
+    }
+
+    /**
+     * The same for the address field of the place where a recorder is chosen, and the presses that go by what was typed
+     * there.
+     */
+    private val devicesTyping = Channel<suspend (DevicesWindow) -> Unit>(Channel.UNLIMITED).also { operations ->
+        scope.launch { for (operation in operations) operation(windows().devices) }
+    }
+
+    val devicesHostField = Field { text, seen ->
+        devicesTyping.trySend { window -> call<Void> { window.typeHost(text, seen) } }
+    }
+
+    fun afterTypingInDevices(operation: (DevicesWindow) -> CompletableFuture<*>) {
+        devicesTyping.trySend { window -> call<Any?> { operation(window).thenApply { it } } }
     }
 
     val hostField = Field { text, seen -> typing.trySend { window -> call<Void> { window.typeHost(text, seen) } } }
@@ -595,10 +607,20 @@ data class Choice(val code: String, val label: String)
 class Station(val serviceID: Long, val name: String, val logo: ByteArray)
 
 data class Devices(
-    val welcomes: Boolean, val searching: Boolean, val searched: Long, val toSearch: Long,
+    val welcomes: Boolean, val closeLabel: String, val searching: Boolean, val searchHeld: Boolean,
+    val searched: Long, val toSearch: Long, val permissionNotice: String,
     val outcome: String, val outcomeFailed: Boolean, val outcomeNote: String, val causes: List<String>,
     val busy: String, val problem: String, val recorders: List<FoundRecorder>, val televisions: List<FoundTelevision>,
-    val choosing: Boolean, val canChoose: Boolean, val demo: Boolean, val chosenAnswered: Boolean,
+    val choosing: Boolean, val canChoose: Boolean, val typing: Boolean, val typedHost: String, val hostSet: Long,
+    val addressNote: String, val addressWarning: Boolean, val connectHeld: Boolean, val demoHeld: Boolean,
+    val demo: Boolean, val done: Boolean, val tutorial: TutorialText,
+)
+
+/** The tutorial's words that name no device and no system question (the model's `Tutorial`). */
+data class TutorialText(
+    val heading: String, val step1Title: String, val step1Detail: String, val step2Detail: String,
+    val step3Title: String, val step4Title: String, val step4Detail: String, val addressFooter: String,
+    val demoFooter: String,
 )
 
 data class FoundRecorder(val host: String, val name: String, val details: String, val inUse: Boolean)
@@ -608,8 +630,6 @@ data class FoundTelevision(val host: String, val name: String, val inUse: Boolea
 
 private fun televisions(list: Array<jp.hiroaki.bdbridge.bridge.FoundTelevision>) =
     list.map { FoundTelevision(it.host, it.name, it.isInUse, it.isRegisters) }
-
-data class Typed(val host: String, val usable: Boolean, val note: String, val warning: Boolean)
 
 data class Guide(
     val shows: String, val noRecorder: NoRecorder, val title: String, val detail: String, val offers: String,
@@ -825,10 +845,15 @@ private fun NoRecorder(said: jp.hiroaki.bdbridge.bridge.NoRecorder) =
     said.getSaid(arena).let { NoRecorder(said.kind, it.title, it.detail) }
 
 private fun Devices(it: jp.hiroaki.bdbridge.bridge.DevicesScreen) = Devices(
-    it.isWelcomes, it.isSearching, it.searched, it.toSearch, it.outcome, it.isOutcomeFailed, it.outcomeNote,
-    it.causes.toList(), it.busy, it.problem,
+    it.isWelcomes, it.closeLabel, it.isSearching, it.isSearchHeld, it.searched, it.toSearch, it.permissionNotice,
+    it.outcome, it.isOutcomeFailed, it.outcomeNote, it.causes.toList(), it.busy, it.problem,
     it.getRecorders(arena).map { found -> FoundRecorder(found.host, found.name, found.details, found.isInUse) },
-    televisions(it.getTelevisions(arena)), it.isChoosing, it.isCanChoose, it.isDemo, it.isChosenAnswered,
+    televisions(it.getTelevisions(arena)), it.isChoosing, it.isCanChoose, it.isTyping, it.typedHost, it.hostSet,
+    it.addressNote, it.isAddressWarning, it.isConnectHeld, it.isDemoHeld, it.isDemo, it.isDone,
+    it.getTutorial(arena).let { text ->
+        TutorialText(text.heading, text.step1Title, text.step1Detail, text.step2Detail, text.step3Title,
+                     text.step4Title, text.step4Detail, text.addressFooter, text.demoFooter)
+    },
 )
 
 private fun Guide(it: jp.hiroaki.bdbridge.bridge.GuideScreen) = it.getSaid(arena).let { said ->
@@ -994,7 +1019,7 @@ data class Settings(
     val causes: List<String>, val recorders: List<FoundRecorder>, val televisions: List<FoundTelevision>,
     val canChoose: Boolean, val guideSources: List<Labelled>, val guideSource: String, val guideSourceAlone: String,
     val helperProblem: String, val guide: List<Fact>, val refreshHeld: Boolean, val demo: Boolean,
-    val version: String, val busy: String, val problem: String, val phoneProblem: String,
+    val version: String, val tutorialRow: String, val busy: String, val problem: String, val phoneProblem: String,
 )
 
 /** The television's part of the settings (`TelevisionPart`): with one added, or the way to add one. */
@@ -1037,7 +1062,7 @@ private fun Settings(it: jp.hiroaki.bdbridge.bridge.SettingsScreen) = Settings(
     it.getRecorders(arena).map { found -> FoundRecorder(found.host, found.name, found.details, found.isInUse) },
     televisions(it.getTelevisions(arena)), it.isCanChoose, labelled(it.getGuideSources(arena)), it.guideSource,
     it.guideSourceAlone, it.helperProblem, facts(it.getGuide(arena)), it.isRefreshHeld, it.isDemo, it.version,
-    it.busy, it.problem, it.phoneProblem,
+    it.tutorialRow, it.busy, it.problem, it.phoneProblem,
 )
 
 data class Disclaimer(val title: String, val opening: String, val sections: List<Fact>, val link: String, val url: String)

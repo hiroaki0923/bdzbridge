@@ -670,7 +670,7 @@ final class AndroidBridgeTests: XCTestCase {
     @MainActor
     func testLeavingTheDemoGoesBackToNoRecorder() async throws {
         let app = await demo()
-        let devices = app.devices()
+        let devices = await app.devices()
         let inDemo = await devices.read()
         XCTAssertTrue(inDemo.demo)
         XCTAssertFalse(inDemo.welcomes)
@@ -684,21 +684,68 @@ final class AndroidBridgeTests: XCTestCase {
         XCTAssertEqual(guide.noRecorder.said.title, AppModel.notAdded.title)
     }
 
+    /// The address field as the iOS tutorial's: what is typed is said back, a keystroke typed over a value the model
+    /// has replaced is dropped, and a window that has closed starts clean, with the field following the model.
     @MainActor
-    func testATypedAddressIsSaidAsTheIOSFieldSaysIt() {
+    func testTheTutorialsAddressFieldIsSaidAsTheIOSFieldSaysIt() async throws {
         let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
-        let devices = app.devices()
-        XCTAssertFalse(devices.typed("").usable)
-        XCTAssertEqual(devices.typed("").note, "")
-        let wrong = devices.typed("レコーダー")
-        XCTAssertFalse(wrong.usable)
-        XCTAssertTrue(wrong.warning)
-        let port = devices.typed("192.0.2.10:64220")
-        XCTAssertTrue(port.usable)
-        XCTAssertEqual(port.host, "192.0.2.10")
-        XCTAssertTrue(port.note.contains(":64220"))
-        let wide = devices.typed("１９２．０．２．１０")
-        XCTAssertEqual(wide.host, "192.0.2.10", "full-width digits are taken")
+        let devices = await app.devices()
+        let first = await devices.read()
+        XCTAssertTrue(first.welcomes)
+        XCTAssertEqual(first.closeLabel, "あとで設定")
+        XCTAssertFalse(first.typing)
+        XCTAssertTrue(first.connectHeld, "an empty address could be connected to")
+
+        await devices.showAddress()
+        await devices.typeHost("レコーダー", seen: first.hostSet)
+        let wrong = await devices.read()
+        XCTAssertTrue(wrong.typing)
+        XCTAssertEqual(wrong.typedHost, "レコーダー")
+        XCTAssertTrue(wrong.addressWarning)
+        XCTAssertTrue(wrong.connectHeld)
+
+        await devices.typeHost("192.0.2.10:64220", seen: first.hostSet)
+        let port = await devices.read()
+        XCTAssertFalse(port.connectHeld)
+        XCTAssertFalse(port.addressWarning)
+        XCTAssertTrue(port.addressNote.contains(":64220"))
+
+        await devices.typeHost("１９２．０．２．１０", seen: first.hostSet)
+        let wide = await devices.read()
+        XCTAssertFalse(wide.connectHeld, "full-width digits are taken")
+
+        // The window closes: the next opening starts clean, and a keystroke typed before it is dropped.
+        await devices.closed()
+        let clean = await devices.read()
+        XCTAssertEqual(clean.typedHost, "")
+        XCTAssertFalse(clean.typing)
+        XCTAssertNotEqual(clean.hostSet, first.hostSet, "the screen was not told to take the model's text")
+        await devices.typeHost("192.0.2.20", seen: first.hostSet)
+        let dropped = await devices.read()
+        XCTAssertEqual(dropped.typedHost, "", "a keystroke typed over a replaced value was kept")
+    }
+
+    /// The chooser in the demo: the search finds the demo's recorder, the televisions wait while it is chosen, the
+    /// screen is done once it has answered, and closing it starts the next opening clean.
+    @MainActor
+    func testARecorderChosenOnTheTutorialClosesItByItself() async throws {
+        let app = await demo()
+        let devices = await app.devices()
+        await devices.search()
+        let found = await until(devices.read, tries: 800) { !$0.recorders.isEmpty && !$0.searching }
+        XCTAssertEqual(found.recorders.first?.host, DemoRecorder.host)
+        XCTAssertFalse(found.done)
+        XCTAssertFalse(found.choosing)
+        XCTAssertEqual(found.permissionNotice, "")
+
+        await devices.choose(DemoRecorder.host)
+        let chosen = await until(devices.read) { $0.done }
+        XCTAssertTrue(chosen.done)
+        await devices.closed()
+        let after = await devices.read()
+        XCTAssertFalse(after.done)
+        XCTAssertFalse(after.choosing)
+        XCTAssertEqual(after.closeLabel, "閉じる")
     }
 }
 
@@ -1001,7 +1048,7 @@ extension AndroidBridgeTests {
     @MainActor
     func testTheDemosTelevisionIsRegisteredFromItsSheetAndTakenAwayFromTheSettings() async throws {
         let app = await demo()
-        let devices = app.devices()
+        let devices = await app.devices()
         let settings = await app.settings()
         let before = await until(settings.read) { $0.canChoose }
         XCTAssertFalse(before.television.added)
