@@ -50,7 +50,9 @@ connect wakes a recorder that does not answer with a magic packet when its MAC i
 guide's rows, on the reservations' and the recordings' and on the search's; the demo's stations have tiles that Kotlin
 draws (`Tiles.kt`) and hands to the model as files (`TileDrawer`). The model is told when the network changes, by a
 `ConnectivityManager` callback (`RecBridgeApp.networkChanged`), and what a search for devices came to, which iOS
-announces to VoiceOver, is a polite live region for TalkBack.
+announces to VoiceOver, is a polite live region for TalkBack. At night, with no screen, it wakes the recorder, sends
+what waits for the recorder and the television and fetches the guide, as the iOS app's background task does, and the
+settings say when it last fetched it (最終自動更新): below, "The overnight run".
 
 ## Layout
 
@@ -64,7 +66,8 @@ announces to VoiceOver, is a polite live region for TalkBack.
   screen is on what the iOS screen runs with `task(id:)`), `Settings.swift` (the settings, whose fields keep what is typed and
   take the model's value when the model sets them itself), `Television.swift` (the television's sheets, its part of
   the settings and the televisions a search found), `Kept.swift` (where the television's registration and the
-  helper's token are kept), `Channels.swift` (the stations' page) and `Sheets.swift`
+  helper's token are kept), `Night.swift` (the overnight run, and the rule that it goes only on the network of a device
+  saved), `Channels.swift` (the stations' page) and `Sheets.swift`
   (the sheets, a window made as a sheet opens and
   ended as it closes, doing for the sheet what the iOS sheet does with `onChange` and `task(id:)`). A window is a plain class, since swift-java
   cannot hand Kotlin a class on the main actor: what the reader does goes to the model as an async call, and what the
@@ -85,14 +88,36 @@ announces to VoiceOver, is a polite live region for TalkBack.
   (the sheets, which open at once with what the row says and fill in as their window is read), `Settings.kt` (the
   settings and ご利用上の注意), `Television.kt` (the television's sheets, the televisions a search found, and the
   television's 対応状況), `Channels.kt` (the stations' page, a station dragged by its handle to another place),
-  and `Parts.kt` (the empty states, the marks, the strip, what a search found, and a row with what a swipe either way
-asks for, which never takes the row with it).
+  `Night.kt` (the overnight run's worker, and when it is asked for), and `Parts.kt` (the empty states, the marks, the
+  strip, what a search found, and a row with what a swipe either way asks for, which never takes the row with it).
 
 The model's settings are kept in `files/settings/recbridge.plist`: Foundation on Android keeps a `UserDefaults` suite
-named by the path of its file, and writes it out only when told to, which `WrittenDefaults` does at each change. The
+named by the path of its file, and writes it out only when told to, which `WrittenDefaults` does at each change. One
+`WrittenDefaults` is made for the file in a process, which the screens' model and an overnight run share. The
 television's registration and the helper's token are kept apart from them, in `no_backup/` (`Context.getNoBackupFilesDir`),
 which Android's backup rules always leave out, to the cloud and to another device alike: as on iOS, they stay on the
 device, and a device the app comes to some other way registers again.
+
+## The overnight run
+
+The run is the model's (`BackgroundWork.refreshNow(in:)`), handed by `NightRun` what it reaches of Android: the
+model's defaults object, the app's folder, the sessions the screens send through, the television's registration and
+notifications that do nothing, as the app posts none yet. `NightWorker` is asked for at each start of the app and
+again as it begins, as on iOS: one request waits at a time, tagged `overnight`, from the next 02:00 by the model's rule
+(`BackgroundWork.nextNightlyRun`), on an unmetered network, charging or not. A request not yet begun is replaced; a run
+under way is left alone, since replacing it would stop it.
+
+WorkManager can wait for Wi-Fi but not for the home's, so the run's first step is a rule of Android's own
+(`NightRun.mayGo`): the recorder or the television saved is at an IPv4 address on the network of one of the device's
+interfaces, by that interface's mask. Otherwise it ends there, with nothing opened, sent or written. No location
+permission is asked for and no network's name is read; an address saved as a name cannot be placed, and lets no run go.
+
+It goes through the bridge's call, which runs Swift's main queue while it is out, with no Activity as with one. When
+the system stops the worker, the Swift task is cancelled (`NightRun.stop`), which is what the model's rules for a run
+whose time is up look at, and the worker ends without waiting for Swift. WorkManager runs a stopped run again later;
+that one does nothing, as iOS runs no night twice. WorkManager adds to the manifest `WAKE_LOCK`,
+`RECEIVE_BOOT_COMPLETED` and `FOREGROUND_SERVICE`, its initializer, services and receivers, and Room's invalidation
+service, and keeps its database in `no_backup/`.
 
 ## What has to be in place
 
@@ -129,8 +154,8 @@ JAVA_HOME=<the JDK's home> swift test --disable-sandbox
 `app/src/androidTest` drives the demo through the screens on a device or an emulator: the guide opening at what is
 on now, a programme's sheet, another day, the grid with a block's sheet and its zoom buttons, the reservations and the
 recordings, and leaving the demo. Before the model first opens it deletes what the app keeps, a saved address among
-it, and it uses only the demo, so it reaches nothing on the LAN. With more than one device attached, name the one to
-use:
+it, and it uses only the demo, so it reaches nothing on the LAN. `NightTests` sees the overnight run asked for once the
+app has started, and runs the worker itself in the demo. With more than one device attached, name the one to use:
 
 ```
 ANDROID_SERIAL=emulator-5554 ./gradlew :app:connectedDebugAndroidTest
@@ -168,7 +193,9 @@ counts in `App.swift`, and which `runWhatWaitsOnTheMainQueue()` answers with) --
 loop once,
 doing what has come since the last call, and returns at once. Only public calls are made; the ways that wake the
 looper exactly when work comes, by the main queue's own file descriptor or by an executor of the app's own for the
-main actor, are not public in Swift 6.4.2.
+main actor, are not public in Swift 6.4.2. Which thread is the main one is Foundation's to say: the one that loaded
+it. So the first call to Swift in a process is made on Android's main thread, by the model's opening or by the
+overnight run's worker, which makes its calls there; made first on another thread, nothing on the main actor runs.
 
 A window tells Kotlin of a change on the main thread, from the model's own turn; what a read hands back reaches
 Kotlin on Swift's own threads, is turned into Kotlin's values off the main thread, and is put where Compose reads it
