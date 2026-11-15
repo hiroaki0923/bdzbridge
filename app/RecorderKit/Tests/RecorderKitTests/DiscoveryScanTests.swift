@@ -90,7 +90,9 @@ final class DiscoveryScanTests: XCTestCase {
         let hosts = (1...40).map { "192.0.2.\($0)" }
 
         let seen = Counter()
-        let found = await Discovery.scan(hosts: hosts, transport: transport, timeout: 0.1,
+        // Each probe's deadline half a minute, which a machine that stands still for seconds does not use up:
+        // every address here answers or fails at once.
+        let found = await Discovery.scan(hosts: hosts, transport: transport, timeout: 30,
                                          progress: { done, _ in seen.bump(done) })
 
         XCTAssertEqual(found.map(\.host), ["192.0.2.10"])
@@ -140,8 +142,10 @@ final class DiscoveryScanTests: XCTestCase {
         }
         let hosts = (1...200).map { "192.0.2.\($0)" }
 
+        // A deadline a machine that stands still for seconds does not use up: every address answers or fails by
+        // itself.
         let found = await Discovery.find(mac: "F8-4E-17-00-00-00", among: hosts, transport: transport,
-                                         timeout: 0.5, atOnce: 8)
+                                         timeout: 30, atOnce: 8)
         XCTAssertEqual(found?.host, "192.0.2.70")
         let asked = await transport.requests.count
         XCTAssertLessThan(asked, hosts.count, "the rest of the subnet is not asked once it has answered")

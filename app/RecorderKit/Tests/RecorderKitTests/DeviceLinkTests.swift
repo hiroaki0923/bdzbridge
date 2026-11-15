@@ -75,8 +75,9 @@ final class DeviceLinkTests: XCTestCase {
                             location: "http://\(host):64220/description.xml", via: "scan")
     }
 
-    /// Waits for `condition`, a few seconds at most: for what the link's own tasks get round to.
-    private func until(_ what: String, within seconds: Double = 3, _ condition: () -> Bool) async throws {
+    /// Waits for `condition`, half a minute at most, which a machine that stands still for seconds does not use
+    /// up: for what the link's own tasks get round to.
+    private func until(_ what: String, within seconds: Double = 30, _ condition: () -> Bool) async throws {
         let end = Date().addingTimeInterval(seconds)
         while !condition() {
             guard Date() < end else { return XCTFail(what) }

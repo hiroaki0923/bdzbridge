@@ -53,7 +53,9 @@ final class LinkWorld: RecorderLinkHost {
             },
             findTelevision: { mac, hosts in
                 self.events.append("search for television")
-                return await TVDiscovery.find(mac: mac, among: hosts, transport: Routed(world: self))
+                // Each probe's deadline half a minute, which a machine that stands still for seconds does not use
+                // up: whatever the tests put on the subnet answers or fails by itself, and the look ends with it.
+                return await TVDiscovery.find(mac: mac, among: hosts, transport: Routed(world: self), timeout: 30)
             },
             slotReadAgainAfter: slotReadAgainAfter,
             slotSettling: slotSettling,

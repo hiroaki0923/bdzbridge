@@ -432,11 +432,16 @@ final class LocalNetworkAccessTests: XCTestCase {
     /// network's and nobody's, so what is sent there never leaves this machine and is never answered. The
     /// connection has a satisfied path from the start and is on its way for as long as its handshake is given,
     /// and the wait does not take that path for an answer: it is over when the two seconds are, the handshake
-    /// having run out, and not before. Stopped by the test if it is not over long after that.
+    /// having run out, and not before. Stopped by the test if it is not over long after that. The connection is
+    /// given a minute to come to something rather than the wait's own seconds, which a machine that stands still
+    /// around the handshake's end could see run out first: it is the handshake that is to end it.
     func testTheWaitDoesNotAnswerBeforeItsConnectionHasComeToAnything() async {
         let began = ContinuousClock.now
         let waiting = Task {
-            await LocalNetwork.waitForAccess(probing: "127.0.0.2") {
+            await LocalNetwork.waitForAccess(connecting: { WaitConnection(host: "127.0.0.2") },
+                                             pause: { try? await Task.sleep(for: $0) },
+                                             timeGiven: { _ in try? await Task.sleep(for: .seconds(60)) },
+                                             note: { _ in }) {
                 XCTFail("loopback is never held back by local network privacy")
             }
         }

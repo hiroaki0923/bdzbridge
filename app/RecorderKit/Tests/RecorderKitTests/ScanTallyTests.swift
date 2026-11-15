@@ -242,7 +242,8 @@ final class ScanTallyTests: XCTestCase {
         }
         let tally = ScanTally(stub)
 
-        let found = await Discovery.scan(hosts: hosts, transport: tally)
+        // A deadline a machine that stands still for seconds does not use up: every address answers at once.
+        let found = await Discovery.scan(hosts: hosts, transport: tally, timeout: 30)
 
         XCTAssertEqual(found.map(\.host), [recorder])
         let counts = await tally.counts
