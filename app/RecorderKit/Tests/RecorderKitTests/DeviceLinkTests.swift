@@ -488,7 +488,13 @@ final class DeviceLinkTests: XCTestCase {
         let before = link.client
 
         world.devices[Stub.host] = nil
-        world.devices[Self.moved] = television
+        // The look asks every address at once and is over at the first that is the television saved, whatever
+        // is still out at the others. What the strip says while it looks is read from inside the ask where
+        // nobody is, so the television answers only once that has been read.
+        world.devices[Self.moved] = StubTransport { request, _ in
+            await eventually { await world.count("problem while looking") == 1 }
+            return try await television.send(request)
+        }
         world.devices[Self.nobodyHere] = StubTransport { _, _ in
             let line = await world.line
             let problem = await world.problem
