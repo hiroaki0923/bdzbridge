@@ -30,7 +30,11 @@ deletes and protects need, the duplicates are scanned for and their ticked copie
 says how far it is with 中止, over the model's states of them (`RecordingsState`, `GroupSheetState`,
 `DuplicatesState`). Its search is one box over the
 programmes still to come, the reservations and the recordings, with the three as chips under it, over the model's
-state of it (`SearchState`): what is found opens the same sheets. Its settings have the recorder (what it
+state of it (`SearchState`): what is found opens the same sheets. On a window 840 dp wide or more -- a tablet in
+landscape -- the guide, the search, the reservations and the recordings' list and duplicates show what is opened from
+them in a pane beside the list rather than on a sheet, a form of Android's own, since the iOS app is an iPhone's alone:
+the same content, and while it has a request of its own out, by the rule that keeps a sheet from being put away,
+nothing that would replace it is taken. Its settings have the recorder (what it
 says of itself, how the link stands, its address and MAC, このアドレスに接続 and 再接続), the mode a new reservation starts
 at, the television (what it says of itself, 対応状況を調べる, 登録する or 再接続, the helper on it, テレビを外す), the search
 and the recorders and televisions it found, which stations the guide shows and in what order, the guide kept on the
@@ -74,8 +78,9 @@ announces to VoiceOver, is a polite live region for TalkBack.
   the text marked as Japanese), `App.kt` (the place to choose a recorder over the rest, and the navigation: a bar at
   the foot of a phone, a rail down the side of anything 600 dp wide), `Guide.kt`, `GuideGrid.kt` (the grid: one
   gesture handler for the pan, the fling and the pinch, the rulers placed from the same position as the body, and only
-  the columns and the hours around what is in view composed), `Search.kt`, `Lists.kt`, `Recordings.kt` (the job's
-  bar, a programme's page, the duplicates), `Conditions.kt` (the keyword conditions' page
+  the columns and the hours around what is in view composed), `Search.kt`, `Lists.kt`, `Panes.kt` (the pane beside a
+  list on a wide window, what is refused while what is open in it is held, and what it says while nothing is),
+  `Recordings.kt` (the job's bar, a programme's page, the duplicates), `Conditions.kt` (the keyword conditions' page
   and the full-screen form for a new one), `Devices.kt`, `Sheets.kt`
   (the sheets, which open at once with what the row says and fill in as their window is read), `Settings.kt` (the
   settings and ご利用上の注意), `Television.kt` (the television's sheets, the televisions a search found, and the
@@ -130,6 +135,10 @@ use:
 ```
 ANDROID_SERIAL=emulator-5554 ./gradlew :app:connectedDebugAndroidTest
 ```
+
+The tests of the pane beside a list run only on a window 840 dp wide or more and skip themselves on a narrower one. An
+emulator is made that wide with `adb shell wm size 1280x800` and `adb shell wm density 160`, and put back with
+`adb shell wm size reset` and `adb shell wm density reset`.
 
 A file added to `app/RecorderKit` is sometimes not seen by the Android build, which goes on with the build
 description SwiftPM wrote before ("cannot find type" for something the Mac's build finds): deleting

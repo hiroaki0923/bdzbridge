@@ -82,7 +82,9 @@ enum class Page { Channels, Disclaimer, Capabilities, Conditions, Setup }
 /**
  * The destinations, with Material's navigation for the width: a bar along the foot of a phone, a rail down the side
  * of anything wider (600 dp, Material's medium width). Each screen has its own top app bar, and all but the settings
- * the strip under it, as on iOS. A page opened from one of them goes over the whole, the navigation and all.
+ * the strip under it, as on iOS. A page opened from one of them goes over the whole, the navigation and all. From
+ * 840 dp the guide, the search, the reservations and the recordings show what is opened from their lists beside them
+ * (`ListAndDetail`).
  */
 @Composable
 fun RecorderScreen(search: () -> Unit) {
@@ -111,9 +113,15 @@ private fun Destinations(search: () -> Unit, open: (Page) -> Unit, openGroup: (G
     val scope = rememberCoroutineScope()
     var destination by rememberSaveable { mutableStateOf(Destination.Guide) }
     val select = { chosen: Destination ->
-        // The guide, chosen while it is showing, goes back to what is on now, as on iOS.
-        if (chosen == destination && chosen == Destination.Guide) scope.launch { RecBridge.act { it.guide.goToNow() } }
-        destination = chosen
+        // Not while what is open beside a list is held: the screen going would take it, and the answer to its
+        // request, with it (`PaneHold`).
+        if (!PaneHold.held) {
+            // The guide, chosen while it is showing, goes back to what is on now, as on iOS.
+            if (chosen == destination && chosen == Destination.Guide) {
+                scope.launch { RecBridge.act { it.guide.goToNow() } }
+            }
+            destination = chosen
+        }
     }
     val screen = @Composable {
         when (destination) {
@@ -128,11 +136,13 @@ private fun Destinations(search: () -> Unit, open: (Page) -> Unit, openGroup: (G
     }
     if (LocalConfiguration.current.screenWidthDp >= 600) {
         Row(Modifier.fillMaxSize()) {
-            NavigationRail {
-                for (each in Destination.entries) {
-                    NavigationRailItem(selected = destination == each, onClick = { select(each) },
-                                       icon = { Icon(if (destination == each) each.selectedIcon else each.icon, contentDescription = null) },
-                                       label = { Text(each.label) })
+            Refused {
+                NavigationRail {
+                    for (each in Destination.entries) {
+                        NavigationRailItem(selected = destination == each, onClick = { select(each) }, icon = {
+                            Icon(if (destination == each) each.selectedIcon else each.icon, contentDescription = null)
+                        }, label = { Text(each.label) })
+                    }
                 }
             }
             Box(Modifier.weight(1f)) { screen() }

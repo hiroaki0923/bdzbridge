@@ -74,6 +74,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.horizontalScrollAxisRange
 import androidx.compose.ui.semantics.scrollBy
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.verticalScrollAxisRange
 import androidx.compose.ui.text.SpanStyle
@@ -116,7 +117,7 @@ private val UnderTheLabel = 34.dp
  * where they are laid out and drawn (`GridPosition`): nothing goes to Swift as the fingers move.
  */
 @Composable
-internal fun GuideGrid(guide: Guide, logos: Map<Long, ImageBitmap?>, open: (Programme) -> Unit) {
+internal fun GuideGrid(guide: Guide, logos: Map<Long, ImageBitmap?>, current: String?, open: (Programme) -> Unit) {
     val grid = guide.layout
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -170,7 +171,7 @@ internal fun GuideGrid(guide: Guide, logos: Map<Long, ImageBitmap?>, open: (Prog
         Box(Modifier.fillMaxSize().background(colors.surface)
                 .panAndPinch(position, header, grid.smallest.toFloat(), grid.largest.toFloat(), scope)
                 .scrollActions(position)) {
-            Body(grid, window, position, open, Modifier.padding(start = Gutter, top = Header).fillMaxSize())
+            Body(grid, window, position, current, open, Modifier.padding(start = Gutter, top = Header).fillMaxSize())
             HourRuler(grid, position, Modifier.padding(top = Header).width(Gutter).fillMaxHeight())
             StationRuler(grid, window, logos, position, Modifier.padding(start = Gutter).fillMaxWidth().height(Header))
             Box(Modifier.size(Gutter, Header).background(colors.surfaceContainer))
@@ -341,10 +342,12 @@ private class Spot(val column: Int, val top: Double, val length: Double)
 
 /**
  * The programmes, the hours' lines under them and the line at now over them. A block is measured as the scale says,
- * so a pinch measures the blocks again, and placed as the position says, so a pan only places them.
+ * so a pinch measures the blocks again, and placed as the position says, so a pan only places them. `current` is the
+ * programme open beside the grid.
  */
 @Composable
-private fun Body(grid: GridDay, window: Window, position: GridPosition, open: (Programme) -> Unit, modifier: Modifier) {
+private fun Body(grid: GridDay, window: Window, position: GridPosition, current: String?, open: (Programme) -> Unit,
+                 modifier: Modifier) {
     val colors = MaterialTheme.colorScheme
     val hourLine = colors.outlineVariant.copy(alpha = 0.5f)
     val nowLine = colors.error
@@ -355,7 +358,8 @@ private fun Body(grid: GridDay, window: Window, position: GridPosition, open: (P
                     val end = block.top + max(0.0, block.length)
                     if (block.top >= window.toMinute || end <= window.fromMinute) continue
                     key(block.row.id) {
-                        Block(block, position, Modifier.layoutId(Spot(index, block.top, block.length))) {
+                        Block(block, position, block.row.id == current,
+                              Modifier.layoutId(Spot(index, block.top, block.length))) {
                             open(block.row)
                         }
                     }
@@ -401,10 +405,10 @@ private fun Body(grid: GridDay, window: Window, position: GridPosition, open: (P
 /**
  * One programme, as the iOS block says it: the time, the mark and the title, tinted for a reservation, with its
  * genre's colour down its side; what is on air is shaded down to now, and what is over is dimmed. A screen reader
- * reads it as one sentence, the model's.
+ * reads it as one sentence, the model's. Ringed while it is open beside the grid (`current`).
  */
 @Composable
-private fun Block(block: GridBlock, position: GridPosition, modifier: Modifier, open: () -> Unit) {
+private fun Block(block: GridBlock, position: GridPosition, current: Boolean, modifier: Modifier, open: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val marks = LocalMarks.current
     val accent = if (block.accent >= 0) Color(0xFF000000 or block.accent) else colors.outlineVariant
@@ -437,8 +441,12 @@ private fun Block(block: GridBlock, position: GridPosition, modifier: Modifier, 
                 }
                 drawRect(accent, size = Size(bar.toPx(), size.height))
             }
+            .ringedBeside(current)
             .clickable(role = Role.Button, onClick = open)
-            .clearAndSetSemantics { contentDescription = block.spoken }) {
+            .clearAndSetSemantics {
+                contentDescription = block.spoken
+                if (current) selected = true
+            }) {
         Text(label, style = MaterialTheme.typography.labelSmall, overflow = TextOverflow.Ellipsis,
              modifier = Modifier.followingTheTop(block, position).padding(start = bar + 3.dp, top = 2.dp, end = 4.dp))
     }

@@ -38,6 +38,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +47,7 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -70,51 +72,121 @@ fun SearchScreen() {
         RecBridge.searchShown(true)
         onDispose { RecBridge.searchShown(false) }
     }
+    val wide = twoPanes()
     var programme by remember { mutableStateOf<FoundProgramme?>(null) }
     var reservation by remember { mutableStateOf<ReservationItem?>(null) }
     var recording by remember { mutableStateOf<RecordingItem?>(null) }
-    programme?.let { found ->
-        ProgrammeSheetView(found.row, starts = "${found.day} ${found.row.time}",
-                           open = { RecBridge.openFoundProgramme(found.row.id) }) { programme = null }
+    if (!wide) {
+        programme?.let { found ->
+            ProgrammeSheetView(found.row, starts = "${found.day} ${found.row.time}",
+                               open = { RecBridge.openFoundProgramme(found.row.id) }) { programme = null }
+        }
+        reservation?.let { row ->
+            ReservationSheetView(row.id, row.title, open = { RecBridge.openFoundReservation(row.id) }) {
+                reservation = null
+            }
+        }
+        recording?.let { row ->
+            TitleSheetView(row, open = { RecBridge.openFoundRecording(row.id) }) { recording = null }
+        }
     }
-    reservation?.let { row -> ReservationSheetView(row.title, open = { RecBridge.openFoundReservation(row.id) }) { reservation = null } }
-    recording?.let { row -> TitleSheetView(row, open = { RecBridge.openFoundRecording(row.id) }) { recording = null } }
-    Scaffold(topBar = {
+    val focus = LocalFocusManager.current
+    // Beside the results one at a time, and not while that one is held: it would take the request's answer with it.
+    val open = { found: FoundProgramme?, row: ReservationItem?, title: RecordingItem? ->
+        if (!PaneHold.held) {
+            // The box lets go of the keyboard, which would cover the pane and take the back key before it.
+            if (wide) focus.clearFocus()
+            programme = found
+            reservation = row
+            recording = title
+        }
+    }
+    val results = shown.shows == "results"
+    Scaffold(topBar = { Refused {
         Column {
             TopAppBar(title = { SearchBox(shown.prompt) })
             Scopes(shown)
             StripBar()
         }
-    }) { padding ->
+    } }) { padding ->
         // Above the keyboard, so that what is said of the words typed is not under it: by what the keyboard takes
         // beyond the bars the padding already answers for.
         Box(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
-            when (shown.shows) {
-                "waiting" -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                "results" -> Column {
-                    // How many, which the iOS screen says under its title: over the results here, where it stays as
-                    // they scroll.
-                    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
-                        Text(shown.countLine, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
-                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
-                    }
-                    // The logos of the rows of the lists, which the programmes found draw for themselves.
-                    val logos = if (shown.scope == "guide") emptyMap() else rememberLogos(shown.logos)
-                    when (shown.scope) {
-                        "guide" -> FoundProgrammes(shown) { programme = it }
-                        "reservations" -> LazyColumn(Modifier.fillMaxSize(), state = listKeptAtItsTop()) {
-                            items(shown.reservations, key = { it.id }) { row ->
-                                ReservationRow(row, logos[row.logo]) { reservation = row }
-                            }
-                        }
-                        else -> LazyColumn(Modifier.fillMaxSize(), state = listKeptAtItsTop()) {
-                            items(shown.recordings, key = { it.id }) { row ->
-                                RecordingRow(row, logo = logos[row.logo]) { recording = row }
-                            }
-                        }
+            ListAndDetail(programme != null || reservation != null || recording != null, close = {
+                programme = null
+                reservation = null
+                recording = null
+            }, nothingOpened = {
+                // What the screen of the scope says, which is where the same rows are found.
+                if (results) {
+                    NothingOpened(Icons.Default.Search, when (shown.scope) {
+                        "guide" -> NothingOpenedSays.programme
+                        "reservations" -> NothingOpenedSays.reservation
+                        else -> NothingOpenedSays.recording
+                    })
+                }
+            }, detail = {
+                // Each by what it was found as, so that nothing of one carries to the next. Listed while the results
+                // of its own scope have it.
+                programme?.let { found ->
+                    key("programme-" + found.row.id) {
+                        ProgrammeSheetView(found.row, starts = "${found.day} ${found.row.time}",
+                                           open = { RecBridge.openFoundProgramme(found.row.id) }, inPane = true,
+                                           listed = results && shown.scope == "guide" &&
+                                               shown.programmes.any { it.row.id == found.row.id }) { programme = null }
                     }
                 }
-                else -> Unavailable(Icons.Default.Search, shown.title, shown.detail)
+                reservation?.let { row ->
+                    key("reservation-" + row.id) {
+                        ReservationSheetView(row.id, row.title, open = { RecBridge.openFoundReservation(row.id) },
+                                             inPane = true,
+                                             listed = results && shown.scope == "reservations" &&
+                                                 shown.reservations.any { it.id == row.id }) { reservation = null }
+                    }
+                }
+                recording?.let { row ->
+                    key("recording-" + row.id) {
+                        TitleSheetView(row, open = { RecBridge.openFoundRecording(row.id) }, inPane = true,
+                                       listed = results && shown.scope == "recordings" &&
+                                           shown.recordings.any { it.id == row.id }) { recording = null }
+                    }
+                }
+            }) {
+                when (shown.shows) {
+                    "waiting" -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    "results" -> Column {
+                        // How many, which the iOS screen says under its title: over the results here, where it stays
+                        // as they scroll.
+                        Surface(color = MaterialTheme.colorScheme.surfaceContainer,
+                                modifier = Modifier.fillMaxWidth()) {
+                            Text(shown.countLine, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
+                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                        }
+                        // The logos of the rows of the lists, which the programmes found draw for themselves.
+                        val logos = if (shown.scope == "guide") emptyMap() else rememberLogos(shown.logos)
+                        when (shown.scope) {
+                            "guide" -> FoundProgrammes(shown, if (wide) programme?.row?.id else null) {
+                                open(it, null, null)
+                            }
+                            "reservations" -> LazyColumn(Modifier.fillMaxSize(), state = listKeptAtItsTop()) {
+                                items(shown.reservations, key = { it.id }) { row ->
+                                    ReservationRow(row, logos[row.logo], current = wide && row.id == reservation?.id) {
+                                        open(null, row, null)
+                                    }
+                                }
+                            }
+                            else -> LazyColumn(Modifier.fillMaxSize(), state = listKeptAtItsTop()) {
+                                items(shown.recordings, key = { it.id }) { row ->
+                                    val current = wide && row.id == recording?.id
+                                    RecordingRow(row, logo = logos[row.logo], current = current) {
+                                        open(null, null, row)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else -> Unavailable(Icons.Default.Search, shown.title, shown.detail)
+                }
             }
         }
     }
@@ -173,7 +245,7 @@ private fun Scopes(shown: Search) {
  * says the words found under 詳細, as the iOS row does.
  */
 @Composable
-private fun FoundProgrammes(shown: Search, open: (FoundProgramme) -> Unit) {
+private fun FoundProgrammes(shown: Search, current: String?, open: (FoundProgramme) -> Unit) {
     val now = minuteNow()
     val logos = rememberLogos(shown.logos)
     val strong = SpanStyle(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
@@ -187,7 +259,8 @@ private fun FoundProgrammes(shown: Search, open: (FoundProgramme) -> Unit) {
                 withStyle(strong) { append(found.match) }
                 append(found.after)
             }
-            ProgrammeRow(found.row, logos[found.logo], now, day = found.day, found = words) { open(found) }
+            ProgrammeRow(found.row, logos[found.logo], now, day = found.day, found = words,
+                         current = found.row.id == current) { open(found) }
             HorizontalDivider()
         }
     }

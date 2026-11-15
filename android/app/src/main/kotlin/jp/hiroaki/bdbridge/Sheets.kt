@@ -62,23 +62,29 @@ import androidx.compose.material3.Switch
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 
-// The programme's sheet and the reservation's, as the iOS sheets lay them out: what each holds, offers, holds back
-// and says, and what each press does, are the model's, through the sheets' windows (core/.../Sheets.swift). A sheet
-// opens at once with what the row it was opened from already says, and the rest comes in as its window is read.
+// The programme's sheet, the reservation's and the recording's, as the iOS sheets lay them out: what each holds,
+// offers, holds back and says, and what each press does, are the model's, through the sheets' windows
+// (core/.../Sheets.swift). A sheet opens at once with what the row it was opened from already says, and the rest comes
+// in as its window is read. The same content is a bottom sheet, or on a wide screen the pane beside the list.
 
 /**
  * A sheet's window, opened as the sheet comes up and closed as it goes. The opening runs where the sheet going does
  * not cancel it, and a window that comes back for a sheet already gone is closed at once: left open, it would go on
- * following the model, and asking the recorder, for nobody.
+ * following the model, and asking the recorder, for nobody. `missing` is told when there was no window to open, the
+ * row having gone since it was tapped.
  */
 @Composable
-fun <H : RecBridge.Sheet<*>> rememberOpened(key: Any, open: suspend () -> H?): H? {
+fun <H : RecBridge.Sheet<*>> rememberOpened(key: Any, missing: () -> Unit = {}, open: suspend () -> H?): H? {
     var handle by remember(key) { mutableStateOf<H?>(null) }
     DisposableEffect(key) {
         var gone = false
         RecBridge.launch {
             val opened = open()
-            if (gone) opened?.close() else handle = opened
+            when {
+                gone -> opened?.close()
+                opened == null -> missing()
+                else -> handle = opened
+            }
         }
         onDispose {
             gone = true
@@ -119,6 +125,20 @@ internal fun HeldSheet(held: Boolean, done: Boolean, close: () -> Unit, content:
 }
 
 /**
+ * Where a sheet's content goes: a bottom sheet over the list it was opened from, or the pane beside the list on a wide
+ * screen (`inPane`, Panes.kt). The pane is cleared as the sheet would close (`done`), and also once `gone`: the row it
+ * was opened for is no longer on the list -- another day, a filter, deleted from the list beside it -- or there was no
+ * window to open for it, and nothing of its own is out or up. A sheet covers the list, so its row cannot go that way
+ * while it is open; a pane left with it would show what is not listed, or wait for ever for a window.
+ */
+@Composable
+internal fun SheetOrPane(inPane: Boolean, held: Boolean, done: Boolean, gone: Boolean, close: () -> Unit,
+                         content: @Composable () -> Unit) {
+    if (inPane) DetailPane(held, leaving = done || gone, close = close, content = content)
+    else HeldSheet(held, done, close, content)
+}
+
+/**
  * The one question or answer up at a time: the button that does something, if any, and the one that closes. A
  * question is answered by its buttons, as an iOS alert is, and not put away by a touch beside it; the back key is
  * its closing button. An answer with OK alone goes either way.
@@ -145,22 +165,32 @@ internal fun AskDialog(asked: Asked, act: () -> Unit, closeAsked: () -> Unit, ac
     )
 }
 
-/** The programme's sheet: what it is, the reservations of it, and 録画予約 where it is offered. */
+/**
+ * The programme's sheet: what it is, the reservations of it, and 録画予約 where it is offered. On the pane (`inPane`),
+ * `listed` says whether the list beside it still has the programme.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProgrammeSheetView(row: Programme, starts: String = row.time,
                        open: suspend () -> RecBridge.ProgrammeSheetHandle? = { RecBridge.openProgramme(row.id) },
-                       close: () -> Unit) {
+                       inPane: Boolean = false, listed: Boolean = true, close: () -> Unit) {
     val scope = rememberCoroutineScope()
-    val handle = rememberOpened(row.id, open)
+    var missing by remember(row.id) { mutableStateOf(false) }
+    val handle = rememberOpened(row.id, missing = { missing = true }, open = open)
     val sheet = handle?.let { it.shown.collectAsState().value }
-    var editing by remember { mutableStateOf<String?>(null) }
+    // By the programme: on the pane, another programme takes the place of this one without the view going, and must
+    // not come up with this one's 予約を変更する.
+    var editing by remember(row.id) { mutableStateOf<String?>(null) }
     val act = { work: suspend RecBridge.ProgrammeSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
     val free = sheet != null && sheet.asking.isEmpty()
+    val held = sheet?.held ?: false
+    // Up over it, the reservation's own sheet counts as its own: it may have a request out.
+    val gone = (missing || !listed) && !held && sheet?.asked == null && editing == null
 
-    HeldSheet(held = sheet?.held ?: false, done = sheet?.done ?: false, close = close) {
+    SheetOrPane(inPane, held, done = sheet?.done ?: false, gone = gone, close = close) {
         Title(sheet?.title ?: row.title)
-        sheet?.waking?.takeIf { it.isNotEmpty() }?.let { Working(it) }
+        // Not on the pane, under the strip that says it already.
+        if (!inPane) sheet?.waking?.takeIf { it.isNotEmpty() }?.let { Working(it) }
         Value("放送", sheet?.station ?: row.station)
         Value("開始", sheet?.starts ?: starts)
         Value("長さ", sheet?.length ?: row.length)
@@ -188,9 +218,10 @@ fun ProgrammeSheetView(row: Programme, starts: String = row.time,
         sheet?.problem?.takeIf { it.isNotEmpty() }?.let { Problem(it) }
     }
     sheet?.asked?.let { asked -> AskDialog(asked, act = { act { act(asked.key) } }, closeAsked = { act { closeAsked(asked.key) } }) }
+    // A sheet over the sheet or the pane, as on iOS: it is the reservation's own.
     editing?.let { device ->
         val opened = handle ?: return@let
-        ReservationSheetView(row.title, open = { opened.change(device) }, close = {
+        ReservationSheetView(row.id to device, row.title, open = { opened.change(device) }, close = {
             editing = null
             scope.launch { opened.changeClosed() }
         })
@@ -278,20 +309,27 @@ private fun WaitingSection(waiting: WaitingReservation, enabled: Boolean, sendAg
 
 /**
  * The reservation's sheet: the reservation as the device that holds it has it, what can still be changed of it and
- * the change to send, and its delete. Opened from the reservations' list, or from a programme's sheet over it.
+ * the change to send, and its delete. Opened from the reservations' list, or from a programme's sheet over it. Its
+ * window is opened for `key`, the reservation's: on the pane another reservation takes the place of this one without
+ * the view going, and the first one's window would otherwise be kept, its delete sent for the reservation before.
  */
 @Composable
-fun ReservationSheetView(title: String, open: suspend () -> RecBridge.ReservationSheetHandle?, close: () -> Unit) {
+fun ReservationSheetView(key: Any, title: String, open: suspend () -> RecBridge.ReservationSheetHandle?,
+                         inPane: Boolean = false, listed: Boolean = true, close: () -> Unit) {
     val scope = rememberCoroutineScope()
-    val handle = rememberOpened(Unit, open)
+    var missing by remember(key) { mutableStateOf(false) }
+    val handle = rememberOpened(key, missing = { missing = true }, open = open)
     val sheet = handle?.let { it.shown.collectAsState().value }
     val act = { work: suspend RecBridge.ReservationSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
     val free = sheet != null && sheet.asking.isEmpty()
+    val held = sheet?.asking?.isNotEmpty() ?: false
 
-    HeldSheet(held = sheet?.asking?.isNotEmpty() ?: false, done = sheet?.done ?: false, close = close) {
+    SheetOrPane(inPane, held, done = sheet?.done ?: false, gone = (missing || !listed) && !held && sheet?.asked == null,
+                close = close) {
         Title(sheet?.title ?: title)
-        if (sheet == null) return@HeldSheet Working("")
-        if (sheet.waking.isNotEmpty()) Working(sheet.waking)
+        if (sheet == null) return@SheetOrPane Working("")
+        // Not on the pane, under the strip that says it already.
+        if (!inPane && sheet.waking.isNotEmpty()) Working(sheet.waking)
         Value("放送", sheet.station)
         Value("開始", sheet.starts)
         Value("長さ", sheet.length)
@@ -338,23 +376,28 @@ fun ReservationSheetView(title: String, open: suspend () -> RecBridge.Reservatio
 
 /**
  * The recording's sheet: what it is, playing it on the television, protecting it, and deleting it, as the iOS sheet
- * lays them out. It opens at once with what the row says.
+ * lays them out. It opens at once with what the row says. On the pane, `listed` says whether the list beside it
+ * still has the recording.
  */
 @Composable
 fun TitleSheetView(row: RecordingItem, open: suspend () -> RecBridge.TitleSheetHandle? = { RecBridge.openRecording(row.id) },
-                   close: () -> Unit) {
+                   inPane: Boolean = false, listed: Boolean = true, close: () -> Unit) {
     val scope = rememberCoroutineScope()
-    val handle = rememberOpened(row.id, open)
+    var missing by remember(row.id) { mutableStateOf(false) }
+    val handle = rememberOpened(row.id, missing = { missing = true }, open = open)
     val sheet = handle?.let { it.shown.collectAsState().value }
     val act = { work: suspend RecBridge.TitleSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
+    val held = sheet?.asking ?: false
 
-    HeldSheet(held = sheet?.asking ?: false, done = sheet?.done ?: false, close = close) {
+    SheetOrPane(inPane, held, done = sheet?.done ?: false, gone = (missing || !listed) && !held && sheet?.asked == null,
+                close = close) {
         Title(sheet?.title ?: row.title)
         if (sheet == null) {
             Footnote(row.details, Modifier.padding(horizontal = 24.dp))
-            return@HeldSheet Working("")
+            return@SheetOrPane Working("")
         }
-        if (sheet.line.isNotEmpty()) Working(sheet.line)
+        // Not on the pane, under the strip that says it already.
+        if (!inPane && sheet.line.isNotEmpty()) Working(sheet.line)
         Value("放送", sheet.station)
         Value("録画", sheet.recorded)
         if (sheet.length.isNotEmpty()) Value("長さ", sheet.length)
