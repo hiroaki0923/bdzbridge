@@ -381,22 +381,27 @@ public struct Choice: Sendable {
 /// What a screen with no recorder to talk to says, in the four cases the iOS app tells apart
 /// (`AppModel.noRecorderSays`): `kind` is `notAdded` (offer the search), `working` (the recorder's line, with a
 /// wait), `blocked` (the local network's permission) or `notReached` (offer 再接続 and the search).
+/// `phones` is set when what went wrong is the phone's own cache (the iOS screen shows a warning triangle then), and
+/// `held` while a bulk job runs, when 再接続 and レコーダーを探す are held as the iOS screen holds them.
 public struct NoRecorder: Sendable {
     public var kind: String
     public var said: Said
+    public var phones: Bool
+    public var held: Bool
 }
 
 extension NoRecorder {
     @MainActor init(_ model: AppModel) {
         switch model.noRecorderSays {
         case .notAdded:
-            self.init(kind: "notAdded", said: Said(AppModel.notAdded))
+            self.init(kind: "notAdded", said: Said(AppModel.notAdded), phones: false, held: false)
         case .working(let busy):
-            self.init(kind: "working", said: Said(busy, AppModel.wakingDetail))
+            self.init(kind: "working", said: Said(busy, AppModel.wakingDetail), phones: false, held: false)
         case .blocked:
-            self.init(kind: "blocked", said: Said(LocalNetwork.accessNotAllowed))
+            self.init(kind: "blocked", said: Said(LocalNetwork.accessNotAllowed), phones: false, held: false)
         case .notReached(let why, let phones):
-            self.init(kind: "notReached", said: Said(AppModel.notReached(why: why, phones: phones)))
+            self.init(kind: "notReached", said: Said(AppModel.notReached(why: why, phones: phones)), phones: phones,
+                      held: model.jobRunning)
         }
     }
 }

@@ -682,6 +682,8 @@ final class AndroidBridgeTests: XCTestCase {
         let guide = await until(app.guide().read) { $0.shows == "noRecorder" }
         XCTAssertEqual(guide.noRecorder.kind, "notAdded")
         XCTAssertEqual(guide.noRecorder.said.title, AppModel.notAdded.title)
+        XCTAssertFalse(guide.noRecorder.phones)
+        XCTAssertFalse(guide.noRecorder.held, "no job is running")
     }
 
     /// The address field as the iOS tutorial's: what is typed is said back, a keystroke typed over a value the model

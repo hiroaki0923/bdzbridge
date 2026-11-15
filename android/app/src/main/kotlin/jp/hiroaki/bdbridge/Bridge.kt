@@ -626,7 +626,7 @@ private object MainQueue {
     }
 }
 
-data class NoRecorder(val kind: String, val title: String, val detail: String)
+data class NoRecorder(val kind: String, val title: String, val detail: String, val phones: Boolean, val held: Boolean)
 
 data class Choice(val code: String, val label: String)
 
@@ -887,7 +887,7 @@ private fun Search(it: jp.hiroaki.bdbridge.bridge.SearchScreen) = it.getSaid(are
 }
 
 private fun NoRecorder(said: jp.hiroaki.bdbridge.bridge.NoRecorder) =
-    said.getSaid(arena).let { NoRecorder(said.kind, it.title, it.detail) }
+    said.getSaid(arena).let { NoRecorder(said.kind, it.title, it.detail, said.isPhones, said.isHeld) }
 
 private fun Devices(it: jp.hiroaki.bdbridge.bridge.DevicesScreen) = Devices(
     it.isWelcomes, it.closeLabel, it.isSearching, it.isSearchHeld, it.searched, it.toSearch, it.permissionNotice,

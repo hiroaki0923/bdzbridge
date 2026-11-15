@@ -33,6 +33,7 @@ import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.TheaterComedy
 import androidx.compose.material.icons.outlined.Tv
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material.icons.outlined.WifiOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -99,13 +100,17 @@ fun Unavailable(icon: ImageVector, title: String, detail: String, actions: @Comp
 @Composable
 fun NoRecorderView(icon: ImageVector, said: NoRecorder, search: () -> Unit) {
     val scope = rememberCoroutineScope()
-    Unavailable(icon, said.title, said.detail) {
+    // As on iOS, the phone's own cache gone wrong takes a warning in place of the screen's icon, and 再接続 and the
+    // search are held while a bulk job runs.
+    Unavailable(if (said.phones) Icons.Outlined.Warning else icon, said.title, said.detail) {
         when (said.kind) {
             "notAdded" -> Button(onClick = search) { Text("レコーダーを探す") }
             "working" -> CircularProgressIndicator()
             "notReached" -> {
-                Button(onClick = { scope.launch { RecBridge.act { it.app.connect() } } }) { Text("再接続") }
-                TextButton(onClick = search) { Text("レコーダーを探す") }
+                Button(onClick = { scope.launch { RecBridge.act { it.app.connect() } } }, enabled = !said.held) {
+                    Text("再接続")
+                }
+                TextButton(onClick = search, enabled = !said.held) { Text("レコーダーを探す") }
             }
         }
     }
