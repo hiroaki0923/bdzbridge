@@ -57,8 +57,18 @@ public final class StripWindow: Sendable {
         }?.value
     }
 
-    /// What a button is called to Kotlin: the model's name for it.
-    private static func code(_ offer: AppModel.Offer) -> String { "\(offer)" }
+    /// What a button is called to Kotlin. Written out, as the lines' kinds are below: a name changed in the model
+    /// changes nothing Kotlin goes by, and a button added there does not build until it has a name here.
+    private static func code(_ offer: AppModel.Offer) -> String {
+        switch offer {
+        case .close: "close"
+        case .leaveDemo: "leaveDemo"
+        case .reconnect: "reconnect"
+        case .search: "search"
+        case .registerTV: "registerTV"
+        case .reconnectTV: "reconnectTV"
+        }
+    }
 
     @MainActor
     private static func line(_ model: AppModel, inSheet: Bool) -> StripLine {
