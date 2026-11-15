@@ -255,19 +255,19 @@ struct RecorderActivityBar: View {
 
 /// The waking, said inside a sheet, which covers the strip that says it on the screens and is where much of
 /// what wakes the recorder is asked for; and the wait for the USB slot to answer before something that names it
-/// is sent (`AppModel.settlingTheSlot`), which holds a sheet's request up for some seconds as a waking does. A
-/// recording's sheet has the strip itself instead (`recorderActivity(inSheet:)`), for the wait while the
-/// recorder is turned on to play, and so has a new keyword condition's, for its registration's line from the
-/// press.
+/// is sent (`AppModel.settlingTheSlot`), which holds a sheet's request up for some seconds as a waking does: the
+/// model's line for either (`AppModel.wakingLine`). A recording's sheet has the strip itself instead
+/// (`recorderActivity(inSheet:)`), for the wait while the recorder is turned on to play, and so has a new keyword
+/// condition's, for its registration's line from the press.
 struct WakingSection: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        if model.waking || model.settlingTheSlot, let busy = model.busy {
+        if let line = model.wakingLine {
             Section {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text(busy).font(.callout)
+                    Text(line).font(.callout)
                 }
             }
         }
@@ -286,13 +286,13 @@ struct NewDiskRow: View {
     var body: some View {
         let offered = model.diskChoices
         if !offered.isEmpty {
-            Picker("録画先", selection: Binding(get: { model.diskOffered(chosen) }, set: { chosen = $0 })) {
+            Picker(SheetWords.disk, selection: Binding(get: { model.diskOffered(chosen) }, set: { chosen = $0 })) {
                 ForEach(offered, id: \.destination) { choice in
                     Text(RecorderDisk.label(choice.destination, named: choice.name)).tag(choice.destination)
                 }
             }
         } else if let chosen {
-            LabeledContent("録画先", value: model.diskLabel(chosen))
+            LabeledContent(SheetWords.disk, value: model.diskLabel(chosen))
         }
     }
 }
