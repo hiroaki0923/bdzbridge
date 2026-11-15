@@ -27,7 +27,8 @@ public enum SheetWords {
     public static let cancelLabel = "キャンセル"
     public static let okLabel = "OK"
 
-    /// A mode in the words a picker offers it in (`Codes.qualityLabel`), or its name where the table has none.
+    /// A mode in the words a picker offers it in (`Codes.qualityLabel`), or its name where the table has none: the
+    /// sheets' pickers, and the settings' 既定の録画モード.
     public static func qualityLabel(_ name: String) -> String { Codes.qualityLabel[name] ?? name }
 
     /// A repeat in the words a picker offers it in (`Codes.repeatLabel`), or its name where the table has none.

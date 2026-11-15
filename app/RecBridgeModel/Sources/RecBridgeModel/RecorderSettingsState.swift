@@ -77,6 +77,28 @@ public final class RecorderSettingsState {
     /// ends, and dropped if it meets silence first (`DeviceLink.connect`); by nothing the television does.
     public var holdsReconnect: Bool { model.isBusy(for: .recorder) || model.jobRunning }
 
+    // MARK: - the part's words
+
+    /// The section's heading and what is said under it, the labels of what the recorder says of itself and of how the
+    /// link stands, the two fields with what each shows while empty, and the two buttons. The tutorial's address field
+    /// shows the same while empty, and its button says このアドレスに接続 too.
+    public static let heading = "レコーダー"
+    public static let footer = "MAC アドレスは、スリープ中のレコーダーを起動するために使います。接続時に自動で記録されるので、通常は入力不要です。"
+    public static let productLabel = "機種"
+    public static let nameLabel = "名前"
+    public static let firmwareLabel = "ファームウェア"
+    public static let guideLabel = "番組表"
+    public static let standingLabel = "状態"
+    public static let hostLabel = "IP アドレス"
+    public static let hostPlaceholder = "192.168.1.10"
+    public static let macLabel = "MAC アドレス"
+    public static let macPlaceholder = "接続時に自動で記録"
+    public static let connectLabel = "このアドレスに接続"
+    public static let reconnectLabel = "再接続"
+
+    /// 番組表 as a value: whether the recorder has a guide to give.
+    public static func guideShown(_ epgCapable: Bool) -> String { epgCapable ? "あり" : "なし" }
+
     // MARK: - the reader's presses
 
     /// このアドレスに接続. The field shows what is saved, so that what was taken off can be seen to be gone.

@@ -30,6 +30,12 @@ extension AppModel {
     /// Whether the reader has a choice to make: both a recorder and a registered helper.
     public var guideSourceIsChoosable: Bool { !host.isEmpty && helperRegistered }
 
+    /// 番組表の取得元 as one line with no choice to make, where the television gives the guide (テレビ); nil where there
+    /// is a choice, and where the recorder gives it with none, when nothing is said of where it comes from.
+    public var guideSourceAlone: String? {
+        !guideSourceIsChoosable && guideSource == .tv ? SettingsWords.guideSourceName(.tv) : nil
+    }
+
     /// The helper's client for the television at `host`, made with the television's link outside the demo. The
     /// demo's television has no helper.
     func makeTVHelper(for host: String) {
@@ -83,6 +89,11 @@ extension AppModel {
     }
 
     // MARK: - 番組表を更新
+
+    /// The press's button, and the title of the alert that says what it had to say, on the guide's tab and in
+    /// Settings alike.
+    public static let refreshGuideLabel = "番組表を更新"
+    public static let refreshFailedTitle = "番組表を取得できませんでした"
 
     /// The press of 番組表を更新, on the guide's tab and in Settings, by whichever device the guide is fetched
     /// from: every type, and what there is to say of it, or nil.

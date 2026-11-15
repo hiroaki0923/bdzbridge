@@ -27,7 +27,7 @@ struct SettingsScreen: View {
         let info = Bundle.main.infoDictionary
         let release = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
-        return "\(release) (\(build))"
+        return SettingsWords.version(release: release, build: build)
     }
 
     var body: some View {
@@ -38,13 +38,14 @@ struct SettingsScreen: View {
                     // What the recorder says of itself once connected, then how the link stands and where it is,
                     // in the order the television's section gives its own.
                     if let info = model.info {
-                        LabeledContent("機種", value: info.product)
-                        LabeledContent("名前", value: info.friendlyName)
+                        LabeledContent(RecorderSettingsState.productLabel, value: info.product)
+                        LabeledContent(RecorderSettingsState.nameLabel, value: info.friendlyName)
                         // empty when the recorder would not say, which another model may not
                         if !model.firmware.isEmpty {
-                            LabeledContent("ファームウェア", value: model.firmware)
+                            LabeledContent(RecorderSettingsState.firmwareLabel, value: model.firmware)
                         }
-                        LabeledContent("番組表", value: info.epgCapable ? "あり" : "なし")
+                        LabeledContent(RecorderSettingsState.guideLabel,
+                                       value: RecorderSettingsState.guideShown(info.epgCapable))
                         // By position: a disk the owner named HDD on the recorder would share the internal one's label.
                         ForEach(Array(AppModel.storageRows(storage: model.storage, usb: model.usbDisk).enumerated()),
                                 id: \.offset) { _, row in
@@ -52,18 +53,18 @@ struct SettingsScreen: View {
                         }
                     }
                     if let standing = recorder.standing {
-                        LabeledContent("状態", value: standing)
+                        LabeledContent(RecorderSettingsState.standingLabel, value: standing)
                     }
-                    LabeledContent("IP アドレス") {
-                        TextField("192.168.1.10", text: $recorder.typedHost)
+                    LabeledContent(RecorderSettingsState.hostLabel) {
+                        TextField(RecorderSettingsState.hostPlaceholder, text: $recorder.typedHost)
                             .multilineTextAlignment(.trailing)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.numbersAndPunctuation)
                     }
                     AddressNote(typed: recorder.tidied)
-                    LabeledContent("MAC アドレス") {
-                        TextField("接続時に自動で記録", text: $recorder.typedMac)
+                    LabeledContent(RecorderSettingsState.macLabel) {
+                        TextField(RecorderSettingsState.macPlaceholder, text: $recorder.typedMac)
                             .multilineTextAlignment(.trailing)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -71,47 +72,46 @@ struct SettingsScreen: View {
                     }
                     .onChange(of: model.mac, initial: true) { recorder.macMoved() }
                     if recorder.offersConnect {
-                        Button("このアドレスに接続") { Task { await recorder.connect() } }
+                        Button(RecorderSettingsState.connectLabel) { Task { await recorder.connect() } }
                             .disabled(recorder.holdsConnect)
                     } else if recorder.offersReconnect {
-                        Button("再接続") { Task { await recorder.reconnect() } }
+                        Button(RecorderSettingsState.reconnectLabel) { Task { await recorder.reconnect() } }
                             .disabled(recorder.holdsReconnect)
                     }
                 } header: {
-                    Text("レコーダー")
+                    Text(RecorderSettingsState.heading)
                 } footer: {
-                    Text("MAC アドレスは、スリープ中のレコーダーを起動するために使います。接続時に自動で記録されるので、通常は入力不要です。")
+                    Text(RecorderSettingsState.footer)
                 }
 
                 Section {
-                    Picker("既定の録画モード", selection: $defaultQuality) {
+                    Picker(SettingsWords.defaultQualityLabel, selection: $defaultQuality) {
                         ForEach(RecorderDriver.recordsIn, id: \.self) { code in
-                            Text(Codes.qualityLabel[code] ?? code).tag(code)
+                            Text(SheetWords.qualityLabel(code)).tag(code)
                         }
                     }
                 } footer: {
-                    Text("録画予約とおまかせ・まる録の条件を追加するときに、最初に選ばれている録画モードです。"
-                         + "予約するときに変えても、ここは変わりません。")
+                    Text(SettingsWords.defaultQualityFooter)
                 }
 
                 TVSection(model: model, sheet: $tvSheet)
 
                 Section {
-                    Button("レコーダーとテレビを探す") {
+                    Button(SettingsWords.searchLabel) {
                         model.scanForDevices()
                     }
-                    .disabled(model.scanHoldsTheButton || model.busy != nil)
+                    .disabled(model.holdsTheSearchButton)
                     // This screen has no activity strip, so a connect held up by the permission is said here
                     // as well as a scan.
                     if model.lanBlocked {
                         LocalNetworkNotice()
                         OpenSettingsButton()
                     }
-                    if let scanning = model.scanning, !model.scanBlocked {
+                    if let scanning = model.searchProgress {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 6) {
                                 ProgressView().controlSize(.small)
-                                Text("検索中 \(scanning.done) / \(scanning.total)")
+                                Text(SettingsWords.searchingLine(scanning))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -123,16 +123,11 @@ struct SettingsScreen: View {
                         ScanOutcomeText(outcome: outcome)
                     }
                 } footer: {
-                    // In the demo the search finds the invented recorder and television alone, and nothing real.
-                    Text(model.demo
-                         ? "サンプルデータの表示中は、架空のレコーダーとテレビだけが見つかります。"
-                           + "実際の機器を探すときは、先にサンプルを終了してください。"
-                         : "同じ Wi-Fi 上のレコーダーとテレビを探します。レコーダーを選ぶとそのレコーダーに切り替わり、"
-                           + "テレビを選ぶとテレビの登録を始めます。")
+                    Text(SettingsWords.searchFooter(inDemo: model.demo))
                 }
 
                 if !model.found.isEmpty {
-                    Section("見つかったレコーダー") {
+                    Section(SettingsWords.foundRecordersHeading) {
                         ForEach(model.found, id: \.host) { found in
                             Button {
                                 Task { await recorder.choose(found.host) }
@@ -147,12 +142,11 @@ struct SettingsScreen: View {
                 FoundTelevisionsSection(sheet: $tvSheet)
 
                 Section {
-                    NavigationLink("チャンネルの表示と並び順") {
+                    NavigationLink(SettingsWords.channelsLabel) {
                         ChannelsScreen(broadcasting: model.broadcasting, model: model)
                     }
                 } footer: {
-                    Text("番組表に出す局と、その並び順を放送ごとに選べます。この端末の番組表だけが変わり、"
-                         + "レコーダーの録画には影響しません。")
+                    Text(SettingsWords.channelsFooter)
                 }
 
                 guideSection
@@ -163,31 +157,28 @@ struct SettingsScreen: View {
                 Section {
                     // Not while a connect, a load or a job is under way: see `canChangeRecorder`.
                     if model.demo {
-                        Button("サンプルデータを終了する", role: .destructive) {
+                        Button(SettingsWords.leaveDemoLabel, role: .destructive) {
                             Task { await model.leaveDemo() }
                         }
                         .disabled(!model.canChangeRecorder)
                     } else {
-                        Button("サンプルデータで試す") { Task { await model.enterDemo() } }
+                        Button(SettingsWords.enterDemoLabel) { Task { await model.enterDemo() } }
                             .disabled(!model.canChangeRecorder)
                     }
                 } footer: {
-                    Text(model.demo
-                         ? "架空のレコーダーを表示しています。終了すると、サンプルの番組表と、追加した架空のテレビは削除され、"
-                           + "元のレコーダーとテレビの設定に戻ります。レコーダーを選んで接続したときも、サンプルは終了します。"
-                         : "レコーダーが無いときに、架空の番組表と録画一覧でアプリの動きを確かめられます。")
+                    Text(SettingsWords.demoFooter(inDemo: model.demo))
                 }
 
                 Section {
                     Button(Tutorial.reviewRow) { showingGuide = true }
                 }
 
-                Section("このアプリ") {
+                Section(SettingsWords.appHeading) {
                     // Before the version, because it is the one thing in this section worth reading: what
                     // this app writes to the recorder, it writes for real.
-                    Button("ご利用上の注意") { showingDisclaimer = true }
+                    Button(Disclaimer.title) { showingDisclaimer = true }
                     // Selectable, so that it can be copied into a report rather than read off a screen.
-                    LabeledContent("バージョン", value: Self.version)
+                    LabeledContent(SettingsWords.versionLabel, value: Self.version)
                         .textSelection(.enabled)
                 }
 
@@ -202,7 +193,7 @@ struct SettingsScreen: View {
                     Section { Text(problem.asABody).foregroundStyle(.red).font(.callout) }
                 }
             }
-            .navigationTitle("設定")
+            .navigationTitle(SettingsWords.title)
             .onAppear { recorder.appeared() }
             .onChange(of: model.host) { recorder.hostMoved() }
             // Read on the way in, and again on coming back, since the switch is in the Settings app.
@@ -217,7 +208,7 @@ struct SettingsScreen: View {
             .sheet(item: $tvSheet) {
                 TVRegisterSheet(model: model, host: $0.host, connectAtOnce: $0.connectAtOnce, again: $0.again)
             }
-            .alert("番組表を取得できませんでした",
+            .alert(AppModel.refreshFailedTitle,
                    isPresented: Binding(get: { guideFailure != nil }, set: { if !$0 { guideFailure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -233,38 +224,36 @@ struct SettingsScreen: View {
     private var guideSection: some View {
         Section {
             if model.guideSourceIsChoosable {
-                Picker("番組表の取得元", selection: Binding(
+                Picker(SettingsWords.guideSourceLabel, selection: Binding(
                     get: { model.guideSourcePreference },
                     set: { choice in Task { await model.setGuideSourcePreference(choice) } })) {
-                    Text("レコーダー").tag(GuideSourceChoice.recorder)
-                    Text("テレビ").tag(GuideSourceChoice.tv)
+                    Text(SettingsWords.guideSourceName(.recorder)).tag(GuideSourceChoice.recorder)
+                    Text(SettingsWords.guideSourceName(.tv)).tag(GuideSourceChoice.tv)
                 }
-            } else if model.guideSource == .tv {
-                LabeledContent("番組表の取得元", value: "テレビ")
+            } else if let alone = model.guideSourceAlone {
+                LabeledContent(SettingsWords.guideSourceLabel, value: alone)
             }
             ForEach(GuideRefresh.offeredTypes(model.counts), id: \.self) { broadcasting in
-                let counts = model.counts[broadcasting]
                 LabeledContent(Codes.broadcastingLabel[broadcasting] ?? broadcasting) {
-                    Text("\(counts?.channels ?? 0) 局 · \(counts?.programs ?? 0) 番組")
+                    Text(SettingsWords.countsLine(model.counts[broadcasting]))
                         .foregroundStyle(.secondary)
                 }
             }
-            if let refreshed = model.counts["td"]?.refreshed {
-                LabeledContent("最終更新", value: Format.when(stored: refreshed))
+            if let refreshed = model.lastGuideRefresh {
+                LabeledContent(SettingsWords.lastRefreshLabel, value: refreshed)
             }
             if let overnight = model.lastOvernightRefresh {
-                LabeledContent("最終自動更新", value: overnight)
+                LabeledContent(SettingsWords.lastOvernightRefreshLabel, value: overnight)
             }
-            Button("番組表を更新") {
+            Button(AppModel.refreshGuideLabel) {
                 Task { guideFailure = await model.refreshGuideByHandFromSource() }
             }
             .disabled(!model.canRefreshGuideByHand)
         } header: {
-            Text("保存されている番組表")
+            Text(SettingsWords.keptGuideHeading)
         } footer: {
             if model.guideSourceIsChoosable {
-                Text("テレビの番組表は、番組名などが半角で表示されます。予約、局の設定、ロゴはどちらを選んでも変わりません。"
-                     + (model.helperProblem.map { "\n" + $0 } ?? ""))
+                Text(SettingsWords.guideSourceFooter(helperProblem: model.helperProblem))
             } else if let problem = model.helperProblem {
                 Text(problem.asABody).foregroundStyle(.red).font(.callout)
             }

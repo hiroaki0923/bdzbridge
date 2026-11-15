@@ -56,7 +56,7 @@ struct WelcomeView: View {
                         HStack {
                             Spacer()
                             if welcome.searching { ProgressView().controlSize(.small).padding(.trailing, 6) }
-                            Text("レコーダーとテレビを探す").bold()
+                            Text(SettingsWords.searchLabel).bold()
                             Spacer()
                         }
                     }
@@ -70,7 +70,7 @@ struct WelcomeView: View {
                     if let scanning = welcome.progress {
                         VStack(alignment: .leading, spacing: 4) {
                             ProgressView(value: Double(scanning.done), total: Double(max(1, scanning.total)))
-                            Text("検索中 \(scanning.done) / \(scanning.total)")
+                            Text(SettingsWords.searchingLine(scanning))
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -87,7 +87,7 @@ struct WelcomeView: View {
                     }
                 }
                 if !model.found.isEmpty {
-                    Section("見つかったレコーダー") {
+                    Section(SettingsWords.foundRecordersHeading) {
                         ForEach(model.found, id: \.host) { recorder in
                             Button { Task { await welcome.take(recorder.host) } } label: {
                                 FoundRecorderRow(recorder: recorder, inUse: model.inUse(recorder))
@@ -103,12 +103,12 @@ struct WelcomeView: View {
                     .disabled(welcome.holdsTelevisions)
                 Section {
                     if welcome.typing {
-                        TextField("192.168.1.10", text: $welcome.typedHost)
+                        TextField(RecorderSettingsState.hostPlaceholder, text: $welcome.typedHost)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.numbersAndPunctuation)
                         AddressNote(typed: welcome.tidied)
-                        Button("このアドレスに接続") { welcome.connectTyped() }
+                        Button(RecorderSettingsState.connectLabel) { welcome.connectTyped() }
                         .disabled(welcome.holdsConnect)
                     } else {
                         Button("IP アドレスを直接入力") { welcome.typing = true }
@@ -117,7 +117,7 @@ struct WelcomeView: View {
                     Text(Tutorial.addressFooter)
                 }
                 Section {
-                    Button("サンプルデータで試す") {
+                    Button(SettingsWords.enterDemoLabel) {
                         Task {
                             await welcome.enterDemo()
                             dismiss()

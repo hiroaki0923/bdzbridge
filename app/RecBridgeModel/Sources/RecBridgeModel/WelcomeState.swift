@@ -38,13 +38,13 @@ public final class WelcomeState {
     public var tidied: RecorderAddress.Typed { RecorderAddress.tidy(typedHost) }
 
     /// レコーダーとテレビを探す is held while a scan is under way and while the recorder works.
-    public var holdsSearch: Bool { model.scanHoldsTheButton || model.busy != nil }
+    public var holdsSearch: Bool { model.holdsTheSearchButton }
 
     /// The search holds its button, with its small spinner.
     public var searching: Bool { model.scanHoldsTheButton }
 
     /// How far the search has got, none while it is held up by the local network permission.
-    public var progress: (done: Int, total: Int)? { model.scanBlocked ? nil : model.scanning }
+    public var progress: (done: Int, total: Int)? { model.searchProgress }
 
     /// Whether local network privacy stands between the reader and what they want: the screen says so under the
     /// button.

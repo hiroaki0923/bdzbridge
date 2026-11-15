@@ -41,8 +41,10 @@ says of itself, how the link stands, its address and MAC, このアドレスに�
 at, the television (what it says of itself, 対応状況を調べる, 登録する or 再接続, the helper on it, テレビを外す), the search
 and the recorders and televisions it found, which stations the guide shows and in what order, the guide kept on the
 device and which device it is fetched from, the demo and ご利用上の注意, over the model's states of them
-(`RecorderSettingsState`, `TVSettingsState`, `ChannelsState`). The chooser is the tutorial: the introduction and the
-four steps, then the search, an address and the demo, over the model's state of it (`WelcomeState`) and its sentences
+(`RecorderSettingsState`, `TVSettingsState`, `ChannelsState`) and, but for the television's part, in the model's words
+(`SettingsWords` and the recorder's part's own), which Kotlin keeps from the model's start as it keeps the sheets'.
+The chooser is the tutorial: the introduction and the four steps, then the search, an address and the demo, over the
+model's state of it (`WelcomeState`) and its sentences
 (`Tutorial`), but for three that are Android's own (the introduction and the second step's title say this device, and
 the third step has no detail, as Android asks no local network question); the settings' セットアップ手順を見る opens it
 again. A television is added from a search, the settings or the
