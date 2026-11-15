@@ -146,9 +146,11 @@ public final class RecBridgeApp: Sendable {
         await model.start()
     }
 
-    /// 再接続: connects again, and wakes the recorder first if that is what it needs.
+    /// 再接続 on a screen with no recorder to talk to, as the model answers it (`AppModel.act(on:)`): it connects again,
+    /// and wakes the recorder first if that is what it needs. Nothing while it is held, as the iOS button is then.
     public func connect() async {
-        await model.connect()
+        let model = self.model
+        await MainActor.run { pressed(!model.holds(.reconnect)) { await model.act(on: .reconnect) } }?.value
     }
 
     /// The app is on screen, or not. Told at each change, as the iOS app tells its scene's.
@@ -385,30 +387,45 @@ public struct Choice: Sendable {
 }
 
 /// What a screen with no recorder to talk to says, in the four cases the iOS app tells apart
-/// (`AppModel.noRecorderSays`): `kind` is `notAdded` (offer the search), `working` (the recorder's line, with a
-/// wait), `blocked` (the local network's permission) or `notReached` (offer 再接続 and the search).
-/// `phones` is set when what went wrong is the phone's own cache (the iOS screen shows a warning triangle then), and
-/// `held` while a bulk job runs, when 再接続 and レコーダーを探す are held as the iOS screen holds them.
+/// (`AppModel.noRecorderSays`) and in the model's words for each (`AppModel.says`): `kind` is `notAdded` (offer the
+/// search), `working` (the recorder's line, with a wait), `blocked` (the local network's permission, with nothing
+/// under it: what the iOS screen says there is the way to the switch, the system's, and Android's way to the
+/// permission comes with the permission itself) or `notReached` (offer 再接続 and the search). `phones` is set when
+/// what went wrong is the phone's own cache (the iOS screen shows a warning triangle then). The search and 再接続 are
+/// the model's words, held as the model holds them.
 public struct NoRecorder: Sendable {
     public var kind: String
     public var said: Said
     public var phones: Bool
+    public var search: Offered
+    public var reconnect: Offered
+}
+
+/// A button in the model's words, and whether it is held now (`AppModel.Offer`, `AppModel.holds`).
+public struct Offered: Sendable {
+    public var label: String
     public var held: Bool
+}
+
+extension Offered {
+    @MainActor init(_ offer: AppModel.Offer, _ model: AppModel) {
+        self.init(label: offer.label, held: model.holds(offer))
+    }
 }
 
 extension NoRecorder {
     @MainActor init(_ model: AppModel) {
-        switch model.noRecorderSays {
-        case .notAdded:
-            self.init(kind: "notAdded", said: Said(AppModel.notAdded), phones: false, held: false)
-        case .working(let busy):
-            self.init(kind: "working", said: Said(busy, AppModel.wakingDetail), phones: false, held: false)
-        case .blocked:
-            self.init(kind: "blocked", said: Said(LocalNetwork.accessNotAllowed), phones: false, held: false)
-        case .notReached(let why, let phones):
-            self.init(kind: "notReached", said: Said(AppModel.notReached(why: why, phones: phones)), phones: phones,
-                      held: model.jobRunning)
+        let said = model.noRecorderSays
+        let kind = switch said {
+        case .notAdded: "notAdded"
+        case .working: "working"
+        case .blocked: "blocked"
+        case .notReached: "notReached"
         }
+        var phones = false
+        if case .notReached(_, let own) = said { phones = own }
+        self.init(kind: kind, said: Said(model.says(said)), phones: phones, search: Offered(.search, model),
+                  reconnect: Offered(.reconnect, model))
     }
 }
 

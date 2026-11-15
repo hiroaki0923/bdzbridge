@@ -101,17 +101,16 @@ fun Unavailable(icon: ImageVector, title: String, detail: String, actions: @Comp
 @Composable
 fun NoRecorderView(icon: ImageVector, said: NoRecorder, search: () -> Unit) {
     val scope = rememberCoroutineScope()
-    // As on iOS, the phone's own cache gone wrong takes a warning in place of the screen's icon, and 再接続 and the
-    // search are held while a bulk job runs.
+    // As on iOS, the phone's own cache gone wrong takes a warning in place of the screen's icon. The buttons' words and
+    // when they are held are the model's.
     Unavailable(if (said.phones) Icons.Outlined.Warning else icon, said.title, said.detail) {
         when (said.kind) {
-            "notAdded" -> Button(onClick = search) { Text("レコーダーを探す") }
+            "notAdded" -> Button(onClick = search, enabled = !said.search.held) { Text(said.search.label) }
             "working" -> CircularProgressIndicator()
             "notReached" -> {
-                Button(onClick = { scope.launch { RecBridge.act { it.app.connect() } } }, enabled = !said.held) {
-                    Text("再接続")
-                }
-                TextButton(onClick = search, enabled = !said.held) { Text("レコーダーを探す") }
+                Button(onClick = { scope.launch { RecBridge.act { it.app.connect() } } },
+                       enabled = !said.reconnect.held) { Text(said.reconnect.label) }
+                TextButton(onClick = search, enabled = !said.search.held) { Text(said.search.label) }
             }
         }
     }
@@ -212,19 +211,23 @@ fun StripBar(inSheet: Boolean = false) {
                     }
                     Text(line.text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f).padding(vertical = 8.dp),
                          maxLines = if (line.inFull) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis)
+                    // The button's word, when it is held and what it does are the model's; the line's own window,
+                    // the screens' or the sheet's, answers it.
                     when (line.action) {
-                        "close" -> IconButton(onClick = { scope.launch { RecBridge.act { it.strip.close() } } }) {
-                            Icon(Icons.Default.Close, contentDescription = "閉じる", Modifier.size(18.dp))
+                        "" -> {}
+                        "close" -> IconButton(onClick = {
+                            scope.launch { RecBridge.act { (if (inSheet) it.sheetStrip else it.strip).close() } }
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = line.actionLabel, Modifier.size(18.dp))
                         }
-                        "leaveDemo" -> TextButton(onClick = { scope.launch { RecBridge.act { it.devices.leaveDemo() } } },
-                                                  enabled = line.actionEnabled) { Text("終了") }
-                        "reconnect" -> TextButton(onClick = { scope.launch { RecBridge.act { it.strip.reconnect() } } },
-                                                  enabled = line.actionEnabled) { Text("再接続") }
                         "registerTV" -> TextButton(onClick = {
                             registering = TVSheetRequest("", connectAtOnce = false, again = true)
-                        }) { Text("登録") }
-                        "reconnectTV" -> TextButton(onClick = { scope.launch { RecBridge.act { it.strip.reconnectTV() } } },
-                                                    enabled = line.actionEnabled) { Text("再接続") }
+                        }, enabled = line.actionEnabled) { Text(line.actionLabel) }
+                        else -> TextButton(onClick = {
+                            scope.launch {
+                                RecBridge.act { (if (inSheet) it.sheetStrip else it.strip).press(line.action) }
+                            }
+                        }, enabled = line.actionEnabled) { Text(line.actionLabel) }
                     }
                 }
             }
