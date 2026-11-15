@@ -116,11 +116,11 @@ final class DiscoveryScanTests: XCTestCase {
         let started = Date()
         let handedOver = HandedOver()
         let found = await Discovery.scan(hosts: ["192.0.2.9", "192.0.2.10"], transport: transport, timeout: 0.2,
-                                         found: { recorder in Task { await handedOver.add(recorder.host) } })
+                                         found: { recorder in handedOver.add(recorder.host) })
         // Against the request's minute, which a probe that waited for it would take, and not a stall.
         XCTAssertLessThan(Date().timeIntervalSince(started), 30, "the deadline, not the sleep, ends the probe")
         XCTAssertEqual(found.map(\.host), ["192.0.2.10"])
-        expectEqual(await handedOver.hosts, ["192.0.2.10"], "a recorder is handed over as soon as it answers")
+        XCTAssertEqual(handedOver.hosts, ["192.0.2.10"], "a recorder is handed over as soon as it answers")
     }
 
     /// A recorder the router has given another address is found by the MAC the app keeps for waking it, which
@@ -201,8 +201,13 @@ private final class Counter: @unchecked Sendable {
     var highest: Int { lock.withLock { value } }
 }
 
-/// What the scan handed over while it was still running, gathered where a @Sendable closure may write.
-private actor HandedOver {
-    private(set) var hosts: [String] = []
-    func add(_ host: String) { hosts.append(host) }
+/// What the scan handed over while it was still running, gathered where a @Sendable closure may write: behind a
+/// lock, as it is handed over, since a task of its own to put it down is one the scan does not wait for, and
+/// might not have run once the scan has returned.
+private final class HandedOver: @unchecked Sendable {
+    private let lock = NSLock()
+    private var handed: [String] = []
+
+    func add(_ host: String) { lock.withLock { handed.append(host) } }
+    var hosts: [String] { lock.withLock { handed } }
 }
