@@ -49,7 +49,9 @@ strip's 登録 on a sheet over the model's state of it (`TVRegisterState`), and 
 connect wakes a recorder that does not answer with a magic packet when its MAC is known. The stations' logos are on the
 guide's rows, on the reservations' and the recordings' and on the search's; the demo's stations have tiles that Kotlin
 draws (`Tiles.kt`) and hands to the model as files (`TileDrawer`). The model is told when the network changes, by a
-`ConnectivityManager` callback (`RecBridgeApp.networkChanged`), and what a search for devices came to, which iOS
+`ConnectivityManager` callback (`RecBridgeApp.networkChanged`), and each line of a search for devices is written to
+the system log under the tag `RecBridgeScan` (`adb logcat -s RecBridgeScan`): counts and codes, as the iOS `ScanLog`'s
+are, never an address or a name. What a search for devices came to, which iOS
 announces to VoiceOver, is a polite live region for TalkBack. At night, with no screen, it wakes the recorder, sends
 what waits for the recorder and the television and fetches the guide, as the iOS app's background task does, and the
 settings say when it last fetched it (最終自動更新): below, "The overnight run".
@@ -62,7 +64,8 @@ settings say when it last fetched it (最終自動更新): below, "The overnight
   the grid is shown, which is how its line at now and what is on the air move), `Lists.swift`, `Recordings.swift`
   (the bulk job's bar, a programme's page and the duplicates), `Conditions.swift`
   (the keyword conditions and their form), `Strip.swift` (the strip at the top of
-  every screen, as the model chooses its line), `Search.swift` (the search, whose window runs for as long as the
+  every screen, as the model chooses its line, and the one a recording's sheet and a new condition's form have of
+  their own, without the demo's line), `Search.swift` (the search, whose window runs for as long as the
   screen is on what the iOS screen runs with `task(id:)`), `Settings.swift` (the settings, whose fields keep what is typed and
   take the model's value when the model sets them itself), `Television.swift` (the television's sheets, its part of
   the settings and the televisions a search found), `Kept.swift` (where the television's registration and the
