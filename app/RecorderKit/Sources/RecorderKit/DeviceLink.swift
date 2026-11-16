@@ -571,8 +571,10 @@ public final class DeviceLink {
         var stranger = false
         var answeredTheProbe = true
         // The packet first and the probe after, as connecting does. Not looked for at another address from here.
+        // No packet for a device let go of since the check began: it would go with the MAC kept, to wake the one
+        // let go of.
         let outcome = await Reach.run(Reach.Steps(
-            sendPacket: { self.driver.sendPacket(self) },
+            sendPacket: { if !self.letGo(since: began) { self.driver.sendPacket(self) } },
             probe: {
                 let answer = await self.driver.check(self, client: client)
                 if answer.stranger { stranger = true }

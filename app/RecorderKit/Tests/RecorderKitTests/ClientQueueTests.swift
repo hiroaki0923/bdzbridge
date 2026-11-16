@@ -322,6 +322,36 @@ final class ClientQueueTests: XCTestCase {
                        "the permission was asked about for the recorder let go of")
     }
 
+    /// A check whose recorder is let go of before its first step -- in a turn of the main actor's that comes
+    /// between the check's beginning and its task's first job -- comes to the let-go and wakes nobody: with a MAC
+    /// kept, not even the packet a check begins with goes, which would be for the recorder let go of. Nothing is
+    /// asked, and nothing written on the line.
+    func testACheckLetGoOfBeforeItsFirstStepSendsNoPacket() async throws {
+        let (world, link, recorder) = try await connected(mac: DeviceLinkTests.mac)
+        world.problem = Self.left
+        let asked = await recorder.actions
+        let events = world.events.count
+        let checking = Task { await link.check(evenIfRecent: true) }
+        // A job of the main actor's queued behind the check's own beginning, which queues its task's first job
+        // behind this one: the check has taken its client and has done nothing with it yet.
+        let begun = await Task {
+            let begun = link.wakeCheck != nil && world.events.count == events
+            link.forgetTheDevice()
+            return begun
+        }.value
+        XCTAssertTrue(begun, "set up wrong: the check had not just begun as the recorder was let go of")
+        let checked = try await within(10, "the check never came back") { await checking.value }
+
+        guard case .notUp(.letGo) = checked else { return XCTFail("the check came to \(checked)") }
+        let after = world.events.dropFirst(events)
+        XCTAssertFalse(after.contains { $0.hasPrefix("packet") }, "the recorder let go of was woken")
+        XCTAssertFalse(after.contains { $0.hasPrefix("permission at") },
+                       "the permission was asked about for the recorder let go of")
+        expectEqual(await recorder.actions, asked, "the check asked who answers on a retired client")
+        XCTAssertEqual(world.problem, Self.left, "the check wrote on the line")
+        XCTAssertFalse(link.session.unreachable, "the recorder let go of was lost")
+    }
+
     /// A check that has come to wake the recorder -- silent to its ask of who answers, with a MAC kept -- whose
     /// client is retired while it waits for an answer, the recorder let go of: the waking ends at its next probe,
     /// and the check comes to the let-go. Nothing is written on the line -- not that the recorder did not answer,
