@@ -118,8 +118,8 @@ final class SearchAndChannelsTests: XCTestCase {
     /// they are done, as the screen that made them does. Read in between, it would show the list without the later
     /// save, would have nothing to read it again for, and a drag there would write that list back over the save.
     func testAScreenOpenedWhileTheSavesWaitShowsWhatWasSaved() async throws {
-        // Long enough for the steps below to be made while the first save waits, and no longer than it takes to
-        // let it go.
+        // Long enough for the steps below to be made while the first save waits: the save waits only until the
+        // other connection lets go, never this long.
         let (bench, model) = try await offline(storeBusyTimeout: 30_000)
         let first = ChannelsState(broadcasting: model.broadcasting, model: model)
         await first.load()

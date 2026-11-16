@@ -1091,12 +1091,10 @@ final class ClientQueueTests: XCTestCase {
         try await within(10, "the read of the registration never came to be held") { await credentials.whenHeld() }
         let checking = Task { await bench.link.check(evenIfRecent: true) }
         await until("the check never began") { bench.link.wakeCheck != nil }
-        // The check has its client, and has noted who it is of and since when, in the turn that set `wakeCheck`.
-        // The turns are for its task's first job, queued in that turn, to go to the client's actor and wait there:
-        // nothing counts a wait for an actor, so there is no sign to wait for. Should the let-go come before that
-        // job all the same, it lands in the other gap the check's noting closes, a job of the main actor's queued
-        // ahead of its task's first, and the answer is to be the same.
-        await yield()
+        // The check has its client, and has noted who it is of and since when, in the turn that set `wakeCheck`,
+        // which also queued its task's first job. A job of the main actor's queued now runs after that one, which
+        // by then has gone to the client's actor and waits there behind the read.
+        await Task {}.value
         let events = bench.world.events.count
 
         bench.link.forgetTheDevice()
