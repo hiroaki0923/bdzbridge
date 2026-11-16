@@ -1,5 +1,5 @@
 import Foundation
-import RecorderKit
+@testable import RecorderKit
 #if canImport(SQLite3)
 import SQLite3
 #else
@@ -1846,5 +1846,15 @@ extension XCTestCase {
             await Task.yield()
             _ = try await within(10, "the queue's turn never came round") { await PendingQueue.betweenFlushes {} }
         }
+    }
+
+    /// Returns once `count` have asked for the queue's turn and are not back from it -- whoever has it, and
+    /// those waiting behind it (`PendingQueue.inLineForTheTurn`) -- failing the test if they have not within ten
+    /// seconds: for a look that needs what was set going in a task of its own to be waiting behind the one that
+    /// holds the turn, which has no other sign. A test waits for the one that holds it to be alone in line
+    /// first, so that one still on its way back from an earlier turn is not taken for one waiting behind it.
+    @MainActor
+    func untilInLineForTheTurn(_ count: Int, _ what: String) async throws {
+        try await until(what) { await PendingQueue.inLineForTheTurn == count }
     }
 }

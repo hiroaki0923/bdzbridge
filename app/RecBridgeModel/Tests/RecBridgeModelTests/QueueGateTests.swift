@@ -826,9 +826,9 @@ final class QueueGateTests: XCTestCase {
             try await until("\(name): what waits never got to the recorder") {
                 await recorder.asked(Kind.create, since: before) == 1
             }
+            try await untilInLineForTheTurn(1, "\(name): set up wrong: another than the pull-down's sending was in line")
             let asking = Task { await model.sendAgain(rows[pressed]) }
-            // Long enough for the row sent again to be waiting for the queue's turn.
-            try await Task.sleep(for: .milliseconds(300))
+            try await untilInLineForTheTurn(2, "\(name): the row sent again never waited for the queue's turn")
 
             await recorder.become(2)
             await model.connect()

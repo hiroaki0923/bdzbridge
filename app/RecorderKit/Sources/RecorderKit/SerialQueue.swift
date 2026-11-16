@@ -17,8 +17,15 @@ import Foundation
 /// if it is.
 actor SerialQueue {
     private var tail: Task<Void, Never>?
+    /// How many have asked for a turn and not yet come back from it: whoever has the turn, and those waiting
+    /// behind it. Counted in the queue's own turns, up as a caller takes its place and down as it is back with
+    /// what its work came to, so that a caller is counted once it is in line and not before. Read by the tests,
+    /// which wait for a caller to be in line behind another.
+    private(set) var inLine = 0
 
     func run<T: Sendable>(_ work: @Sendable @escaping () async throws -> T) async throws -> T {
+        inLine += 1
+        defer { inLine -= 1 }
         let previous = tail
         let task = Task<T, Error> {
             if let previous { await previous.value }
@@ -33,11 +40,13 @@ actor SerialQueue {
     /// is handed over after it waits until it is over. The wait for the turn is not cut short when the caller is
     /// cancelled: the work is what looks at that, once the turn is its own.
     func whileHeld<T: Sendable>(_ work: @Sendable () async -> T) async -> T {
+        inLine += 1
         let previous = tail
         let (over, end) = AsyncStream<Void>.makeStream()
         tail = Task { for await _ in over {} }
         if let previous { await previous.value }
         let done = await work()
+        inLine -= 1
         end.finish()
         return done
     }

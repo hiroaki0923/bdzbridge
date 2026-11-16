@@ -1540,11 +1540,11 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// screens': the run's round goes after the registration, with what it registered, so that what the run
     /// finds is of the television as it is registered now, and the registration's forgetting in the turn,
     /// which comes after the run's telling, leaves what the run kept. The screens' sending is held at the
-    /// disk's read, in the turn; the run, begun meanwhile, reads the MAC and is given the main actor's turns to
-    /// have asked for the queue's turn behind it. The television is registered again, whose connect does not
-    /// come back while the screens' sending is held, and its disk is taken away. Let go, the run finds the disk
-    /// away and the reservation not yet there, and keeps that. Once the registration is back and the queue's
-    /// turn has come round, what the run kept stands.
+    /// disk's read, in the turn; the run, begun meanwhile, reads the MAC and is waited for until it has asked
+    /// for the queue's turn behind it. The television is registered again, whose connect does not come back
+    /// while the screens' sending is held, and its disk is taken away. Let go, the run finds the disk away and
+    /// the reservation not yet there, and keeps that. Once the registration is back and the queue's turn has
+    /// come round, what the run kept stands.
     func testARunWaitingForTheTurnAsTheTelevisionIsRegisteredAgainKeepsWhatItFinds() async throws {
         try await aRunWaitingForTheTurnKeepsWhatItFinds(acrossRegistrations: 1)
     }
@@ -1576,6 +1576,7 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         let screens = Task { await host.refreshReservations() }
         try await until("the screens' sending never reached the disk") { await door.isHolding }
+        try await untilInLineForTheTurn(1, "set up wrong: another than the screens' sending was in line")
         let macReads = await television.calls.filter { $0 == readsTheMAC }.count
         let read = Read()
         let run = Task {
@@ -1589,8 +1590,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         try await until("the run never read the MAC") {
             await television.calls.filter { $0 == readsTheMAC }.count > macReads
         }
-        // Turns for the run, its MAC read, to have asked for the queue's turn behind the screens' sending.
-        for _ in 0..<10_000 { await Task.yield() }
+        try await untilInLineForTheTurn(2, "the run never asked for the queue's turn behind the screens' sending")
 
         var registering: [Task<TVRegistered, Never>] = []
         let returned = Returned()
@@ -1630,12 +1630,12 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// cookie in the store by then is the renewal's. The registration's cookie comes with no Max-Age here, so
     /// that it is due for a renewal at once. The screens' sending is held at the disk's read, in the turn; the
     /// run, begun meanwhile on a way to the television of its own that holds its disk's read, reads the MAC
-    /// and is given the main actor's turns to have asked for the queue's turn behind it. The television is
-    /// registered again, and its connect is held at the disk's read, before its renewal; its disk is taken
-    /// away. The screens' sending is let go alone, so that the run's round begins, and is held at its disk's
-    /// read; then the connect, which renews the cookie. Let go, the run finds the disk away and the
-    /// reservation not yet there, and keeps that. Once the registration is back and the queue's turn has come
-    /// round, what the run kept stands.
+    /// and is waited for until it has asked for the queue's turn behind it. The television is registered again,
+    /// and its connect is held at the disk's read, before its renewal; its disk is taken away. The screens'
+    /// sending is let go alone, so that the run's round begins, and is held at its disk's read; then the
+    /// connect, which renews the cookie. Let go, the run finds the disk away and the reservation not yet there,
+    /// and keeps that. Once the registration is back and the queue's turn has come round, what the run kept
+    /// stands.
     func testARunWhoseRoundBeganUnderARegistrationRenewedSinceKeepsWhatItFinds() async throws {
         let home = try await launch(with: NamedRecorder(1), shaped: true)
         let (model, television, door) = (home.model, home.television, home.door)
@@ -1658,6 +1658,7 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         let screens = Task { await host.refreshReservations() }
         try await until("the screens' sending never reached the disk") { await door.isHolding }
+        try await untilInLineForTheTurn(1, "set up wrong: another than the screens' sending was in line")
         let macReads = await television.calls.filter { $0 == readsTheMAC }.count
         let read = Read()
         let run = Task {
@@ -1671,8 +1672,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         try await until("the run never read the MAC") {
             await television.calls.filter { $0 == readsTheMAC }.count > macReads
         }
-        // Turns for the run, its MAC read, to have asked for the queue's turn behind the screens' sending.
-        for _ in 0..<10_000 { await Task.yield() }
+        try await untilInLineForTheTurn(2, "the run never asked for the queue's turn behind the screens' sending")
 
         let before = store.load()?.cookieReceived
         kept.value = ToldOnce(stop: .registration)
@@ -1716,9 +1716,9 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// and the registration's forgetting in the turn, which comes after the run's telling, forgets it: it is not
     /// left kept under the registration's own cookie, its notice standing and the next want of a registration
     /// read as told already. The screens' sending is held at the disk's read, in the turn, and so is the
-    /// registration's connect; the run, begun meanwhile, asks the television, and is given the main actor's
-    /// turns to have asked for the queue's turn behind the screens' sending. Once the registration is back and
-    /// the queue's turn has come round, nothing is kept.
+    /// registration's connect; the run, begun meanwhile, asks the television, and is waited for until it has
+    /// asked for the queue's turn behind the screens' sending. Once the registration is back and the queue's
+    /// turn has come round, nothing is kept.
     func testARunThatLearntNothingAcrossARegistrationLeavesWhatWasToldBeforeToItsForgetting() async throws {
         let home = try await launch(with: NamedRecorder(1))
         let (model, door) = (home.model, home.door)
@@ -1736,6 +1736,7 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         let screens = Task { await host.refreshReservations() }
         try await until("the screens' sending never reached the disk") { await door.isHolding }
+        try await untilInLineForTheTurn(1, "set up wrong: another than the screens' sending was in line")
         let read = Read()
         let run = Task {
             await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil,
@@ -1746,8 +1747,7 @@ final class QueueWithATelevisionTests: XCTestCase {
             }, nextRun: Self.nextRun, tell: { _, _, told in kept.value = told })
         }
         try await until("the run never asked the television") { await silent.asked == 1 }
-        // Turns for the run, its television silent, to have asked for the queue's turn behind the screens' sending.
-        for _ in 0..<10_000 { await Task.yield() }
+        try await untilInLineForTheTurn(2, "the run never asked for the queue's turn behind the screens' sending")
 
         kept.value = ToldOnce(stop: .disk)
         let registering = Task { await model.registerTV(at: Bench.tvHost, pin: nil) }
@@ -1774,11 +1774,11 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// under that registration, and stays after the registration's forgetting in the turn, which comes after the
     /// run's telling. The notice of it is true of the television as registered now, and is not taken away.
     /// The screens' sending is held at the disk's read, in the turn; the run, begun meanwhile on a way to the
-    /// television of its own, reads the MAC, its television then going silent, and is given the main actor's
-    /// turns to have asked for the queue's turn behind the screens' sending. The television is registered again,
-    /// whose connect does not come back while the screens' sending is held, and its disk is taken away, so that
-    /// the connect sends nothing. Nothing told is set as kept after the forgetting at once, for the run to read
-    /// in its turn: a run that reads anything else had its turn after a forgetting in the turn, and the row was
+    /// television of its own, reads the MAC, its television then going silent, and is waited for until it has
+    /// asked for the queue's turn behind the screens' sending. The television is registered again, whose
+    /// connect does not come back while the screens' sending is held, and its disk is taken away, so that the
+    /// connect sends nothing. Nothing told is set as kept after the forgetting at once, for the run to read in
+    /// its turn: a run that reads anything else had its turn after a forgetting in the turn, and the row was
     /// not set up as it means to be. Once the registration is back and the queue's turn has come round, what
     /// the run kept stands.
     func testARunThatLearntNothingWithNothingToldSinceARegistrationKeepsWhatItFinds() async throws {
@@ -1801,6 +1801,7 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         let screens = Task { await host.refreshReservations() }
         try await until("the screens' sending never reached the disk") { await door.isHolding }
+        try await untilInLineForTheTurn(1, "set up wrong: another than the screens' sending was in line")
         let read = Read()
         let run = Task {
             await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: nil,
@@ -1812,8 +1813,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         }
         try await until("the run never read the MAC") { await own.calls.contains(readsTheMAC) }
         await own.goSilent()
-        // Turns for the run, its MAC read, to have asked for the queue's turn behind the screens' sending.
-        for _ in 0..<10_000 { await Task.yield() }
+        try await untilInLineForTheTurn(2, "the run never asked for the queue's turn behind the screens' sending")
 
         kept.value = ToldOnce(stop: .disk)
         let returned = Returned()
@@ -1852,11 +1852,11 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// is: what it found was of the registration before, and the registration's forgetting in the turn, which
     /// comes after the run's telling, forgets it, and takes its notices away, as it does what a round begun
     /// before the registration found. The screens' sending is held at the disk's read, in the turn; the run,
-    /// begun meanwhile on a way of its own to another television, reads the MAC and is given the main actor's
-    /// turns to have asked for the queue's turn behind it. The television is registered again, whose connect
-    /// does not come back while the screens' sending is held. Something is set as kept after the
-    /// registration's forgetting at once, for the run to read in its turn. Once the registration is back and
-    /// the queue's turn has come round, nothing the run found is kept.
+    /// begun meanwhile on a way of its own to another television, reads the MAC and is waited for until it has
+    /// asked for the queue's turn behind it. The television is registered again, whose connect does not come
+    /// back while the screens' sending is held. Something is set as kept after the registration's forgetting at
+    /// once, for the run to read in its turn. Once the registration is back and the queue's turn has come
+    /// round, nothing the run found is kept.
     func testARunWithNoRoundWaitingForTheTurnAsTheTelevisionIsRegisteredAgainKeepsNothing() async throws {
         let home = try await launch(with: NamedRecorder(1))
         let (model, door) = (home.model, home.door)
@@ -1874,6 +1874,7 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         let screens = Task { await host.refreshReservations() }
         try await until("the screens' sending never reached the disk") { await door.isHolding }
+        try await untilInLineForTheTurn(1, "set up wrong: another than the screens' sending was in line")
         let read = Read()
         let run = Task {
             await BackgroundWork.sendToTheTelevision(client: client, store: theirs, mac: DemoTV.mac,
@@ -1884,8 +1885,7 @@ final class QueueWithATelevisionTests: XCTestCase {
             }, nextRun: Self.nextRun, tell: { _, _, told in kept.value = told })
         }
         try await until("the run never read the MAC") { await another.calls.contains(readsTheMAC) }
-        // Turns for the run, its MAC read, to have asked for the queue's turn behind the screens' sending.
-        for _ in 0..<10_000 { await Task.yield() }
+        try await untilInLineForTheTurn(2, "the run never asked for the queue's turn behind the screens' sending")
 
         kept.value = ToldOnce(stop: .registration)
         let returned = Returned()
@@ -2067,13 +2067,12 @@ final class QueueWithATelevisionTests: XCTestCase {
     /// the screens forget: what the screens forget of what was told once, once their sending leaves none of
     /// it waiting, is made in the queue's turn, and so after the run's telling and not while it is out. Kept
     /// before: a reservation waiting for the television, told of as not yet there. The screens' sending is
-    /// held at its create; the run, begun meanwhile, reads the MAC and is given the main actor's turns to have
-    /// asked for the queue's turn behind it. Let go, the screens send the reservation and ask for the
-    /// forgetting; the run's turn comes, and it is held as it tells. What was kept is not written while the
-    /// run is telling. Once both are done and the queue's turn has come round, the reservation is told of no
-    /// more, and what the run kept stands. What the run read as its turn came is what was kept before: a run
-    /// that read anything else had its turn after the screens' forgetting, and the row was not set up as it
-    /// means to be.
+    /// held at its create; the run, begun meanwhile, reads the MAC and is waited for until it has asked for the
+    /// queue's turn behind it. Let go, the screens send the reservation and ask for the forgetting; the run's
+    /// turn comes, and it is held as it tells. What was kept is not written while the run is telling. Once both
+    /// are done and the queue's turn has come round, the reservation is told of no more, and what the run kept
+    /// stands. What the run read as its turn came is what was kept before: a run that read anything else had
+    /// its turn after the screens' forgetting, and the row was not set up as it means to be.
     func testTheScreensForgettingAfterTheirSendingWaitsForARunsTelling() async throws {
         let home = try await launch(with: NamedRecorder(1))
         let (model, television, door) = (home.model, home.television, home.door)
@@ -2094,6 +2093,7 @@ final class QueueWithATelevisionTests: XCTestCase {
 
         let screens = Task { await host.refreshReservations() }
         try await until("the screens' sending never reached the create") { await door.isHolding }
+        try await untilInLineForTheTurn(1, "set up wrong: another than the screens' sending was in line")
         let macReads = await television.calls.filter { $0 == readsTheMAC }.count
         let read = Read()
         let run = Task {
@@ -2110,8 +2110,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         try await until("the run never read the MAC") {
             await television.calls.filter { $0 == readsTheMAC }.count > macReads
         }
-        // Turns for the run, its MAC read, to have asked for the queue's turn behind the screens' sending.
-        for _ in 0..<10_000 { await Task.yield() }
+        try await untilInLineForTheTurn(2, "the run never asked for the queue's turn behind the screens' sending")
         await door.letGo()
         try await within(10, "the screens' sending never ended") { await screens.value }
         try await within(10, "the run never came to tell what it tells once") { await held.untilCome() }
@@ -2339,19 +2338,18 @@ final class QueueWithATelevisionTests: XCTestCase {
                                                          tell: { _, _, _ in })
             }
             try await until("\(name): the action never reached the create") { await door.isHolding }
+            try await untilInLineForTheTurn(1, "\(name): set up wrong: another than the action's sending was in line")
             let asked = await recorder.asked
             let sending = Task {
                 await BackgroundWork.sendWaiting(client: aClient(of: recorder), store: theirs, mac: nil)
             }
-            // Long enough for that sending to be waiting for the queue's turn.
-            try await Task.sleep(for: .milliseconds(300))
+            try await untilInLineForTheTurn(2, "\(name): the recorder's sending never waited for the queue's turn")
 
             let reserving = Task { await model.reserve(program, on: .recorder, quality: "DR", repeating: "none") }
             try await until("\(name): the reservation was never kept") {
                 (try? await home.store.pendingReservations())?.filter { $0.target == .recorder }.count == 2
             }
-            // Long enough for the reservation's round to be waiting for the queue's turn, behind that sending.
-            try await Task.sleep(for: .milliseconds(300))
+            try await untilInLineForTheTurn(3, "\(name): the reservation's round never waited behind that sending")
             await recorder.holdTheNext(Self.create)
             await door.letGo()
             try await until("\(name): the sending never got to the recorder") {
@@ -2530,11 +2528,11 @@ final class QueueWithATelevisionTests: XCTestCase {
                                                      nextRun: Date().addingTimeInterval(6 * 3600), tell: { _, _, _ in })
         }
         try await until("the action never reached the create") { await door.isHolding }
+        try await untilInLineForTheTurn(1, "set up wrong: another than the action's sending was in line")
         let takingAway = Task { await model.takeTheTelevisionAway(counted: 1) }
-        // Long enough for 外す to be waiting its turn before the delete asks for one.
-        try await Task.sleep(for: .milliseconds(300))
+        try await untilInLineForTheTurn(2, "外す never waited for the queue's turn")
         let deleting = Task { await model.deleteWaiting(held) }
-        try await Task.sleep(for: .milliseconds(300))
+        try await untilInLineForTheTurn(3, "the delete never waited for the queue's turn behind 外す")
         await door.letGo()
         _ = await action.value
 

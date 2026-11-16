@@ -188,6 +188,12 @@ public enum PendingQueue {
 
     private static let oneAtATime = SerialQueue()
 
+    /// How many have asked for the queue's turn and not yet come back from it, whoever has it among them
+    /// (`SerialQueue.inLine`): read by the tests, which wait for a flush or a turn of work to be in line.
+    static var inLineForTheTurn: Int {
+        get async { await oneAtATime.inLine }
+    }
+
     /// The rows of the round's reading behind `row`, where the round stopped, that it would have passed over
     /// with their reason had it come to them: not over, and carrying a reason the reader has not consented
     /// to. What a round that stops counts as held beside the rows it did pass over (`flush`). Each only as it
