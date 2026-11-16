@@ -6,7 +6,7 @@ import XCTest
 /// The settings' words as the screen has always said them, byte for byte (`SettingsWords`, the recorder's part's on
 /// `RecorderSettingsState`, the press of 番組表を更新's on `AppModel`), and the small rules of what they say: the
 /// counts and the search's progress with the digits grouped as a screen's own text groups them, the footers in and out
-/// of the demo, where the guide comes from said alone, and when the search is held.
+/// of the demo, what the search found, where the guide comes from said alone, and when the search is held.
 @MainActor
 final class SettingsWordsTests: XCTestCase {
     /// An Int as a screen's own text shows it when it is put into the text, `Text("\(n)")`: `%lld` in the reader's
@@ -60,6 +60,22 @@ final class SettingsWordsTests: XCTestCase {
         XCTAssertEqual(Disclaimer.title, "ご利用上の注意")
         XCTAssertEqual(SettingsWords.versionLabel, "バージョン")
         XCTAssertEqual(SettingsWords.version(release: "0.2", build: "12"), "0.2 (12)")
+    }
+
+    /// What the search found, as the tutorial and the settings have always said it: the televisions' heading, 使用中 at
+    /// the end of a recorder's row and of a television's, the television's row's 登録する, its name where it gave
+    /// none, and what is said under the televisions while a tap registers one and with one added.
+    func testWhatTheSearchFoundIsSaidAsItWas() {
+        XCTAssertEqual(SettingsWords.foundTelevisionsHeading, "見つかったテレビ")
+        XCTAssertEqual(SettingsWords.inUseLabel, "使用中")
+        XCTAssertEqual(SettingsWords.registerFoundLabel, "登録する")
+        XCTAssertEqual(SettingsWords.foundTelevisionName(""), "テレビ")
+        XCTAssertEqual(SettingsWords.foundTelevisionName(DemoTV.model), DemoTV.model)
+        XCTAssertEqual(SettingsWords.foundTelevisionsFooter(registers: true),
+                       "タップすると登録を始めます。テレビの画面に 4 桁の番号が出るので、その番号を入力してください。")
+        XCTAssertEqual(SettingsWords.foundTelevisionsFooter(registers: false),
+                       "使えるテレビは 1 台です。別のテレビを使うときは、設定の「テレビ」でいまのテレビを外してから、"
+                       + "もう一度探してください。")
     }
 
     /// The footers in the demo and out of it, and the guide's with what the helper's last fetch said on a line of its
