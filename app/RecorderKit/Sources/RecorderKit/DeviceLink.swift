@@ -529,8 +529,15 @@ public final class DeviceLink {
         if let wakeCheck { return LinkCheck(await wakeCheck.value, asking: client) }
         checksBegun += 1
         let this = checksBegun
+        // Who is being made sure of -- what the reader asked for must not go to another that answers in its
+        // place -- and since when, as the count of let-gos: noted here, in the turn the client is taken. Noted in
+        // the check's task, they would miss a let-go that lands before its first answer -- while it waits for
+        // the client's actor, or in a job of the main actor's queued ahead of the task's first -- and the retired
+        // client's silence would be taken for the device's.
+        let known = session.device
+        let began = generation
         let check = Task {
-            let why = await self.makeSureItIsUp(client, evenIfRecent: evenIfRecent)
+            let why = await self.makeSureItIsUp(client, of: known, since: began, evenIfRecent: evenIfRecent)
             // Taken down here, in the turn the answer is made, and not by whoever asked once it has gone on.
             if self.checksBegun == this { self.wakeCheck = nil }
             return why
@@ -545,7 +552,8 @@ public final class DeviceLink {
         return false
     }
 
-    /// The check itself. Nil when the device is up.
+    /// The check itself. Nil when the device is up. `known` is the device it is of and `began` the count of let-gos
+    /// it began under (`generation`), both noted by `check` in the turn it took `client`.
     ///
     /// Silence met once the device has been let go of since the check began -- another address chosen, another
     /// device described itself on a connect -- is not the device in play's: the session, which is the newcomer's
@@ -553,15 +561,13 @@ public final class DeviceLink {
     /// anything more done about it: the permission is not asked about and the device is not woken, which with
     /// a MAC kept would send packets for the device let go of, ask the address it was at, and say over the
     /// newcomer's line that it did not answer. A device of either kind, the check being the link's.
-    private func makeSureItIsUp(_ client: any LinkClient, evenIfRecent: Bool) async -> NotUp? {
+    private func makeSureItIsUp(_ client: any LinkClient, of known: String?, since began: Int,
+                                evenIfRecent: Bool) async -> NotUp? {
         if !LinkRules.needsCheck(lastAnswer: await client.lastAnswer, now: Date(), evenIfRecent: evenIfRecent) {
             return nil
         }
         // Where it was asked, not where the phone is once the silence is over: see `lost`.
         let network = environment.networkSignature()
-        // Who is being made sure of: what the reader asked for must not go to another that answers in its place.
-        let known = session.device
-        let began = generation
         var stranger = false
         var answeredTheProbe = true
         // The packet first and the probe after, as connecting does. Not looked for at another address from here.
@@ -571,8 +577,10 @@ public final class DeviceLink {
                 let answer = await self.driver.check(self, client: client)
                 if answer.stranger { stranger = true }
                 if answer.failure == .silent {
-                    // Silence, which is what waking is for -- unless the device was let go of while the probe
-                    // was out: the silence is the one let go of's, and the session is another's by now.
+                    // Silence, which is what waking is for -- unless the device was let go of since the check
+                    // began, while the probe was out or before it went, when the retired client sends nothing and
+                    // that is heard as silence: the silence is the one let go of's, and the session is another's
+                    // by now.
                     answeredTheProbe = false
                     if !self.letGo(since: began) { self.session.wentSilent(on: network) }
                 }

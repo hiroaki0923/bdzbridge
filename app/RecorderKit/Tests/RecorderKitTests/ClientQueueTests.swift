@@ -1029,8 +1029,11 @@ final class ClientQueueTests: XCTestCase {
         await bench.gate.before("getPowerStatus") { await latch.wait() }
         let asking = Task { try await last.powerStatus() }
         try await within(10, "the request never came to be held") { await latch.whenWaiting() }
+        await until("set up wrong: another request than the held one was in the client's queue") {
+            await last.requestsInLine == 1
+        }
         let checking = Task { await bench.link.check(evenIfRecent: true) }
-        await yield()
+        await until("the check's ask was never queued behind the held request") { await last.requestsInLine == 2 }
         let asked = await bench.gate.asked.count
 
         bench.link.forgetTheDevice()
@@ -1042,6 +1045,38 @@ final class ClientQueueTests: XCTestCase {
         expectEqual(Array(await bench.gate.asked.dropFirst(asked)), [], "the check asked on a retired client")
         XCTAssertNil(bench.world.problem, "the check wrote on the line")
         XCTAssertFalse(bench.link.checksAgain, "the check kept something heard in the television's place")
+    }
+
+    /// A television let go of while a check waits for its client's actor to say when it last answered -- the actor
+    /// busy reading the registration for a request, which on a phone is a read of the Keychain -- comes to the
+    /// let-go as one let go of while the check's probe waits its turn does: nothing written on the line, and
+    /// nothing asked about the permission.
+    func testATelevisionsCheckWaitingForItsClientAcrossALetGoComesToTheLetGo() async throws {
+        let credentials = HeldTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "kept"))
+        addTeardownBlock { credentials.letTheReadGo() }
+        let bench = await television(credentials: credentials)
+        let last = try XCTUnwrap(bench.link.client as? ScalarClient)
+        credentials.holdTheNextRead()
+        let reading = Task { _ = try await last.storage() }
+        try await within(10, "the read of the registration never came to be held") { await credentials.whenHeld() }
+        let checking = Task { await bench.link.check(evenIfRecent: true) }
+        await until("the check never began") { bench.link.wakeCheck != nil }
+        // The check has its client, and has noted who it is of and since when, in the turn that set `wakeCheck`.
+        // The turns are for its task's first job, queued in that turn, to go to the client's actor and wait there:
+        // nothing counts a wait for an actor, so there is no sign to wait for. Should the let-go come before that
+        // job all the same, it lands in the other gap the check's noting closes, a job of the main actor's queued
+        // ahead of its task's first, and the answer is to be the same.
+        await yield()
+        let events = bench.world.events.count
+
+        bench.link.forgetTheDevice()
+        credentials.letTheReadGo()
+        _ = try await within(10, "the held request never came back") { await reading.result }
+        let checked = try await within(10, "the check never came back") { await checking.value }
+
+        if case .notUp(.letGo) = checked {} else { XCTFail("the check came to \(checked)") }
+        XCTAssertNil(bench.world.problem, "the check wrote on the line")
+        expectEqual(Array(bench.world.events.dropFirst(events)), [], "the check did more for the television let go of")
     }
 
     // MARK: - what the tests start from
@@ -1073,15 +1108,16 @@ final class ClientQueueTests: XCTestCase {
 
     /// A link of the test's own to an invented television that holds one reservation, starting at `start`,
     /// registered with it, the television behind a gate a test can hold a request at (`TVGate`), connected a
-    /// moment ago.
-    private func television(startingAt start: Date = ClientQueueTests.waiting.request.start) async
+    /// moment ago. The registration is kept in `credentials` when a test gives a store of its own.
+    private func television(startingAt start: Date = ClientQueueTests.waiting.request.start,
+                            credentials: (any TVCredentialStore)? = nil) async
         -> (world: LinkWorld, link: DeviceLink, driver: TVDriver, gate: TVGate) {
         let television = DemoTV()
         await television.put([DemoTV.Schedule(id: "recording.41", title: "サンプル劇場",
                                               start: start, eventId: 12345)])
         await television.knows("BDBridge:test", cookie: "kept")
         // The app out of the way (`inFront`), so that no renewal is asked whatever the cookie's age.
-        let credentials = MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "kept"))
+        let credentials = credentials ?? MemoryTVCredentials(TVCredentials(clientID: "BDBridge:test", cookie: "kept"))
         let gate = TVGate(television)
         let world = LinkWorld()
         world.devices[Stub.host] = gate
@@ -1201,4 +1237,40 @@ private final class NoRecorder: LinkHost {
     func anotherAnsweredTheCheck() { world.anotherAnsweredTheCheck() }
     func waitForPermission(at host: String) { world.waitForPermission(at: host) }
     func stopWaitingForPermission() { world.stopWaitingForPermission() }
+}
+
+/// The registration as `MemoryTVCredentials` keeps it, whose next read, once the test asks for that, waits until the
+/// test lets it go: a client reads the registration on its own actor for each request that needs it, and on a phone
+/// that read is the Keychain's, a call to another process.
+private final class HeldTVCredentials: TVCredentialStore, @unchecked Sendable {
+    private let kept: MemoryTVCredentials
+    private let lock = NSLock()
+    private var holdsTheNext = false
+    private var holding = false
+    private let goes = DispatchSemaphore(value: 0)
+
+    init(_ credentials: TVCredentials) {
+        kept = MemoryTVCredentials(credentials)
+    }
+
+    func holdTheNextRead() { lock.withLock { holdsTheNext = true } }
+    func letTheReadGo() { goes.signal() }
+
+    /// Returns once the read held has begun to wait.
+    func whenHeld() async {
+        while !lock.withLock({ holding }) { await Task.yield() }
+    }
+
+    func load() -> TVCredentials? {
+        let holds = lock.withLock {
+            defer { holdsTheNext = false }
+            if holdsTheNext { holding = true }
+            return holdsTheNext
+        }
+        if holds { goes.wait() }
+        return kept.load()
+    }
+
+    func save(_ credentials: TVCredentials) { kept.save(credentials) }
+    func remove() { kept.remove() }
 }
