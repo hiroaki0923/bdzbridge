@@ -93,9 +93,9 @@ public struct Surroundings {
     /// app. Not at all, unless a test holds the search there.
     public var scanPause: @Sendable (Duration) async -> Void = { _ in }
     /// How long a search's request to one address waits for its answer, and its probe of the address a second
-    /// more before it is given up (`DeviceSearch.scan`, `Discovery.turnedAway`): 1.2 seconds, in the app.
-    /// Longer only in a test, which holds a probe for as long as it likes.
-    public var scanProbeTimeout: TimeInterval = 1.2
+    /// more before it is given up (`DeviceSearch.scan`, `Discovery.turnedAway`): the package's own (`Discovery.probeTimeout`), in
+    /// the app. Longer only in a test, which holds a probe for as long as it likes.
+    public var scanProbeTimeout: TimeInterval = Discovery.probeTimeout
     /// Where a search writes what it did, a line at a time, for reading afterwards: the system's log in the
     /// app (`ScanLog`, which says what a line may hold). Nowhere, unless a test keeps the lines to look at.
     public var scanLog: @MainActor (String) -> Void = { _ in }

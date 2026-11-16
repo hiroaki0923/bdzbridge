@@ -225,9 +225,8 @@ extension AppModel {
         scanBlocked = false
         found = []
         foundTelevisions = []
-        // The interfaces, the transport, the pause and the probes' timeout are the surroundings'
-        // (`Surroundings`), the device's own in the app: a test presses the button on a Wi-Fi it has invented.
-        // The demo's own in the demo.
+        // The interfaces, the transport and the pause are the surroundings' (`Surroundings`), the device's own
+        // in the app: a test presses the button on a Wi-Fi it has invented. The demo's own in the demo.
         guard let pressed = wifiToLookRound() else {
             surroundings.scanLog("press: no Wi-Fi to look round")
             // No scan is under way once this is said, here and where it is said later (`wifiStillThere`): the

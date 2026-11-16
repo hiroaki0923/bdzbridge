@@ -33,7 +33,7 @@ public enum DeviceSearch {
     /// `progress` counts addresses, each done when both its requests are, out of the addresses. `found` hands
     /// over each thing as soon as its own request has answered, so that a recorder's row does not wait on its
     /// address's port 80. Both kinds go through `transport`, so that one tally (`ScanTally`) counts them all.
-    public static func scan(hosts: [String], transport: any HTTPTransport, timeout: TimeInterval = 1.2,
+    public static func scan(hosts: [String], transport: any HTTPTransport, timeout: TimeInterval = Discovery.probeTimeout,
                             atOnce: Int = 48, progress: (@Sendable (Int, Int) -> Void)? = nil,
                             found onFound: (@Sendable (Sighting) -> Void)? = nil) async -> DeviceSightings {
         let found = await Discovery.look(hosts: hosts, atOnce: atOnce, progress: progress) { host -> [Sighting] in
