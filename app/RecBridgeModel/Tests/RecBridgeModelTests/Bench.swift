@@ -27,6 +27,13 @@ final class Bench {
     /// not answered the disk known: the app's two seconds for ten, unless a test that waits for it shortens it
     /// first.
     var slotSettling = SlotSettling.afterAWaking
+    /// How many times a wait of a model made here for a connect or a check let time go by between two looks
+    /// (`Surroundings.pauseBetweenLooks`), and whether those pauses are held (`holdTheLooks`), or let go and each
+    /// over at once (`letTheLooksGo`). Neither, unless a test says: a sleep of the time asked, as in the app.
+    private(set) var pausesBetweenLooks = 0
+    private var looksHeld = false
+    private var looksLetGo = false
+    private var lookPausing: [CheckedContinuation<Void, Never>] = []
     /// How long a request of a model made here waits for another of its link's clients' request at the same
     /// address: a moment, where the app waits the request's own timeout. A test holds a request at the recorder
     /// across a connect at its address for as long as it likes; that a request waits is RecorderKit's to test.
@@ -241,6 +248,25 @@ final class Bench {
         return await withCheckedContinuation { waitingForPermission.append($0) }
     }
 
+    /// Holds each pause between two looks of a model made here from now, until `letTheLooksGo`.
+    func holdTheLooks() {
+        looksHeld = true
+    }
+
+    /// Ends the pauses between two looks that are held, and each one after them at once.
+    func letTheLooksGo() {
+        looksLetGo = true
+        lookPausing.forEach { $0.resume() }
+        lookPausing = []
+    }
+
+    private func pauseBetweenLooks(for time: Duration) async throws {
+        pausesBetweenLooks += 1
+        if looksLetGo { return }
+        guard looksHeld else { return try await Task.sleep(for: time) }
+        await withCheckedContinuation { lookPausing.append($0) }
+    }
+
     /// The pause a search of a model made here makes before a single request. It does not end for the
     /// search being stopped: a test ends it, and looks at what the search did then.
     private func pause(for time: Duration) async {
@@ -278,6 +304,7 @@ final class Bench {
             storeBusyTimeoutMilliseconds: storeBusyTimeoutMilliseconds,
             slotReadAgainAfter: slotReadAgainAfter,
             slotSettling: slotSettling,
+            pauseBetweenLooks: { [weak self] in try await self?.pauseBetweenLooks(for: $0) },
             wireWaitLimit: wireWaitLimit,
             tvTransport: { [weak self] host in
                 self?.televisionTransportsMade.append(host)
@@ -324,8 +351,9 @@ final class Bench {
     }
 
     func throwAway() {
-        // A search still held at a pause would wait for good, and so would a wait for the permission.
+        // A search still held at a pause would wait for good, and so would a wait for the permission or a look.
         letEverySingleRequestGo()
+        letTheLooksGo()
         permissionComes(.unavailable)
         theLinksPermissionComes(.unavailable)
         defaults.removePersistentDomain(forName: suite)

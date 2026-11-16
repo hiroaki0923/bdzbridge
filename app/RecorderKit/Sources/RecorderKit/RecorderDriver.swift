@@ -538,15 +538,16 @@ public final class RecorderDriver: LinkDriver {
 
     /// Waits while a connect is under way whose own client has yet to attach the recorder -- its probe out, a
     /// waking, a look at another address -- or while the check before an operation is out -- its probe, a waking
-    /// (`DeviceLink.wakeCheck`) -- looking again every `settling.interval`, for `settling.connect` at most.
-    /// Whether neither is under way by then: false past that, and when whoever waited gave up first.
+    /// (`DeviceLink.wakeCheck`) -- looking again every `settling.interval` (`LinkEnvironment.pauseBetweenLooks`),
+    /// for `settling.connect` at most. Whether neither is under way by then: false past that, and when whoever
+    /// waited gave up first.
     private static func waitForAConnectOrACheck(of link: DeviceLink, by settling: SlotSettling) async -> Bool {
         var looks = settling.interval > .zero ? Int(settling.connect / settling.interval) : 0
         while (link.session.connecting && !link.clientIsAttached) || link.wakeCheck != nil {
             guard looks > 0 else { return false }
             looks -= 1
             do {
-                try await Task.sleep(for: settling.interval)
+                try await link.environment.pauseBetweenLooks(settling.interval)
             } catch {
                 return false
             }

@@ -597,10 +597,10 @@ final class USBDiskChoiceTests: XCTestCase {
         async throws {
         for past in [true, false] {
             let how = past ? "the other check out past the time" : "the other check met by silence"
-            // Looking again every five seconds, so that the other check begins between two looks, seconds away
-            // from either.
-            let (_, recorder, model) = try await connected(every: .seconds(5),
-                                                           connectFor: past ? .seconds(10) : SlotSettling.aConnect)
+            // Two looks at most while the other check is out past the time, ten when it is not; the clash check's
+            // looks held after its first, so that the other check begins between two looks.
+            let (bench, recorder, model) = try await connected(every: .seconds(5),
+                                                               connectFor: past ? .seconds(10) : SlotSettling.aConnect)
             addTeardownBlock { await recorder.letGo() }
             let program = try await programmesNotReserved(model, 1)[0]
             let before = await recorder.asked
@@ -609,11 +609,14 @@ final class USBDiskChoiceTests: XCTestCase {
             try await until("the connect never asked who answers") {
                 await recorder.asked(Ask.description, since: before) == 1
             }
+            bench.holdTheLooks()
+            let looked = bench.pausesBetweenLooks
             let checking = Task {
                 await model.conflicts(for: program, quality: "DR", repeating: "none", disk: RecorderDisk.internalID)
             }
-            // Long enough for the clash check to have looked once, and three seconds short of its next look.
-            try await Task.sleep(for: .seconds(2))
+            try await until("the clash check never looked at the connect under way, \(how)") {
+                bench.pausesBetweenLooks == looked + 1
+            }
             await recorder.letGo()
             try await within(10, "the connect never ended, \(how)") { await connecting.value }
             XCTAssertTrue(model.connected, "the connect was meant to attach the recorder, \(how)")
@@ -629,6 +632,7 @@ final class USBDiskChoiceTests: XCTestCase {
                 let sure = try await within(10, "the other check never ended") { await makingSure.value }
                 XCTAssertFalse(sure, "the other check was meant to meet silence")
             }
+            bench.letTheLooksGo()
             let clashes = try await within(15, "the clash check never ended, \(how)") { await checking.value }
 
             expectNil(clashes, "a clash check handed back an answer, \(how)")

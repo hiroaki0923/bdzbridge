@@ -47,6 +47,10 @@ public struct Surroundings {
     /// How long the USB slot is waited for before something that names it is sent while the slot has not answered
     /// the disk known since the recorder last answered: the driver's ten seconds, shortened only by a test.
     var slotSettling: SlotSettling = .afterAWaking
+    /// How a wait of the recorder's for a connect under way or a check out -- the slot's, or a clash check's --
+    /// lets time go by between two looks at them (`LinkEnvironment.pauseBetweenLooks`): a sleep that long, in the
+    /// app. Held only by a test that needs the looks to come where it says.
+    var pauseBetweenLooks: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// How long a request to the recorder waits at most while another of the link's clients has one out at the same
     /// address: its own timeout, shortened only by a test, which holds requests for as long as it likes. That a
     /// request waits is RecorderKit's to test.
