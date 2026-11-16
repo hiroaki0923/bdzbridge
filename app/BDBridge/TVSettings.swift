@@ -113,31 +113,30 @@ struct HelperRegisterSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("6 桁の番号", text: $helper.code)
+                    TextField(HelperRegisterState.codePlaceholder, text: $helper.code)
                         .keyboardType(.numberPad)
                 } footer: {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("テレビで「RecBridge ヘルパー」を開き、「登録の番号を出す」で表示された 6 桁の番号を入力してください。"
-                             + "番号は 5 分で消えます。")
-                        Text("ヘルパーをテレビに入れる手順は、GitHub の説明書にあります。")
-                        Link("github.com/hiroaki0923/bdzbridge/helper",
-                             destination: URL(string: "https://github.com/hiroaki0923/bdzbridge/blob/main/helper/README.md")!)
+                        Text(HelperRegisterState.codeNote)
+                        Text(HelperRegisterState.instructionsNote)
+                        Link(HelperRegisterState.instructionsLink,
+                             destination: URL(string: HelperRegisterState.instructionsURL)!)
                     }
                 }
                 if let message = helper.message {
                     Section { Text(message.asABody).foregroundStyle(.red).font(.callout) }
                 }
                 Section {
-                    Button("登録する") { helper.press() }
+                    Button(HelperRegisterState.pressLabel) { helper.press() }
                         .disabled(helper.holdsThePress)
                     if helper.working { ProgressView() }
                 }
             }
-            .navigationTitle("テレビの番組表に登録")
+            .navigationTitle(HelperRegisterState.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("キャンセル") { dismiss() }
+                    Button(SheetWords.cancelLabel) { dismiss() }
                 }
             }
             .onChange(of: helper.done) { if $1 { dismiss() } }
@@ -161,8 +160,8 @@ struct TVRegisterSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    LabeledContent("IP アドレス") {
-                        TextField("192.168.1.20", text: $register.typedHost)
+                    LabeledContent(TVRegisterState.hostLabel) {
+                        TextField(TVRegisterState.hostPlaceholder, text: $register.typedHost)
                             .multilineTextAlignment(.trailing)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -170,11 +169,11 @@ struct TVRegisterSheet: View {
                     }
                     .disabled(register.holdsTheAddress)
                 } footer: {
-                    Text("テレビと同じ Wi-Fi につないだこの端末から登録します。")
+                    Text(TVRegisterState.hostNote)
                 }
                 if register.askingForPIN {
                     Section {
-                        TextField("4 桁の番号", text: $register.pin)
+                        TextField(TVRegisterState.pinPlaceholder, text: $register.pin)
                             .keyboardType(.numberPad)
                     } footer: {
                         Text(register.pinNote)
@@ -199,7 +198,7 @@ struct TVRegisterSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("キャンセル") { dismiss() }
+                    Button(SheetWords.cancelLabel) { dismiss() }
                 }
             }
             .onAppear { register.appeared() }
@@ -222,7 +221,7 @@ struct TVCapabilitiesScreen: View {
     var body: some View {
         List {
             Section {
-                Button("調べる") {
+                Button(TVCapabilitiesWords.checkLabel) {
                     reading = true
                     Task {
                         report = await model.tvCapabilities(at: host)
@@ -231,23 +230,22 @@ struct TVCapabilitiesScreen: View {
                 }
                 .disabled(reading)
             } footer: {
-                Text("テレビが対応している機能と、予約や録画の一覧を読めるかを調べます。読むだけで、"
-                     + "テレビの予約や設定は変わりません。結果に番組名や局名は含まれません。"
-                     + "うまく動かないときは、結果をコピーして、お問い合わせの際にお送りください。"
-                     + "テレビに予約と録画が 1 件ずつあると、より詳しく分かります。")
+                Text(TVCapabilitiesWords.footer)
             }
             if reading {
                 Section { ProgressView().frame(maxWidth: .infinity) }
             } else if let report {
                 Section {
-                    Button("コピー", systemImage: "doc.on.doc") { UIPasteboard.general.string = report }
+                    Button(TVCapabilitiesWords.copyLabel, systemImage: "doc.on.doc") {
+                        UIPasteboard.general.string = report
+                    }
                     Text(report)
                         .font(.caption.monospaced())
                         .textSelection(.enabled)
                 }
             }
         }
-        .navigationTitle("テレビの対応状況")
+        .navigationTitle(TVCapabilitiesWords.title)
         .navigationBarTitleDisplayMode(.inline)
     }
 }

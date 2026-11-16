@@ -60,6 +60,15 @@ public final class TVRegisterState {
     /// テレビを登録 for a registration again, テレビを追加 for a television to add.
     public var title: String { again ? "テレビを登録" : "テレビを追加" }
 
+    /// The address field's label, which is the television's part's, where the address added is shown; what the field
+    /// shows while empty, and what is said under it.
+    public static let hostLabel = TVSettingsState.hostLabel
+    public static let hostPlaceholder = "192.168.1.20"
+    public static let hostNote = "テレビと同じ Wi-Fi につないだこの端末から登録します。"
+
+    /// What the PIN field shows while empty.
+    public static let pinPlaceholder = "4 桁の番号"
+
     /// The address the steps go to: the field, tidied.
     public var tidied: String { RecorderAddress.tidy(typedHost).host }
 
@@ -155,6 +164,25 @@ public final class HelperRegisterState {
     public init(model: AppModel) {
         self.model = model
     }
+
+    // MARK: - the sheet's words
+
+    /// The sheet's title, and what the code field shows while empty.
+    public static let title = "テレビの番組表に登録"
+    public static let codePlaceholder = "6 桁の番号"
+
+    /// What is said under the field: where the code is shown, and how long it lasts; then where the way to put the
+    /// helper on the television is written, with the link to it.
+    public static let codeNote = "テレビで「RecBridge ヘルパー」を開き、「登録の番号を出す」で表示された 6 桁の番号を入力してください。"
+        + "番号は 5 分で消えます。"
+    public static let instructionsNote = "ヘルパーをテレビに入れる手順は、GitHub の説明書にあります。"
+    public static let instructionsLink = "github.com/hiroaki0923/bdzbridge/helper"
+    public static let instructionsURL = "https://github.com/hiroaki0923/bdzbridge/blob/main/helper/README.md"
+
+    /// The button that registers.
+    public static let pressLabel = "登録する"
+
+    // MARK: - the reader's press
 
     /// 登録する is held while the registration is out, and for a code that is not six figures.
     public var holdsThePress: Bool { working || code.count != 6 || !code.allSatisfy(\.isNumber) }

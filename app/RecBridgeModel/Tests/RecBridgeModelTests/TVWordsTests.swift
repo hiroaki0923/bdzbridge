@@ -3,9 +3,11 @@ import RecorderKit
 import XCTest
 @testable import RecBridgeModel
 
-/// The television's part of the settings in the words the screen has always said, byte for byte (`TVSettingsState`),
-/// and the small rules of what it says: what the television says of itself, the helper's value, and what is said with
-/// no television, in the demo and out of it.
+/// The television's screens in the words they have always said, byte for byte -- its part of the settings
+/// (`TVSettingsState`), the sheet that adds it or registers with it again (`TVRegisterState`), the helper's sheet
+/// (`HelperRegisterState`) and the screen that says what it speaks (`TVCapabilitiesWords`) -- and the small rules of
+/// what the part says: what the television says of itself, the helper's value, and what is said with no television,
+/// in the demo and out of it.
 @MainActor
 final class TVWordsTests: XCTestCase {
     func testTheTelevisionsPartSaysWhatTheScreenSaid() {
@@ -70,6 +72,45 @@ final class TVWordsTests: XCTestCase {
         XCTAssertEqual(settings.helperShown, "登録済み")
         model.tvHelper = helper(token: nil)
         XCTAssertEqual(settings.helperShown, "未登録")
+    }
+
+    /// The sheet that adds a television, or registers with it again: its address field's label, which is the part's,
+    /// what the field shows while empty and what is said under it, what the PIN field shows while empty, and the button
+    /// that closes it, as the other sheets say it.
+    func testTheRegisterSheetSaysWhatItSaid() {
+        XCTAssertEqual(TVRegisterState.hostLabel, "IP アドレス")
+        XCTAssertEqual(TVRegisterState.hostPlaceholder, "192.168.1.20")
+        XCTAssertEqual(TVRegisterState.hostNote, "テレビと同じ Wi-Fi につないだこの端末から登録します。")
+        XCTAssertEqual(TVRegisterState.pinPlaceholder, "4 桁の番号")
+        XCTAssertEqual(SheetWords.cancelLabel, "キャンセル")
+    }
+
+    /// The helper's sheet: its title, the code field, the two sentences under it with the link and where it goes, and
+    /// the button.
+    func testTheHelpersSheetSaysWhatItSaid() {
+        XCTAssertEqual(HelperRegisterState.title, "テレビの番組表に登録")
+        XCTAssertEqual(HelperRegisterState.codePlaceholder, "6 桁の番号")
+        XCTAssertEqual(HelperRegisterState.codeNote,
+                       "テレビで「RecBridge ヘルパー」を開き、「登録の番号を出す」で表示された 6 桁の番号を入力してください。"
+                       + "番号は 5 分で消えます。")
+        XCTAssertEqual(HelperRegisterState.instructionsNote, "ヘルパーをテレビに入れる手順は、GitHub の説明書にあります。")
+        XCTAssertEqual(HelperRegisterState.instructionsLink, "github.com/hiroaki0923/bdzbridge/helper")
+        XCTAssertEqual(HelperRegisterState.instructionsURL,
+                       "https://github.com/hiroaki0923/bdzbridge/blob/main/helper/README.md")
+        XCTAssertEqual(HelperRegisterState.pressLabel, "登録する")
+    }
+
+    /// The screen that says what the television speaks: its title, its button, what is said under it, and the button
+    /// that copies what it said.
+    func testTheCapabilitiesScreenSaysWhatItSaid() {
+        XCTAssertEqual(TVCapabilitiesWords.title, "テレビの対応状況")
+        XCTAssertEqual(TVCapabilitiesWords.checkLabel, "調べる")
+        XCTAssertEqual(TVCapabilitiesWords.footer,
+                       "テレビが対応している機能と、予約や録画の一覧を読めるかを調べます。読むだけで、"
+                       + "テレビの予約や設定は変わりません。結果に番組名や局名は含まれません。"
+                       + "うまく動かないときは、結果をコピーして、お問い合わせの際にお送りください。"
+                       + "テレビに予約と録画が 1 件ずつあると、より詳しく分かります。")
+        XCTAssertEqual(TVCapabilitiesWords.copyLabel, "コピー")
     }
 
     /// A helper at an address reserved for documentation, which nothing here asks: registered with when it holds a

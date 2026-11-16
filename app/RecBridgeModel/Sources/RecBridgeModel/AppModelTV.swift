@@ -219,7 +219,8 @@ extension AppModel {
 
     /// What the television at `host` says it speaks (`ScalarClient.capabilities`), as text for the reader to copy:
     /// read through the television's transport, as finding it is, and nothing changed; with the registration the
-    /// app holds for the television, the app's reads are tried as well. In the demo, the demo's television.
+    /// app holds for the television, the app's reads are tried as well. In the demo, the demo's television. The
+    /// screen that shows it says what it does in `TVCapabilitiesWords`.
     public func tvCapabilities(at host: String) async -> String {
         let client = ScalarClient(host: host, transport: televisionTransport(host), credentials: televisionCredentials())
         return await client.capabilities().report(app: surroundings.appVersion())
@@ -423,4 +424,17 @@ extension AppModel {
     /// deleted (`whyTheTelevisionStays`).
     static let rowsNotTakenAway = "送信待ちの予約を削除できなかったため、テレビを外していません。"
         + "少し待ってから、もう一度お試しください。"
+}
+
+/// The words of the screen that says what the television speaks (`AppModel.tvCapabilities(at:)`), opened from the
+/// television's part of the settings: its title, the button that reads it, what is said under that -- what is read,
+/// that nothing changes, what the text leaves out, and what to do with it --, and the button that copies the text.
+public enum TVCapabilitiesWords {
+    public static let title = "テレビの対応状況"
+    public static let checkLabel = "調べる"
+    public static let footer = "テレビが対応している機能と、予約や録画の一覧を読めるかを調べます。読むだけで、"
+        + "テレビの予約や設定は変わりません。結果に番組名や局名は含まれません。"
+        + "うまく動かないときは、結果をコピーして、お問い合わせの際にお送りください。"
+        + "テレビに予約と録画が 1 件ずつあると、より詳しく分かります。"
+    public static let copyLabel = "コピー"
 }
