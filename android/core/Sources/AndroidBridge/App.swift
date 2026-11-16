@@ -120,15 +120,19 @@ public final class RecBridgeApp: Sendable {
         }
     }
 
-    /// A model on `files` and `kept`: what `open` makes once for the process, and each test for itself.
+    /// A model on `files` and `kept`: what `open` makes once for the process, and each test for itself, which
+    /// may give a search's probes longer than the app does (`Surroundings.scanProbeTimeout`).
     @MainActor
-    static func made(files: String, kept: String, version: String) -> RecBridgeApp {
+    static func made(files: String, kept: String, version: String,
+                     scanProbeTimeout: TimeInterval? = nil) -> RecBridgeApp {
         let defaults = WrittenDefaults.android(files: files)
         let tiles = Tiles(folder: URL(fileURLWithPath: files, isDirectory: true)
             .appendingPathComponent("demo-tiles", isDirectory: true))
         let network = NetworkReports()
-        let model = AppModel(surroundings: .android(files: files, kept: kept, defaults: defaults, version: version,
-                                                    tiles: tiles, network: network))
+        var surroundings = Surroundings.android(files: files, kept: kept, defaults: defaults, version: version,
+                                                tiles: tiles, network: network)
+        if let scanProbeTimeout { surroundings.scanProbeTimeout = scanProbeTimeout }
+        let model = AppModel(surroundings: surroundings)
         return RecBridgeApp(model: model, quality: ChosenQuality(defaults), recordingsMode: ShownMode(defaults),
                             guideChoices: GuideChoices(defaults), clock: MinuteClock(), version: version, tiles: tiles,
                             network: network)

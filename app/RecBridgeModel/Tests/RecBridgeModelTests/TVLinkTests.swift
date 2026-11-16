@@ -72,7 +72,7 @@ final class TVLinkTests: XCTestCase {
                                               saved: false)
 
         let asking = Task { await model.findTV(at: Bench.tvHost) }
-        try await until("the sheet never said the app is kept off the local network", within: 2) {
+        try await until("the sheet never said the app is kept off the local network") {
             model.tvAddressTurnedAway
         }
         XCTAssertTrue(bench.isWaitingForPermission, "said that nothing answered in place of waiting")
@@ -109,7 +109,7 @@ final class TVLinkTests: XCTestCase {
         let model = bench.modelWithNoRecorder(television: television, credentials: MemoryTVCredentials(),
                                               saved: false)
         let asking = Task { await model.findTV(at: Bench.tvHost) }
-        try await until("the sheet never said the app is kept off the local network", within: 2) {
+        try await until("the sheet never said the app is kept off the local network") {
             model.tvAddressTurnedAway
         }
         let before = await television.calls
@@ -137,7 +137,7 @@ final class TVLinkTests: XCTestCase {
             let model = bench.modelWithNoRecorder(television: television, credentials: MemoryTVCredentials(),
                                                   saved: false)
             let asking = Task { await model.findTV(at: Bench.tvHost) }
-            try await until("the sheet never said the app is kept off the local network", within: 2) {
+            try await until("the sheet never said the app is kept off the local network") {
                 model.tvAddressTurnedAway
             }
             let before = await television.calls
@@ -168,7 +168,7 @@ final class TVLinkTests: XCTestCase {
         for says in [LocalNetwork.Access.allowed, nil] {
             bench.permissionLookSays = says
             let saying = String(describing: says)
-            let found = try await within(2, "a silent address was waited on with the look saying \(saying)") {
+            let found = try await within(10, "a silent address was waited on with the look saying \(saying)") {
                 await model.findTV(at: Bench.tvHost)
             }
             XCTAssertEqual(found, .nothing)
@@ -191,7 +191,7 @@ final class TVLinkTests: XCTestCase {
         await model.enterDemo()
         try await untilIdle(model)
 
-        let found = try await within(2, "a silent address was waited on in the demo") {
+        let found = try await within(10, "a silent address was waited on in the demo") {
             await model.findTV(at: Bench.tvHost)
         }
 
@@ -301,7 +301,8 @@ final class TVLinkTests: XCTestCase {
         let model = bench.model(recorder: DemoRecorder(), television: television,
                                 credentials: await registered(with: television))
         await model.start()
-        try await until("the television was not connected") { model.tvDriver?.canBeAsked == true }
+        // Its connect over, which is once it has read the reservations: the client can be asked before that.
+        try await untilTheTelevisionIsConnected(model)
 
         await television.becomeAnother(mac: "f8:4e:17:00:00:0b")
         let before = await television.calls.count
@@ -328,7 +329,8 @@ final class TVLinkTests: XCTestCase {
         let model = bench.model(recorder: DemoRecorder(), television: faulting,
                                 credentials: await registered(with: television))
         await model.start()
-        try await until("the television was not connected") { model.tvDriver?.canBeAsked == true }
+        // Its connect over, which is once it has read the reservations: the client can be asked before that.
+        try await untilTheTelevisionIsConnected(model)
 
         await faulting.fail(with: 500)
         let before = await television.calls.count

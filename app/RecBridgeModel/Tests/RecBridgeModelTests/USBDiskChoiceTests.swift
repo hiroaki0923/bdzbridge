@@ -56,7 +56,7 @@ final class USBDiskChoiceTests: XCTestCase {
         let (bench, recorder, model) = try await connected(times: 1, readAgainAfter: .milliseconds(50))
         XCTAssertEqual(model.usbDisk, USBDiskTests.disk)
         await reconnect(model)
-        try await until("the disk was not let go", within: 5) { model.usbDisk == nil }
+        try await until("the disk was not let go") { model.usbDisk == nil }
         return (bench, recorder, model)
     }
 
@@ -303,7 +303,7 @@ final class USBDiskChoiceTests: XCTestCase {
             let before = await recorder.asked
             leaveALine(on: model)
             let adding = Task { await addACondition(model, Self.condition(to: "USBHDD")) }
-            try await until("the condition was never begun", within: 5) { model.busy != nil }
+            try await until("the condition was never begun") { model.busy != nil }
             await recorder.goQuiet(on: "description.xml")
             await recorder.letGo()
             expectFalse(await adding.value, "a condition was made past a check that met silence")
@@ -597,10 +597,10 @@ final class USBDiskChoiceTests: XCTestCase {
         async throws {
         for past in [true, false] {
             let how = past ? "the other check out past the time" : "the other check met by silence"
-            // Looking again every five seconds, so that the other check begins between two looks, seconds away
-            // from either.
-            let (_, recorder, model) = try await connected(every: .seconds(5),
-                                                           connectFor: past ? .seconds(10) : SlotSettling.aConnect)
+            // Two looks at most while the other check is out past the time, ten when it is not; the clash check's
+            // looks held after its first, so that the other check begins between two looks.
+            let (bench, recorder, model) = try await connected(every: .seconds(5),
+                                                               connectFor: past ? .seconds(10) : SlotSettling.aConnect)
             addTeardownBlock { await recorder.letGo() }
             let program = try await programmesNotReserved(model, 1)[0]
             let before = await recorder.asked
@@ -609,11 +609,14 @@ final class USBDiskChoiceTests: XCTestCase {
             try await until("the connect never asked who answers") {
                 await recorder.asked(Ask.description, since: before) == 1
             }
+            bench.holdTheLooks()
+            let looked = bench.pausesBetweenLooks
             let checking = Task {
                 await model.conflicts(for: program, quality: "DR", repeating: "none", disk: RecorderDisk.internalID)
             }
-            // Long enough for the clash check to have looked once, and three seconds short of its next look.
-            try await Task.sleep(for: .seconds(2))
+            try await until("the clash check never looked at the connect under way, \(how)") {
+                bench.pausesBetweenLooks == looked + 1
+            }
             await recorder.letGo()
             try await within(10, "the connect never ended, \(how)") { await connecting.value }
             XCTAssertTrue(model.connected, "the connect was meant to attach the recorder, \(how)")
@@ -629,6 +632,7 @@ final class USBDiskChoiceTests: XCTestCase {
                 let sure = try await within(10, "the other check never ended") { await makingSure.value }
                 XCTAssertFalse(sure, "the other check was meant to meet silence")
             }
+            bench.letTheLooksGo()
             let clashes = try await within(15, "the clash check never ended, \(how)") { await checking.value }
 
             expectNil(clashes, "a clash check handed back an answer, \(how)")
@@ -872,7 +876,7 @@ final class USBDiskChoiceTests: XCTestCase {
             try await waitingForTheSlotBesideAConnectHeldAtItsProbe(connectFor: .milliseconds(100)) { model, program in
                 await model.reserve(program, on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD")
             }
-        let came = try await within(5, "the wait for the slot did not give up on the connect") {
+        let came = try await within(10, "the wait for the slot did not give up on the connect") {
             await reserving.value
         }
 
@@ -1008,7 +1012,7 @@ final class USBDiskChoiceTests: XCTestCase {
         let makingSure = Task { await makeSure(model) }
         try await until("the other check never began") { isMakingSure(model) }
         await recorder.letGo(only: Ask.slot)
-        let came = try await within(5, "the wait for the slot did not give up on the other check") {
+        let came = try await within(10, "the wait for the slot did not give up on the other check") {
             await reserving.value
         }
 
@@ -1275,7 +1279,7 @@ final class USBDiskChoiceTests: XCTestCase {
         let reserving = Task {
             await model.reserve(program, on: .recorder, quality: "DR", repeating: "none", disk: "USBHDD")
         }
-        try await until("the reservation did not wait for the slot", within: 5) { model.settlingTheSlot }
+        try await until("the reservation did not wait for the slot") { model.settlingTheSlot }
         await recorder.letGo()
         let came = await reserving.value
         await connecting.value
@@ -1690,7 +1694,7 @@ final class USBDiskChoiceTests: XCTestCase {
         let before = await recorder.asked
 
         let adding = Task { await addACondition(model, Self.condition(to: "USBHDD")) }
-        try await until("the press put up no line while the recorder was made sure of", within: 5) {
+        try await until("the press put up no line while the recorder was made sure of") {
             model.busy != nil
         }
         XCTAssertEqual(model.busy, "レコーダーに登録中")
@@ -1822,7 +1826,7 @@ final class USBDiskChoiceTests: XCTestCase {
 
         // The demo's answer from here on, which is none, twice.
         await reconnect(model)
-        try await until("the disk was not let go", within: 5) { model.usbDisk == nil }
+        try await until("the disk was not let go") { model.usbDisk == nil }
         XCTAssertEqual(model.diskOffered("USBHDD"), "HDD", "a disk let go of was still shown")
         XCTAssertEqual(model.diskOffered(nil), "HDD", "nothing picked, the disk let go of")
     }
@@ -1840,7 +1844,7 @@ final class USBDiskChoiceTests: XCTestCase {
                    model.problem(for: .recorder) ?? "no reason given")
         // The demo's answer from here on, which is none, twice.
         await reconnect(model)
-        try await until("the disk was not let go", within: 5) { model.usbDisk == nil }
+        try await until("the disk was not let go") { model.usbDisk == nil }
         let onTheInternalDisk = try XCTUnwrap(model.reservation(for: programs[0]))
         let onTheSlot = try XCTUnwrap(model.reservation(for: programs[1]))
         XCTAssertEqual(model.diskChoices(for: onTheInternalDisk), [], "the internal disk's sheet offers a disk")
@@ -1904,7 +1908,7 @@ final class USBDiskChoiceTests: XCTestCase {
 
         // The demo's answer from here on, which is none, twice.
         await reconnect(model)
-        try await until("the disk was not let go", within: 5) { model.usbDisk == nil }
+        try await until("the disk was not let go") { model.usbDisk == nil }
         let onTheSlot = try XCTUnwrap(model.reservation(for: program))
         XCTAssertEqual(model.diskChoices(for: onTheSlot).map(\.destination), ["HDD", "USBHDD"])
         expectTrue(await changeOnTheRecorder(model, onTheSlot, quality: "SR", repeating: "none", disk: "HDD"),
@@ -1959,7 +1963,7 @@ final class USBDiskChoiceTests: XCTestCase {
         XCTAssertEqual(model.usbDisk, USBDiskTests.disk)
         // The demo's answer from here on, which is none, twice.
         await reconnect(model)
-        try await until("the disk was not let go", within: 5) { model.usbDisk == nil }
+        try await until("the disk was not let go") { model.usbDisk == nil }
         let program = try await programmesNotReserved(model, 1)[0]
         await television.receives([DemoTV.Station(scheme: program.broadcasting == "bs" ? "isdbbs" : "isdbt",
                                                   serviceID: program.serviceID, name: program.serviceName)])

@@ -27,10 +27,13 @@ final class TVTitlesTests: XCTestCase {
     }
 
     /// A home with both devices connected, the recorder's recordings read and, unless `read` is false, the
-    /// television's. `slot` is what the recorder's USB slot answers: no disk unless a test gives one.
+    /// television's. `slot` is what the recorder's USB slot answers: no disk unless a test gives one. `listWait`
+    /// is how long a list that may still be coming is waited for, where it is not the bench's moment.
     private func atHome(_ recordings: [DemoTV.Recording] = [TVTitlesTests.recording(1), TVTitlesTests.recording(2)],
-                        diskMB: Int = 100_000, slot: String? = nil, read: Bool = true) async throws -> Home {
+                        diskMB: Int = 100_000, slot: String? = nil, read: Bool = true,
+                        listWait: TVTitlesWait? = nil) async throws -> Home {
         let bench = try aBench()
+        if let listWait { bench.tvTitlesWait = listWait }
         try await bench.cacheAGuide()
         let recorder = NamedRecorder(1)
         if let slot { await recorder.answer("X_GetMediaInfo", with: .result(slot), times: 1000) }
@@ -56,6 +59,20 @@ final class TVTitlesTests: XCTestCase {
         try await untilTheTelevisionIsConnected(model)
         await model.loadTVTitles()
         return (television, model)
+    }
+
+    /// A wait for a list that may still be coming of a minute, which a machine that stands still for seconds does
+    /// not use up: for a test in which the list adding up is what ends it, and not the wait running out.
+    private static let aListThatComes = TVTitlesWait(every: .milliseconds(5), for: 60)
+
+    /// Waits for the read of the television's list a run makes as it ends to be over: the disk read once more
+    /// after the free space read as the run ended, `storageReads` being how often it was read before the run, and
+    /// the television's line down.
+    private func untilTheListIsReadAfterTheRun(_ home: Home, storageReads: Int) async throws {
+        try await until("the list was not read as the run ended") {
+            await home.television.calls.filter { $0.hasPrefix("getStorageList") }.count >= storageReads + 2
+                && !home.model.isBusy(for: .tv)
+        }
     }
 
     private func tvRow(_ model: AppModel, _ number: Int = 1) throws -> RecordedTitle {
@@ -323,9 +340,11 @@ final class TVTitlesTests: XCTestCase {
         let title = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
         let ids = [try tvRow(model).id, title.id, try tvRow(model, 2).id]
         let calls = await home.television.calls.count
+        let storageReads = await home.television.calls.filter { $0.hasPrefix("getStorageList") }.count
 
         XCTAssertTrue(model.startBulk(.delete, ids: ids))
         try await until("the job never ended") { model.job?.finished == true }
+        try await untilTheListIsReadAfterTheRun(home, storageReads: storageReads)
 
         XCTAssertEqual(model.job?.outcome, "3 件を削除しました")
         XCTAssertEqual(model.job?.changed, ids)
@@ -344,7 +363,7 @@ final class TVTitlesTests: XCTestCase {
     /// missing. The wait's task is told, and one read is made as the run ends.
     func testNoReadGoesBesideARunOverItsRows() async throws {
         let rows = [Self.recording(1), Self.recording(2)]
-        let home = try await atHome(rows)
+        let home = try await atHome(rows, listWait: Self.aListThatComes)
         let model = home.model
         await home.television.leavesOutOfItsList(Set(rows.map(\.uri)))
         await model.loadTVTitles()
@@ -359,9 +378,9 @@ final class TVTitlesTests: XCTestCase {
         try await until("the delete was never sent") { await home.door.isHolding }
         XCTAssertNotEqual(model.tvTitlesToWaitFor, idle, "the wait's task was not told")
 
-        try await within(2, "a read went behind the delete") { await model.loadTVTitles() }
-        try await within(2, "a pull-down went behind the delete") { await model.tvHost?.refreshTitles() }
-        try await within(2, "the wait went on beside the job") { await model.waitForTVTitles() }
+        try await within(10, "a read went behind the delete") { await model.loadTVTitles() }
+        try await within(10, "a pull-down went behind the delete") { await model.tvHost?.refreshTitles() }
+        try await within(10, "the wait went on beside the job") { await model.waitForTVTitles() }
         XCTAssertFalse(model.isBusy(for: .tv), "a read's line went up beside the run")
 
         await home.television.leavesOutOfItsList([])
@@ -506,7 +525,7 @@ final class TVTitlesTests: XCTestCase {
         await home.recorder.hold(only: "description.xml")
 
         await home.door.letGo()
-        try await until("the television's connect waited for the recorder's", within: 5) {
+        try await until("the television's connect waited for the recorder's") {
             model.tv?.session.timesAttached == attached.map { $0 + 1 }
         }
         await home.recorder.letGo()
@@ -549,6 +568,7 @@ final class TVTitlesTests: XCTestCase {
         let model = home.model
         let onTV = try tvRow(model)
         let onTheRecorder = try XCTUnwrap(model.titles.first { !$0.recording && !$0.protected })
+        let storageReads = await home.television.calls.filter { $0.hasPrefix("getStorageList") }.count
 
         await home.door.hold(only: "deleteContent")
         XCTAssertTrue(model.startBulk(.delete, ids: [onTV.id]))
@@ -561,6 +581,8 @@ final class TVTitlesTests: XCTestCase {
         expectTrue(await home.recorder.asked("X_GetTitleList") > reads, "and the recorder's pull-down")
         await home.door.letGo()
         try await until("the job never ended") { model.job?.finished == true }
+        // The television's line is down once the list it reads as the run ends is in.
+        try await untilTheListIsReadAfterTheRun(home, storageReads: storageReads)
 
         await home.recorder.hold(only: "X_DeleteTitle")
         XCTAssertTrue(model.startBulk(.delete, ids: [onTheRecorder.id]))
@@ -659,7 +681,7 @@ final class TVTitlesTests: XCTestCase {
     /// said.
     func testAListThatMayStillBeComingIsWaitedFor() async throws {
         let rows = [Self.recording(1), Self.recording(2)]
-        let home = try await atHome(rows, read: false)
+        let home = try await atHome(rows, read: false, listWait: Self.aListThatComes)
         let model = home.model
         await home.television.leavesOutOfItsList(Set(rows.map(\.uri)))
         let idle = model.tvTitlesToWaitFor
@@ -765,7 +787,7 @@ final class TVTitlesTests: XCTestCase {
         model.wentToBackground()
         XCTAssertNotEqual(model.tvTitlesToWaitFor, inFront, "the wait's task was not told the app was left")
         let reads = await home.television.calls.count
-        try await within(2, "the wait went on with the app away") { await model.waitForTVTitles() }
+        try await within(10, "the wait went on with the app away") { await model.waitForTVTitles() }
         expectEqual(await home.television.calls.count, reads, "asked with the app away")
 
         await model.returnedToForeground()

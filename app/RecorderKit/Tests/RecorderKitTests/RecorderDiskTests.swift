@@ -605,8 +605,9 @@ final class RecorderDiskTests: XCTestCase {
     static let wakingAnswer = Stub.soap("X_GetMediaInfo",
                                         result: slot(name: "", mount: "0", remain: "0", total: "0", registered: ""))
 
-    /// Waits for a read left for later to be over, a few seconds at most.
-    private func untilOver(_ read: Task<Void, Never>, within seconds: TimeInterval = 3) async {
+    /// Waits for a read left for later to be over, half a minute at most, which a machine that stands still for
+    /// seconds does not use up.
+    private func untilOver(_ read: Task<Void, Never>, within seconds: TimeInterval = 30) async {
         let over = expectation(description: "the read left for later is over")
         Task {
             await read.value
@@ -712,9 +713,10 @@ final class RecorderDiskTests: XCTestCase {
         XCTAssertNil(world.problem)
     }
 
-    /// Waits for the recorder to have been asked the slot `count` times, a few seconds at most.
+    /// Waits for the recorder to have been asked the slot `count` times, half a minute at most, which a machine
+    /// that stands still for seconds does not use up.
     private func untilTheSlotIsAsked(_ count: Int, by recorder: SlotRecorder) async throws {
-        let deadline = ContinuousClock.now + .seconds(3)
+        let deadline = ContinuousClock.now + .seconds(30)
         while await recorder.slotReads < count {
             guard ContinuousClock.now < deadline else {
                 return XCTFail("the slot was asked fewer than \(count) times")

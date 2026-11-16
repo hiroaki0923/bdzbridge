@@ -1,5 +1,5 @@
 import Foundation
-import RecorderKit
+@testable import RecorderKit
 #if canImport(SQLite3)
 import SQLite3
 #else
@@ -27,6 +27,13 @@ final class Bench {
     /// not answered the disk known: the app's two seconds for ten, unless a test that waits for it shortens it
     /// first.
     var slotSettling = SlotSettling.afterAWaking
+    /// How many times a wait of a model made here for a connect or a check let time go by between two looks
+    /// (`Surroundings.pauseBetweenLooks`), and whether those pauses are held (`holdTheLooks`), or let go and each
+    /// over at once (`letTheLooksGo`). Neither, unless a test says: a sleep of the time asked, as in the app.
+    private(set) var pausesBetweenLooks = 0
+    private var looksHeld = false
+    private var looksLetGo = false
+    private var lookPausing: [CheckedContinuation<Void, Never>] = []
     /// How long a request of a model made here waits for another of its link's clients' request at the same
     /// address: a moment, where the app waits the request's own timeout. A test holds a request at the recorder
     /// across a connect at its address for as long as it likes; that a request waits is RecorderKit's to test.
@@ -34,6 +41,10 @@ final class Bench {
     /// How long a model made here waits for a television's list that may still be coming: a moment, where the app
     /// waits three minutes. What the wait does is RecorderKit's to test.
     var tvTitlesWait = TVTitlesWait(every: .milliseconds(5), for: 0.1)
+    /// How long a search of a model made here gives each address: a minute, where the app gives 1.2 seconds. A
+    /// test holds a probe for as long as it likes, which its deadline would otherwise cut short on a machine that
+    /// stands still for a second or two (`Discovery.raced`).
+    var scanProbeTimeout: TimeInterval = 60
     /// How many clients a model made here has made, whatever the address: one for each attempt at a recorder.
     private(set) var clientsMade = 0
     /// What the searches of the models made here wrote for the log, in order: kept here in place of the
@@ -237,6 +248,25 @@ final class Bench {
         return await withCheckedContinuation { waitingForPermission.append($0) }
     }
 
+    /// Holds each pause between two looks of a model made here from now, until `letTheLooksGo`.
+    func holdTheLooks() {
+        looksHeld = true
+    }
+
+    /// Ends the pauses between two looks that are held, and each one after them at once.
+    func letTheLooksGo() {
+        looksLetGo = true
+        lookPausing.forEach { $0.resume() }
+        lookPausing = []
+    }
+
+    private func pauseBetweenLooks(for time: Duration) async throws {
+        pausesBetweenLooks += 1
+        if looksLetGo { return }
+        guard looksHeld else { return try await Task.sleep(for: time) }
+        await withCheckedContinuation { lookPausing.append($0) }
+    }
+
     /// The pause a search of a model made here makes before a single request. It does not end for the
     /// search being stopped: a test ends it, and looks at what the search did then.
     private func pause(for time: Duration) async {
@@ -274,6 +304,7 @@ final class Bench {
             storeBusyTimeoutMilliseconds: storeBusyTimeoutMilliseconds,
             slotReadAgainAfter: slotReadAgainAfter,
             slotSettling: slotSettling,
+            pauseBetweenLooks: { [weak self] in try await self?.pauseBetweenLooks(for: $0) },
             wireWaitLimit: wireWaitLimit,
             tvTransport: { [weak self] host in
                 self?.televisionTransportsMade.append(host)
@@ -299,6 +330,7 @@ final class Bench {
                 return self?.subnet ?? Subnet()
             },
             scanPause: { [weak self] in await self?.pause(for: $0) },
+            scanProbeTimeout: scanProbeTimeout,
             scanLog: { [weak self] in self?.scanLog.append($0) }))
     }
 
@@ -319,8 +351,9 @@ final class Bench {
     }
 
     func throwAway() {
-        // A search still held at a pause would wait for good, and so would a wait for the permission.
+        // A search still held at a pause would wait for good, and so would a wait for the permission or a look.
         letEverySingleRequestGo()
+        letTheLooksGo()
         permissionComes(.unavailable)
         theLinksPermissionComes(.unavailable)
         defaults.removePersistentDomain(forName: suite)
@@ -1065,7 +1098,9 @@ extension XCTestCase {
 
     /// Runs `work` and hands back what it returns, failing the test if it has not returned within `seconds`.
     /// What is tested here used to wait for ever, and a test of it has to fail rather than wait with it, so the
-    /// work runs in a task of its own that the test can stop waiting for.
+    /// work runs in a task of its own that the test can stop waiting for. The bound tells work that never returns
+    /// from work that does, and is ten seconds or more, which a machine that stands still for seconds does not
+    /// use up.
     @MainActor
     func within<T: Sendable>(_ seconds: TimeInterval, _ what: String,
                              _ work: @escaping @MainActor () async -> T) async throws -> T {
@@ -1083,7 +1118,8 @@ extension XCTestCase {
     }
 
     /// Waits for something the model does in a task of its own -- the first connect, above all -- to come
-    /// about, failing the test if it has not within `seconds`.
+    /// about, failing the test if it has not within `seconds`: ten unless a test says otherwise, which a machine
+    /// that stands still for seconds does not use up.
     @MainActor
     func until(_ what: String, within seconds: TimeInterval = 10,
                _ condition: @MainActor () async -> Bool) async throws {
@@ -1186,10 +1222,13 @@ extension XCTestCase {
     /// to it with nothing under way. `guide: false` leaves the cache empty, for a gate that needs no programme:
     /// the first connect then asks for the four guide files, which the demo answers with none. `wakeable` saves
     /// the MAC the recorder's UDN carries; the model sends no packet (`Surroundings.reachesTheLAN`).
+    /// `storeBusyTimeout`, in milliseconds, is how long the model's writes to its cache wait for another
+    /// connection's, where it is not the app's five seconds.
     @MainActor
-    func connectedHome(guide: Bool = true, wakeable: Bool = false) async throws
+    func connectedHome(guide: Bool = true, wakeable: Bool = false, storeBusyTimeout: Int32? = nil) async throws
         -> (bench: Bench, recorder: NamedRecorder, model: AppModel) {
         let bench = try aBench()
+        if let storeBusyTimeout { bench.storeBusyTimeoutMilliseconds = storeBusyTimeout }
         if guide { try await bench.cacheAGuide() }
         if wakeable { bench.keep(mac: WhichRecorderTests.firstsMAC) }
         let recorder = NamedRecorder(1)
@@ -1840,5 +1879,15 @@ extension XCTestCase {
             await Task.yield()
             _ = try await within(10, "the queue's turn never came round") { await PendingQueue.betweenFlushes {} }
         }
+    }
+
+    /// Returns once `count` have asked for the queue's turn and are not back from it -- whoever has it, and
+    /// those waiting behind it (`PendingQueue.inLineForTheTurn`) -- failing the test if they have not within ten
+    /// seconds: for a look that needs what was set going in a task of its own to be waiting behind the one that
+    /// holds the turn, which has no other sign. A test waits for the one that holds it to be alone in line
+    /// first, so that one still on its way back from an earlier turn is not taken for one waiting behind it.
+    @MainActor
+    func untilInLineForTheTurn(_ count: Int, _ what: String) async throws {
+        try await until(what) { await PendingQueue.inLineForTheTurn == count }
     }
 }

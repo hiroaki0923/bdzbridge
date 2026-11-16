@@ -4,6 +4,11 @@ public enum Discovery {
     /// The service that tells a Sony recorder apart from its televisions and players.
     public static let xsrsServicePrefix = "urn:schemas-xsrs-org:service:X_ScheduledRecording"
 
+    /// How long a search's request to one address waits for its answer, in seconds, unless its caller says: a
+    /// device that is there answers in milliseconds, and this is what an address where nothing lives costs. A
+    /// recorder's and a television's alike (`TVDiscovery`, `DeviceSearch`).
+    public static let probeTimeout: TimeInterval = 1.2
+
     /// Looks through the addresses for a recorder, by asking each one for its `description.xml`. A host that is
     /// not there, or is something else, drops out on the timeout or on the parse; what comes back is only
     /// recorders. `progress` is called with how many addresses have been tried, and `until` ends the scan at
@@ -13,7 +18,7 @@ public enum Discovery {
     /// there answers in milliseconds, so the timeout is only paid where nothing lives, which is why `timeout`
     /// and `atOnce` matter more than they look: 253 addresses take about six seconds on a home network.
     public static func scan(hosts: [String], transport: any HTTPTransport = URLSessionTransport(),
-                            port: Int = Upnp.port, timeout: TimeInterval = 1.2, atOnce: Int = 48,
+                            port: Int = Upnp.port, timeout: TimeInterval = probeTimeout, atOnce: Int = 48,
                             progress: (@Sendable (Int, Int) -> Void)? = nil,
                             found onFound: (@Sendable (RecorderDescription) -> Void)? = nil,
                             until: (@Sendable (RecorderDescription) -> Bool)? = nil) async -> [RecorderDescription] {
@@ -68,7 +73,7 @@ public enum Discovery {
     /// `RecorderDescription.hasMAC`), and stops as soon as it has answered. For a recorder that is no longer
     /// where it was: its address is a DHCP lease, and the router hands it out again as it likes.
     public static func find(mac: String, among hosts: [String], transport: any HTTPTransport = URLSessionTransport(),
-                            port: Int = Upnp.port, timeout: TimeInterval = 1.2,
+                            port: Int = Upnp.port, timeout: TimeInterval = probeTimeout,
                             atOnce: Int = 48) async -> RecorderDescription? {
         let found = await scan(hosts: hosts, transport: transport, port: port, timeout: timeout, atOnce: atOnce,
                                until: { $0.hasMAC(mac) })
@@ -125,7 +130,7 @@ public enum Discovery {
     /// the system blocks it.", and not yet seen on a phone for a request asked again. The asking, and how
     /// often, is the caller's; this is the one request and the reading of it.
     public static func turnedAway(at host: String, transport: any HTTPTransport = URLSessionTransport(),
-                                  port: Int = Upnp.port, timeout: TimeInterval = 1.2) async -> Bool {
+                                  port: Int = Upnp.port, timeout: TimeInterval = probeTimeout) async -> Bool {
         let tally = ScanTally(transport)
         _ = await probe(host, transport: tally, port: port, timeout: timeout)
         return await tally.counts.mostTurnedAway

@@ -31,10 +31,11 @@ final class RunGateTests: XCTestCase {
     /// screen reads them. `idle` are the recordings a run can write to, neither being recorded nor protected, in
     /// the list's order. `withACopy` puts one broadcast on the recorder's disk twice before the list is read
     /// (`NamedRecorder.haveACopy`), for a scan to find; `wakeable` saves the MAC the recorder's UDN carries, so
-    /// that a check which meets silence wakes it.
-    private func settled(wakeable: Bool = false, withACopy: Bool = false) async throws
+    /// that a check which meets silence wakes it. `storeBusyTimeout` is `connectedHome`'s.
+    private func settled(wakeable: Bool = false, withACopy: Bool = false, storeBusyTimeout: Int32? = nil) async throws
         -> (bench: Bench, recorder: NamedRecorder, model: AppModel, idle: [RecordedTitle]) {
-        let (bench, recorder, model) = try await connectedHome(guide: false, wakeable: wakeable)
+        let (bench, recorder, model) = try await connectedHome(guide: false, wakeable: wakeable,
+                                                               storeBusyTimeout: storeBusyTimeout)
         if withACopy { await recorder.haveACopy() }
         await model.loadTitles()
         let idle = model.titles.filter { !$0.recording && !$0.protected }
@@ -1990,7 +1991,9 @@ final class RunGateTests: XCTestCase {
     /// the texts it had are the last recorder's: they are not put into memory, where the newcomer's recordings,
     /// numbered as the last one's were, would be compared on them and not asked about.
     func testAScanPutsNoTextOfTheCacheIntoMemoryOnceItsRecorderWasLetGoOf() async throws {
-        let (bench, recorder, model, _) = try await settled(withACopy: true)
+        // The cache's writes wait half a minute for another connection's, which a machine that stands still for
+        // seconds does not use up: the writer below, and not a clock, says when the scan's read is answered.
+        let (bench, recorder, model, _) = try await settled(withACopy: true, storeBusyTimeout: 30_000)
         let (first, second) = try copies(model)
         let store = try XCTUnwrap(model.store, "the model was meant to have opened its cache")
         try await store.setTitleSummary(first, "前に読んだ番組内容")
@@ -2023,7 +2026,9 @@ final class RunGateTests: XCTestCase {
     /// read the guide, would judge its copies by them. The scan is held on the cache as it begins, as above,
     /// while a look at the network hears another recorder at the address.
     func testAScanEndsOnWhatItsRecorderSaidOnceThatRecorderWasLetGoOf() async throws {
-        let (bench, recorder, model, _) = try await settled(withACopy: true)
+        // The cache's writes wait half a minute for another connection's, which a machine that stands still for
+        // seconds does not use up: the writer below, and not a clock, says when the scan's read is answered.
+        let (bench, recorder, model, _) = try await settled(withACopy: true, storeBusyTimeout: 30_000)
         let (first, second) = try copies(model)
         let title = try XCTUnwrap(model.titles.first { $0.id == first }?.title)
         let store = try XCTUnwrap(model.store, "the model was meant to have opened its cache")

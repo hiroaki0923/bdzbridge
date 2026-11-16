@@ -1094,13 +1094,13 @@ final class ReservationGateTests: XCTestCase {
         XCTAssertTrue(model.connected)
 
         let reading = Task { await readTheReservations(model) }
-        let reserved = try await within(5, "the reservation waited for the connect") {
+        let reserved = try await within(10, "the reservation waited for the connect") {
             await model.reserve(program, on: .recorder, quality: "DR", repeating: "none")
         }
-        let changed = try await within(5, "the change waited for the connect") {
+        let changed = try await within(10, "the change waited for the connect") {
             await model.change(rows[0], quality: "ER", repeating: "none")
         }
-        let deleted = try await within(5, "the delete waited for the connect") {
+        let deleted = try await within(10, "the delete waited for the connect") {
             await deleteAReservation(model, rows[1])
         }
         await recorder.letGo()

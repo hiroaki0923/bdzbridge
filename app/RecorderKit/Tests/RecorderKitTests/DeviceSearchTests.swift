@@ -31,7 +31,9 @@ final class DeviceSearchTests: XCTestCase {
         }
         let hosts = ["192.0.2.10", "192.0.2.30", "192.0.2.31", "192.0.2.32", "192.0.2.33"]
 
-        let found = await DeviceSearch.scan(hosts: hosts, transport: transport, timeout: 0.2)
+        // Each probe's deadline half a minute, which a machine that stands still for seconds does not use up:
+        // every address here answers or fails at once.
+        let found = await DeviceSearch.scan(hosts: hosts, transport: transport, timeout: 30)
 
         XCTAssertEqual(found.recorders.map(\.host), ["192.0.2.10"])
         XCTAssertEqual(found.recorders.first?.product, "BDZ-FBT4100")
@@ -49,7 +51,8 @@ final class DeviceSearchTests: XCTestCase {
         }
         let hosts = ["192.0.2.10", "192.0.2.11", "192.0.2.12"]
 
-        let found = await DeviceSearch.scan(hosts: hosts, transport: transport, timeout: 0.5)
+        // A deadline a machine that stands still for seconds does not use up: every address answers at once.
+        let found = await DeviceSearch.scan(hosts: hosts, transport: transport, timeout: 30)
 
         XCTAssertEqual(found.televisions.map(\.host), hosts)
         let sent = await transport.requests

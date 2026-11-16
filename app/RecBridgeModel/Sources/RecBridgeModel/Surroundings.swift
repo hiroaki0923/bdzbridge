@@ -47,6 +47,10 @@ public struct Surroundings {
     /// How long the USB slot is waited for before something that names it is sent while the slot has not answered
     /// the disk known since the recorder last answered: the driver's ten seconds, shortened only by a test.
     var slotSettling: SlotSettling = .afterAWaking
+    /// How a wait of the recorder's for a connect under way or a check out -- the slot's, or a clash check's --
+    /// lets time go by between two looks at them (`LinkEnvironment.pauseBetweenLooks`): a sleep that long, in the
+    /// app. Held only by a test that needs the looks to come where it says.
+    var pauseBetweenLooks: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// How long a request to the recorder waits at most while another of the link's clients has one out at the same
     /// address: its own timeout, shortened only by a test, which holds requests for as long as it likes. That a
     /// request waits is RecorderKit's to test.
@@ -88,6 +92,10 @@ public struct Surroundings {
     /// that was turned away (`AppModel.scanForDevices`): for as long as the search says, a second, in the
     /// app. Not at all, unless a test holds the search there.
     public var scanPause: @Sendable (Duration) async -> Void = { _ in }
+    /// How long a search's request to one address waits for its answer, and its probe of the address a second
+    /// more before it is given up (`DeviceSearch.scan`, `Discovery.turnedAway`): the package's own (`Discovery.probeTimeout`), in
+    /// the app. Longer only in a test, which holds a probe for as long as it likes.
+    public var scanProbeTimeout: TimeInterval = Discovery.probeTimeout
     /// Where a search writes what it did, a line at a time, for reading afterwards: the system's log in the
     /// app (`ScanLog`, which says what a line may hold). Nowhere, unless a test keeps the lines to look at.
     public var scanLog: @MainActor (String) -> Void = { _ in }

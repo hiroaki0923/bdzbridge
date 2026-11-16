@@ -137,6 +137,7 @@ extension AppModel {
             findRecorder: { mac, hosts in await Discovery.find(mac: mac, among: hosts) },
             slotReadAgainAfter: surroundings.slotReadAgainAfter,
             slotSettling: surroundings.slotSettling,
+            pauseBetweenLooks: surroundings.pauseBetweenLooks,
             wireWaitLimit: surroundings.wireWaitLimit)
     }
 

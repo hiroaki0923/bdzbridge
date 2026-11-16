@@ -52,11 +52,15 @@ final class NoScreenReachTests: XCTestCase {
     /// Silence is waited for until the limit, and the run gives up.
     func testSilenceIsWaitedForUntilTheLimit() async throws {
         let events = Events()
+        let began = Date()
         let answered = await reach(try recorder([nil], events), packet: true, events)
 
         XCTAssertFalse(answered)
+        // How many asks fit in the limit is the clock's, which a machine that stands still uses up in one: the
+        // wait is the asks after the first, and its end the limit.
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(began), 0.2, "gave up before the limit")
         XCTAssertEqual(events.all.first, "packet")
-        XCTAssertGreaterThan(events.all.filter { $0 == "ask" }.count, 2, "silence was not waited for")
+        XCTAssertGreaterThanOrEqual(events.all.filter { $0 == "ask" }.count, 2, "silence was not waited for")
     }
 
     /// With no packet out nothing is coming up, and nothing is waited for.

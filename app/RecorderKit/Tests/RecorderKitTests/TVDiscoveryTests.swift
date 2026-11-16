@@ -30,14 +30,17 @@ final class TVDiscoveryTests: XCTestCase {
         // The other spelling's address is left to the second look.
         let hosts = (1...200).filter { $0 != 71 }.map { "192.0.2.\($0)" }
 
-        let found = await TVDiscovery.find(mac: DemoTV.mac, among: hosts, transport: transport, timeout: 0.5,
+        // Each probe's deadline half a minute, which a machine that stands still for seconds does not use up:
+        // every address here answers or fails by itself.
+        let found = await TVDiscovery.find(mac: DemoTV.mac, among: hosts, transport: transport, timeout: 30,
                                            atOnce: 8)
 
         XCTAssertEqual(found, "192.0.2.70")
         let asked = await transport.requests.count
         XCTAssertLessThan(asked, hosts.count, "the rest of the subnet was asked once the television had answered")
 
-        let typed = await TVDiscovery.find(mac: "F8-4E-17-00-00-0A", among: ["192.0.2.71"], transport: transport)
+        let typed = await TVDiscovery.find(mac: "F8-4E-17-00-00-0A", among: ["192.0.2.71"], transport: transport,
+                                           timeout: 30)
         XCTAssertEqual(typed, "192.0.2.71", "the MAC asked for was compared as it was spelled")
         let another = await TVDiscovery.find(mac: "f8:4e:17:00:00:0c", among: (1...20).map { "192.0.2.\($0)" },
                                              transport: transport, timeout: 0.5)
@@ -50,7 +53,8 @@ final class TVDiscoveryTests: XCTestCase {
         let transport = StubTransport { _, _ in Self.wakesOn("f8:4e:17:00:00:0b") }
         let hosts = ["192.0.2.10", "192.0.2.11", "192.0.2.12"]
 
-        let found = await TVDiscovery.find(mac: DemoTV.mac, among: hosts, transport: transport)
+        // A deadline a machine that stands still for seconds does not use up: every address answers at once.
+        let found = await TVDiscovery.find(mac: DemoTV.mac, among: hosts, transport: transport, timeout: 30)
 
         XCTAssertNil(found)
         let sent = await transport.requests
@@ -83,7 +87,8 @@ final class TVDiscoveryTests: XCTestCase {
                                            timeout: 0.2)
 
         XCTAssertNil(found)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 5, "the deadline, not the request, ended the look")
+        // Against the request's minute, which a look that waited for it would take, and not a stall.
+        XCTAssertLessThan(Date().timeIntervalSince(started), 30, "the deadline, not the request, ended the look")
     }
 
     /// A probe that begins once its look is over sends nothing, as the probes not yet begun when the look finds

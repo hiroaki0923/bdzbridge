@@ -773,8 +773,11 @@ final class QueueGateTests: XCTestCase {
                 try await aClient(of: recorder).create(pressed.request)
             }
             let asking = Task { await model.sendAgain(pressed) }
-            // Long enough for the row sent again to be waiting for the queue's turn.
-            try await Task.sleep(for: .milliseconds(300))
+            // Its reason comes off once the row sent again has read it from the queue, on its way to the queue's
+            // turn: taken from the queue after that, it is a row another sending took while it waited.
+            try await until("the row sent again never took its reason off") {
+                model.pending.contains { $0.id == pressed.id && $0.problem == nil }
+            }
             try await store.removePending(pressed.id)
             await recorder.letGo()
             await pulling.value
@@ -815,6 +818,7 @@ final class QueueGateTests: XCTestCase {
             let rows = try [first, next].map { try waiting(for: $0) }
             XCTAssertLessThan(rows[0].request.start, rows[1].request.start,
                               "the round would send them in no set order")
+            try await afterTheQueuesTurn()
             for row in rows { try await store.queue(row) }
             await model.loadPending()
             let before = await recorder.asked
@@ -823,9 +827,9 @@ final class QueueGateTests: XCTestCase {
             try await until("\(name): what waits never got to the recorder") {
                 await recorder.asked(Kind.create, since: before) == 1
             }
+            try await untilInLineForTheTurn(1, "\(name): set up wrong: another than the pull-down's sending was in line")
             let asking = Task { await model.sendAgain(rows[pressed]) }
-            // Long enough for the row sent again to be waiting for the queue's turn.
-            try await Task.sleep(for: .milliseconds(300))
+            try await untilInLineForTheTurn(2, "\(name): the row sent again never waited for the queue's turn")
 
             await recorder.become(2)
             await model.connect()
@@ -864,8 +868,8 @@ final class QueueGateTests: XCTestCase {
             await recorder.heard(since: count).contains(Kind.description)
         }
         let asking = Task { await model.sendAgain(pressed) }
-        // Long enough for the row's check to be waiting on the one out before its probe is let go.
-        try await Task.sleep(for: .milliseconds(300))
+        // The row's line goes up as its check joins the one out: waiting on it before its probe is let go.
+        try await until("the row sent again never joined the check") { model.busy == RecorderDriver.sendingLine }
         await recorder.goQuiet(on: Kind.description)
         await recorder.letGo()
         expectTrue(await check.value, "the recorder was not woken")
@@ -896,8 +900,8 @@ final class QueueGateTests: XCTestCase {
             await recorder.asked(Kind.description, since: before) == 1
         }
         let asking = Task { await model.sendAgain(pressed) }
-        // Long enough for the row's check to be waiting on the one out before its probe is let go.
-        try await Task.sleep(for: .milliseconds(300))
+        // The row's line goes up as its check joins the one out: waiting on it before its probe is let go.
+        try await until("the row sent again never joined the check") { model.busy == RecorderDriver.sendingLine }
         await recorder.goQuiet(on: Kind.description)
         await recorder.become(2)
         await recorder.letGo()
@@ -1003,7 +1007,7 @@ final class QueueGateTests: XCTestCase {
             returned.yes = true
             return instead
         }
-        try await until("the delete did not come back while the recorder was being made sure of", within: 5) {
+        try await until("the delete did not come back while the recorder was being made sure of") {
             returned.yes
         }
         expectNil(await deleting.value, "a row no sending took was said to be made")

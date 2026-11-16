@@ -153,6 +153,9 @@ final class WelcomeTests: XCTestCase {
         XCTAssertTrue(welcome.holdsSearch)
         XCTAssertTrue(welcome.searching)
         XCTAssertEqual(welcome.progress?.total, model.scanning?.total)
+        // Every request the look has out while the subnet holds them, forty-eight addresses at once and two
+        // requests each: none ends, so no address after them is asked.
+        try await until("the look's first requests never all came") { await subnet.asked == 2 * 48 }
         let asked = await subnet.asked
 
         welcome.search()

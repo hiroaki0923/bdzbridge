@@ -70,7 +70,7 @@ final class TVSettingsTests: XCTestCase {
         let closing = TVRegisterState(model: model, host: Bench.tvHost, connectAtOnce: true, again: true)
         XCTAssertEqual(closing.title, "テレビを登録")
         closing.appeared()
-        try await until("the sheet never said the app is kept off the local network", within: 2) {
+        try await until("the sheet never said the app is kept off the local network") {
             closing.turnedAway
         }
         XCTAssertTrue(closing.working)

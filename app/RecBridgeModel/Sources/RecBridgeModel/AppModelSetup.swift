@@ -257,7 +257,8 @@ extension AppModel {
                 continue
             }
             let request = ScanTally(transport)
-            let turnedAway = await Discovery.turnedAway(at: asking, transport: request)
+            let turnedAway = await Discovery.turnedAway(at: asking, transport: request,
+                                                        timeout: surroundings.scanProbeTimeout)
             // A request ended by the scan being stopped comes back as one that was out.
             guard scanRun == run, !Task.isCancelled else { return }
             let cameBack = await request.counts.statusesAndCodes
@@ -330,7 +331,8 @@ extension AppModel {
         // still being tried. One tally counts both kinds; the address it keeps is from the recorder's.
         let transport = ScanTally(searchTransport(), keepingAddressFrom: Upnp.port)
         let began = ContinuousClock.now
-        let result = await DeviceSearch.scan(hosts: hosts, transport: transport, progress: { done, total in
+        let result = await DeviceSearch.scan(hosts: hosts, transport: transport,
+                                             timeout: surroundings.scanProbeTimeout, progress: { done, total in
             Task { @MainActor in
                 guard self.scanRun == run, self.scanning != nil else { return }
                 self.scanning = (done, total)

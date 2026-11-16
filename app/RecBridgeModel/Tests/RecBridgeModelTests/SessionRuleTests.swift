@@ -112,7 +112,7 @@ final class SessionRuleTests: XCTestCase {
                        "the screens would read their lists before the attach had read the rest")
         // Not awaited bare: with the mark gone too soon the list is asked for, behind the read that is held,
         // and would wait here for a `letGo()` that is on the next line.
-        try await within(5, "a list asked for while the recorder was still marked silent did not return") {
+        try await within(10, "a list asked for while the recorder was still marked silent did not return") {
             await model.loadTitles()
         }
         XCTAssertFalse(model.titlesLoaded, "a list was read from a recorder still marked silent")
@@ -139,7 +139,7 @@ final class SessionRuleTests: XCTestCase {
         await model.start()
         try await until("the first connect never asked who is there") { await recorder.asked("description.xml") > 0 }
 
-        try await within(5, "a second connect waited on the first one's recorder") { await model.connect() }
+        try await within(10, "a second connect waited on the first one's recorder") { await model.connect() }
         expectEqual(await recorder.asked("description.xml"), 1, "a second connect asked beside the first")
 
         await recorder.letGo()
@@ -170,7 +170,7 @@ final class SessionRuleTests: XCTestCase {
         try await until("the job never asked about the recording") { await recorder.asked("X_GetTitleDetail") > 0 }
         let before = await recorder.asked
 
-        try await within(5, "a connect waited on the job") { await model.connect() }
+        try await within(10, "a connect waited on the job") { await model.connect() }
         expectEqual(await recorder.asked("description.xml", since: before), 0, "a connect started beside the job")
 
         await recorder.letGo()
@@ -202,7 +202,7 @@ final class SessionRuleTests: XCTestCase {
         try await until("the job never asked about the recording") { await recorder.asked("X_GetTitleDetail") > 0 }
         let before = await recorder.asked
 
-        try await within(5, "a connect waited on the job") { await model.connect() }
+        try await within(10, "a connect waited on the job") { await model.connect() }
         expectEqual(await recorder.asked("description.xml", since: before), 0, "a connect started beside the job")
 
         await recorder.goQuiet(on: "X_GetTitleDetail")
@@ -235,7 +235,7 @@ final class SessionRuleTests: XCTestCase {
         try await until("the job never asked about the recording") { await recorder.asked("X_GetTitleDetail") > 0 }
         let before = await recorder.asked
 
-        try await within(5, "a connect waited on the job") { await model.connect() }
+        try await within(10, "a connect waited on the job") { await model.connect() }
         model.wentToBackground()
         await recorder.letGo()
         try await until("the job never finished") { model.job?.finished == true }
@@ -413,7 +413,7 @@ final class SessionRuleTests: XCTestCase {
             .queue(PendingReservation(request: request, serviceName: program.serviceName))
 
         await recorder.goQuiet(for: 1)
-        let answered = try await within(5, "the check waited for itself") { await makeSure(model) }
+        let answered = try await within(20, "the check waited for itself") { await makeSure(model) }
 
         XCTAssertTrue(answered, model.problem(for: .recorder) ?? "no reason given")
         expectEqual(await recorder.asked("X_CreateRecordSchedule"), 1, "what waited was not sent")

@@ -22,7 +22,7 @@ public enum TVDiscovery {
     /// against a deadline of its own, as the recorder's probe is (`Discovery.probe`), and let go of when that
     /// deadline or the end of the look comes first (`leftWhenCancelled`).
     public static func probe(_ host: String, transport: any HTTPTransport,
-                             timeout: TimeInterval = 1.2) async -> TVSighting? {
+                             timeout: TimeInterval = Discovery.probeTimeout) async -> TVSighting? {
         await Discovery.raced(timeout) {
             await leftWhenCancelled { () -> TVSighting? in
                 let client = ScalarClient(host: host, transport: transport, credentials: MemoryTVCredentials())
@@ -39,7 +39,7 @@ public enum TVDiscovery {
     /// is what an attach asks a television first; the MACs are compared normalised, and the look stops at the
     /// first that matches. Another television's MAC is not the one asked for, whatever else it answers.
     public static func find(mac: String, among hosts: [String], transport: any HTTPTransport,
-                            timeout: TimeInterval = 1.2, atOnce: Int = 48) async -> String? {
+                            timeout: TimeInterval = Discovery.probeTimeout, atOnce: Int = 48) async -> String? {
         guard let wanted = WakeOnLan.normalise(mac) else { return nil }
         let found = await Discovery.look(hosts: hosts, atOnce: atOnce, until: { _ in true }) { host in
             await Discovery.raced(timeout) {

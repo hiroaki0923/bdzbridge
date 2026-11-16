@@ -10,7 +10,7 @@ import XCTest
 final class TVDriverTests: XCTestCase {
     /// A link to `television` at `Stub.host`, its driver keeping `credentials`, with the MAC `saved` at the last
     /// launch and the app in front unless `inFront` is false.
-    private func makeLink(_ television: DemoTV, _ credentials: MemoryTVCredentials, saved: String? = nil,
+    private func makeLink(_ television: DemoTV, _ credentials: any TVCredentialStore, saved: String? = nil,
                           inFront: Bool = true) -> (DeviceLink, TVDriver, LinkWorld) {
         let world = LinkWorld()
         world.devices[Stub.host] = television
@@ -365,11 +365,11 @@ final class TVDriverTests: XCTestCase {
     /// happen on the way.
     private struct Bench: Sendable {
         let link: DeviceLink, driver: TVDriver, world: LinkWorld
-        let television: DemoTV, gate: TVGate, credentials: MemoryTVCredentials
+        let television: DemoTV, gate: TVGate, credentials: any TVCredentialStore
     }
 
     /// Connected with the cookie the television knows, or with `credentials`; holding the three, or `holding`.
-    private func attached(with credentials: MemoryTVCredentials? = nil,
+    private func attached(with credentials: (any TVCredentialStore)? = nil,
                           holding: [DemoTV.Schedule]? = nil) async -> Bench {
         let television = DemoTV()
         await television.put(holding ?? [Self.drama, Self.reminder, Self.weather])
@@ -614,16 +614,20 @@ final class TVDriverTests: XCTestCase {
     /// delete has met silence that read meets it too: it leaves what the delete said -- that the delete may
     /// have arrived, which is all the reader has to go by -- where it is.
     ///
-    /// The delete is answered only once the read has had time to be waiting behind it: nothing public says
-    /// that it is, and a read that has not got so far by the time the delete has met silence is not the one
-    /// this is about -- one asked once the television has been lost sends nothing.
+    /// The delete is answered only once the read has read the cookie, which it does past every check of whether
+    /// the television may be asked, on its way to the client's queue behind the delete: a read that has not got
+    /// so far by the time the delete has met silence is not the one this is about -- one asked once the
+    /// television has been lost sends nothing.
     func testARequestBehindTheOneThatMetSilenceAddsNothing() async throws {
-        let bench = await attached()
+        let credentials = LoadsCounted(TVCredentials(clientID: "BDBridge:test", cookie: "kept",
+                                                     cookieReceived: Date().addingTimeInterval(-86_400),
+                                                     cookieMaxAge: 1_209_600))
+        let bench = await attached(with: credentials)
         let behind = Behind()
         await bench.gate.before(Self.delete) { @MainActor in
+            let loads = credentials.loads
             behind.read = Task { await bench.driver.reservations() }
-            // Long enough for the read to be waiting behind the delete.
-            try? await Task.sleep(for: .milliseconds(300))
+            await eventually { credentials.loads > loads }
             await bench.gate.silence(Self.delete)
             await bench.gate.silence(Self.read)
         }
@@ -637,6 +641,24 @@ final class TVDriverTests: XCTestCase {
         expectEqual(Array(await bench.gate.asked.dropFirst(before)), [Self.read, Self.delete, Self.read])
         XCTAssertEqual(bench.world.problem, TVDriver.mayHaveArrived)
         XCTAssertFalse(bench.link.session.connected)
+    }
+
+    /// Credentials that count how often they are read: a request that needs the registration reads the cookie
+    /// as it goes, so a count gone up is that request on its way.
+    private final class LoadsCounted: TVCredentialStore, @unchecked Sendable {
+        private let lock = NSLock()
+        private let kept: MemoryTVCredentials
+        private var count = 0
+
+        init(_ credentials: TVCredentials) { kept = MemoryTVCredentials(credentials) }
+
+        var loads: Int { lock.withLock { count } }
+        func load() -> TVCredentials? {
+            lock.withLock { count += 1 }
+            return kept.load()
+        }
+        func save(_ credentials: TVCredentials) { kept.save(credentials) }
+        func remove() { kept.remove() }
     }
 
     /// Holds the read a test sets going from inside a request, to be waited for afterwards.

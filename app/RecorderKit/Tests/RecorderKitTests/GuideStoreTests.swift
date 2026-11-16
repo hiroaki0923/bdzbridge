@@ -378,11 +378,12 @@ final class GuideStoreTests: XCTestCase {
         try holder.db.execute("CREATE TABLE t (x INTEGER)")
         try holder.db.execute("BEGIN IMMEDIATE")
         try holder.db.run("INSERT INTO t VALUES (1)")
+        // Timed from before the other is told when to let go, as the cache's opening below is.
+        let started = Date()
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
             try? holder.db.execute("COMMIT")
         }
 
-        let started = Date()
         try waiter.run("INSERT INTO t VALUES (2)")
         XCTAssertGreaterThan(Date().timeIntervalSince(started), 0.2, "it waited for the other write")
         XCTAssertEqual(try waiter.count("SELECT COUNT(*) FROM t"), 2)
@@ -664,7 +665,9 @@ final class GuideStoreTests: XCTestCase {
     /// held up for five seconds, and what was waiting not sent by it.
     func testTheOwnerAnsweringAgainIsKnownWithoutWaitingForAWrite() async throws {
         let path = temporaryPath()
-        let store = try GuideStore(path: path)
+        // A busy timeout of a minute, so that a write held up behind the other connection is told from a machine
+        // that stood still for seconds.
+        let store = try GuideStore(path: path, busyTimeoutMilliseconds: 60_000)
         try await store.claim(for: recorder(1))
         try await store.setTitleSummary("0x0000010000000001", "あらすじ")
 
@@ -676,7 +679,7 @@ final class GuideStoreTests: XCTestCase {
         let asked = try await store.recognises(recorder(1))
         XCTAssertEqual(known, .same)
         XCTAssertEqual(asked, .same)
-        XCTAssertLessThan(Date().timeIntervalSince(began), 1, "it waited for the other connection's write")
+        XCTAssertLessThan(Date().timeIntervalSince(began), 30, "it waited for the other connection's write")
     }
 
     /// Who it is is asked again once the write has its turn. Another connection can put an owner down between

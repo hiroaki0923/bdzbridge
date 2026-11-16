@@ -19,9 +19,12 @@ final class AndroidBridgeTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
+    /// The app's model in the demo, its search giving each address a minute, where the app gives 1.2 seconds: a
+    /// machine that stands still for a second or two would otherwise have a demo's device found by nobody.
     @MainActor
     private func demo() async -> RecBridgeApp {
-        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)",
+                                    scanProbeTimeout: 60)
         await app.start()
         await app.devices().enterDemo()
         return app
@@ -1323,6 +1326,11 @@ extension AndroidBridgeTests {
         // A move for a list that has changed since -- the station is no longer where the drag began -- is refused.
         let stale = await channels.move(first.id, from: 0, to: 1)
         XCTAssertFalse(stale)
+        // In the cache once the window's saves are done, each after the one before it: the list read again is
+        // read from there.
+        _ = await until({ (try? await app.model.channelsToArrange(broadcasting: "td"))?.map(\.id) ?? [] }, tries: 800) {
+            $0 == moved.stations.map(\.id)
+        }
         let again = await app.channels()
         defer { Task { await again.closed() } }
         let reread = await until(again.read) { $0.loaded && !$0.stations.isEmpty }

@@ -75,8 +75,9 @@ final class DeviceLinkTests: XCTestCase {
                             location: "http://\(host):64220/description.xml", via: "scan")
     }
 
-    /// Waits for `condition`, a few seconds at most: for what the link's own tasks get round to.
-    private func until(_ what: String, within seconds: Double = 3, _ condition: () -> Bool) async throws {
+    /// Waits for `condition`, half a minute at most, which a machine that stands still for seconds does not use
+    /// up: for what the link's own tasks get round to.
+    private func until(_ what: String, within seconds: Double = 30, _ condition: () -> Bool) async throws {
         let end = Date().addingTimeInterval(seconds)
         while !condition() {
             guard Date() < end else { return XCTFail(what) }
@@ -488,7 +489,13 @@ final class DeviceLinkTests: XCTestCase {
         let before = link.client
 
         world.devices[Stub.host] = nil
-        world.devices[Self.moved] = television
+        // The look asks every address at once and is over at the first that is the television saved, whatever
+        // is still out at the others. What the strip says while it looks is read from inside the ask where
+        // nobody is, so the television answers only once that has been read.
+        world.devices[Self.moved] = StubTransport { request, _ in
+            await eventually { await world.count("problem while looking") == 1 }
+            return try await television.send(request)
+        }
         world.devices[Self.nobodyHere] = StubTransport { _, _ in
             let line = await world.line
             let problem = await world.problem
