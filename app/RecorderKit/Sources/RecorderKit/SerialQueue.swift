@@ -146,6 +146,12 @@ final class LinkClients: @unchecked Sendable {
         lock.withLock { client < retiredBelow }
     }
 
+    /// How many requests wait for the wire at `host`, behind the one on it: read by the tests, which wait for a
+    /// request to be waiting before they let the one on the wire go.
+    func waiting(at host: String) -> Int {
+        lock.withLock { wires[host]?.waiting.count ?? 0 }
+    }
+
     /// Returns once no other client of the link has a request on the wire at `host`, and puts `client`'s down
     /// there, or once `limit` seconds have gone by first. True when it was put down, which the caller takes up
     /// again as its transport returns (`release`) or keeps (`keep`); false when the limit came first, and

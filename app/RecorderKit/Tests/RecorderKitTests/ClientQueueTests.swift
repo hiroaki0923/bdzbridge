@@ -749,9 +749,11 @@ final class ClientQueueTests: XCTestCase {
         let first = try XCTUnwrap(link.driver.makeClient(for: link) as? RecorderClient)
         let second = try XCTUnwrap(link.driver.makeClient(for: link) as? RecorderClient)
         let protecting = Task { try await first.updateTitle(id: "0x1", protected: true) }
-        for _ in 0..<100_000 { await Task.yield() }
+        await until("the protect never waited for the wire") { link.session.clients.waiting(at: Stub.host) == 1 }
         let deleting = Task { try await second.deleteTitle(id: "0x2") }
-        for _ in 0..<100_000 { await Task.yield() }
+        await until("the delete never waited for the wire behind the protect") {
+            link.session.clients.waiting(at: Stub.host) == 2
+        }
 
         await recorder.letGo()
         _ = try await within(10, "the held read never came back") { await reading.result }
@@ -772,7 +774,7 @@ final class ClientQueueTests: XCTestCase {
         try await recorder.whenHeld()
         let another = try XCTUnwrap(link.driver.makeClient(for: link) as? RecorderClient)
         let reading = Task { try await another.titles() }
-        for _ in 0..<100_000 { await Task.yield() }
+        await until("the read never waited for the wire") { link.session.clients.waiting(at: Stub.host) == 1 }
 
         await recorder.holdTheNext("X_GetTitleList")
         await recorder.letGo()
@@ -1113,13 +1115,15 @@ final class ClientQueueTests: XCTestCase {
     }
 
     /// Returns once a connect begun on `link` has made a client in place of `last` and its attach is under way
-    /// (接続中), and its ask of who answers has had the turns to get as far as its wait for the wire: waited
-    /// for as `eventually` waits, and a failure when it has not come by then.
+    /// (接続中), and its ask of who answers waits for the wire: waited for as `eventually` waits, and a failure
+    /// when it has not come by then.
     private func attaching(_ link: DeviceLink, in world: LinkWorld, after last: RecorderClient) async {
         await eventually { link.client !== last && world.line == "接続中" }
         XCTAssertFalse(link.client === last, "the connect made no client of its own")
         XCTAssertEqual(world.line, "接続中", "the connect's attach never began")
-        await yield()
+        await until("the connect's ask of who answers never waited for the wire") {
+            link.session.clients.waiting(at: Stub.host) == 1
+        }
     }
 
     /// Runs `work` and hands back what it returns, failing the test if it has not returned within `seconds`:
