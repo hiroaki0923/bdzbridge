@@ -820,11 +820,18 @@ extension AndroidBridgeTests {
     }
 
     /// The settings' words, as Kotlin keeps them, are the model's (`RecorderSettingsState`, `SettingsWords`, 番組表を更新's
-    /// on `AppModel`, `Disclaimer.title`).
+    /// on `AppModel`, `Disclaimer.title`, `TVCapabilitiesWords`).
     @MainActor
     func testTheSettingsWordsAreTheModels() {
         let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
         let words = app.settingsWords()
+        XCTAssertEqual([words.foundTelevisionsHeading, words.inUseLabel, words.registerFoundLabel],
+                       [SettingsWords.foundTelevisionsHeading, SettingsWords.inUseLabel,
+                        SettingsWords.registerFoundLabel])
+        XCTAssertEqual([words.capabilitiesTitle, words.capabilitiesCheckLabel, words.capabilitiesFooter,
+                        words.capabilitiesCopyLabel],
+                       [TVCapabilitiesWords.title, TVCapabilitiesWords.checkLabel, TVCapabilitiesWords.footer,
+                        TVCapabilitiesWords.copyLabel])
         XCTAssertEqual([words.recorderHeading, words.recorderFooter, words.standingLabel, words.hostLabel,
                         words.hostPlaceholder, words.macLabel, words.macPlaceholder, words.connectLabel,
                         words.reconnectLabel],
@@ -1216,6 +1223,7 @@ extension AndroidBridgeTests {
         XCTAssertTrue(television.registers)
         XCTAssertFalse(television.inUse)
         XCTAssertFalse(found.choosing)
+        XCTAssertEqual(found.televisionsFooter, SettingsWords.foundTelevisionsFooter(registers: true))
 
         let sheet = await app.registerTV(host: television.host, connectAtOnce: true, again: false)
         await sheet.appeared()
@@ -1256,6 +1264,22 @@ extension AndroidBridgeTests {
         XCTAssertFalse(added.television.offersTheHelper, "the demo's television was offered a helper")
         XCTAssertEqual(added.televisions.first?.inUse, true)
         XCTAssertEqual(added.televisions.first?.registers, false, "a found television could be tapped with one added")
+        XCTAssertEqual(added.televisionsFooter, SettingsWords.foundTelevisionsFooter(registers: false))
+        let listed = await until(devices.read) { $0.televisions.first?.inUse == true }
+        XCTAssertEqual(listed.televisionsFooter, SettingsWords.foundTelevisionsFooter(registers: false))
+        // What the part says of the television, in its labels and by the model's rules: the disk as the recorder's
+        // disks are said, and the helper's value though the demo's television has none to offer.
+        let said = await until(settings.read) {
+            $0.television.facts.contains { $0.label == TVSettingsState.storageLabel }
+        }
+        let part = TVSettingsState(model: app.model)
+        XCTAssertEqual(said.television.facts.map(\.label),
+                       [TVSettingsState.modelLabel, TVSettingsState.hostLabel, TVSettingsState.standingLabel,
+                        TVSettingsState.storageLabel])
+        XCTAssertEqual(said.television.facts.map(\.value),
+                       [part.modelName, DemoTV.host, part.standing, part.storageLine].compactMap { $0 })
+        XCTAssertEqual(said.television.helperShown, part.helperShown)
+        XCTAssertEqual(said.television.noTelevisionFooter, TVSettingsState.noTelevisionFooter(inDemo: true))
 
         await settings.removeTV()
         let asked = await until(settings.read) { $0.television.asksToRemove }
@@ -1273,6 +1297,42 @@ extension AndroidBridgeTests {
         let removed = await until(settings.read) { !$0.television.added }
         XCTAssertFalse(removed.television.asksToRemove)
         XCTAssertTrue(removed.demo)
+    }
+
+    /// The television's part and its sheets hand over the model's words: the part's own (`TVSettingsState`), said with
+    /// none added -- what it says of a television added is held above --, and the sheets' (`TVRegisterState`,
+    /// `HelperRegisterState`).
+    @MainActor
+    func testTheTelevisionsPartAndSheetsSayTheModelsWords() async throws {
+        let app = await demo()
+        let settings = await app.settings()
+        let none = await until(settings.read) { $0.canChoose }.television
+        XCTAssertFalse(none.added)
+        XCTAssertEqual([none.heading, none.addLabel, none.noTelevisionFooter],
+                       [TVSettingsState.heading, TVSettingsState.addLabel,
+                        TVSettingsState.noTelevisionFooter(inDemo: true)])
+        XCTAssertEqual([none.capabilitiesLabel, none.registerLabel, none.reconnectLabel, none.helperLabel,
+                        none.forgetHelperLabel, none.registerHelperLabel, none.removeLabel, none.removalQuestion,
+                        none.confirmRemovingLabel, none.cancelRemovingLabel],
+                       [TVSettingsState.capabilitiesLabel, TVSettingsState.registerLabel,
+                        TVSettingsState.reconnectLabel, TVSettingsState.helperLabel, TVSettingsState.forgetHelperLabel,
+                        TVSettingsState.registerHelperLabel, TVSettingsState.removeLabel,
+                        TVSettingsState.removalQuestion, TVSettingsState.confirmRemovingLabel, SheetWords.cancelLabel])
+
+        let sheet = await app.registerTV(host: "", connectAtOnce: false, again: false)
+        let asked = await sheet.read()
+        XCTAssertEqual([asked.hostLabel, asked.hostPlaceholder, asked.hostNote, asked.pinPlaceholder],
+                       [TVRegisterState.hostLabel, TVRegisterState.hostPlaceholder, TVRegisterState.hostNote,
+                        TVRegisterState.pinPlaceholder])
+        await sheet.closed()
+        let helper = await app.registerHelper()
+        let code = await helper.read()
+        XCTAssertEqual([code.title, code.codePlaceholder, code.codeNote, code.instructionsNote, code.instructionsLink,
+                        code.instructionsURL, code.pressLabel],
+                       [HelperRegisterState.title, HelperRegisterState.codePlaceholder, HelperRegisterState.codeNote,
+                        HelperRegisterState.instructionsNote, HelperRegisterState.instructionsLink,
+                        HelperRegisterState.instructionsURL, HelperRegisterState.pressLabel])
+        await helper.closed()
     }
 
     /// The television's registration and the helper's token are kept in files of the folder that never leaves the

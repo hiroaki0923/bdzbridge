@@ -144,7 +144,7 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
                 }
             }
             if (shown.televisions.isNotEmpty()) item {
-                FoundTelevisionsCard(shown.televisions, enabled = !shown.choosing) { host ->
+                FoundTelevisionsCard(shown.televisions, shown.televisionsFooter, enabled = !shown.choosing) { host ->
                     tvSheet = TVSheetRequest(host, connectAtOnce = true, again = false)
                 }
             }

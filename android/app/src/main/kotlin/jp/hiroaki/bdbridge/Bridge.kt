@@ -665,6 +665,7 @@ data class Devices(
     val searched: Long, val toSearch: Long, val searchingLine: String, val permissionNotice: String,
     val outcome: String, val outcomeFailed: Boolean, val outcomeNote: String, val causes: List<String>,
     val busy: String, val problem: String, val recorders: List<FoundRecorder>, val televisions: List<FoundTelevision>,
+    val televisionsFooter: String,
     val choosing: Boolean, val canChoose: Boolean, val typing: Boolean, val typedHost: String, val hostSet: Long,
     val addressNote: String, val addressWarning: Boolean, val connectHeld: Boolean, val demoHeld: Boolean,
     val demo: Boolean, val done: Boolean, val tutorial: TutorialText,
@@ -927,8 +928,9 @@ private fun Devices(it: jp.hiroaki.bdbridge.bridge.DevicesScreen) = Devices(
     it.permissionNotice,
     it.outcome, it.isOutcomeFailed, it.outcomeNote, it.causes.toList(), it.busy, it.problem,
     it.getRecorders(arena).map { found -> FoundRecorder(found.host, found.name, found.details, found.isInUse) },
-    televisions(it.getTelevisions(arena)), it.isChoosing, it.isCanChoose, it.isTyping, it.typedHost, it.hostSet,
-    it.addressNote, it.isAddressWarning, it.isConnectHeld, it.isDemoHeld, it.isDemo, it.isDone,
+    televisions(it.getTelevisions(arena)), it.televisionsFooter, it.isChoosing, it.isCanChoose, it.isTyping,
+    it.typedHost, it.hostSet, it.addressNote, it.isAddressWarning, it.isConnectHeld, it.isDemoHeld, it.isDemo,
+    it.isDone,
     it.getTutorial(arena).let { text ->
         TutorialText(text.heading, text.step1Title, text.step1Detail, text.step2Detail, text.step3Title,
                      text.step4Title, text.step4Detail, text.addressFooter, text.demoFooter)
@@ -1130,25 +1132,29 @@ data class Fact(val label: String, val value: String)
 
 /**
  * The settings' words that never change, as the model words them (`SettingsWordsText`): the recorder's part's, the
- * rest of the screen's, 番組表を更新's with the title of what it had to say, and ご利用上の注意. Kept from the model's
- * start (`RecBridge.settingsWords`).
+ * rest of the screen's with the televisions found, 番組表を更新's with the title of what it had to say, ご利用上の注意,
+ * and the page that says what the television speaks. Kept from the model's start (`RecBridge.settingsWords`).
  */
 data class SettingsWords(
     val title: String, val recorderHeading: String, val recorderFooter: String, val standingLabel: String,
     val hostLabel: String, val hostPlaceholder: String, val macLabel: String, val macPlaceholder: String,
     val connectLabel: String, val reconnectLabel: String, val defaultQualityLabel: String,
     val defaultQualityFooter: String, val searchLabel: String, val foundRecordersHeading: String,
+    val foundTelevisionsHeading: String, val inUseLabel: String, val registerFoundLabel: String,
     val channelsLabel: String, val channelsFooter: String, val guideHeading: String, val guideSourceLabel: String,
     val refreshGuideLabel: String, val refreshFailedTitle: String, val enterDemoLabel: String,
     val leaveDemoLabel: String, val appHeading: String, val disclaimerLabel: String, val versionLabel: String,
+    val capabilitiesTitle: String, val capabilitiesCheckLabel: String, val capabilitiesFooter: String,
+    val capabilitiesCopyLabel: String,
 )
 
 private fun SettingsWords(it: jp.hiroaki.bdbridge.bridge.SettingsWordsText) = SettingsWords(
     it.title, it.recorderHeading, it.recorderFooter, it.standingLabel, it.hostLabel, it.hostPlaceholder, it.macLabel,
     it.macPlaceholder, it.connectLabel, it.reconnectLabel, it.defaultQualityLabel, it.defaultQualityFooter,
-    it.searchLabel, it.foundRecordersHeading, it.channelsLabel, it.channelsFooter, it.guideHeading,
-    it.guideSourceLabel, it.refreshGuideLabel, it.refreshFailedTitle, it.enterDemoLabel, it.leaveDemoLabel,
-    it.appHeading, it.disclaimerLabel, it.versionLabel,
+    it.searchLabel, it.foundRecordersHeading, it.foundTelevisionsHeading, it.inUseLabel, it.registerFoundLabel,
+    it.channelsLabel, it.channelsFooter, it.guideHeading, it.guideSourceLabel, it.refreshGuideLabel,
+    it.refreshFailedTitle, it.enterDemoLabel, it.leaveDemoLabel, it.appHeading, it.disclaimerLabel, it.versionLabel,
+    it.capabilitiesTitle, it.capabilitiesCheckLabel, it.capabilitiesFooter, it.capabilitiesCopyLabel,
 )
 
 /**
@@ -1164,41 +1170,63 @@ data class Settings(
     val toSearch: Long, val searchingLine: String, val searchFooter: String, val outcome: String,
     val outcomeFailed: Boolean, val outcomeNote: String,
     val causes: List<String>, val recorders: List<FoundRecorder>, val televisions: List<FoundTelevision>,
+    val televisionsFooter: String,
     val canChoose: Boolean, val guideSources: List<Labelled>, val guideSource: String, val guideSourceAlone: String,
     val helperProblem: String, val guideSourceFooter: String, val guide: List<Fact>, val refreshHeld: Boolean,
     val demo: Boolean, val demoFooter: String,
     val version: String, val tutorialRow: String, val busy: String, val problem: String, val phoneProblem: String,
 )
 
-/** The television's part of the settings (`TelevisionPart`): with one added, or the way to add one. */
+/**
+ * The television's part of the settings (`TelevisionPart`): with one added, or the way to add one, in the part's words
+ * as the model words them, which come with each read.
+ */
 data class TelevisionPart(
-    val added: Boolean, val facts: List<Fact>, val offersRegistering: Boolean, val offersReconnect: Boolean,
-    val reconnectHeld: Boolean, val offersTheHelper: Boolean, val helperRegistered: Boolean, val removeHeld: Boolean,
-    val asksToRemove: Boolean, val removalQuestion: String, val removalMessage: String, val footer: String,
+    val heading: String, val added: Boolean, val facts: List<Fact>, val capabilitiesLabel: String,
+    val registerLabel: String, val offersRegistering: Boolean, val reconnectLabel: String,
+    val offersReconnect: Boolean, val reconnectHeld: Boolean, val offersTheHelper: Boolean, val helperLabel: String,
+    val helperShown: String, val helperRegistered: Boolean, val forgetHelperLabel: String,
+    val registerHelperLabel: String, val removeLabel: String, val removeHeld: Boolean, val asksToRemove: Boolean,
+    val removalQuestion: String, val removalMessage: String, val confirmRemovingLabel: String,
+    val cancelRemovingLabel: String, val footer: String, val addLabel: String, val noTelevisionFooter: String,
 )
 
 private fun TelevisionPart(it: jp.hiroaki.bdbridge.bridge.TelevisionPart) = TelevisionPart(
-    it.isAdded, facts(it.getFacts(arena)), it.isOffersRegistering, it.isOffersReconnect, it.isReconnectHeld,
-    it.isOffersTheHelper, it.isHelperRegistered, it.isRemoveHeld, it.isAsksToRemove, it.removalQuestion,
-    it.removalMessage, it.footer,
+    it.heading, it.isAdded, facts(it.getFacts(arena)), it.capabilitiesLabel, it.registerLabel, it.isOffersRegistering,
+    it.reconnectLabel, it.isOffersReconnect, it.isReconnectHeld, it.isOffersTheHelper, it.helperLabel, it.helperShown,
+    it.isHelperRegistered, it.forgetHelperLabel, it.registerHelperLabel, it.removeLabel, it.isRemoveHeld,
+    it.isAsksToRemove, it.removalQuestion, it.removalMessage, it.confirmRemovingLabel, it.cancelRemovingLabel,
+    it.footer, it.addLabel, it.noTelevisionFooter,
 )
 
-/** The television's sheet (`TVRegisterWindow`): `pinSet` moves when the model has set the PIN field itself. */
+/**
+ * The television's sheet (`TVRegisterWindow`): `pinSet` moves when the model has set the PIN field itself. The
+ * fields' words are the model's, which come with each read.
+ */
 data class TVRegisterScreen(
-    val title: String, val typedHost: String, val addressHeld: Boolean, val askingForPIN: Boolean, val pin: String,
-    val pinSet: Long, val pinNote: String, val turnedAway: String, val message: String, val pressLabel: String,
-    val pressHeld: Boolean, val working: Boolean, val done: Boolean,
+    val title: String, val hostLabel: String, val hostPlaceholder: String, val hostNote: String,
+    val pinPlaceholder: String, val typedHost: String, val addressHeld: Boolean, val askingForPIN: Boolean,
+    val pin: String, val pinSet: Long, val pinNote: String, val turnedAway: String, val message: String,
+    val pressLabel: String, val pressHeld: Boolean, val working: Boolean, val done: Boolean,
 )
 
 private fun TVRegisterScreen(it: jp.hiroaki.bdbridge.bridge.TVRegisterScreen) = TVRegisterScreen(
-    it.title, it.typedHost, it.isAddressHeld, it.isAskingForPIN, it.pin, it.pinSet, it.pinNote, it.turnedAway,
-    it.message, it.pressLabel, it.isPressHeld, it.isWorking, it.isDone,
+    it.title, it.hostLabel, it.hostPlaceholder, it.hostNote, it.pinPlaceholder, it.typedHost, it.isAddressHeld,
+    it.isAskingForPIN, it.pin, it.pinSet, it.pinNote, it.turnedAway, it.message, it.pressLabel, it.isPressHeld,
+    it.isWorking, it.isDone,
 )
 
-data class HelperRegisterScreen(val pressHeld: Boolean, val working: Boolean, val message: String, val done: Boolean)
+/** The helper's sheet (`HelperRegisterWindow`), its words as the model words them. */
+data class HelperRegisterScreen(
+    val title: String, val codePlaceholder: String, val codeNote: String, val instructionsNote: String,
+    val instructionsLink: String, val instructionsURL: String, val pressLabel: String, val pressHeld: Boolean,
+    val working: Boolean, val message: String, val done: Boolean,
+)
 
-private fun HelperRegisterScreen(it: jp.hiroaki.bdbridge.bridge.HelperRegisterScreen) =
-    HelperRegisterScreen(it.isPressHeld, it.isWorking, it.message, it.isDone)
+private fun HelperRegisterScreen(it: jp.hiroaki.bdbridge.bridge.HelperRegisterScreen) = HelperRegisterScreen(
+    it.title, it.codePlaceholder, it.codeNote, it.instructionsNote, it.instructionsLink, it.instructionsURL,
+    it.pressLabel, it.isPressHeld, it.isWorking, it.message, it.isDone,
+)
 
 private fun facts(list: Array<jp.hiroaki.bdbridge.bridge.Fact>) = list.map { Fact(it.label, it.value) }
 
@@ -1209,7 +1237,8 @@ private fun Settings(it: jp.hiroaki.bdbridge.bridge.SettingsScreen) = Settings(
     it.searched, it.toSearch, it.searchingLine, it.searchFooter, it.outcome, it.isOutcomeFailed, it.outcomeNote,
     it.causes.toList(),
     it.getRecorders(arena).map { found -> FoundRecorder(found.host, found.name, found.details, found.isInUse) },
-    televisions(it.getTelevisions(arena)), it.isCanChoose, labelled(it.getGuideSources(arena)), it.guideSource,
+    televisions(it.getTelevisions(arena)), it.televisionsFooter, it.isCanChoose, labelled(it.getGuideSources(arena)),
+    it.guideSource,
     it.guideSourceAlone, it.helperProblem, it.guideSourceFooter, facts(it.getGuide(arena)), it.isRefreshHeld,
     it.isDemo, it.demoFooter, it.version, it.tutorialRow, it.busy, it.problem, it.phoneProblem,
 )
