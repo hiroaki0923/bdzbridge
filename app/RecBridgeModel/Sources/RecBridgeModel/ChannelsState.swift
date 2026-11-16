@@ -22,9 +22,6 @@ public final class ChannelsState {
     public private(set) var listed: String
     public private(set) var loaded = false
     public var failure: String?
-    /// The save under way. Each waits for the one before it: a save carries the whole of the order, or the whole of
-    /// what is hidden, so two quick changes arriving the wrong way round would undo the second.
-    @ObservationIgnored private var saving: Task<Void, Never>?
 
     public init(broadcasting: String, model: AppModel) {
         self.model = model
@@ -105,10 +102,12 @@ public final class ChannelsState {
     }
 
     /// The list on screen is changed first and the cache after, so a drag does not wait on the database. A save
-    /// that fails puts the list back to what the cache holds, and says why.
+    /// that fails puts the list back to what the cache holds, and says why. Each waits for the one before it,
+    /// whichever screen made that one: the saves are in one line for the model (`AppModel.savingChannels`).
+    /// What runs in that line reads the list with `read`, never `load`, which would wait for itself.
     private func save(_ change: @escaping @MainActor () async throws -> Void) {
-        let before = saving
-        saving = Task {
+        let before = model.savingChannels
+        model.savingChannels = Task {
             await before?.value
             do {
                 try await change()
@@ -119,10 +118,10 @@ public final class ChannelsState {
         }
     }
 
-    /// Reads the list for the type picked, once any save under way is done: for the screen to run as the source
-    /// changes (`source`).
+    /// Reads the list for the type picked, once every save under way is done, this screen's or another's: for the
+    /// screen to run as the source changes (`source`).
     public func load() async {
-        await saving?.value
+        await model.savingChannels?.value
         await read()
     }
 
