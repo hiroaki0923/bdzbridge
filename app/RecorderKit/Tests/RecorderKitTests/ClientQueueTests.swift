@@ -3,7 +3,7 @@ import Android
 #endif
 import Foundation
 import XCTest
-import RecorderKit
+@testable import RecorderKit
 
 /// What a link's clients send of what was handed to them, whatever has become of the device meanwhile: each
 /// client sends one request at a time, in the order they were handed over (`SerialQueue`), and a link makes a
@@ -204,8 +204,13 @@ final class ClientQueueTests: XCTestCase {
         await recorder.holdTheNext("X_GetTitleList")
         let reading = Task { try await last.titles() }
         try await recorder.whenHeld()
+        await until("set up wrong: another request than the held read was in the client's queue") {
+            await last.requestsInLine == 1
+        }
         let sending = Task { await driver.sendWhatWaits() }
-        await yield()
+        await until("the round's first read was never queued behind the held read") {
+            await last.requestsInLine == 2
+        }
 
         link.forgetTheDevice()
         await recorder.letGo()
@@ -926,8 +931,13 @@ final class ClientQueueTests: XCTestCase {
         await bench.gate.before("getPowerStatus") { await latch.wait() }
         let asking = Task { try await last.powerStatus() }
         try await within(10, "the request never came to be held") { await latch.whenWaiting() }
+        await until("set up wrong: another request than the held one was in the client's queue") {
+            await last.requestsInLine == 1
+        }
         let sending = Task { await bench.driver.sendWhatWaits() }
-        await yield()
+        await until("the round's first read was never queued behind the held request") {
+            await last.requestsInLine == 2
+        }
         let asked = await bench.gate.asked.count
 
         bench.link.forgetTheDevice()
@@ -1093,6 +1103,13 @@ final class ClientQueueTests: XCTestCase {
     /// A bounded number of turns, for what was set going to get as far as its first wait.
     private func yield() async {
         for _ in 0..<1_000 { await Task.yield() }
+    }
+
+    /// Returns once `done` holds, waited for as `eventually` waits, and a failure saying `what` when it has not
+    /// come by then: for what was set going in a task of its own to have got as far as a wait the test can see.
+    private func until(_ what: String, _ done: () async -> Bool) async {
+        let came = await eventually(done)
+        XCTAssertTrue(came, what)
     }
 
     /// Returns once a connect begun on `link` has made a client in place of `last` and its attach is under way

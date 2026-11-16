@@ -18,6 +18,11 @@ public actor RecorderClient {
 
     private let transport: any HTTPTransport
     private let queue = SerialQueue()
+    /// How many requests have been handed to the queue and are not back (`SerialQueue.inLine`): the one going,
+    /// and those waiting behind it. Read by the tests, which wait for a request to be queued behind another.
+    nonisolated var requestsInLine: Int {
+        get async { await queue.inLine }
+    }
     /// How long to wait, in seconds, before sending again what the recorder answered 503 to. See `send`.
     private let busyRetryDelay: ClosedRange<Double>
     /// How many times a request answered 503 is sent again before the 503 is thrown.

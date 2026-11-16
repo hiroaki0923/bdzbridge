@@ -299,6 +299,11 @@ public actor ScalarClient {
     private let transport: any HTTPTransport
     private let credentials: any TVCredentialStore
     private let queue = SerialQueue()
+    /// How many requests have been handed to the queue and are not back (`SerialQueue.inLine`): the one going,
+    /// and those waiting behind it. Read by the tests, which wait for a request to be queued behind another.
+    nonisolated var requestsInLine: Int {
+        get async { await queue.inLine }
+    }
     /// When the cookie in the store arrived (`TVCredentials.cookieReceived`), nil with none: what changes with
     /// each registration, and with each renewal.
     nonisolated var cookieReceived: Date? { credentials.load()?.cookieReceived }
