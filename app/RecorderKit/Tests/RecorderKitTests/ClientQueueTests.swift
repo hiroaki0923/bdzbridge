@@ -603,14 +603,14 @@ final class ClientQueueTests: XCTestCase {
         let reading = Task { try await last.titles() }
         try await recorder.whenHeld()
         let protecting = Task { try await last.updateTitle(id: "0x1", protected: true) }
-        await yield()
+        await until("the protect was never queued behind the held read") { await last.requestsInLine == 2 }
         let newcomer = try PlayingRecorder(Self.answers, udn: Self.anotherUDN)
         world.devices[Stub.host] = newcomer
         let connecting = Task { await link.connect() }
         await attaching(link, in: world, after: last)
         let fresh = try XCTUnwrap(link.client as? RecorderClient)
         let readingFresh = Task { try await fresh.titles() }
-        await yield()
+        await until("the read was never queued behind the ask") { await fresh.requestsInLine == 2 }
 
         await recorder.letGo()
         // The attach goes on in a turn of the main actor's, which this keeps until the newcomer has answered the
@@ -645,12 +645,12 @@ final class ClientQueueTests: XCTestCase {
         let reading = Task { try await last.titles() }
         try await recorder.whenHeld()
         let protecting = Task { try await last.updateTitle(id: "0x1", protected: true) }
-        await yield()
+        await until("the protect was never queued behind the held read") { await last.requestsInLine == 2 }
         let connecting = Task { await link.connect() }
         await attaching(link, in: world, after: last)
         let fresh = try XCTUnwrap(link.client as? RecorderClient)
         let readingFresh = Task { try await fresh.titles() }
-        await yield()
+        await until("the read was never queued behind the ask") { await fresh.requestsInLine == 2 }
 
         let reads = recorder.heard.count("X_GetTitleList")
         await recorder.holdTheNext("X_GetTitleList")
@@ -779,7 +779,9 @@ final class ClientQueueTests: XCTestCase {
         await recorder.holdTheNext("X_GetTitleList")
         await recorder.letGo()
         try await recorder.whenHeld()
-        for _ in 0..<100_000 { await Task.yield() }
+        await until("the protect's next try never waited for the wire") {
+            link.session.clients.waiting(at: Stub.host) == 1
+        }
         expectEqual(await recorder.actions.filter { $0 == "X_UpdateTitle" }.count, 1,
                     "the protect's next try went beside the read of another client")
 

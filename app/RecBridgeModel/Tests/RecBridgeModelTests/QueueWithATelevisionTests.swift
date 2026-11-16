@@ -2078,6 +2078,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         let (model, television, door) = (home.model, home.television, home.door)
         try await untilConnected(model)
         try await untilTheTelevisionIsConnected(model)
+        try await afterTheQueuesTurn()
         let host = try XCTUnwrap(model.tvHost)
         let row = forTheTelevision(Self.dueRow)
         try await home.store.queue(row)
@@ -2320,6 +2321,7 @@ final class QueueWithATelevisionTests: XCTestCase {
             let (model, door) = (home.model, home.door)
             try await untilConnected(model)
             try await untilTheTelevisionIsConnected(model)
+            try await afterTheQueuesTurn()
             let program = try await programmesNotReserved(model, 1)[0]
             try await home.store.queue(forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401)))
             // Behind the reservation, so that the reservation's create is the one held; or half an hour ahead
@@ -2516,6 +2518,7 @@ final class QueueWithATelevisionTests: XCTestCase {
         let (model, door, store) = (home.model, home.door, home.store)
         try await untilConnected(model)
         try await untilTheTelevisionIsConnected(model)
+        try await afterTheQueuesTurn()
         try await store.queue(forTheTelevision(waiting("サンプル劇場", startingIn: 120, programme: 4401)))
         let held = turnedDown(forTheTelevision(waiting("サンプル紀行", startingIn: 180, programme: 4402)),
                               for: "前に断られた理由")

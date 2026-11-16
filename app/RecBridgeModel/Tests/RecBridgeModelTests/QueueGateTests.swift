@@ -818,6 +818,7 @@ final class QueueGateTests: XCTestCase {
             let rows = try [first, next].map { try waiting(for: $0) }
             XCTAssertLessThan(rows[0].request.start, rows[1].request.start,
                               "the round would send them in no set order")
+            try await afterTheQueuesTurn()
             for row in rows { try await store.queue(row) }
             await model.loadPending()
             let before = await recorder.asked
