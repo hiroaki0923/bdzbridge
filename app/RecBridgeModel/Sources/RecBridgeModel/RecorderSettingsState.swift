@@ -82,6 +82,8 @@ public final class RecorderSettingsState {
     /// The section's heading and what is said under it, the labels of what the recorder says of itself and of how the
     /// link stands, the two fields with what each shows while empty, and the two buttons. The tutorial's address field
     /// shows the same while empty, and its button says このアドレスに接続 too.
+    /// The television's part says 機種, IP アドレス, 状態 and 再接続 in the same words, and its sheet the address
+    /// field's label (`TVSettingsState`, `TVRegisterState`).
     public static let heading = "レコーダー"
     public static let footer = "MAC アドレスは、スリープ中のレコーダーを起動するために使います。接続時に自動で記録されるので、通常は入力不要です。"
     public static let productLabel = "機種"

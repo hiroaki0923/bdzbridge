@@ -77,8 +77,12 @@ public final class TVRegisterState {
     /// asked.
     public var holdsTheAddress: Bool { askingForPIN || working }
 
+    /// The press that registers, once the PIN is asked for; the sheet for the helper ends in the same press
+    /// (`HelperRegisterState.pressLabel`).
+    public static let registerLabel = "登録する"
+
     /// 登録する once the PIN is asked for, テレビに接続 before.
-    public var pressLabel: String { askingForPIN ? "登録する" : "テレビに接続" }
+    public var pressLabel: String { askingForPIN ? Self.registerLabel : "テレビに接続" }
 
     /// The button is held while a step is under way, for an address no URL can be built on, and for a PIN that is not
     /// four long.
@@ -168,7 +172,7 @@ public final class HelperRegisterState {
     // MARK: - the sheet's words
 
     /// The sheet's title, and what the code field shows while empty.
-    public static let title = "テレビの番組表に登録"
+    public static let sheetTitle = "テレビの番組表に登録"
     public static let codePlaceholder = "6 桁の番号"
 
     /// What is said under the field: where the code is shown, and how long it lasts; then where the way to put the
@@ -179,8 +183,9 @@ public final class HelperRegisterState {
     public static let instructionsLink = "github.com/hiroaki0923/bdzbridge/helper"
     public static let instructionsURL = "https://github.com/hiroaki0923/bdzbridge/blob/main/helper/README.md"
 
-    /// The button that registers.
-    public static let pressLabel = "登録する"
+    /// The button that registers: the same press as the one that ends the other sheet
+    /// (`TVRegisterState.registerLabel`).
+    public static let pressLabel = TVRegisterState.registerLabel
 
     // MARK: - the reader's press
 

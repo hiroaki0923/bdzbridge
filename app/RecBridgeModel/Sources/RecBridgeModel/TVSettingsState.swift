@@ -27,7 +27,7 @@ public final class TVSettingsState {
     /// what it speaks, and the buttons. Where the recorder's part has the same label or button in the same place, the
     /// word is the recorder's part's.
     public static let heading = "テレビ"
-    public static let modelLabel = RecorderSettingsState.productLabel
+    public static let productLabel = RecorderSettingsState.productLabel
     public static let hostLabel = RecorderSettingsState.hostLabel
     public static let standingLabel = RecorderSettingsState.standingLabel
     public static let capabilitiesLabel = "対応状況を調べる"
@@ -55,10 +55,10 @@ public final class TVSettingsState {
     // MARK: - what the television says of itself
 
     /// 機種: the model, as the television gave it; nil until it has said.
-    public var modelName: String? { model.tvDriver?.facts.model }
+    public var productName: String? { model.tvDriver?.facts.model }
 
-    /// USB ハードディスク: how full the disk it records to is, in the words the recorder's disks share
-    /// (`Format.storage`); nil until the television has said.
+    /// USB ハードディスク: the disk it records to, as `Format.storage` words a disk -- how full, or whether it is
+    /// there --; nil while the television has not said, as an older one never does.
     public var storageLine: String? {
         model.tvDriver?.facts.storage.map {
             Format.storage(mounted: $0.mounted, freeBytes: $0.freeBytes, totalBytes: $0.totalBytes, on: .tv)

@@ -12,7 +12,7 @@ import XCTest
 final class TVWordsTests: XCTestCase {
     func testTheTelevisionsPartSaysWhatTheScreenSaid() {
         XCTAssertEqual(TVSettingsState.heading, "テレビ")
-        XCTAssertEqual(TVSettingsState.modelLabel, "機種")
+        XCTAssertEqual(TVSettingsState.productLabel, "機種")
         XCTAssertEqual(TVSettingsState.hostLabel, "IP アドレス")
         XCTAssertEqual(TVSettingsState.standingLabel, "状態")
         XCTAssertEqual(TVSettingsState.capabilitiesLabel, "対応状況を調べる")
@@ -44,7 +44,7 @@ final class TVWordsTests: XCTestCase {
     func testTheTelevisionsModelAndDiskAreSaidAsItGaveThem() async throws {
         let empty = try aBench()
         let none = TVSettingsState(model: empty.modelWithNoRecorder())
-        XCTAssertNil(none.modelName)
+        XCTAssertNil(none.productName)
         XCTAssertNil(none.storageLine)
 
         let bench = try aBench()
@@ -55,7 +55,7 @@ final class TVWordsTests: XCTestCase {
         try await untilTheTelevisionIsConnected(model)
         try await until("the television's disk was never read") { model.tvDriver?.facts.storage != nil }
         let settings = TVSettingsState(model: model)
-        XCTAssertEqual(settings.modelName, DemoTV.model)
+        XCTAssertEqual(settings.productName, DemoTV.model)
         let storage = try XCTUnwrap(model.tvDriver?.facts.storage)
         XCTAssertEqual(settings.storageLine, Format.storage(mounted: storage.mounted, freeBytes: storage.freeBytes,
                                                            totalBytes: storage.totalBytes, on: .tv))
@@ -88,7 +88,7 @@ final class TVWordsTests: XCTestCase {
     /// The helper's sheet: its title, the code field, the two sentences under it with the link and where it goes, and
     /// the button.
     func testTheHelpersSheetSaysWhatItSaid() {
-        XCTAssertEqual(HelperRegisterState.title, "テレビの番組表に登録")
+        XCTAssertEqual(HelperRegisterState.sheetTitle, "テレビの番組表に登録")
         XCTAssertEqual(HelperRegisterState.codePlaceholder, "6 桁の番号")
         XCTAssertEqual(HelperRegisterState.codeNote,
                        "テレビで「RecBridge ヘルパー」を開き、「登録の番号を出す」で表示された 6 桁の番号を入力してください。"
@@ -98,6 +98,9 @@ final class TVWordsTests: XCTestCase {
         XCTAssertEqual(HelperRegisterState.instructionsURL,
                        "https://github.com/hiroaki0923/bdzbridge/blob/main/helper/README.md")
         XCTAssertEqual(HelperRegisterState.pressLabel, "登録する")
+        // The press that registers is one word at the end of either sheet.
+        XCTAssertEqual(TVRegisterState.registerLabel, "登録する")
+        XCTAssertEqual(HelperRegisterState.pressLabel, TVRegisterState.registerLabel)
     }
 
     /// The screen that says what the television speaks: its title, its button, what is said under it, and the button

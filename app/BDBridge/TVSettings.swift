@@ -40,8 +40,8 @@ struct TVSection: View {
         Group {
             if let tv = model.tv {
                 Section {
-                    if let name = television.modelName {
-                        LabeledContent(TVSettingsState.modelLabel, value: name)
+                    if let name = television.productName {
+                        LabeledContent(TVSettingsState.productLabel, value: name)
                     }
                     LabeledContent(TVSettingsState.hostLabel, value: tv.host)
                     if let standing = television.standing {
@@ -132,7 +132,7 @@ struct HelperRegisterSheet: View {
                     if helper.working { ProgressView() }
                 }
             }
-            .navigationTitle(HelperRegisterState.title)
+            .navigationTitle(HelperRegisterState.sheetTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

@@ -1274,10 +1274,10 @@ extension AndroidBridgeTests {
         }
         let part = TVSettingsState(model: app.model)
         XCTAssertEqual(said.television.facts.map(\.label),
-                       [TVSettingsState.modelLabel, TVSettingsState.hostLabel, TVSettingsState.standingLabel,
+                       [TVSettingsState.productLabel, TVSettingsState.hostLabel, TVSettingsState.standingLabel,
                         TVSettingsState.storageLabel])
         XCTAssertEqual(said.television.facts.map(\.value),
-                       [part.modelName, DemoTV.host, part.standing, part.storageLine].compactMap { $0 })
+                       [part.productName, DemoTV.host, part.standing, part.storageLine].compactMap { $0 })
         XCTAssertEqual(said.television.helperShown, part.helperShown)
         XCTAssertEqual(said.television.noTelevisionFooter, TVSettingsState.noTelevisionFooter(inDemo: true))
 
@@ -1329,7 +1329,7 @@ extension AndroidBridgeTests {
         let code = await helper.read()
         XCTAssertEqual([code.title, code.codePlaceholder, code.codeNote, code.instructionsNote, code.instructionsLink,
                         code.instructionsURL, code.pressLabel],
-                       [HelperRegisterState.title, HelperRegisterState.codePlaceholder, HelperRegisterState.codeNote,
+                       [HelperRegisterState.sheetTitle, HelperRegisterState.codePlaceholder, HelperRegisterState.codeNote,
                         HelperRegisterState.instructionsNote, HelperRegisterState.instructionsLink,
                         HelperRegisterState.instructionsURL, HelperRegisterState.pressLabel])
         await helper.closed()

@@ -132,7 +132,7 @@ public final class TVRegisterWindow: Sendable {
 
 /// The sheet that registers with the helper on the television (`HelperRegisterSheet` on iOS).
 public struct HelperRegisterScreen: Sendable {
-    /// The sheet's words (`HelperRegisterState.title` and the rest): its title, what the code field shows while empty,
+    /// The sheet's words (`HelperRegisterState.sheetTitle` and the rest): its title, what the code field shows while empty,
     /// the two sentences under it, the link with where it goes, and the button.
     public var title: String
     public var codePlaceholder: String
@@ -156,7 +156,7 @@ public final class HelperRegisterWindow: Sendable {
     init(_ helper: HelperRegisterState) {
         self.helper = helper
         shown = Watched {
-            HelperRegisterScreen(title: HelperRegisterState.title, codePlaceholder: HelperRegisterState.codePlaceholder,
+            HelperRegisterScreen(title: HelperRegisterState.sheetTitle, codePlaceholder: HelperRegisterState.codePlaceholder,
                                  codeNote: HelperRegisterState.codeNote,
                                  instructionsNote: HelperRegisterState.instructionsNote,
                                  instructionsLink: HelperRegisterState.instructionsLink,
@@ -228,7 +228,7 @@ extension TelevisionPart {
     @MainActor init(_ model: AppModel, _ television: TVSettingsState) {
         var facts: [Fact] = []
         if let tv = model.tv {
-            if let name = television.modelName { facts.append(Fact(label: TVSettingsState.modelLabel, value: name)) }
+            if let name = television.productName { facts.append(Fact(label: TVSettingsState.productLabel, value: name)) }
             facts.append(Fact(label: TVSettingsState.hostLabel, value: tv.host))
             if let standing = television.standing {
                 facts.append(Fact(label: TVSettingsState.standingLabel, value: standing))
