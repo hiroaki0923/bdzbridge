@@ -116,7 +116,7 @@ final class ScanTests: XCTestCase {
         let atOnce = 48
 
         model.scanForDevices()
-        try await until("the look's first requests were not out at once", within: 1) {
+        try await until("the look's first requests were not out at once") {
             await subnet.asked == 2 * atOnce
         }
         let first = await subnet.askedOf
@@ -684,7 +684,7 @@ final class ScanTests: XCTestCase {
         let clients = bench.clientsMade
 
         model.scanForDevices()
-        try await until("the television was not listed while the recorder's answer was to come", within: 2) {
+        try await until("the television was not listed while the recorder's answer was to come") {
             model.foundTelevisions == [TVSighting(host: Bench.tvHost, model: DemoTV.model)]
         }
         XCTAssertEqual(model.found, [], "the recorder was listed before it had answered")
@@ -931,12 +931,12 @@ final class ScanTests: XCTestCase {
         addTeardownBlock { @MainActor in model.stopScanning() }
 
         model.scanForDevices()
-        try await until("the television was never listed", within: 2) { !model.foundTelevisions.isEmpty }
+        try await until("the television was never listed") { !model.foundTelevisions.isEmpty }
         expectEqual(await model.findTV(at: Bench.tvHost), .on(model: DemoTV.model))
         expectEqual(await model.registerTV(at: Bench.tvHost, pin: nil), .pinNeeded)
         XCTAssertNotNil(model.scanning, "the look stopped at the television's tap")
         await further.letGo()
-        try await until("the recorder further up was not listed", within: 1) { model.found.count == 1 }
+        try await until("the recorder further up was not listed") { model.found.count == 1 }
         XCTAssertNotNil(model.scanning, "the look was over with a recorder still to answer")
         XCTAssertEqual(model.foundTelevisions.map(\.host), [Bench.tvHost])
 

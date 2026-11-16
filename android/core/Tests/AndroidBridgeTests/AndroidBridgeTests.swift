@@ -19,9 +19,12 @@ final class AndroidBridgeTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
+    /// The app's model in the demo, its search giving each address a minute, where the app gives 1.2 seconds: a
+    /// machine that stands still for a second or two would otherwise have a demo's device found by nobody.
     @MainActor
     private func demo() async -> RecBridgeApp {
-        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)",
+                                    scanProbeTimeout: 60)
         await app.start()
         await app.devices().enterDemo()
         return app

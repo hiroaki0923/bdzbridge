@@ -34,6 +34,10 @@ final class Bench {
     /// How long a model made here waits for a television's list that may still be coming: a moment, where the app
     /// waits three minutes. What the wait does is RecorderKit's to test.
     var tvTitlesWait = TVTitlesWait(every: .milliseconds(5), for: 0.1)
+    /// How long a search of a model made here gives each address: a minute, where the app gives 1.2 seconds. A
+    /// test holds a probe for as long as it likes, which its deadline would otherwise cut short on a machine that
+    /// stands still for a second or two (`Discovery.raced`).
+    var scanProbeTimeout: TimeInterval = 60
     /// How many clients a model made here has made, whatever the address: one for each attempt at a recorder.
     private(set) var clientsMade = 0
     /// What the searches of the models made here wrote for the log, in order: kept here in place of the
@@ -299,6 +303,7 @@ final class Bench {
                 return self?.subnet ?? Subnet()
             },
             scanPause: { [weak self] in await self?.pause(for: $0) },
+            scanProbeTimeout: scanProbeTimeout,
             scanLog: { [weak self] in self?.scanLog.append($0) }))
     }
 
