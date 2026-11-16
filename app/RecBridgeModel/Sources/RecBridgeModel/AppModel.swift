@@ -172,6 +172,13 @@ public final class AppModel {
     /// How many reads of the guide from the cache are under way (`reloadFromCache`). While one is, what the
     /// guide lists is about to be replaced: see `GuideScreen.scroll`.
     public var guideReads = 0
+    /// The last of the saves of which channels the guide shows and in what order (`ChannelsState.save`), each
+    /// waiting for the one before it: a save carries the whole of the order, or the whole of what is hidden, so
+    /// two quick changes arriving the wrong way round would undo the second. The model's and not a screen's: the
+    /// screen can be opened again, or twice at once -- from the settings and over the guide -- while a save made
+    /// on another is still out, and a list read before that save lands shows what it replaces, and writes that
+    /// back with the next change made there.
+    @ObservationIgnored var savingChannels: Task<Void, Never>?
     /// What the recorder in play said, as its host holds it (`RecorderSaid`), under the names the screens read.
     var reservations: [Reservation] { recorderHost.said.reservations }
     var reservationsRead: Date? { recorderHost.said.reservationsRead }
