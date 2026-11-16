@@ -294,8 +294,7 @@ struct FoundRecorderRow: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(recorder.product).font(.subheadline)
-                Text("\(recorder.host) · \(recorder.friendlyName)"
-                     + (recorder.epgCapable ? " · 番組表あり" : " · 番組表なし"))
+                Text(SettingsWords.foundRecorderDetails(recorder))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -305,7 +304,7 @@ struct FoundRecorderRow: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tint)
             } else {
-                FoundRowAction(title: "接続する")
+                FoundRowAction(title: SettingsWords.connectFoundLabel)
             }
         }
         .rowHitArea()

@@ -62,6 +62,27 @@ final class SettingsWordsTests: XCTestCase {
         XCTAssertEqual(SettingsWords.version(release: "0.2", build: "12"), "0.2 (12)")
     }
 
+    /// A found recorder's second line, as its row has always built it: the address, the name it gave and whether it
+    /// serves a guide, with the middle dot between.
+    func testAFoundRecordersDetailsAreSaidAsTheRowSaidThem() throws {
+        func recorder(epg: String) throws -> RecorderDescription {
+            let xml = """
+                <root xmlns:av="urn:schemas-sony-com:av"><device>
+                <friendlyName>サンプルレコーダー</friendlyName><manufacturer>Sony Corporation</manufacturer>
+                <UDN>uuid:sample</UDN>
+                <av:X_ScalarWebAPI_DeviceInfo><av:EPG_CAP>\(epg)</av:EPG_CAP></av:X_ScalarWebAPI_DeviceInfo>
+                <serviceList><service>
+                <serviceType>urn:schemas-xsrs-org:service:X_ScheduledRecording:2</serviceType>
+                </service></serviceList></device></root>
+                """
+            return try XCTUnwrap(Discovery.parseDescription(xml, host: "192.0.2.10", location: "", via: "scan"))
+        }
+        XCTAssertEqual(SettingsWords.foundRecorderDetails(try recorder(epg: "03")),
+                       "192.0.2.10 \u{B7} サンプルレコーダー \u{B7} 番組表あり")
+        XCTAssertEqual(SettingsWords.foundRecorderDetails(try recorder(epg: "00")),
+                       "192.0.2.10 \u{B7} サンプルレコーダー \u{B7} 番組表なし")
+    }
+
     /// What the search found, as the tutorial and the settings have always said it: the televisions' heading, 使用中 at
     /// the end of a recorder's row and of a television's, the television's row's 登録する, its name where it gave
     /// none, and what is said under the televisions while a tap registers one and with one added.
@@ -69,6 +90,7 @@ final class SettingsWordsTests: XCTestCase {
         XCTAssertEqual(SettingsWords.foundTelevisionsHeading, "見つかったテレビ")
         XCTAssertEqual(SettingsWords.inUseLabel, "使用中")
         XCTAssertEqual(SettingsWords.registerFoundLabel, "登録する")
+        XCTAssertEqual(SettingsWords.connectFoundLabel, "接続する")
         XCTAssertEqual(SettingsWords.foundTelevisionName(""), "テレビ")
         XCTAssertEqual(SettingsWords.foundTelevisionName(DemoTV.model), DemoTV.model)
         XCTAssertEqual(SettingsWords.foundTelevisionsFooter(registers: true),
