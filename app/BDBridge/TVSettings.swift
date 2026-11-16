@@ -25,7 +25,8 @@ struct TVSection: View {
     /// its rows -- and with several presenters on the one state the sheet went by itself at the first press,
     /// and again as a registration turned the section from one form to the other under it.
     @Binding var sheet: TVSheetRequest?
-    /// How the link stands, the helper, and テレビを外す with its question.
+    /// What the television says of itself, how the link stands, the helper, and テレビを外す with its question, in
+    /// the part's words.
     @State private var television: TVSettingsState
     /// Whether the sheet that registers with the helper on the television is up, hung on its own button.
     @State private var registeringHelper = false
@@ -39,38 +40,38 @@ struct TVSection: View {
         Group {
             if let tv = model.tv {
                 Section {
-                    if let name = model.tvDriver?.facts.model {
-                        LabeledContent("機種", value: name)
+                    if let name = television.modelName {
+                        LabeledContent(TVSettingsState.modelLabel, value: name)
                     }
-                    LabeledContent("IP アドレス", value: tv.host)
+                    LabeledContent(TVSettingsState.hostLabel, value: tv.host)
                     if let standing = television.standing {
-                        LabeledContent("状態", value: standing)
+                        LabeledContent(TVSettingsState.standingLabel, value: standing)
                     }
-                    NavigationLink("対応状況を調べる") { TVCapabilitiesScreen(host: tv.host) }
-                    if let storage = model.tvDriver?.facts.storage {
-                        LabeledContent("USB ハードディスク",
-                                       value: Format.storage(mounted: storage.mounted, freeBytes: storage.freeBytes,
-                                                             totalBytes: storage.totalBytes, on: .tv))
+                    NavigationLink(TVSettingsState.capabilitiesLabel) { TVCapabilitiesScreen(host: tv.host) }
+                    if let storage = television.storageLine {
+                        LabeledContent(TVSettingsState.storageLabel, value: storage)
                     }
                     if television.offersRegistering {
-                        Button("登録する") { sheet = TVSheetRequest(host: tv.host, connectAtOnce: false, again: true) }
+                        Button(TVSettingsState.registerLabel) {
+                            sheet = TVSheetRequest(host: tv.host, connectAtOnce: false, again: true)
+                        }
                     } else if television.offersReconnect {
-                        Button("再接続") { Task { await television.reconnect() } }
+                        Button(TVSettingsState.reconnectLabel) { Task { await television.reconnect() } }
                             .disabled(television.holdsReconnect)
                     }
                     if television.offersTheHelper {
-                        LabeledContent("番組表（ヘルパー）", value: television.helperRegistered ? "登録済み" : "未登録")
+                        LabeledContent(TVSettingsState.helperLabel, value: television.helperShown)
                         if television.helperRegistered {
-                            Button("ヘルパーの登録を解除", role: .destructive) { television.forgetHelper() }
+                            Button(TVSettingsState.forgetHelperLabel, role: .destructive) { television.forgetHelper() }
                         } else {
-                            Button("ヘルパーに登録") { registeringHelper = true }
+                            Button(TVSettingsState.registerHelperLabel) { registeringHelper = true }
                                 .sheet(isPresented: $registeringHelper) { HelperRegisterSheet(model: model) }
                         }
                     }
-                    Button("テレビを外す", role: .destructive) { Task { await television.remove() } }
+                    Button(TVSettingsState.removeLabel, role: .destructive) { Task { await television.remove() } }
                         .disabled(television.holdsRemoving)
                 } header: {
-                    Text("テレビ")
+                    Text(TVSettingsState.heading)
                 } footer: {
                     if let footer = television.footer { Text(footer).foregroundStyle(.red).font(.callout) }
                 }
@@ -78,21 +79,19 @@ struct TVSection: View {
                                     isPresented: Binding(get: { television.asksToRemove },
                                                          set: { if !$0 { television.removalClosed() } }),
                                     titleVisibility: .visible) {
-                    Button("外す", role: .destructive) { Task { await television.confirmRemoving() } }
+                    Button(TVSettingsState.confirmRemovingLabel, role: .destructive) {
+                        Task { await television.confirmRemoving() }
+                    }
                 } message: {
                     Text(television.removalMessage)
                 }
             } else {
                 Section {
-                    Button("アドレスを入力して追加") { sheet = TVSheetRequest(host: "", connectAtOnce: false) }
+                    Button(TVSettingsState.addLabel) { sheet = TVSheetRequest(host: "", connectAtOnce: false) }
                 } header: {
-                    Text("テレビ")
+                    Text(TVSettingsState.heading)
                 } footer: {
-                    Text(model.demo
-                         ? "サンプルデータでは、架空のテレビを追加して試せます。"
-                           + "サンプルを終了すると、架空のテレビも消えます。"
-                         : "テレビは、「レコーダーとテレビを探す」で探せます。見つからないときは、テレビの IP アドレスを"
-                           + "入力して追加できます。登録のときに、テレビの画面に表示される 4 桁の番号を入力します。")
+                    Text(TVSettingsState.noTelevisionFooter(inDemo: model.demo))
                 }
             }
         }
