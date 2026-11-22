@@ -2,9 +2,10 @@ import Foundation
 import Observation
 import RecorderKit
 
-/// The television's part of the settings as the reader works it, once one is added: how its link stands and what is
-/// offered to bring it back, the helper's registration, and テレビを外す with its question. The screen lays it out,
-/// with what the television says of itself (`AppModel.tvDriver`), and hands this what is pressed.
+/// The television's part of the settings as the reader works it, once one is added: what the television says of
+/// itself, how its link stands and what is offered to bring it back, the helper's registration, and テレビを外す with
+/// its question; with none, the way to add one. The screen lays it out in the part's words, and hands this what is
+/// pressed.
 @MainActor
 @Observable
 public final class TVSettingsState {
@@ -18,6 +19,50 @@ public final class TVSettingsState {
 
     public init(model: AppModel) {
         self.model = model
+    }
+
+    // MARK: - the part's words
+
+    /// The section's heading, the labels of what the television says of itself and of how its link stands, the way to
+    /// what it speaks, and the buttons. Where the recorder's part has the same label or button in the same place, the
+    /// word is the recorder's part's.
+    public static let heading = "テレビ"
+    public static let productLabel = RecorderSettingsState.productLabel
+    public static let hostLabel = RecorderSettingsState.hostLabel
+    public static let standingLabel = RecorderSettingsState.standingLabel
+    public static let capabilitiesLabel = "対応状況を調べる"
+    public static let storageLabel = "USB ハードディスク"
+    public static let registerLabel = "登録する"
+    public static let reconnectLabel = RecorderSettingsState.reconnectLabel
+    public static let helperLabel = "番組表（ヘルパー）"
+    public static let forgetHelperLabel = "ヘルパーの登録を解除"
+    public static let registerHelperLabel = "ヘルパーに登録"
+    public static let removeLabel = "テレビを外す"
+
+    /// With no television, the way to add one by its address.
+    public static let addLabel = "アドレスを入力して追加"
+
+    /// What is said under the part with no television: in the demo, that the invented one can be added and goes with
+    /// the demo.
+    public static func noTelevisionFooter(inDemo: Bool) -> String {
+        inDemo
+            ? "サンプルデータでは、架空のテレビを追加して試せます。"
+                + "サンプルを終了すると、架空のテレビも消えます。"
+            : "テレビは、「レコーダーとテレビを探す」で探せます。見つからないときは、テレビの IP アドレスを"
+                + "入力して追加できます。登録のときに、テレビの画面に表示される 4 桁の番号を入力します。"
+    }
+
+    // MARK: - what the television says of itself
+
+    /// 機種: the model, as the television gave it; nil until it has said.
+    public var productName: String? { model.tvDriver?.facts.model }
+
+    /// USB ハードディスク: the disk it records to, as `Format.storage` words a disk -- how full, or whether it is
+    /// there --; nil while the television has not said, as an older one never does.
+    public var storageLine: String? {
+        model.tvDriver?.facts.storage.map {
+            Format.storage(mounted: $0.mounted, freeBytes: $0.freeBytes, totalBytes: $0.totalBytes, on: .tv)
+        }
     }
 
     // MARK: - the link
@@ -52,6 +97,9 @@ public final class TVSettingsState {
     /// Whether the app holds a registration with it: ヘルパーの登録を解除 then, ヘルパーに登録 otherwise.
     public var helperRegistered: Bool { model.helperRegistered }
 
+    /// 番組表（ヘルパー） as a value: whether the app holds a registration with it.
+    public var helperShown: String { helperRegistered ? "登録済み" : "未登録" }
+
     /// ヘルパーの登録を解除.
     public func forgetHelper() {
         model.forgetHelper()
@@ -69,8 +117,9 @@ public final class TVSettingsState {
         asksToRemove = true
     }
 
-    /// The question.
+    /// The question, and the button under it that takes the television away.
     public static let removalQuestion = "テレビを外しますか？"
+    public static let confirmRemovingLabel = "外す"
 
     /// What the question says: what goes from this phone and what stays on the television, and what goes with it of
     /// the reservations waiting for the television -- how many are deleted unsent, and nothing with none. With no count

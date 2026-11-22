@@ -77,26 +77,29 @@ fun TVRegisterSheetView(request: TVSheetRequest, close: () -> Unit) {
         else RecBridge.openTVRegister(request.host, request.connectAtOnce, request.again)
     }
     val sheet = handle?.let { it.shown.collectAsState().value }
+    val words = RecBridge.televisionWords
     var host by remember(request.id) { mutableStateOf<String?>(null) }
     if (host == null && sheet != null) host = sheet.typedHost
     LaunchedEffect(handle) { handle?.appeared() }
     HeldSheet(held = false, done = sheet?.done ?: false, close = close) {
-        // The title and the button's words are the model's alone: blank for the moment before its window is read, the
-        // button held meanwhile.
+        // The fields' words are the model's, kept from its start; the title and the button's are its window's alone:
+        // blank for the moment before it is read, the field and the button held meanwhile. What the iOS PIN field
+        // shows while empty is its label here.
         Title(sheet?.title.orEmpty())
         Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(value = host ?: request.host, onValueChange = {
                 host = it
                 handle?.typeHost(it)
-            }, label = { Text("IP アドレス") }, placeholder = { Text("192.168.1.20") }, singleLine = true,
-                enabled = sheet != null && !sheet.addressHeld,
-                supportingText = { Text("テレビと同じ Wi-Fi につないだこの端末から登録します。") },
+            }, label = { Text(words.hostLabel) }, placeholder = { Text(words.hostPlaceholder) },
+                singleLine = true, enabled = sheet != null && !sheet.addressHeld,
+                supportingText = { Text(words.hostNote) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
                 modifier = Modifier.fillMaxWidth())
             if (sheet?.askingForPIN == true && handle != null) {
                 val pin by handle.pinField.text.collectAsState()
-                OutlinedTextField(value = pin, onValueChange = { handle.pinField.type(it) }, label = { Text("4 桁の番号") },
-                                  singleLine = true, supportingText = { Text(sheet.pinNote) },
+                OutlinedTextField(value = pin, onValueChange = { handle.pinField.type(it) },
+                                  label = { Text(words.pinPlaceholder) }, singleLine = true,
+                                  supportingText = { Text(sheet.pinNote) },
                                   keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                                   modifier = Modifier.fillMaxWidth())
             }
@@ -122,27 +125,31 @@ fun HelperRegisterSheetView(key: Long, close: () -> Unit) {
     val handle = rememberOpened(key) { RecBridge.openHelperRegister() }
     val sheet = handle?.let { it.shown.collectAsState().value }
     var code by remember(key) { mutableStateOf("") }
+    val words = RecBridge.televisionWords
     val uri = LocalUriHandler.current
     HeldSheet(held = false, done = sheet?.done ?: false, close = close) {
-        Title("テレビの番組表に登録")
+        // The sheet's words are the model's, kept from its start. What the iOS field shows while empty is its label
+        // here.
+        Title(words.helperSheetTitle)
         Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(value = code, onValueChange = {
                 code = it
                 handle?.typeCode(it)
-            }, label = { Text("6 桁の番号") }, singleLine = true,
+            }, label = { Text(words.codePlaceholder) }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                 modifier = Modifier.fillMaxWidth())
-            Footnote("テレビで「RecBridge ヘルパー」を開き、「登録の番号を出す」で表示された 6 桁の番号を入力してください。"
-                     + "番号は 5 分で消えます。")
-            Footnote("ヘルパーをテレビに入れる手順は、GitHub の説明書にあります。")
-            TextButton(onClick = { uri.openUri("https://github.com/hiroaki0923/bdzbridge/blob/main/helper/README.md") }) {
-                Text("github.com/hiroaki0923/bdzbridge/helper")
+            Footnote(words.codeNote)
+            Footnote(words.instructionsNote)
+            TextButton(onClick = { uri.openUri(words.instructionsURL) }) {
+                Text(words.instructionsLink)
             }
             if (sheet != null && sheet.message.isNotEmpty()) {
                 Text(sheet.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { handle?.press() }, enabled = sheet != null && !sheet.pressHeld) { Text("登録する") }
+                Button(onClick = { handle?.press() }, enabled = sheet != null && !sheet.pressHeld) {
+                    Text(words.helperPressLabel)
+                }
                 if (sheet?.working == true) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
             }
         }
@@ -152,14 +159,17 @@ fun HelperRegisterSheetView(key: Long, close: () -> Unit) {
 /**
  * The televisions a search found, under the recorders, in the tutorial and the settings alike. A row registers its
  * television while none is added -- the tap puts a number on the television's panel, and nothing but the tap does --
- * and with one added the rows are only listed, the one added in use, and the foot says why.
+ * and with one added the rows are only listed, the one added in use, and the foot says why: `footer`, as the screen's
+ * read has it.
  */
 @Composable
-fun FoundTelevisionsCard(televisions: List<FoundTelevision>, enabled: Boolean, register: (String) -> Unit) {
+fun FoundTelevisionsCard(televisions: List<FoundTelevision>, footer: String, enabled: Boolean,
+                         register: (String) -> Unit) {
+    val words = RecBridge.settingsWords
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Card(Modifier.fillMaxWidth()) {
-            Text("見つかったテレビ", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
-                 modifier = Modifier.padding(start = 16.dp, top = 12.dp))
+            Text(words.foundTelevisionsHeading, style = MaterialTheme.typography.titleSmall,
+                 color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 12.dp))
             televisions.forEachIndexed { index, found ->
                 if (index > 0) HorizontalDivider()
                 ListItem(
@@ -169,9 +179,11 @@ fun FoundTelevisionsCard(televisions: List<FoundTelevision>, enabled: Boolean, r
                     trailingContent = {
                         if (found.inUse) Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Check, contentDescription = null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                            Text("使用中", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                            Text(words.inUseLabel, color = MaterialTheme.colorScheme.primary,
+                                 style = MaterialTheme.typography.labelLarge)
                         } else if (found.registers) {
-                            Text("登録する", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                            Text(words.registerFoundLabel, color = MaterialTheme.colorScheme.primary,
+                                 style = MaterialTheme.typography.labelLarge)
                         }
                     },
                     // As on iOS, the row in use is selected to the screen reader.
@@ -181,18 +193,13 @@ fun FoundTelevisionsCard(televisions: List<FoundTelevision>, enabled: Boolean, r
                 )
             }
         }
-        if (televisions.any { it.registers }) {
-            Footnote("タップすると登録を始めます。テレビの画面に 4 桁の番号が出るので、その番号を入力してください。")
-        } else {
-            Footnote("使えるテレビは 1 台です。別のテレビを使うときは、設定の「テレビ」でいまのテレビを外してから、"
-                     + "もう一度探してください。")
-        }
+        Footnote(footer)
     }
 }
 
 /**
  * What the television says it speaks, for the reader to copy and send on when the app does not work with it. Nothing
- * on the television changes.
+ * on the television changes. In the page's words as the model words them, kept from its start.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -200,10 +207,11 @@ fun CapabilitiesPage(close: () -> Unit) {
     BackHandler(onBack = close)
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
+    val words = RecBridge.televisionWords
     var reading by remember { mutableStateOf(false) }
     var report by remember { mutableStateOf<String?>(null) }
     Scaffold(topBar = {
-        TopAppBar(title = { Text("テレビの対応状況") },
+        TopAppBar(title = { Text(words.capabilitiesTitle) },
                   navigationIcon = { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る") } })
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -214,17 +222,14 @@ fun CapabilitiesPage(close: () -> Unit) {
                     report = RecBridge.tvCapabilities()
                     reading = false
                 }
-            }, enabled = !reading) { Text("調べる") }
-            Footnote("テレビが対応している機能と、予約や録画の一覧を読めるかを調べます。読むだけで、"
-                     + "テレビの予約や設定は変わりません。結果に番組名や局名は含まれません。"
-                     + "うまく動かないときは、結果をコピーして、お問い合わせの際にお送りください。"
-                     + "テレビに予約と録画が 1 件ずつあると、より詳しく分かります。")
+            }, enabled = !reading) { Text(words.capabilitiesCheckLabel) }
+            Footnote(words.capabilitiesFooter)
             if (reading) {
                 CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
             } else report?.let { said ->
                 OutlinedButton(onClick = { clipboard.setText(AnnotatedString(said)) }) {
                     Icon(Icons.Outlined.ContentCopy, contentDescription = null, Modifier.size(18.dp))
-                    Text("  コピー")
+                    Text("  " + words.capabilitiesCopyLabel)
                 }
                 SelectionContainer {
                     Text(said, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))

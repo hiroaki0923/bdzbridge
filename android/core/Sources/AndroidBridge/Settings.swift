@@ -7,8 +7,8 @@ import RecorderKit
 /// itself, how the link stands, its address and MAC --, the mode a new reservation starts at, the television, the
 /// search and the recorders and televisions it found, the guide kept on the phone and where it is fetched from, the
 /// demo, and the app. The notifications and the Shortcuts action are the iOS app's own. The labels and the sentences
-/// that never change are the model's, kept by Kotlin from the model's start (`SettingsWordsText`); what is said by
-/// what the model holds comes with each read.
+/// that never change are the model's, kept by Kotlin from the model's start (`SettingsWordsText`, and the
+/// television's in `TelevisionWordsText`); what is said by what the model holds comes with each read.
 public struct SettingsScreen: Sendable {
     /// What the recorder says of itself once connected: 機種, 名前, ファームウェア, 番組表, and its disks.
     public var facts: [Fact]
@@ -46,7 +46,9 @@ public struct SettingsScreen: Sendable {
     public var outcomeNote: String
     public var causes: [String]
     public var recorders: [FoundRecorder]
+    /// The televisions it found, and what is said under them (`FoundTelevision.footer`).
     public var televisions: [FoundTelevision]
+    public var televisionsFooter: String
     /// Whether the recorder in play may be changed now (`AppModel.canChangeRecorder`): what the rows and the demo wait
     /// for.
     public var canChoose: Bool
@@ -85,9 +87,10 @@ public struct Fact: Sendable {
 /// The settings' labels and sentences that never change, as the model words them -- the recorder's part's
 /// (`RecorderSettingsState`), the rest of the screen's (`SettingsWords`), 番組表を更新's with the title of what it had
 /// to say (`AppModel.refreshGuideLabel`, `refreshFailedTitle`), and ご利用上の注意 (`Disclaimer.title`) -- for Kotlin
-/// to keep from the model's start. The tutorial says the search's button, the recorders it found, the address field's
-/// label and placeholder, このアドレスに接続 and サンプルデータで試す in the same words, and the guide's tab the title
-/// of what 番組表を更新 had to say.
+/// to keep from the model's start. The television's own words, its part's, its sheets' and its capabilities page's,
+/// are kept the same way (`TelevisionWordsText`). The tutorial says the search's button, the recorders and the
+/// televisions it found, the address field's label and placeholder, このアドレスに接続 and サンプルデータで試す in the
+/// same words, and the guide's tab the title of what 番組表を更新 had to say.
 public struct SettingsWordsText: Sendable {
     public var title: String
     public var recorderHeading: String
@@ -103,6 +106,13 @@ public struct SettingsWordsText: Sendable {
     public var defaultQualityFooter: String
     public var searchLabel: String
     public var foundRecordersHeading: String
+    /// The televisions found: the card's heading, and what a row says at its end, the one in use -- as a recorder's
+    /// row says it too -- or one a tap registers.
+    public var foundTelevisionsHeading: String
+    public var inUseLabel: String
+    public var registerFoundLabel: String
+    /// What a found recorder's row says at its end while a tap connects to it.
+    public var connectFoundLabel: String
     public var channelsLabel: String
     public var channelsFooter: String
     public var guideHeading: String
@@ -124,6 +134,8 @@ public struct SettingsWordsText: Sendable {
         defaultQualityLabel: SettingsWords.defaultQualityLabel,
         defaultQualityFooter: SettingsWords.defaultQualityFooter,
         searchLabel: SettingsWords.searchLabel, foundRecordersHeading: SettingsWords.foundRecordersHeading,
+        foundTelevisionsHeading: SettingsWords.foundTelevisionsHeading, inUseLabel: SettingsWords.inUseLabel,
+        registerFoundLabel: SettingsWords.registerFoundLabel, connectFoundLabel: SettingsWords.connectFoundLabel,
         channelsLabel: SettingsWords.channelsLabel, channelsFooter: SettingsWords.channelsFooter,
         guideHeading: SettingsWords.keptGuideHeading, guideSourceLabel: SettingsWords.guideSourceLabel,
         refreshGuideLabel: AppModel.refreshGuideLabel, refreshFailedTitle: AppModel.refreshFailedTitle,
@@ -290,7 +302,8 @@ public final class SettingsWindow: Sendable {
         await choosing?.value
     }
 
-    /// 対応状況を調べる: what the television added says it speaks, as text to copy (`AppModel.tvCapabilities`).
+    /// 対応状況を調べる: what the television added says it speaks, as text to copy (`AppModel.tvCapabilities`). The
+    /// page's words are kept from the model's start (`SettingsWordsText`).
     public func tvCapabilities() async -> String {
         guard let host = await MainActor.run(body: { model.tv?.host }) else { return "" }
         return await model.tvCapabilities(at: host)
@@ -373,7 +386,8 @@ public final class SettingsWindow: Sendable {
             outcome: outcome?.text ?? "", outcomeFailed: outcome?.failed ?? false,
             outcomeNote: outcome?.noRecorderBeside ?? "", causes: outcome?.causes ?? [],
             recorders: model.found.map { FoundRecorder($0, inUse: model.inUse($0)) },
-            televisions: FoundTelevision.all(model), canChoose: model.canChangeRecorder,
+            televisions: FoundTelevision.all(model), televisionsFooter: FoundTelevision.footer(model),
+            canChoose: model.canChangeRecorder,
             guideSources: model.guideSourceIsChoosable
                 ? [Labelled(code: GuideSourceChoice.recorder.rawValue, label: SettingsWords.guideSourceName(.recorder)),
                    Labelled(code: GuideSourceChoice.tv.rawValue, label: SettingsWords.guideSourceName(.tv))] : [],

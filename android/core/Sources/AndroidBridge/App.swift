@@ -203,6 +203,8 @@ public final class RecBridgeApp: Sendable {
     public func sheetWords() -> SheetWordsText { .all }
     /// The settings' words that never change, as the model has them, for Kotlin to keep (`SettingsWordsText`).
     public func settingsWords() -> SettingsWordsText { .all }
+    /// The television's words that never change, as the model has them, for Kotlin to keep (`TelevisionWordsText`).
+    public func televisionWords() -> TelevisionWordsText { .all }
     public func search() async -> SearchWindow {
         await MainActor.run { SearchWindow(model) }
     }

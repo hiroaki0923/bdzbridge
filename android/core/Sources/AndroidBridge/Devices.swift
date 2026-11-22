@@ -31,8 +31,10 @@ public struct DevicesScreen: Sendable {
     public var busy: String
     public var problem: String
     public var recorders: [FoundRecorder]
-    /// The televisions the search found, which wait while a recorder chosen here is being connected to (`choosing`).
+    /// The televisions the search found, which wait while a recorder chosen here is being connected to (`choosing`),
+    /// and what is said under them, as the settings say it (`FoundTelevision.footer`).
     public var televisions: [FoundTelevision]
+    public var televisionsFooter: String
     public var choosing: Bool
     /// Whether the recorder in play may be changed now: what the rows wait for.
     public var canChoose: Bool
@@ -86,7 +88,7 @@ public struct FoundRecorder: Sendable {
     init(_ found: RecorderDescription, inUse: Bool) {
         host = found.host
         name = found.product
-        details = "\(found.host) · \(found.friendlyName)" + (found.epgCapable ? " · 番組表あり" : " · 番組表なし")
+        details = SettingsWords.foundRecorderDetails(found)
         self.inUse = inUse
     }
 }
@@ -202,7 +204,8 @@ public final class DevicesWindow: Sendable {
             outcomeNote: outcome?.noRecorderBeside ?? "", causes: outcome?.causes ?? [],
             busy: model.busy ?? "", problem: model.problem(for: .recorder)?.asABody ?? "",
             recorders: model.found.map { FoundRecorder($0, inUse: model.inUse($0)) },
-            televisions: FoundTelevision.all(model), choosing: state.holdsTelevisions,
+            televisions: FoundTelevision.all(model), televisionsFooter: FoundTelevision.footer(model),
+            choosing: state.holdsTelevisions,
             canChoose: !state.holdsRecorders, typing: state.typing, typedHost: state.typedHost,
             hostSet: opening.hostSet, addressNote: note?.text ?? "", addressWarning: note?.warning ?? false,
             connectHeld: state.holdsConnect, demoHeld: state.holdsDemo, demo: model.demo, done: state.done,

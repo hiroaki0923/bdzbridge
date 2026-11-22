@@ -89,13 +89,15 @@ fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit, setUp: () ->
     if (shown.television.asksToRemove) {
         val close = { scope.launch { RecBridge.act { it.settings.removalClosed() } } }
         AlertDialog(onDismissRequest = { close() },
-                    title = { Text(shown.television.removalQuestion) }, text = { Text(shown.television.removalMessage) },
+                    title = { Text(RecBridge.televisionWords.removalQuestion) }, text = { Text(shown.television.removalMessage) },
                     confirmButton = {
                         TextButton(onClick = { scope.launch { RecBridge.act { it.settings.confirmRemovingTV() } } }) {
-                            Text("外す", color = MaterialTheme.colorScheme.error)
+                            Text(RecBridge.televisionWords.confirmRemovingLabel, color = MaterialTheme.colorScheme.error)
                         }
                     },
-                    dismissButton = { TextButton(onClick = { close() }) { Text("キャンセル") } })
+                    dismissButton = {
+                        TextButton(onClick = { close() }) { Text(RecBridge.televisionWords.cancelRemovingLabel) }
+                    })
     }
     Scaffold(topBar = { TopAppBar(title = { Text(words.title) }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -129,7 +131,7 @@ fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit, setUp: () ->
                         }
                     }
                     if (shown.televisions.isNotEmpty()) {
-                        FoundTelevisionsCard(shown.televisions, enabled = true) { host ->
+                        FoundTelevisionsCard(shown.televisions, shown.televisionsFooter, enabled = true) { host ->
                             tvSheet = TVSheetRequest(host, connectAtOnce = true, again = false)
                         }
                     }
@@ -240,60 +242,57 @@ private fun RecorderFields(shown: Settings) {
 
 /**
  * The television's part: with one added, what it says of itself, 対応状況を調べる, what brings it back, the helper, and
- * テレビを外す, which asks first; with none, the way to add one by its address.
+ * テレビを外す, which asks first; with none, the way to add one by its address. In the part's words, kept from the
+ * model's start (`RecBridge.televisionWords`).
  */
 private fun LazyListScope.television(shown: Settings, check: () -> Unit, register: (TVSheetRequest) -> Unit,
                                      registerHelper: (Long) -> Unit) {
     val part = shown.television
+    val words = RecBridge.televisionWords
     item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
-    item { Heading("テレビ") }
+    item { Heading(words.heading) }
     if (!part.added) {
         item {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { register(TVSheetRequest("", connectAtOnce = false, again = false)) }) {
-                    Text("アドレスを入力して追加")
+                    Text(words.addLabel)
                 }
-                Footnote(if (shown.demo) "サンプルデータでは、架空のテレビを追加して試せます。"
-                                         + "サンプルを終了すると、架空のテレビも消えます。"
-                         else "テレビは、「レコーダーとテレビを探す」で探せます。見つからないときは、テレビの IP アドレスを"
-                              + "入力して追加できます。登録のときに、テレビの画面に表示される 4 桁の番号を入力します。")
+                Footnote(part.noTelevisionFooter)
             }
         }
         return
     }
     items(part.facts) { FactItem(it) }
     item {
-        ListItem(headlineContent = { Text("対応状況を調べる") },
+        ListItem(headlineContent = { Text(words.capabilitiesLabel) },
                  trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                  modifier = Modifier.clickable(onClick = check))
     }
-    if (part.offersTheHelper) item {
-        FactItem(Fact("番組表（ヘルパー）", if (part.helperRegistered) "登録済み" else "未登録"))
-    }
+    if (part.offersTheHelper) item { FactItem(Fact(words.helperLabel, part.helperShown)) }
     item {
         val scope = rememberCoroutineScope()
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (part.offersRegistering) {
                 FilledTonalButton(onClick = { register(TVSheetRequest("", connectAtOnce = false, again = true)) }) {
-                    Text("登録する")
+                    Text(words.registerLabel)
                 }
             } else if (part.offersReconnect) {
                 FilledTonalButton(onClick = { scope.launch { RecBridge.act { it.settings.reconnectTV() } } },
-                                  enabled = !part.reconnectHeld) { Text("再接続") }
+                                  enabled = !part.reconnectHeld) { Text(words.reconnectLabel) }
             }
             if (part.offersTheHelper) {
                 if (part.helperRegistered) {
                     OutlinedButton(onClick = { scope.launch { RecBridge.act { it.settings.forgetHelper() } } },
                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                        Text("ヘルパーの登録を解除")
+                        Text(words.forgetHelperLabel)
                     }
                 } else {
-                    OutlinedButton(onClick = { registerHelper(System.nanoTime()) }) { Text("ヘルパーに登録") }
+                    OutlinedButton(onClick = { registerHelper(System.nanoTime()) }) { Text(words.registerHelperLabel) }
                 }
             }
             OutlinedButton(onClick = { scope.launch { RecBridge.act { it.settings.removeTV() } } }, enabled = !part.removeHeld,
                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                Text("テレビを外す")
+                Text(words.removeLabel)
             }
             // Why 外す left the television in place, above what went wrong with the television: both when both stand.
             if (part.footer.isNotEmpty()) {

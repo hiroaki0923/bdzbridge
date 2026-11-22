@@ -4,8 +4,8 @@ import RecorderKit
 /// The settings' words, for the screen to lay out: its title, the mode a new reservation starts at, the search, the
 /// stations shown, the guide kept on the phone, the demo and the app. The recorder's part says its own
 /// (`RecorderSettingsState`), the television's part its own (`TVSettingsState`), and 番組表を更新 is the press's
-/// (`AppModel.refreshGuideLabel`). The tutorial says the search's button, its progress, the heading of the recorders it
-/// found and the demo's button in the same words.
+/// (`AppModel.refreshGuideLabel`). The tutorial says the search's button, its progress, the recorders and the
+/// televisions it found and the demo's button in the same words.
 public enum SettingsWords {
     public static let title = "設定"
 
@@ -17,7 +17,6 @@ public enum SettingsWords {
     // MARK: - the search
 
     public static let searchLabel = "レコーダーとテレビを探す"
-    public static let foundRecordersHeading = "見つかったレコーダー"
 
     /// How far the search has got, under its button, with the reader's grouping of digits as a screen's own text
     /// writes a number put into it.
@@ -33,6 +32,37 @@ public enum SettingsWords {
                 + "実際の機器を探すときは、先にサンプルを終了してください。"
             : "同じ Wi-Fi 上のレコーダーとテレビを探します。レコーダーを選ぶとそのレコーダーに切り替わり、"
                 + "テレビを選ぶとテレビの登録を始めます。"
+    }
+
+    // MARK: - what the search found
+
+    /// The headings of the recorders and of the televisions found, and what a found device's row says at its end when
+    /// it is the one in use, a recorder's and a television's alike.
+    public static let foundRecordersHeading = "見つかったレコーダー"
+    public static let foundTelevisionsHeading = "見つかったテレビ"
+    public static let inUseLabel = "使用中"
+
+    /// What a found television's row says at its end while a tap registers it.
+    public static let registerFoundLabel = "登録する"
+
+    /// What a found recorder's row says at its end while a tap connects to it.
+    public static let connectFoundLabel = "接続する"
+
+    /// A found recorder's second line: its address and the name it gave, and whether it serves a guide.
+    public static func foundRecorderDetails(_ found: RecorderDescription) -> String {
+        "\(found.host) · \(found.friendlyName)" + (found.epgCapable ? " · 番組表あり" : " · 番組表なし")
+    }
+
+    /// A found television's name: the model it gave, テレビ where it gave none.
+    public static func foundTelevisionName(_ model: String) -> String { model.isEmpty ? "テレビ" : model }
+
+    /// What is said under the televisions found: while a tap registers one, what the tap does; with one added, why
+    /// the rows are only listed.
+    public static func foundTelevisionsFooter(registers: Bool) -> String {
+        registers
+            ? "タップすると登録を始めます。テレビの画面に 4 桁の番号が出るので、その番号を入力してください。"
+            : "使えるテレビは 1 台です。別のテレビを使うときは、設定の「テレビ」でいまのテレビを外してから、"
+                + "もう一度探してください。"
     }
 
     // MARK: - the stations

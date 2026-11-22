@@ -228,14 +228,9 @@ struct FoundTelevisionsSection: View {
                     }
                 }
             } header: {
-                Text("見つかったテレビ")
+                Text(SettingsWords.foundTelevisionsHeading)
             } footer: {
-                if model.canAddAFoundTelevision {
-                    Text("タップすると登録を始めます。テレビの画面に 4 桁の番号が出るので、その番号を入力してください。")
-                } else {
-                    Text("使えるテレビは 1 台です。別のテレビを使うときは、設定の「テレビ」でいまのテレビを外してから、"
-                         + "もう一度探してください。")
-                }
+                Text(SettingsWords.foundTelevisionsFooter(registers: model.canAddAFoundTelevision))
             }
         }
     }
@@ -268,19 +263,19 @@ struct FoundTelevisionRow: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(television.model.isEmpty ? "テレビ" : television.model).font(.subheadline)
+                Text(SettingsWords.foundTelevisionName(television.model)).font(.subheadline)
                 Text(television.host)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
             if inUse {
                 Spacer()
-                Label("使用中", systemImage: "checkmark")
+                Label(SettingsWords.inUseLabel, systemImage: "checkmark")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tint)
             } else if registers {
                 Spacer()
-                FoundRowAction(title: "登録する")
+                FoundRowAction(title: SettingsWords.registerFoundLabel)
             }
         }
         .rowHitArea()
@@ -299,18 +294,17 @@ struct FoundRecorderRow: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(recorder.product).font(.subheadline)
-                Text("\(recorder.host) · \(recorder.friendlyName)"
-                     + (recorder.epgCapable ? " · 番組表あり" : " · 番組表なし"))
+                Text(SettingsWords.foundRecorderDetails(recorder))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
             Spacer()
             if inUse {
-                Label("使用中", systemImage: "checkmark")
+                Label(SettingsWords.inUseLabel, systemImage: "checkmark")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tint)
             } else {
-                FoundRowAction(title: "接続する")
+                FoundRowAction(title: SettingsWords.connectFoundLabel)
             }
         }
         .rowHitArea()

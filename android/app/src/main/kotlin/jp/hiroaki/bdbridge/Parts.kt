@@ -171,9 +171,11 @@ fun FoundRecordersCard(recorders: List<FoundRecorder>, canChoose: Boolean, choos
                 trailingContent = {
                     if (found.inUse) Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Check, contentDescription = null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                        Text("使用中", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                        Text(RecBridge.settingsWords.inUseLabel, color = MaterialTheme.colorScheme.primary,
+                             style = MaterialTheme.typography.labelLarge)
                     } else {
-                        Text("接続する", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                        Text(RecBridge.settingsWords.connectFoundLabel, color = MaterialTheme.colorScheme.primary,
+                             style = MaterialTheme.typography.labelLarge)
                     }
                 },
                 // As on iOS, the row in use is selected to the screen reader.
