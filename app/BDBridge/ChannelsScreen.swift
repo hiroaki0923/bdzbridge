@@ -29,12 +29,12 @@ struct ChannelsScreen: View {
                     Text(ChannelsState.footer)
                 }
                 Section {
-                    Button(ChannelsState.resetRowLabel) { confirmingReset = true }
+                    Button(ChannelsState.resetLabel) { confirmingReset = true }
                         .disabled(!channels.customised)
                         // On the button, which is where the question then points from.
                         .confirmationDialog(channels.resetQuestion, isPresented: $confirmingReset,
                                             titleVisibility: .visible) {
-                            Button(ChannelsState.resetLabel) { channels.reset() }
+                            Button(ChannelsState.confirmResetLabel) { channels.reset() }
                         }
                 }
             }

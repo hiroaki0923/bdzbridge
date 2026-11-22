@@ -179,8 +179,8 @@ final class SearchAndChannelsTests: XCTestCase {
     /// that closes that alert is the sheets' (`SheetWords.okLabel`).
     func testTheStationsScreenSaysWhatItSaid() {
         XCTAssertEqual(ChannelsState.title, "チャンネルの表示と並び順")
-        XCTAssertEqual(ChannelsState.resetRowLabel, "レコーダーの順に戻して、すべて表示")
-        XCTAssertEqual(ChannelsState.resetLabel, "レコーダーの順に戻す")
+        XCTAssertEqual(ChannelsState.resetLabel, "レコーダーの順に戻して、すべて表示")
+        XCTAssertEqual(ChannelsState.confirmResetLabel, "レコーダーの順に戻す")
         XCTAssertEqual(ChannelsState.failureTitle, "保存できませんでした")
         XCTAssertEqual(SheetWords.okLabel, "OK")
     }

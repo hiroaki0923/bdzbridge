@@ -72,7 +72,7 @@ fun ChannelsPage(close: () -> Unit) {
     val shown = handle?.shown?.collectAsState()?.value
     var resetting by remember { mutableStateOf(false) }
     Scaffold(topBar = {
-        TopAppBar(title = { Text(RecBridge.guideWords.channelsLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        TopAppBar(title = { Text(RecBridge.guideWords.channelsTitle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                   navigationIcon = { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る") } })
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
@@ -103,14 +103,14 @@ fun ChannelsPage(close: () -> Unit) {
                         TextButton(onClick = {
                             resetting = false
                             scope.launch { handle.reset() }
-                        }) { Text(RecBridge.guideWords.resetLabel) }
+                        }) { Text(RecBridge.guideWords.channelsConfirmResetLabel) }
                     },
                     dismissButton = { TextButton(onClick = { resetting = false }) { Text(RecBridge.sheetWords.cancelLabel) } })
     }
     if (shown != null && handle != null && shown.failure.isNotEmpty()) {
         AlertDialog(onDismissRequest = { scope.launch { handle.failureClosed() } },
                     confirmButton = { TextButton(onClick = { scope.launch { handle.failureClosed() } }) { Text(RecBridge.sheetWords.okLabel) } },
-                    title = { Text(RecBridge.guideWords.failureTitle) }, text = { Text(shown.failure) })
+                    title = { Text(RecBridge.guideWords.channelsFailureTitle) }, text = { Text(shown.failure) })
     }
 }
 
@@ -182,7 +182,7 @@ private fun Stations(shown: Channels, handle: RecBridge.ChannelsHandle, reset: (
             Column(Modifier.padding(16.dp)) {
                 Footnote(shown.footer)
                 OutlinedButton(onClick = reset, enabled = shown.customised, modifier = Modifier.padding(top = 16.dp)) {
-                    Text(RecBridge.guideWords.resetRowLabel)
+                    Text(RecBridge.guideWords.channelsResetLabel)
                 }
             }
         }

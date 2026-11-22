@@ -19,11 +19,12 @@ final class GuideWordsTests: XCTestCase {
         XCTAssertEqual(GuideWords.channelsLabel, "チャンネルの表示と並び順")
     }
 
-    /// The way to the stations shown is one title, said as the guide's menu and the settings' row name it.
+    /// The way to the stations shown is called one thing, in the guide's menu, in the settings' row and as that
+    /// screen's title.
     func testTheWayToTheStationsShownIsTheScreensTitle() {
         XCTAssertEqual(ChannelsState.title, "チャンネルの表示と並び順")
-        XCTAssertEqual(GuideWords.channelsLabel, ChannelsState.title)
-        XCTAssertEqual(SettingsWords.channelsLabel, ChannelsState.title)
+        XCTAssertEqual(GuideWords.channelsLabel, SettingsWords.channelsLabel)
+        XCTAssertEqual(ChannelsState.title, SettingsWords.channelsLabel)
     }
 
     /// With no station picked, or one the list does not hold, the heading says every station.

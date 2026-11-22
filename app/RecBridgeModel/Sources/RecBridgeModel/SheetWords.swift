@@ -4,7 +4,8 @@ import RecorderKit
 /// The words the sheets of a programme, a reservation and a recording say alike, for each sheet to lay out: the
 /// labels of their rows, the headings of what is said of the programme, the line while a reservation is being
 /// recorded and the button that deletes one, the buttons of the question before a delete and of a report, and how a
-/// mode, a repeat and a reservation's repeat are worded. What only one sheet says is that sheet's state's.
+/// mode, a repeat and a reservation's repeat are worded. What only one sheet says is that sheet's state's. OK and
+/// キャンセル are also those of the screens' alerts and questions that have none of their own.
 public enum SheetWords {
     public static let station = "放送"
     public static let starts = "開始"

@@ -4,8 +4,8 @@ import RecorderKit
 /// The settings' words, for the screen to lay out: its title, the mode a new reservation starts at, the search, the
 /// stations shown, the guide kept on the phone, the demo and the app. The recorder's part says its own
 /// (`RecorderSettingsState`), the television's part its own (`TVSettingsState`), and 番組表を更新 is the press's
-/// (`AppModel.refreshGuideLabel`). The tutorial says the search's button, its progress, the recorders and the
-/// televisions it found and the demo's button in the same words.
+/// (`AppModel.refreshGuideLabel`). The tutorial says the search's button, its progress, the causes it lists, the
+/// recorders and the televisions it found and the demo's button in the same words.
 public enum SettingsWords {
     public static let title = "設定"
 
@@ -71,7 +71,7 @@ public enum SettingsWords {
     // MARK: - the stations
 
     /// The way to which stations the guide shows and in what order, and what is said under it.
-    public static let channelsLabel = ChannelsState.title
+    public static let channelsLabel = "チャンネルの表示と並び順"
     public static let channelsFooter = "番組表に出す局と、その並び順を放送ごとに選べます。この端末の番組表だけが変わり、"
         + "レコーダーの録画には影響しません。"
 

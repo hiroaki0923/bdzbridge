@@ -48,14 +48,13 @@ public final class ChannelsState {
     /// to.
     public var customised: Bool { channels.contains { $0.hidden || $0.position != nil } }
 
-    /// The screen's title, which is also what the way to it is called, in the guide's menu and in the settings, whose
-    /// words are defined as it and so are not the main actor's.
-    public nonisolated static let title = "チャンネルの表示と並び順"
+    /// The screen's title: what the way to it is called in the settings.
+    public static let title = SettingsWords.channelsLabel
 
     /// The button at the foot of the list that asks the question before the reset, that question's own button, and the
     /// title of the alert that says a change could not be saved.
-    public static let resetRowLabel = "レコーダーの順に戻して、すべて表示"
-    public static let resetLabel = "レコーダーの順に戻す"
+    public static let resetLabel = "レコーダーの順に戻して、すべて表示"
+    public static let confirmResetLabel = "レコーダーの順に戻す"
     public static let failureTitle = "保存できませんでした"
 
     /// What the screen says under the list, and the question before the reset, for the type the list is of.

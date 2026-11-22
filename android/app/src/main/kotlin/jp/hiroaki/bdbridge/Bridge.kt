@@ -1159,12 +1159,14 @@ data class Fact(val label: String, val value: String)
 data class GuideWords(
     val nowLabel: String, val previousDayLabel: String, val nextDayLabel: String, val allStationsLabel: String,
     val showAllStationsLabel: String, val onAirLabel: String, val detailsPrefix: String, val channelsLabel: String,
-    val resetRowLabel: String, val resetLabel: String, val failureTitle: String,
+    val channelsTitle: String, val channelsResetLabel: String, val channelsConfirmResetLabel: String,
+    val channelsFailureTitle: String,
 )
 
 private fun GuideWords(it: jp.hiroaki.bdbridge.bridge.GuideWordsText) = GuideWords(
     it.nowLabel, it.previousDayLabel, it.nextDayLabel, it.allStationsLabel, it.showAllStationsLabel, it.onAirLabel,
-    it.detailsPrefix, it.channelsLabel, it.resetRowLabel, it.resetLabel, it.failureTitle,
+    it.detailsPrefix, it.channelsLabel, it.channelsTitle, it.channelsResetLabel, it.channelsConfirmResetLabel,
+    it.channelsFailureTitle,
 )
 
 /** The names of the five tabs, as the model words them (`TabWordsText`). Kept from the model's start (`RecBridge.tabWords`). */

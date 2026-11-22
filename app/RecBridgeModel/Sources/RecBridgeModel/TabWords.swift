@@ -7,5 +7,5 @@ public enum TabWords {
     public static let search = "検索"
     public static let reservations = "予約"
     public static let recordings = "録画"
-    public static let settings = SettingsWords.title
+    public static let settings = "設定"
 }

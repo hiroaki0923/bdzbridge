@@ -831,8 +831,10 @@ extension AndroidBridgeTests {
                        [GuideWords.nowLabel, GuideWords.previousDayLabel, GuideWords.nextDayLabel,
                         GuideWords.allStationsLabel, GuideWords.showAllStationsLabel, GuideWords.onAirLabel,
                         GuideWords.detailsPrefix, GuideWords.channelsLabel])
-        XCTAssertEqual([words.resetRowLabel, words.resetLabel, words.failureTitle],
-                       [ChannelsState.resetRowLabel, ChannelsState.resetLabel, ChannelsState.failureTitle])
+        XCTAssertEqual([words.channelsTitle, words.channelsResetLabel, words.channelsConfirmResetLabel,
+                        words.channelsFailureTitle],
+                       [ChannelsState.title, ChannelsState.resetLabel, ChannelsState.confirmResetLabel,
+                        ChannelsState.failureTitle])
     }
 
     /// The tabs' names, as Kotlin keeps them, are the model's (`TabWords`).

@@ -11,9 +11,4 @@ final class TabWordsTests: XCTestCase {
         XCTAssertEqual(TabWords.recordings, "録画")
         XCTAssertEqual(TabWords.settings, "設定")
     }
-
-    /// The settings' tab is the settings' own title.
-    func testTheSettingsTabIsTheSettingsTitle() {
-        XCTAssertEqual(TabWords.settings, SettingsWords.title)
-    }
 }
