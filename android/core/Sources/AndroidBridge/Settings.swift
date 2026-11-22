@@ -7,9 +7,8 @@ import RecorderKit
 /// itself, how the link stands, its address and MAC --, the mode a new reservation starts at, the television, the
 /// search and the recorders and televisions it found, the guide kept on the phone and where it is fetched from, the
 /// demo, and the app. The notifications and the Shortcuts action are the iOS app's own. The labels and the sentences
-/// that never change are the model's, kept by Kotlin from the model's start (`SettingsWordsText`) but for the
-/// television's part's, which come with it (`TelevisionPart`); what is said by what the model holds comes with each
-/// read.
+/// that never change are the model's, kept by Kotlin from the model's start (`SettingsWordsText`, and the
+/// television's in `TelevisionWordsText`); what is said by what the model holds comes with each read.
 public struct SettingsScreen: Sendable {
     /// What the recorder says of itself once connected: 機種, 名前, ファームウェア, 番組表, and its disks.
     public var facts: [Fact]
@@ -112,6 +111,7 @@ public struct SettingsWordsText: Sendable {
     public var foundTelevisionsHeading: String
     public var inUseLabel: String
     public var registerFoundLabel: String
+    /// What a found recorder's row says at its end while a tap connects to it.
     public var connectFoundLabel: String
     public var channelsLabel: String
     public var channelsFooter: String

@@ -82,9 +82,9 @@ fun TVRegisterSheetView(request: TVSheetRequest, close: () -> Unit) {
     if (host == null && sheet != null) host = sheet.typedHost
     LaunchedEffect(handle) { handle?.appeared() }
     HeldSheet(held = false, done = sheet?.done ?: false, close = close) {
-        // The fields' words are the model's, kept from its start; the title and the button's are its window's alone: blank
-        // for the moment before it is read, the field and the button held meanwhile. What the iOS PIN field shows while
-        // empty is its label here.
+        // The fields' words are the model's, kept from its start; the title and the button's are its window's alone:
+        // blank for the moment before it is read, the field and the button held meanwhile. What the iOS PIN field
+        // shows while empty is its label here.
         Title(sheet?.title.orEmpty())
         Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(value = host ?: request.host, onValueChange = {
@@ -128,7 +128,8 @@ fun HelperRegisterSheetView(key: Long, close: () -> Unit) {
     val words = RecBridge.televisionWords
     val uri = LocalUriHandler.current
     HeldSheet(held = false, done = sheet?.done ?: false, close = close) {
-        // The sheet's words are the model's, kept from its start. What the iOS field shows while empty is its label here.
+        // The sheet's words are the model's, kept from its start. What the iOS field shows while empty is its label
+        // here.
         Title(words.helperSheetTitle)
         Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(value = code, onValueChange = {

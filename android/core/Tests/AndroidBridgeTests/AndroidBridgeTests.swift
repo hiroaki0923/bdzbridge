@@ -1280,7 +1280,6 @@ extension AndroidBridgeTests {
 
         await settings.removeTV()
         let asked = await until(settings.read) { $0.television.asksToRemove }
-        XCTAssertEqual(asked.television.removalQuestion, TVSettingsState.removalQuestion)
         XCTAssertTrue(asked.television.removalMessage.hasPrefix("この端末から、テレビのアドレスと登録を消します。"))
         await settings.removalClosed()
         let kept = await until(settings.read) { !$0.television.asksToRemove }
@@ -1304,8 +1303,7 @@ extension AndroidBridgeTests {
         let settings = await app.settings()
         let none = await until(settings.read) { $0.canChoose }.television
         XCTAssertFalse(none.added)
-        XCTAssertEqual([none.removalQuestion, none.noTelevisionFooter],
-                       [TVSettingsState.removalQuestion, TVSettingsState.noTelevisionFooter(inDemo: true)])
+        XCTAssertEqual(none.noTelevisionFooter, TVSettingsState.noTelevisionFooter(inDemo: true))
     }
 
     /// The television's words that never change, as Kotlin keeps them, are the model's: the part's
@@ -1317,11 +1315,12 @@ extension AndroidBridgeTests {
         let words = app.televisionWords()
         XCTAssertEqual([words.heading, words.capabilitiesLabel, words.registerLabel, words.reconnectLabel,
                         words.helperLabel, words.forgetHelperLabel, words.registerHelperLabel, words.removeLabel,
-                        words.confirmRemovingLabel, words.cancelRemovingLabel, words.addLabel],
+                        words.removalQuestion, words.confirmRemovingLabel, words.cancelRemovingLabel, words.addLabel],
                        [TVSettingsState.heading, TVSettingsState.capabilitiesLabel, TVSettingsState.registerLabel,
                         TVSettingsState.reconnectLabel, TVSettingsState.helperLabel, TVSettingsState.forgetHelperLabel,
                         TVSettingsState.registerHelperLabel, TVSettingsState.removeLabel,
-                        TVSettingsState.confirmRemovingLabel, SheetWords.cancelLabel, TVSettingsState.addLabel])
+                        TVSettingsState.removalQuestion, TVSettingsState.confirmRemovingLabel, SheetWords.cancelLabel,
+                        TVSettingsState.addLabel])
         XCTAssertEqual([words.hostLabel, words.hostPlaceholder, words.hostNote, words.pinPlaceholder],
                        [TVRegisterState.hostLabel, TVRegisterState.hostPlaceholder, TVRegisterState.hostNote,
                         TVRegisterState.pinPlaceholder])

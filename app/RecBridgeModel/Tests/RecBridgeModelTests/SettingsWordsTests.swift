@@ -84,8 +84,9 @@ final class SettingsWordsTests: XCTestCase {
     }
 
     /// What the search found, as the tutorial and the settings have always said it: the televisions' heading, 使用中 at
-    /// the end of a recorder's row and of a television's, the television's row's 登録する, its name where it gave
-    /// none, and what is said under the televisions while a tap registers one and with one added.
+    /// the end of a recorder's row and of a television's, a recorder's row's 接続する, the television's row's 登録する,
+    /// its name where it gave none, and what is said under the televisions while a tap registers one and with one
+    /// added.
     func testWhatTheSearchFoundIsSaidAsItWas() {
         XCTAssertEqual(SettingsWords.foundTelevisionsHeading, "見つかったテレビ")
         XCTAssertEqual(SettingsWords.inUseLabel, "使用中")

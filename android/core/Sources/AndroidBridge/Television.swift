@@ -12,11 +12,11 @@ import RecorderKit
 /// The television's words that never change, as the model words them -- its part of the settings (`TVSettingsState`),
 /// its two sheets (`TVRegisterState`, `HelperRegisterState`) and the page that says what it speaks
 /// (`TVCapabilitiesWords`) -- for Kotlin to keep from the model's start, so that a sheet has them from its first frame.
-/// What depends on what the model holds -- the facts, the sheet's title and button, the questions and the footers --
-/// comes with the read of its screen.
+/// What depends on what the model holds -- the facts, the sheet's title and button, what the question says and the
+/// footers -- comes with the read of its screen.
 public struct TelevisionWordsText: Sendable {
     /// The part of the settings: its heading, 対応状況を調べる, 登録する, 再接続, the helper's label and its two
-    /// buttons, テレビを外す with the question's two buttons, and the way to add one with none.
+    /// buttons, テレビを外す with its question and the question's two buttons, and the way to add one with none.
     public var heading: String
     public var capabilitiesLabel: String
     public var registerLabel: String
@@ -25,6 +25,7 @@ public struct TelevisionWordsText: Sendable {
     public var forgetHelperLabel: String
     public var registerHelperLabel: String
     public var removeLabel: String
+    public var removalQuestion: String
     public var confirmRemovingLabel: String
     public var cancelRemovingLabel: String
     public var addLabel: String
@@ -55,6 +56,7 @@ public struct TelevisionWordsText: Sendable {
         registerLabel: TVSettingsState.registerLabel, reconnectLabel: TVSettingsState.reconnectLabel,
         helperLabel: TVSettingsState.helperLabel, forgetHelperLabel: TVSettingsState.forgetHelperLabel,
         registerHelperLabel: TVSettingsState.registerHelperLabel, removeLabel: TVSettingsState.removeLabel,
+        removalQuestion: TVSettingsState.removalQuestion,
         confirmRemovingLabel: TVSettingsState.confirmRemovingLabel, cancelRemovingLabel: SheetWords.cancelLabel,
         addLabel: TVSettingsState.addLabel, hostLabel: TVRegisterState.hostLabel,
         hostPlaceholder: TVRegisterState.hostPlaceholder, hostNote: TVRegisterState.hostNote,
@@ -238,10 +240,9 @@ public struct TelevisionPart: Sendable {
     public var offersTheHelper: Bool
     public var helperShown: String
     public var helperRegistered: Bool
-    /// Whether テレビを外す is held, and its question while it is up.
+    /// Whether テレビを外す is held, whether its question is up, and what the question says under its title.
     public var removeHeld: Bool
     public var asksToRemove: Bool
-    public var removalQuestion: String
     public var removalMessage: String
     /// Why 外す left the television in place, and what went wrong with it, in red under the part.
     public var footer: String
@@ -266,8 +267,8 @@ extension TelevisionPart {
                   offersReconnect: television.offersReconnect, reconnectHeld: television.holdsReconnect,
                   offersTheHelper: television.offersTheHelper, helperShown: television.helperShown,
                   helperRegistered: television.helperRegistered, removeHeld: television.holdsRemoving,
-                  asksToRemove: television.asksToRemove, removalQuestion: TVSettingsState.removalQuestion,
-                  removalMessage: television.removalMessage, footer: television.footer ?? "",
+                  asksToRemove: television.asksToRemove, removalMessage: television.removalMessage,
+                  footer: television.footer ?? "",
                   noTelevisionFooter: TVSettingsState.noTelevisionFooter(inDemo: model.demo))
     }
 }

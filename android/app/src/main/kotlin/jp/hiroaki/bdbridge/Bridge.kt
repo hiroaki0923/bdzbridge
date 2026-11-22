@@ -115,7 +115,8 @@ object RecBridge {
 
     /**
      * The television's words that never change, as the model words them, kept the same way: its sheets are put up from
-     * the settings, the tutorial and the devices screen, each of which has them from the sheet's first frame.
+     * the settings, the tutorial and the strip's 登録, and its capabilities page from the settings, each with them from
+     * its first frame.
      */
     lateinit var televisionWords: TelevisionWords
         private set
@@ -1191,7 +1192,8 @@ data class Settings(
 data class TelevisionWords(
     val heading: String, val capabilitiesLabel: String, val registerLabel: String, val reconnectLabel: String,
     val helperLabel: String, val forgetHelperLabel: String, val registerHelperLabel: String, val removeLabel: String,
-    val confirmRemovingLabel: String, val cancelRemovingLabel: String, val addLabel: String, val hostLabel: String,
+    val removalQuestion: String, val confirmRemovingLabel: String, val cancelRemovingLabel: String,
+    val addLabel: String, val hostLabel: String,
     val hostPlaceholder: String, val hostNote: String, val pinPlaceholder: String, val helperSheetTitle: String,
     val codePlaceholder: String, val codeNote: String, val instructionsNote: String, val instructionsLink: String,
     val instructionsURL: String, val helperPressLabel: String, val capabilitiesTitle: String,
@@ -1200,7 +1202,8 @@ data class TelevisionWords(
 
 private fun TelevisionWords(it: jp.hiroaki.bdbridge.bridge.TelevisionWordsText) = TelevisionWords(
     it.heading, it.capabilitiesLabel, it.registerLabel, it.reconnectLabel, it.helperLabel, it.forgetHelperLabel,
-    it.registerHelperLabel, it.removeLabel, it.confirmRemovingLabel, it.cancelRemovingLabel, it.addLabel, it.hostLabel,
+    it.registerHelperLabel, it.removeLabel, it.removalQuestion, it.confirmRemovingLabel, it.cancelRemovingLabel,
+    it.addLabel, it.hostLabel,
     it.hostPlaceholder, it.hostNote, it.pinPlaceholder, it.helperSheetTitle, it.codePlaceholder, it.codeNote,
     it.instructionsNote, it.instructionsLink, it.instructionsURL, it.helperPressLabel, it.capabilitiesTitle,
     it.capabilitiesCheckLabel, it.capabilitiesFooter, it.capabilitiesCopyLabel,
@@ -1213,14 +1216,14 @@ private fun TelevisionWords(it: jp.hiroaki.bdbridge.bridge.TelevisionWordsText) 
 data class TelevisionPart(
     val added: Boolean, val facts: List<Fact>, val offersRegistering: Boolean, val offersReconnect: Boolean,
     val reconnectHeld: Boolean, val offersTheHelper: Boolean, val helperShown: String, val helperRegistered: Boolean,
-    val removeHeld: Boolean, val asksToRemove: Boolean, val removalQuestion: String, val removalMessage: String,
-    val footer: String, val noTelevisionFooter: String,
+    val removeHeld: Boolean, val asksToRemove: Boolean, val removalMessage: String, val footer: String,
+    val noTelevisionFooter: String,
 )
 
 private fun TelevisionPart(it: jp.hiroaki.bdbridge.bridge.TelevisionPart) = TelevisionPart(
     it.isAdded, facts(it.getFacts(arena)), it.isOffersRegistering, it.isOffersReconnect, it.isReconnectHeld,
     it.isOffersTheHelper, it.helperShown, it.isHelperRegistered, it.isRemoveHeld, it.isAsksToRemove,
-    it.removalQuestion, it.removalMessage, it.footer, it.noTelevisionFooter,
+    it.removalMessage, it.footer, it.noTelevisionFooter,
 )
 
 /**

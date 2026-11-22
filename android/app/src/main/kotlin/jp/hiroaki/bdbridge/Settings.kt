@@ -89,7 +89,7 @@ fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit, setUp: () ->
     if (shown.television.asksToRemove) {
         val close = { scope.launch { RecBridge.act { it.settings.removalClosed() } } }
         AlertDialog(onDismissRequest = { close() },
-                    title = { Text(shown.television.removalQuestion) }, text = { Text(shown.television.removalMessage) },
+                    title = { Text(RecBridge.televisionWords.removalQuestion) }, text = { Text(shown.television.removalMessage) },
                     confirmButton = {
                         TextButton(onClick = { scope.launch { RecBridge.act { it.settings.confirmRemovingTV() } } }) {
                             Text(RecBridge.televisionWords.confirmRemovingLabel, color = MaterialTheme.colorScheme.error)
