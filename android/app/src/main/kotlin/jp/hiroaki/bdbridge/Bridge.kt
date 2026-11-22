@@ -122,6 +122,17 @@ object RecBridge {
         private set
 
     /**
+     * The guide's words and the stations' screen's that never change, as the model words them, kept the same way: the
+     * guide's rows, its menus and its empty states, and the stations' page, have them from their first frame.
+     */
+    lateinit var guideWords: GuideWords
+        private set
+
+    /** The names of the tabs, as the model words them, kept the same way. */
+    lateinit var tabWords: TabWords
+        private set
+
+    /**
      * Opens the model the first time it is asked, with the app's folder and the folder of its that never leaves the
      * device -- no backup and no move to another device takes it -- where the television's registration is kept, and
      * starts it.
@@ -142,6 +153,8 @@ object RecBridge {
             sheetWords = SheetWords(app.sheetWords(arena))
             settingsWords = SettingsWords(app.settingsWords(arena))
             televisionWords = TelevisionWords(app.televisionWords(arena))
+            guideWords = GuideWords(app.guideWords(arena))
+            tabWords = TabWords(app.tabWords(arena))
             // Before the start, which seeds the demo's guide with its tiles when the demo is on.
             app.drawsTiles(Tiles)
             watchTheNetwork(context.applicationContext, app)
@@ -684,7 +697,7 @@ data class Devices(
 data class TutorialText(
     val heading: String, val step1Title: String, val step1Detail: String, val step2Detail: String,
     val step3Title: String, val step4Title: String, val step4Detail: String, val addressFooter: String,
-    val demoFooter: String,
+    val typeAddressLabel: String, val demoFooter: String,
 )
 
 data class FoundRecorder(val host: String, val name: String, val details: String, val inUse: Boolean)
@@ -942,7 +955,7 @@ private fun Devices(it: jp.hiroaki.bdbridge.bridge.DevicesScreen) = Devices(
     it.isDone,
     it.getTutorial(arena).let { text ->
         TutorialText(text.heading, text.step1Title, text.step1Detail, text.step2Detail, text.step3Title,
-                     text.step4Title, text.step4Detail, text.addressFooter, text.demoFooter)
+                     text.step4Title, text.step4Detail, text.addressFooter, text.typeAddressLabel, text.demoFooter)
     },
 )
 
@@ -1039,12 +1052,12 @@ data class WaitingReservation(
 data class SheetWords(
     val station: String, val starts: String, val length: String, val genre: String, val quality: String,
     val repeating: String, val disk: String, val summaryHeading: String, val detailsHeading: String,
-    val recordingLine: String, val deleteReservationLabel: String,
+    val recordingLine: String, val deleteReservationLabel: String, val okLabel: String, val cancelLabel: String,
 )
 
 private fun SheetWords(it: jp.hiroaki.bdbridge.bridge.SheetWordsText) = SheetWords(
     it.station, it.starts, it.length, it.genre, it.quality, it.repeating, it.disk, it.summaryHeading,
-    it.detailsHeading, it.recordingLine, it.deleteReservationLabel,
+    it.detailsHeading, it.recordingLine, it.deleteReservationLabel, it.okLabel, it.cancelLabel,
 )
 
 /** The programme's sheet. Its first six are the words only it says, as the model words them. */
@@ -1140,6 +1153,29 @@ private fun TitleSheetScreen(it: jp.hiroaki.bdbridge.bridge.TitleSheetScreen) = 
 data class Fact(val label: String, val value: String)
 
 /**
+ * The guide's words and the stations' screen's that never change, as the model words them (`GuideWordsText`). Kept from
+ * the model's start (`RecBridge.guideWords`).
+ */
+data class GuideWords(
+    val nowLabel: String, val previousDayLabel: String, val nextDayLabel: String, val allStationsLabel: String,
+    val showAllStationsLabel: String, val onAirLabel: String, val detailsPrefix: String, val channelsLabel: String,
+    val resetRowLabel: String, val resetLabel: String, val failureTitle: String,
+)
+
+private fun GuideWords(it: jp.hiroaki.bdbridge.bridge.GuideWordsText) = GuideWords(
+    it.nowLabel, it.previousDayLabel, it.nextDayLabel, it.allStationsLabel, it.showAllStationsLabel, it.onAirLabel,
+    it.detailsPrefix, it.channelsLabel, it.resetRowLabel, it.resetLabel, it.failureTitle,
+)
+
+/** The names of the five tabs, as the model words them (`TabWordsText`). Kept from the model's start (`RecBridge.tabWords`). */
+data class TabWords(val guide: String, val search: String, val reservations: String, val recordings: String,
+                    val settings: String)
+
+private fun TabWords(it: jp.hiroaki.bdbridge.bridge.TabWordsText) = TabWords(
+    it.guide, it.search, it.reservations, it.recordings, it.settings,
+)
+
+/**
  * The settings' words that never change, as the model words them (`SettingsWordsText`): the recorder's part's, the
  * rest of the screen's with the devices found, 番組表を更新's with the title of what it had to say, and ご利用上の注意.
  * Kept from the model's start (`RecBridge.settingsWords`).
@@ -1149,8 +1185,8 @@ data class SettingsWords(
     val hostLabel: String, val hostPlaceholder: String, val macLabel: String, val macPlaceholder: String,
     val connectLabel: String, val reconnectLabel: String, val defaultQualityLabel: String,
     val defaultQualityFooter: String, val searchLabel: String, val foundRecordersHeading: String,
-    val foundTelevisionsHeading: String, val inUseLabel: String, val registerFoundLabel: String,
-    val connectFoundLabel: String,
+    val causesHeading: String, val foundTelevisionsHeading: String, val inUseLabel: String,
+    val registerFoundLabel: String, val connectFoundLabel: String,
     val channelsLabel: String, val channelsFooter: String, val guideHeading: String, val guideSourceLabel: String,
     val refreshGuideLabel: String, val refreshFailedTitle: String, val enterDemoLabel: String,
     val leaveDemoLabel: String, val appHeading: String, val disclaimerLabel: String, val versionLabel: String,
@@ -1159,8 +1195,8 @@ data class SettingsWords(
 private fun SettingsWords(it: jp.hiroaki.bdbridge.bridge.SettingsWordsText) = SettingsWords(
     it.title, it.recorderHeading, it.recorderFooter, it.standingLabel, it.hostLabel, it.hostPlaceholder, it.macLabel,
     it.macPlaceholder, it.connectLabel, it.reconnectLabel, it.defaultQualityLabel, it.defaultQualityFooter,
-    it.searchLabel, it.foundRecordersHeading, it.foundTelevisionsHeading, it.inUseLabel, it.registerFoundLabel,
-    it.connectFoundLabel,
+    it.searchLabel, it.foundRecordersHeading, it.causesHeading, it.foundTelevisionsHeading, it.inUseLabel,
+    it.registerFoundLabel, it.connectFoundLabel,
     it.channelsLabel, it.channelsFooter, it.guideHeading, it.guideSourceLabel, it.refreshGuideLabel,
     it.refreshFailedTitle, it.enterDemoLabel, it.leaveDemoLabel, it.appHeading, it.disclaimerLabel, it.versionLabel,
 )

@@ -106,6 +106,8 @@ public struct SettingsWordsText: Sendable {
     public var defaultQualityFooter: String
     public var searchLabel: String
     public var foundRecordersHeading: String
+    /// The heading over the likely causes of a search that found nothing, or failed.
+    public var causesHeading: String
     /// The televisions found: the card's heading, and what a row says at its end, the one in use -- as a recorder's
     /// row says it too -- or one a tap registers.
     public var foundTelevisionsHeading: String
@@ -134,6 +136,7 @@ public struct SettingsWordsText: Sendable {
         defaultQualityLabel: SettingsWords.defaultQualityLabel,
         defaultQualityFooter: SettingsWords.defaultQualityFooter,
         searchLabel: SettingsWords.searchLabel, foundRecordersHeading: SettingsWords.foundRecordersHeading,
+        causesHeading: SettingsWords.causesHeading,
         foundTelevisionsHeading: SettingsWords.foundTelevisionsHeading, inUseLabel: SettingsWords.inUseLabel,
         registerFoundLabel: SettingsWords.registerFoundLabel, connectFoundLabel: SettingsWords.connectFoundLabel,
         channelsLabel: SettingsWords.channelsLabel, channelsFooter: SettingsWords.channelsFooter,

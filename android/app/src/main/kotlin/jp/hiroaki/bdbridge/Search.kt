@@ -255,7 +255,7 @@ private fun FoundProgrammes(shown: Search, current: String?, open: (FoundProgram
         }
         items(shown.programmes, key = { it.row.id }) { found ->
             val words = if (!found.hasSnippet) null else buildAnnotatedString {
-                append("詳細：" + found.before)
+                append(RecBridge.guideWords.detailsPrefix + found.before)
                 withStyle(strong) { append(found.match) }
                 append(found.after)
             }

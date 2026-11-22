@@ -817,6 +817,32 @@ extension AndroidBridgeTests {
                        [SheetWords.station, SheetWords.starts, SheetWords.length, SheetWords.genre, SheetWords.quality,
                         SheetWords.repeating, SheetWords.disk, SheetWords.summaryHeading, SheetWords.detailsHeading,
                         SheetWords.recordingLine, SheetWords.deleteReservationLabel])
+        XCTAssertEqual([words.okLabel, words.cancelLabel], [SheetWords.okLabel, SheetWords.cancelLabel])
+    }
+
+    /// The guide's and the stations' screen's words that never change, as Kotlin keeps them, are the model's
+    /// (`GuideWords`, `ChannelsState`).
+    @MainActor
+    func testTheGuidesWordsAreTheModels() {
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
+        let words = app.guideWords()
+        XCTAssertEqual([words.nowLabel, words.previousDayLabel, words.nextDayLabel, words.allStationsLabel,
+                        words.showAllStationsLabel, words.onAirLabel, words.detailsPrefix, words.channelsLabel],
+                       [GuideWords.nowLabel, GuideWords.previousDayLabel, GuideWords.nextDayLabel,
+                        GuideWords.allStationsLabel, GuideWords.showAllStationsLabel, GuideWords.onAirLabel,
+                        GuideWords.detailsPrefix, GuideWords.channelsLabel])
+        XCTAssertEqual([words.resetRowLabel, words.resetLabel, words.failureTitle],
+                       [ChannelsState.resetRowLabel, ChannelsState.resetLabel, ChannelsState.failureTitle])
+    }
+
+    /// The tabs' names, as Kotlin keeps them, are the model's (`TabWords`).
+    @MainActor
+    func testTheTabsNamesAreTheModels() {
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
+        let words = app.tabWords()
+        XCTAssertEqual([words.guide, words.search, words.reservations, words.recordings, words.settings],
+                       [TabWords.guide, TabWords.search, TabWords.reservations, TabWords.recordings,
+                        TabWords.settings])
     }
 
     /// The settings' words, as Kotlin keeps them, are the model's (`RecorderSettingsState`, `SettingsWords`, 番組表を更新's
@@ -826,9 +852,10 @@ extension AndroidBridgeTests {
         let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
         let words = app.settingsWords()
         XCTAssertEqual([words.foundTelevisionsHeading, words.inUseLabel, words.registerFoundLabel,
-                        words.connectFoundLabel],
+                        words.connectFoundLabel, words.causesHeading],
                        [SettingsWords.foundTelevisionsHeading, SettingsWords.inUseLabel,
-                        SettingsWords.registerFoundLabel, SettingsWords.connectFoundLabel])
+                        SettingsWords.registerFoundLabel, SettingsWords.connectFoundLabel,
+                        SettingsWords.causesHeading])
         XCTAssertEqual([words.recorderHeading, words.recorderFooter, words.standingLabel, words.hostLabel,
                         words.hostPlaceholder, words.macLabel, words.macPlaceholder, words.connectLabel,
                         words.reconnectLabel],
@@ -878,6 +905,7 @@ extension AndroidBridgeTests {
         XCTAssertEqual(searching.searchingLine, SettingsWords.searchingLine((done: 3, total: 1024)))
         let tutorial = await until(devices.read) { $0.toSearch == 1024 }
         XCTAssertEqual(tutorial.searchingLine, SettingsWords.searchingLine((done: 3, total: 1024)))
+        XCTAssertEqual(tutorial.tutorial.typeAddressLabel, Tutorial.typeAddressLabel)
         app.model.scanning = nil
 
         await settings.leaveDemo()

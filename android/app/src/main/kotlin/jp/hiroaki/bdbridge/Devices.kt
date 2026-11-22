@@ -164,7 +164,7 @@ fun DevicesScreen(shown: Devices, close: () -> Unit) {
                                enabled = !shown.connectHeld) { Text(words.connectLabel) }
                     } else {
                         OutlinedButton(onClick = { scope.launch { RecBridge.act { it.devices.showAddress() } } },
-                                       modifier = Modifier.fillMaxWidth()) { Text("IP アドレスを直接入力") }
+                                       modifier = Modifier.fillMaxWidth()) { Text(tutorial.typeAddressLabel) }
                     }
                     Footnote(tutorial.addressFooter)
                 }

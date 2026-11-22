@@ -3,6 +3,36 @@ import Observation
 import RecBridgeModel
 import RecorderKit
 
+/// The words of the guide and of the stations' screen that never change, as the model words them (`GuideWords`, the
+/// stations' screen's own on `ChannelsState`) -- for Kotlin to keep from the model's start. What the guide says by what
+/// the model holds comes with the read of its screen (`GuideScreen`).
+public struct GuideWordsText: Sendable {
+    /// The guide: the way to now, the two arrows beside the day, every station and the button that picks it again, a
+    /// programme on the air, the front of the line under one found only in its details, and the way to the stations
+    /// shown.
+    public var nowLabel: String
+    public var previousDayLabel: String
+    public var nextDayLabel: String
+    public var allStationsLabel: String
+    public var showAllStationsLabel: String
+    public var onAirLabel: String
+    public var detailsPrefix: String
+    public var channelsLabel: String
+    /// The stations' screen: the button at the foot, the one of the question it asks, and the title of the alert that
+    /// says a change was not saved.
+    public var resetRowLabel: String
+    public var resetLabel: String
+    public var failureTitle: String
+
+    static let all = GuideWordsText(
+        nowLabel: GuideWords.nowLabel, previousDayLabel: GuideWords.previousDayLabel,
+        nextDayLabel: GuideWords.nextDayLabel, allStationsLabel: GuideWords.allStationsLabel,
+        showAllStationsLabel: GuideWords.showAllStationsLabel, onAirLabel: GuideWords.onAirLabel,
+        detailsPrefix: GuideWords.detailsPrefix, channelsLabel: GuideWords.channelsLabel,
+        resetRowLabel: ChannelsState.resetRowLabel, resetLabel: ChannelsState.resetLabel,
+        failureTitle: ChannelsState.failureTitle)
+}
+
 /// The guide's screen as the iOS app shows it (`GuideScreen`): one broadcasting type and one broadcast day, from the
 /// cache, as the list -- every station or one -- or as the grid (`GuideGridView`), with what it says in place of the
 /// programmes when there are none.

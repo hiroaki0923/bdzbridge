@@ -67,13 +67,15 @@ public struct TutorialText: Sendable {
     public var step4Title: String
     public var step4Detail: String
     public var addressFooter: String
+    /// The button that shows the address field.
+    public var typeAddressLabel: String
     public var demoFooter: String
 
     static let all = TutorialText(
         heading: Tutorial.heading, step1Title: Tutorial.step1Title,
         step1Detail: Tutorial.step1Detail, step2Detail: Tutorial.step2Detail, step3Title: Tutorial.step3Title,
         step4Title: Tutorial.step4Title, step4Detail: Tutorial.step4Detail, addressFooter: Tutorial.addressFooter,
-        demoFooter: Tutorial.demoFooter)
+        typeAddressLabel: Tutorial.typeAddressLabel, demoFooter: Tutorial.demoFooter)
 }
 
 public struct FoundRecorder: Sendable {
