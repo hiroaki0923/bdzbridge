@@ -92,11 +92,11 @@ fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit, setUp: () ->
                     title = { Text(shown.television.removalQuestion) }, text = { Text(shown.television.removalMessage) },
                     confirmButton = {
                         TextButton(onClick = { scope.launch { RecBridge.act { it.settings.confirmRemovingTV() } } }) {
-                            Text(shown.television.confirmRemovingLabel, color = MaterialTheme.colorScheme.error)
+                            Text(RecBridge.televisionWords.confirmRemovingLabel, color = MaterialTheme.colorScheme.error)
                         }
                     },
                     dismissButton = {
-                        TextButton(onClick = { close() }) { Text(shown.television.cancelRemovingLabel) }
+                        TextButton(onClick = { close() }) { Text(RecBridge.televisionWords.cancelRemovingLabel) }
                     })
     }
     Scaffold(topBar = { TopAppBar(title = { Text(words.title) }) }) { padding ->
@@ -242,19 +242,20 @@ private fun RecorderFields(shown: Settings) {
 
 /**
  * The television's part: with one added, what it says of itself, 対応状況を調べる, what brings it back, the helper, and
- * テレビを外す, which asks first; with none, the way to add one by its address. In the part's words, which come with
- * its read.
+ * テレビを外す, which asks first; with none, the way to add one by its address. In the part's words, kept from the
+ * model's start (`RecBridge.televisionWords`).
  */
 private fun LazyListScope.television(shown: Settings, check: () -> Unit, register: (TVSheetRequest) -> Unit,
                                      registerHelper: (Long) -> Unit) {
     val part = shown.television
+    val words = RecBridge.televisionWords
     item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
-    item { Heading(part.heading) }
+    item { Heading(words.heading) }
     if (!part.added) {
         item {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { register(TVSheetRequest("", connectAtOnce = false, again = false)) }) {
-                    Text(part.addLabel)
+                    Text(words.addLabel)
                 }
                 Footnote(part.noTelevisionFooter)
             }
@@ -263,35 +264,35 @@ private fun LazyListScope.television(shown: Settings, check: () -> Unit, registe
     }
     items(part.facts) { FactItem(it) }
     item {
-        ListItem(headlineContent = { Text(part.capabilitiesLabel) },
+        ListItem(headlineContent = { Text(words.capabilitiesLabel) },
                  trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                  modifier = Modifier.clickable(onClick = check))
     }
-    if (part.offersTheHelper) item { FactItem(Fact(part.helperLabel, part.helperShown)) }
+    if (part.offersTheHelper) item { FactItem(Fact(words.helperLabel, part.helperShown)) }
     item {
         val scope = rememberCoroutineScope()
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (part.offersRegistering) {
                 FilledTonalButton(onClick = { register(TVSheetRequest("", connectAtOnce = false, again = true)) }) {
-                    Text(part.registerLabel)
+                    Text(words.registerLabel)
                 }
             } else if (part.offersReconnect) {
                 FilledTonalButton(onClick = { scope.launch { RecBridge.act { it.settings.reconnectTV() } } },
-                                  enabled = !part.reconnectHeld) { Text(part.reconnectLabel) }
+                                  enabled = !part.reconnectHeld) { Text(words.reconnectLabel) }
             }
             if (part.offersTheHelper) {
                 if (part.helperRegistered) {
                     OutlinedButton(onClick = { scope.launch { RecBridge.act { it.settings.forgetHelper() } } },
                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                        Text(part.forgetHelperLabel)
+                        Text(words.forgetHelperLabel)
                     }
                 } else {
-                    OutlinedButton(onClick = { registerHelper(System.nanoTime()) }) { Text(part.registerHelperLabel) }
+                    OutlinedButton(onClick = { registerHelper(System.nanoTime()) }) { Text(words.registerHelperLabel) }
                 }
             }
             OutlinedButton(onClick = { scope.launch { RecBridge.act { it.settings.removeTV() } } }, enabled = !part.removeHeld,
                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                Text(part.removeLabel)
+                Text(words.removeLabel)
             }
             // Why 外す left the television in place, above what went wrong with the television: both when both stand.
             if (part.footer.isNotEmpty()) {

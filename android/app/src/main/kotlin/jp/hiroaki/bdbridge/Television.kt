@@ -77,26 +77,28 @@ fun TVRegisterSheetView(request: TVSheetRequest, close: () -> Unit) {
         else RecBridge.openTVRegister(request.host, request.connectAtOnce, request.again)
     }
     val sheet = handle?.let { it.shown.collectAsState().value }
+    val words = RecBridge.televisionWords
     var host by remember(request.id) { mutableStateOf<String?>(null) }
     if (host == null && sheet != null) host = sheet.typedHost
     LaunchedEffect(handle) { handle?.appeared() }
     HeldSheet(held = false, done = sheet?.done ?: false, close = close) {
-        // The title, the fields' words and the button's are the model's alone: blank for the moment before its window
-        // is read, the field and the button held meanwhile. What the iOS PIN field shows while empty is its label here.
+        // The fields' words are the model's, kept from its start; the title and the button's are its window's alone: blank
+        // for the moment before it is read, the field and the button held meanwhile. What the iOS PIN field shows while
+        // empty is its label here.
         Title(sheet?.title.orEmpty())
         Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(value = host ?: request.host, onValueChange = {
                 host = it
                 handle?.typeHost(it)
-            }, label = { Text(sheet?.hostLabel.orEmpty()) }, placeholder = { Text(sheet?.hostPlaceholder.orEmpty()) },
+            }, label = { Text(words.hostLabel) }, placeholder = { Text(words.hostPlaceholder) },
                 singleLine = true, enabled = sheet != null && !sheet.addressHeld,
-                supportingText = { Text(sheet?.hostNote.orEmpty()) },
+                supportingText = { Text(words.hostNote) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
                 modifier = Modifier.fillMaxWidth())
             if (sheet?.askingForPIN == true && handle != null) {
                 val pin by handle.pinField.text.collectAsState()
                 OutlinedTextField(value = pin, onValueChange = { handle.pinField.type(it) },
-                                  label = { Text(sheet.pinPlaceholder) }, singleLine = true,
+                                  label = { Text(words.pinPlaceholder) }, singleLine = true,
                                   supportingText = { Text(sheet.pinNote) },
                                   keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                                   modifier = Modifier.fillMaxWidth())
@@ -123,30 +125,29 @@ fun HelperRegisterSheetView(key: Long, close: () -> Unit) {
     val handle = rememberOpened(key) { RecBridge.openHelperRegister() }
     val sheet = handle?.let { it.shown.collectAsState().value }
     var code by remember(key) { mutableStateOf("") }
+    val words = RecBridge.televisionWords
     val uri = LocalUriHandler.current
     HeldSheet(held = false, done = sheet?.done ?: false, close = close) {
-        // The sheet's words are the model's alone, as the television's sheet's are: blank for the moment before its
-        // window is read, the link and the button held meanwhile. What the iOS field shows while empty is its label
-        // here.
-        Title(sheet?.title.orEmpty())
+        // The sheet's words are the model's, kept from its start. What the iOS field shows while empty is its label here.
+        Title(words.helperSheetTitle)
         Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(value = code, onValueChange = {
                 code = it
                 handle?.typeCode(it)
-            }, label = { Text(sheet?.codePlaceholder.orEmpty()) }, singleLine = true,
+            }, label = { Text(words.codePlaceholder) }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                 modifier = Modifier.fillMaxWidth())
-            Footnote(sheet?.codeNote.orEmpty())
-            Footnote(sheet?.instructionsNote.orEmpty())
-            TextButton(onClick = { sheet?.let { uri.openUri(it.instructionsURL) } }, enabled = sheet != null) {
-                Text(sheet?.instructionsLink.orEmpty())
+            Footnote(words.codeNote)
+            Footnote(words.instructionsNote)
+            TextButton(onClick = { uri.openUri(words.instructionsURL) }) {
+                Text(words.instructionsLink)
             }
             if (sheet != null && sheet.message.isNotEmpty()) {
                 Text(sheet.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(onClick = { handle?.press() }, enabled = sheet != null && !sheet.pressHeld) {
-                    Text(sheet?.pressLabel.orEmpty())
+                    Text(words.helperPressLabel)
                 }
                 if (sheet?.working == true) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
             }
@@ -205,7 +206,7 @@ fun CapabilitiesPage(close: () -> Unit) {
     BackHandler(onBack = close)
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
-    val words = RecBridge.settingsWords
+    val words = RecBridge.televisionWords
     var reading by remember { mutableStateOf(false) }
     var report by remember { mutableStateOf<String?>(null) }
     Scaffold(topBar = {

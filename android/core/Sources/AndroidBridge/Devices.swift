@@ -88,7 +88,7 @@ public struct FoundRecorder: Sendable {
     init(_ found: RecorderDescription, inUse: Bool) {
         host = found.host
         name = found.product
-        details = "\(found.host) · \(found.friendlyName)" + (found.epgCapable ? " · 番組表あり" : " · 番組表なし")
+        details = SettingsWords.foundRecorderDetails(found)
         self.inUse = inUse
     }
 }

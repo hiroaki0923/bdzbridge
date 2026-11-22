@@ -87,12 +87,11 @@ public struct Fact: Sendable {
 
 /// The settings' labels and sentences that never change, as the model words them -- the recorder's part's
 /// (`RecorderSettingsState`), the rest of the screen's (`SettingsWords`), 番組表を更新's with the title of what it had
-/// to say (`AppModel.refreshGuideLabel`, `refreshFailedTitle`), ご利用上の注意 (`Disclaimer.title`), and the words of
-/// the page that says what the television speaks, opened from the television's part (`TVCapabilitiesWords`) -- for
-/// Kotlin to keep from the model's start. The television's part says its own with each read (`TelevisionPart`). The
-/// tutorial says the search's button, the recorders and the televisions it found, the address field's label and
-/// placeholder, このアドレスに接続 and サンプルデータで試す in the same words, and the guide's tab the title of what
-/// 番組表を更新 had to say.
+/// to say (`AppModel.refreshGuideLabel`, `refreshFailedTitle`), and ご利用上の注意 (`Disclaimer.title`) -- for Kotlin
+/// to keep from the model's start. The television's own words, its part's, its sheets' and its capabilities page's,
+/// are kept the same way (`TelevisionWordsText`). The tutorial says the search's button, the recorders and the
+/// televisions it found, the address field's label and placeholder, このアドレスに接続 and サンプルデータで試す in the
+/// same words, and the guide's tab the title of what 番組表を更新 had to say.
 public struct SettingsWordsText: Sendable {
     public var title: String
     public var recorderHeading: String
@@ -113,6 +112,7 @@ public struct SettingsWordsText: Sendable {
     public var foundTelevisionsHeading: String
     public var inUseLabel: String
     public var registerFoundLabel: String
+    public var connectFoundLabel: String
     public var channelsLabel: String
     public var channelsFooter: String
     public var guideHeading: String
@@ -124,12 +124,6 @@ public struct SettingsWordsText: Sendable {
     public var appHeading: String
     public var disclaimerLabel: String
     public var versionLabel: String
-    /// The page that says what the television speaks: its title, its button, what is said under it, and the button
-    /// that copies what it said.
-    public var capabilitiesTitle: String
-    public var capabilitiesCheckLabel: String
-    public var capabilitiesFooter: String
-    public var capabilitiesCopyLabel: String
 
     static let all = SettingsWordsText(
         title: SettingsWords.title, recorderHeading: RecorderSettingsState.heading,
@@ -141,15 +135,13 @@ public struct SettingsWordsText: Sendable {
         defaultQualityFooter: SettingsWords.defaultQualityFooter,
         searchLabel: SettingsWords.searchLabel, foundRecordersHeading: SettingsWords.foundRecordersHeading,
         foundTelevisionsHeading: SettingsWords.foundTelevisionsHeading, inUseLabel: SettingsWords.inUseLabel,
-        registerFoundLabel: SettingsWords.registerFoundLabel,
+        registerFoundLabel: SettingsWords.registerFoundLabel, connectFoundLabel: SettingsWords.connectFoundLabel,
         channelsLabel: SettingsWords.channelsLabel, channelsFooter: SettingsWords.channelsFooter,
         guideHeading: SettingsWords.keptGuideHeading, guideSourceLabel: SettingsWords.guideSourceLabel,
         refreshGuideLabel: AppModel.refreshGuideLabel, refreshFailedTitle: AppModel.refreshFailedTitle,
         enterDemoLabel: SettingsWords.enterDemoLabel, leaveDemoLabel: SettingsWords.leaveDemoLabel,
         appHeading: SettingsWords.appHeading, disclaimerLabel: Disclaimer.title,
-        versionLabel: SettingsWords.versionLabel, capabilitiesTitle: TVCapabilitiesWords.title,
-        capabilitiesCheckLabel: TVCapabilitiesWords.checkLabel, capabilitiesFooter: TVCapabilitiesWords.footer,
-        capabilitiesCopyLabel: TVCapabilitiesWords.copyLabel)
+        versionLabel: SettingsWords.versionLabel)
 }
 
 /// How many times the model has set each of the settings' fields to something else itself, rather than taken what was

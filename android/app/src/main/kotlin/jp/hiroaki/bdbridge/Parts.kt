@@ -174,7 +174,8 @@ fun FoundRecordersCard(recorders: List<FoundRecorder>, canChoose: Boolean, choos
                         Text(RecBridge.settingsWords.inUseLabel, color = MaterialTheme.colorScheme.primary,
                              style = MaterialTheme.typography.labelLarge)
                     } else {
-                        Text("接続する", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                        Text(RecBridge.settingsWords.connectFoundLabel, color = MaterialTheme.colorScheme.primary,
+                             style = MaterialTheme.typography.labelLarge)
                     }
                 },
                 // As on iOS, the row in use is selected to the screen reader.

@@ -42,8 +42,7 @@ at, the television (what it says of itself, 対応状況を調べる, 登録す�
 and the recorders and televisions it found, which stations the guide shows and in what order, the guide kept on the
 device and which device it is fetched from, the demo and ご利用上の注意, over the model's states of them
 (`RecorderSettingsState`, `TVSettingsState`, `ChannelsState`) and in the model's words: `SettingsWords` and the
-recorder's part's own, which Kotlin keeps from the model's start as it keeps the sheets', and the television's part's,
-which come with the settings' read.
+recorder's part's own, and the television's part's, which Kotlin keeps from the model's start as it keeps the sheets'.
 The chooser is the tutorial: the introduction and the four steps, then the search, an address and the demo, over the
 model's state of it (`WelcomeState`) and its sentences
 (`Tutorial`), but for three that are Android's own (the introduction and the second step's title say this device, and
@@ -51,7 +50,8 @@ the third step has no detail, as Android asks no local network question); the se
 again. A television is added from a search, the settings or the
 strip's 登録 on a sheet over the model's state of it (`TVRegisterState`), and the helper on it on another
 (`HelperRegisterState`), each in its state's words, and what the television speaks is read on a page in the model's
-words too (`TVCapabilitiesWords`). As on iOS, a
+words too (`TVCapabilitiesWords`); the television's words that never change -- the part's, the sheets' and the page's --
+are handed over once, at the model's start (`TelevisionWordsText`). As on iOS, a
 connect wakes a recorder that does not answer with a magic packet when its MAC is known. The stations' logos are on the
 guide's rows, on the reservations' and the recordings' and on the search's; the demo's stations have tiles that Kotlin
 draws (`Tiles.kt`) and hands to the model as files (`TileDrawer`). The model is told when the network changes, by a

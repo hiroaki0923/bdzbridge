@@ -820,18 +820,15 @@ extension AndroidBridgeTests {
     }
 
     /// The settings' words, as Kotlin keeps them, are the model's (`RecorderSettingsState`, `SettingsWords`, 番組表を更新's
-    /// on `AppModel`, `Disclaimer.title`, `TVCapabilitiesWords`).
+    /// on `AppModel`, `Disclaimer.title`).
     @MainActor
     func testTheSettingsWordsAreTheModels() {
         let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
         let words = app.settingsWords()
-        XCTAssertEqual([words.foundTelevisionsHeading, words.inUseLabel, words.registerFoundLabel],
+        XCTAssertEqual([words.foundTelevisionsHeading, words.inUseLabel, words.registerFoundLabel,
+                        words.connectFoundLabel],
                        [SettingsWords.foundTelevisionsHeading, SettingsWords.inUseLabel,
-                        SettingsWords.registerFoundLabel])
-        XCTAssertEqual([words.capabilitiesTitle, words.capabilitiesCheckLabel, words.capabilitiesFooter,
-                        words.capabilitiesCopyLabel],
-                       [TVCapabilitiesWords.title, TVCapabilitiesWords.checkLabel, TVCapabilitiesWords.footer,
-                        TVCapabilitiesWords.copyLabel])
+                        SettingsWords.registerFoundLabel, SettingsWords.connectFoundLabel])
         XCTAssertEqual([words.recorderHeading, words.recorderFooter, words.standingLabel, words.hostLabel,
                         words.hostPlaceholder, words.macLabel, words.macPlaceholder, words.connectLabel,
                         words.reconnectLabel],
@@ -1299,40 +1296,55 @@ extension AndroidBridgeTests {
         XCTAssertTrue(removed.demo)
     }
 
-    /// The television's part and its sheets hand over the model's words: the part's own (`TVSettingsState`), said with
-    /// none added -- what it says of a television added is held above --, and the sheets' (`TVRegisterState`,
-    /// `HelperRegisterState`).
+    /// The television's part says what depends on what the model holds, with none added -- what it says of a television
+    /// added is held above -- in the model's words (`TVSettingsState`).
     @MainActor
-    func testTheTelevisionsPartAndSheetsSayTheModelsWords() async throws {
+    func testTheTelevisionsPartSaysTheModelsWordsWithNoneAdded() async throws {
         let app = await demo()
         let settings = await app.settings()
         let none = await until(settings.read) { $0.canChoose }.television
         XCTAssertFalse(none.added)
-        XCTAssertEqual([none.heading, none.addLabel, none.noTelevisionFooter],
-                       [TVSettingsState.heading, TVSettingsState.addLabel,
-                        TVSettingsState.noTelevisionFooter(inDemo: true)])
-        XCTAssertEqual([none.capabilitiesLabel, none.registerLabel, none.reconnectLabel, none.helperLabel,
-                        none.forgetHelperLabel, none.registerHelperLabel, none.removeLabel, none.removalQuestion,
-                        none.confirmRemovingLabel, none.cancelRemovingLabel],
-                       [TVSettingsState.capabilitiesLabel, TVSettingsState.registerLabel,
+        XCTAssertEqual([none.removalQuestion, none.noTelevisionFooter],
+                       [TVSettingsState.removalQuestion, TVSettingsState.noTelevisionFooter(inDemo: true)])
+    }
+
+    /// The television's words that never change, as Kotlin keeps them, are the model's: the part's
+    /// (`TVSettingsState`), the sheets' (`TVRegisterState`, `HelperRegisterState`) and the capabilities page's
+    /// (`TVCapabilitiesWords`).
+    @MainActor
+    func testTheTelevisionsWordsAreTheModels() {
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
+        let words = app.televisionWords()
+        XCTAssertEqual([words.heading, words.capabilitiesLabel, words.registerLabel, words.reconnectLabel,
+                        words.helperLabel, words.forgetHelperLabel, words.registerHelperLabel, words.removeLabel,
+                        words.confirmRemovingLabel, words.cancelRemovingLabel, words.addLabel],
+                       [TVSettingsState.heading, TVSettingsState.capabilitiesLabel, TVSettingsState.registerLabel,
                         TVSettingsState.reconnectLabel, TVSettingsState.helperLabel, TVSettingsState.forgetHelperLabel,
                         TVSettingsState.registerHelperLabel, TVSettingsState.removeLabel,
-                        TVSettingsState.removalQuestion, TVSettingsState.confirmRemovingLabel, SheetWords.cancelLabel])
-
-        let sheet = await app.registerTV(host: "", connectAtOnce: false, again: false)
-        let asked = await sheet.read()
-        XCTAssertEqual([asked.hostLabel, asked.hostPlaceholder, asked.hostNote, asked.pinPlaceholder],
+                        TVSettingsState.confirmRemovingLabel, SheetWords.cancelLabel, TVSettingsState.addLabel])
+        XCTAssertEqual([words.hostLabel, words.hostPlaceholder, words.hostNote, words.pinPlaceholder],
                        [TVRegisterState.hostLabel, TVRegisterState.hostPlaceholder, TVRegisterState.hostNote,
                         TVRegisterState.pinPlaceholder])
-        await sheet.closed()
-        let helper = await app.registerHelper()
-        let code = await helper.read()
-        XCTAssertEqual([code.title, code.codePlaceholder, code.codeNote, code.instructionsNote, code.instructionsLink,
-                        code.instructionsURL, code.pressLabel],
-                       [HelperRegisterState.sheetTitle, HelperRegisterState.codePlaceholder, HelperRegisterState.codeNote,
-                        HelperRegisterState.instructionsNote, HelperRegisterState.instructionsLink,
-                        HelperRegisterState.instructionsURL, HelperRegisterState.pressLabel])
-        await helper.closed()
+        XCTAssertEqual([words.helperSheetTitle, words.codePlaceholder, words.codeNote, words.instructionsNote,
+                        words.instructionsLink, words.instructionsURL, words.helperPressLabel],
+                       [HelperRegisterState.sheetTitle, HelperRegisterState.codePlaceholder,
+                        HelperRegisterState.codeNote, HelperRegisterState.instructionsNote,
+                        HelperRegisterState.instructionsLink, HelperRegisterState.instructionsURL,
+                        HelperRegisterState.pressLabel])
+        XCTAssertEqual([words.capabilitiesTitle, words.capabilitiesCheckLabel, words.capabilitiesFooter,
+                        words.capabilitiesCopyLabel],
+                       [TVCapabilitiesWords.title, TVCapabilitiesWords.checkLabel, TVCapabilitiesWords.footer,
+                        TVCapabilitiesWords.copyLabel])
+    }
+
+    /// A found recorder's second line is the model's (`SettingsWords.foundRecorderDetails`).
+    @MainActor
+    func testAFoundRecordersDetailsAreTheModels() async throws {
+        let app = await demo()
+        let devices = await app.devices()
+        await devices.search()
+        let found = await until(devices.read, tries: 800) { !$0.recorders.isEmpty && !$0.searching }
+        XCTAssertEqual(found.recorders.map(\.details), app.model.found.map(SettingsWords.foundRecorderDetails))
     }
 
     /// The television's registration and the helper's token are kept in files of the folder that never leaves the

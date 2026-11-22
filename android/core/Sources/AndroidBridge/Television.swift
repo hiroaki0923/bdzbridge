@@ -6,18 +6,70 @@ import RecorderKit
 // The television's screens, as the iOS app has them: the sheet that adds a television or registers with it again, the
 // helper's sheet, the television's part of the settings, and the televisions a search found. What each offers, holds
 // back and says is the model's (`TVRegisterState`, `HelperRegisterState`, `TVSettingsState`, and `SettingsWords` for
-// the televisions found), and each window hands over its screen's own words with what it reads.
+// the televisions found). The words that never change are handed over once, at the model's start
+// (`TelevisionWordsText`); each window hands over what it reads, and the words that go with what it holds.
+
+/// The television's words that never change, as the model words them -- its part of the settings (`TVSettingsState`),
+/// its two sheets (`TVRegisterState`, `HelperRegisterState`) and the page that says what it speaks
+/// (`TVCapabilitiesWords`) -- for Kotlin to keep from the model's start, so that a sheet has them from its first frame.
+/// What depends on what the model holds -- the facts, the sheet's title and button, the questions and the footers --
+/// comes with the read of its screen.
+public struct TelevisionWordsText: Sendable {
+    /// The part of the settings: its heading, 対応状況を調べる, 登録する, 再接続, the helper's label and its two
+    /// buttons, テレビを外す with the question's two buttons, and the way to add one with none.
+    public var heading: String
+    public var capabilitiesLabel: String
+    public var registerLabel: String
+    public var reconnectLabel: String
+    public var helperLabel: String
+    public var forgetHelperLabel: String
+    public var registerHelperLabel: String
+    public var removeLabel: String
+    public var confirmRemovingLabel: String
+    public var cancelRemovingLabel: String
+    public var addLabel: String
+    /// The sheet that adds a television: the address field's label, what it shows while empty, what is said under it,
+    /// and what the PIN field shows while empty.
+    public var hostLabel: String
+    public var hostPlaceholder: String
+    public var hostNote: String
+    public var pinPlaceholder: String
+    /// The helper's sheet: its title, what the code field shows while empty, the two sentences under it, the link
+    /// with where it goes, and the button.
+    public var helperSheetTitle: String
+    public var codePlaceholder: String
+    public var codeNote: String
+    public var instructionsNote: String
+    public var instructionsLink: String
+    public var instructionsURL: String
+    public var helperPressLabel: String
+    /// The page that says what the television speaks: its title, its button, what is said under it, and the button
+    /// that copies what it said.
+    public var capabilitiesTitle: String
+    public var capabilitiesCheckLabel: String
+    public var capabilitiesFooter: String
+    public var capabilitiesCopyLabel: String
+
+    static let all = TelevisionWordsText(
+        heading: TVSettingsState.heading, capabilitiesLabel: TVSettingsState.capabilitiesLabel,
+        registerLabel: TVSettingsState.registerLabel, reconnectLabel: TVSettingsState.reconnectLabel,
+        helperLabel: TVSettingsState.helperLabel, forgetHelperLabel: TVSettingsState.forgetHelperLabel,
+        registerHelperLabel: TVSettingsState.registerHelperLabel, removeLabel: TVSettingsState.removeLabel,
+        confirmRemovingLabel: TVSettingsState.confirmRemovingLabel, cancelRemovingLabel: SheetWords.cancelLabel,
+        addLabel: TVSettingsState.addLabel, hostLabel: TVRegisterState.hostLabel,
+        hostPlaceholder: TVRegisterState.hostPlaceholder, hostNote: TVRegisterState.hostNote,
+        pinPlaceholder: TVRegisterState.pinPlaceholder, helperSheetTitle: HelperRegisterState.sheetTitle,
+        codePlaceholder: HelperRegisterState.codePlaceholder, codeNote: HelperRegisterState.codeNote,
+        instructionsNote: HelperRegisterState.instructionsNote, instructionsLink: HelperRegisterState.instructionsLink,
+        instructionsURL: HelperRegisterState.instructionsURL, helperPressLabel: HelperRegisterState.pressLabel,
+        capabilitiesTitle: TVCapabilitiesWords.title, capabilitiesCheckLabel: TVCapabilitiesWords.checkLabel,
+        capabilitiesFooter: TVCapabilitiesWords.footer, capabilitiesCopyLabel: TVCapabilitiesWords.copyLabel)
+}
 
 /// The sheet that adds a television, or registers with it again (`TVRegisterSheet` on iOS).
 public struct TVRegisterScreen: Sendable {
     /// テレビを追加, or テレビを登録 for a registration again.
     public var title: String
-    /// The address field's label, what it shows while empty, and what is said under it; and what the PIN field shows
-    /// while empty (`TVRegisterState.hostLabel` and the rest).
-    public var hostLabel: String
-    public var hostPlaceholder: String
-    public var hostNote: String
-    public var pinPlaceholder: String
     /// The address field as the state has it, which the screen's field starts at: the state never sets it itself.
     public var typedHost: String
     /// Whether the address field is held: once the PIN is asked for, and while a step is under way.
@@ -118,9 +170,7 @@ public final class TVRegisterWindow: Sendable {
     private static func screen(_ register: TVRegisterState, _ pin: SetByTheState) -> TVRegisterScreen {
         pin.look(at: register.pin)
         return TVRegisterScreen(
-            title: register.title, hostLabel: TVRegisterState.hostLabel,
-            hostPlaceholder: TVRegisterState.hostPlaceholder, hostNote: TVRegisterState.hostNote,
-            pinPlaceholder: TVRegisterState.pinPlaceholder,
+            title: register.title,
             typedHost: register.typedHost, addressHeld: register.holdsTheAddress, askingForPIN: register.askingForPIN,
             pin: register.pin, pinSet: pin.count, pinNote: register.pinNote,
             // Android's way to the permission comes with the permission itself.
@@ -132,15 +182,7 @@ public final class TVRegisterWindow: Sendable {
 
 /// The sheet that registers with the helper on the television (`HelperRegisterSheet` on iOS).
 public struct HelperRegisterScreen: Sendable {
-    /// The sheet's words (`HelperRegisterState.sheetTitle` and the rest): its title, what the code field shows while empty,
-    /// the two sentences under it, the link with where it goes, and the button.
-    public var title: String
-    public var codePlaceholder: String
-    public var codeNote: String
-    public var instructionsNote: String
-    public var instructionsLink: String
-    public var instructionsURL: String
-    public var pressLabel: String
+    /// Whether 登録する is held, whether the registration is out, what went wrong with it, and whether it is done.
     public var pressHeld: Bool
     public var working: Bool
     public var message: String
@@ -156,13 +198,8 @@ public final class HelperRegisterWindow: Sendable {
     init(_ helper: HelperRegisterState) {
         self.helper = helper
         shown = Watched {
-            HelperRegisterScreen(title: HelperRegisterState.sheetTitle, codePlaceholder: HelperRegisterState.codePlaceholder,
-                                 codeNote: HelperRegisterState.codeNote,
-                                 instructionsNote: HelperRegisterState.instructionsNote,
-                                 instructionsLink: HelperRegisterState.instructionsLink,
-                                 instructionsURL: HelperRegisterState.instructionsURL,
-                                 pressLabel: HelperRegisterState.pressLabel, pressHeld: helper.holdsThePress,
-                                 working: helper.working, message: helper.message?.asABody ?? "", done: helper.done)
+            HelperRegisterScreen(pressHeld: helper.holdsThePress, working: helper.working,
+                                 message: helper.message?.asABody ?? "", done: helper.done)
         }
     }
 
@@ -185,42 +222,30 @@ public final class HelperRegisterWindow: Sendable {
 }
 
 /// The television's part of the settings (`TVSection` on iOS): with one added, what it says of itself, how its link
-/// stands, what brings it back, the helper, and テレビを外す with its question; with none, the way to add one. In the
-/// part's words (`TVSettingsState.heading` and the rest), which come with each read of the settings.
+/// stands, what brings it back, the helper, and テレビを外す with its question; with none, the way to add one. The
+/// labels and buttons that never change are the model's start's (`TelevisionWordsText`); this holds what depends on
+/// what the model holds.
 public struct TelevisionPart: Sendable {
-    public var heading: String
     public var added: Bool
     /// 機種, IP アドレス, 状態 and the USB disk, as far as the television has said them.
     public var facts: [Fact]
-    /// 対応状況を調べる.
-    public var capabilitiesLabel: String
-    /// 登録する, or 再接続 in its place and whether it is held.
-    public var registerLabel: String
+    /// Whether 登録する is offered, or 再接続 in its place, and whether that is held.
     public var offersRegistering: Bool
-    public var reconnectLabel: String
     public var offersReconnect: Bool
     public var reconnectHeld: Bool
-    /// The helper's registration, where there is a helper to register with: the label and its value, and the button
-    /// that forgets it or the one that registers.
+    /// The helper's registration, where there is a helper to register with: its value, and whether the app holds one,
+    /// which decides whether the button that forgets it or the one that registers is shown.
     public var offersTheHelper: Bool
-    public var helperLabel: String
     public var helperShown: String
     public var helperRegistered: Bool
-    public var forgetHelperLabel: String
-    public var registerHelperLabel: String
-    /// テレビを外す, whether it is held, and its question while it is up, with its two buttons: 外す, and the one that
-    /// closes it, which the iOS question has of the system.
-    public var removeLabel: String
+    /// Whether テレビを外す is held, and its question while it is up.
     public var removeHeld: Bool
     public var asksToRemove: Bool
     public var removalQuestion: String
     public var removalMessage: String
-    public var confirmRemovingLabel: String
-    public var cancelRemovingLabel: String
     /// Why 外す left the television in place, and what went wrong with it, in red under the part.
     public var footer: String
-    /// With none added, the way to add one by its address, and what is said under it, in the demo or out of it.
-    public var addLabel: String
+    /// With none added, what is said under the way to add one, in the demo or out of it.
     public var noTelevisionFooter: String
 }
 
@@ -237,19 +262,12 @@ extension TelevisionPart {
                 facts.append(Fact(label: TVSettingsState.storageLabel, value: storage))
             }
         }
-        self.init(heading: TVSettingsState.heading, added: model.tv != nil, facts: facts,
-                  capabilitiesLabel: TVSettingsState.capabilitiesLabel, registerLabel: TVSettingsState.registerLabel,
-                  offersRegistering: television.offersRegistering, reconnectLabel: TVSettingsState.reconnectLabel,
+        self.init(added: model.tv != nil, facts: facts, offersRegistering: television.offersRegistering,
                   offersReconnect: television.offersReconnect, reconnectHeld: television.holdsReconnect,
-                  offersTheHelper: television.offersTheHelper, helperLabel: TVSettingsState.helperLabel,
-                  helperShown: television.helperShown, helperRegistered: television.helperRegistered,
-                  forgetHelperLabel: TVSettingsState.forgetHelperLabel,
-                  registerHelperLabel: TVSettingsState.registerHelperLabel, removeLabel: TVSettingsState.removeLabel,
-                  removeHeld: television.holdsRemoving, asksToRemove: television.asksToRemove,
-                  removalQuestion: TVSettingsState.removalQuestion, removalMessage: television.removalMessage,
-                  confirmRemovingLabel: TVSettingsState.confirmRemovingLabel,
-                  cancelRemovingLabel: SheetWords.cancelLabel, footer: television.footer ?? "",
-                  addLabel: TVSettingsState.addLabel,
+                  offersTheHelper: television.offersTheHelper, helperShown: television.helperShown,
+                  helperRegistered: television.helperRegistered, removeHeld: television.holdsRemoving,
+                  asksToRemove: television.asksToRemove, removalQuestion: TVSettingsState.removalQuestion,
+                  removalMessage: television.removalMessage, footer: television.footer ?? "",
                   noTelevisionFooter: TVSettingsState.noTelevisionFooter(inDemo: model.demo))
     }
 }
