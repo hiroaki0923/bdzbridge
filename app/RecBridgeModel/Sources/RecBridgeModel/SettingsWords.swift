@@ -48,6 +48,9 @@ public enum SettingsWords {
     /// What a found recorder's row says at its end while a tap connects to it.
     public static let connectFoundLabel = "接続する"
 
+    /// The heading over the likely causes a search that found nothing, or failed, lists.
+    public static let causesHeading = "考えられる原因"
+
     /// A found recorder's second line: its address and the name it gave, and whether it serves a guide.
     public static func foundRecorderDetails(_ found: RecorderDescription) -> String {
         "\(found.host) · \(found.friendlyName)" + (found.epgCapable ? " · 番組表あり" : " · 番組表なし")

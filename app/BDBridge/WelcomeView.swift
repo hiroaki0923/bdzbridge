@@ -111,7 +111,7 @@ struct WelcomeView: View {
                         Button(RecorderSettingsState.connectLabel) { welcome.connectTyped() }
                         .disabled(welcome.holdsConnect)
                     } else {
-                        Button("IP アドレスを直接入力") { welcome.typing = true }
+                        Button(Tutorial.typeAddressLabel) { welcome.typing = true }
                     }
                 } footer: {
                     Text(Tutorial.addressFooter)
@@ -190,7 +190,7 @@ struct ScanOutcomeText: View {
                 Text(line).font(.caption).foregroundStyle(.secondary)
             }
             if !outcome.causes.isEmpty {
-                Text("考えられる原因").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(SettingsWords.causesHeading).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 ForEach(outcome.causes, id: \.self) { cause in
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Text("・").accessibilityHidden(true)

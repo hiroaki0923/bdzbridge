@@ -88,6 +88,7 @@ final class SettingsWordsTests: XCTestCase {
     /// its name where it gave none, and what is said under the televisions while a tap registers one and with one
     /// added.
     func testWhatTheSearchFoundIsSaidAsItWas() {
+        XCTAssertEqual(SettingsWords.causesHeading, "考えられる原因")
         XCTAssertEqual(SettingsWords.foundTelevisionsHeading, "見つかったテレビ")
         XCTAssertEqual(SettingsWords.inUseLabel, "使用中")
         XCTAssertEqual(SettingsWords.registerFoundLabel, "登録する")
