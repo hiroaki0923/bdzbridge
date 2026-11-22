@@ -29,12 +29,12 @@ struct ChannelsScreen: View {
                     Text(ChannelsState.footer)
                 }
                 Section {
-                    Button("レコーダーの順に戻して、すべて表示") { confirmingReset = true }
+                    Button(ChannelsState.resetRowLabel) { confirmingReset = true }
                         .disabled(!channels.customised)
                         // On the button, which is where the question then points from.
                         .confirmationDialog(channels.resetQuestion, isPresented: $confirmingReset,
                                             titleVisibility: .visible) {
-                            Button("レコーダーの順に戻す") { channels.reset() }
+                            Button(ChannelsState.resetLabel) { channels.reset() }
                         }
                 }
             }
@@ -49,12 +49,12 @@ struct ChannelsScreen: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) { typePicker }
-        .navigationTitle("チャンネルの表示と並び順")
+        .navigationTitle(ChannelsState.title)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: channels.source) { await channels.load() }
-        .alert("保存できませんでした", isPresented: Binding(get: { channels.failure != nil },
-                                                    set: { if !$0 { channels.failure = nil } })) {
-            Button("OK") { channels.failure = nil }
+        .alert(ChannelsState.failureTitle, isPresented: Binding(get: { channels.failure != nil },
+                                                           set: { if !$0 { channels.failure = nil } })) {
+            Button(SheetWords.okLabel) { channels.failure = nil }
         } message: {
             Text(channels.failure?.asABody ?? "")
         }

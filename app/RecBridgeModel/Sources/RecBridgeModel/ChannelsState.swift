@@ -52,6 +52,12 @@ public final class ChannelsState {
     /// words are defined as it and so are not the main actor's.
     public nonisolated static let title = "チャンネルの表示と並び順"
 
+    /// The button at the foot of the list that asks the question before the reset, that question's own button, and the
+    /// title of the alert that says a change could not be saved.
+    public static let resetRowLabel = "レコーダーの順に戻して、すべて表示"
+    public static let resetLabel = "レコーダーの順に戻す"
+    public static let failureTitle = "保存できませんでした"
+
     /// What the screen says under the list, and the question before the reset, for the type the list is of.
     public static let footer = "オフにした局は、番組表と番組の検索に出なくなります。右端の三本線をドラッグすると、並び順を変えられます。"
         + "予約と録画の一覧、レコーダーの録画はそのままです。"
