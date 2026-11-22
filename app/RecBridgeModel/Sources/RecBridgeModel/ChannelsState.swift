@@ -48,6 +48,10 @@ public final class ChannelsState {
     /// to.
     public var customised: Bool { channels.contains { $0.hidden || $0.position != nil } }
 
+    /// The screen's title, which is also what the way to it is called, in the guide's menu and in the settings, whose
+    /// words are defined as it and so are not the main actor's.
+    public nonisolated static let title = "チャンネルの表示と並び順"
+
     /// What the screen says under the list, and the question before the reset, for the type the list is of.
     public static let footer = "オフにした局は、番組表と番組の検索に出なくなります。右端の三本線をドラッグすると、並び順を変えられます。"
         + "予約と録画の一覧、レコーダーの録画はそのままです。"

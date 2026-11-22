@@ -39,7 +39,7 @@ extension GuideProgramRow {
     /// is on the air, and the mark.
     public func spoken(mark: GuideMark?, at now: Date) -> String {
         var parts = [serviceName, "\(Format.time.string(from: start))から\(Format.duration(durationSec))", title]
-        if isOnAir(at: now) { parts.append("放送中") }
+        if isOnAir(at: now) { parts.append(GuideWords.onAirLabel) }
         if let mark { parts.append(mark.word) }
         return parts.joined(separator: "、")
     }

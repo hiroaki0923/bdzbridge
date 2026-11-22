@@ -68,7 +68,7 @@ public enum SettingsWords {
     // MARK: - the stations
 
     /// The way to which stations the guide shows and in what order, and what is said under it.
-    public static let channelsLabel = "チャンネルの表示と並び順"
+    public static let channelsLabel = ChannelsState.title
     public static let channelsFooter = "番組表に出す局と、その並び順を放送ごとに選べます。この端末の番組表だけが変わり、"
         + "レコーダーの録画には影響しません。"
 
