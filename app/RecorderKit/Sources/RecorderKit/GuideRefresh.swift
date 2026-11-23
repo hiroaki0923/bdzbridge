@@ -194,7 +194,8 @@ public enum GuideRefresh {
                     outcome.answered.append(broadcasting)
                     continue
                 }
-                outcome.stored += try await store.replace(services, broadcasting: broadcasting, from: recorder)
+                outcome.stored += try await store.replace(services, broadcasting: broadcasting, from: recorder,
+                                                          givenBy: type(of: client).slot)
                 outcome.answered.append(broadcasting)
                 if Task.isCancelled {
                     // The programmes are in: the type is reported as stored, with the logos it had.

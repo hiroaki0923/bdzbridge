@@ -80,7 +80,7 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `Epg.swift` | The guide file: XOR, the zlib run, and the @SRV / @DAY / @EVT records |
 | `Guide.swift` | `GuideService`, `GuideProgram` and `Genre` |
 | `Sqlite.swift` | A thin wrapper over the system SQLite, so the package needs no dependencies |
-| `GuideStore.swift` | The guide cache: channels, programmes, logos, the user's channel order |
+| `GuideStore.swift` | The guide cache: channels, programmes, logos, the user's channel order, and which device gave each type's rows |
 | `GuideRefresh.swift` | Fetching the guide and its logos a broadcasting type at a time, one refresh at a time in the process and only into the cache of the recorder it was fetched from; which types are behind, and when the overnight run is asked for |
 | `PendingQueue.swift` | Sending the reservations that were made while their device could not be reached, a row at a time by the device's own way of sending one and only as the round read the row, and the sentences for what became of them |
 | `ByProgram.swift` | Whether a device's list holds a reservation that answers for a waiting row: the same programme, a repeat that is all the row asks for, and not one the recorder made for itself |

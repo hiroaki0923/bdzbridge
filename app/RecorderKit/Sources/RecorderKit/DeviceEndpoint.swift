@@ -40,6 +40,9 @@ public extension DeviceSlot {
 
 /// A device the guide can be fetched from, a broadcasting type at a time.
 public protocol GuideSource: DeviceEndpoint {
+    /// Which of the household's devices this is. Said here, by the kind of client: what a refresh stores of a
+    /// type is written down as this device's (`GuideStore.replace`).
+    static var slot: DeviceSlot { get }
     /// The guide for one broadcasting type. Nil when the device has no such channels.
     func guide(_ broadcasting: String) async throws -> [GuideService]?
     /// The station logos for one broadcasting type. Nil when the device has no such channels.

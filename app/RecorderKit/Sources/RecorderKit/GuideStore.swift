@@ -79,6 +79,10 @@ public struct GuideCounts: Sendable, Equatable {
     /// same as `refreshed` for a type it has, and the only mark on one it does not. What decides whether a
     /// type is fetched again. Nil in a cache written before this was kept, where `refreshed` stands in.
     public var checked: String?
+    /// Which of the household's devices this type's rows came from, as the write that put them in said
+    /// (`GuideStore.replace`). The recorder where nothing says: in a cache written before this was kept, which
+    /// only a recorder had filled, and for a type nothing has been written of.
+    public var givenBy: DeviceSlot = .recorder
 
     /// When this broadcasting type was last asked for and answered, as a date.
     public var lastAnswered: Date? { (checked ?? refreshed).flatMap(RecorderTime.parse) }
@@ -150,6 +154,7 @@ public actor GuideStore {
             DROP TABLE IF EXISTS logos;
             DELETE FROM meta WHERE key LIKE 'epg_refreshed:%';
             DELETE FROM meta WHERE key LIKE 'epg_checked:%';
+            DELETE FROM meta WHERE key LIKE 'guide_from:%';
             """)
             try db.execute(Self.schema)
             try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
@@ -209,9 +214,13 @@ public actor GuideStore {
     /// another recorder's by the time of the write takes nothing of it (`refuseAGuide`), and nothing is
     /// changed. Nil asks nothing, for a caller whose guide is no recorder's, or its own cache's by the way it
     /// was made: the demo's invented guide, a test's.
+    ///
+    /// `device` is which of the household's devices the rows came from, the recorder unless told otherwise. It
+    /// is written down with them, in the same transaction, and is what the cache then says of the type
+    /// (`GuideCounts.givenBy`).
     @discardableResult
     public func replace(_ services: [GuideService], broadcasting: String, from recorder: RecorderDescription? = nil,
-                        at now: Date = Date()) throws -> Int {
+                        givenBy device: DeviceSlot = .recorder, at now: Date = Date()) throws -> Int {
         var programs: [[SqlValue]] = []
         for service in services {
             for program in service.programs {
@@ -243,6 +252,8 @@ public actor GuideStore {
             try db.insertMany("INSERT OR REPLACE INTO programs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", programs)
             try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
                        [.text("epg_refreshed:\(broadcasting)"), .text(RecorderTime.format(now))])
+            try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                       [.text("guide_from:\(broadcasting)"), .text(device.rawValue)])
             try noteAnswered(broadcasting: broadcasting, at: now)
             return programs.count
         }
@@ -527,8 +538,9 @@ public actor GuideStore {
             let channels = try db.count("SELECT COUNT(*) FROM channels WHERE bt=?", [.text(broadcasting)])
             let refreshed = try meta("epg_refreshed:\(broadcasting)")
             let checked = try meta("epg_checked:\(broadcasting)")
+            let givenBy = try meta("guide_from:\(broadcasting)").map(DeviceSlot.init(rawValue:)) ?? .recorder
             out[broadcasting] = GuideCounts(channels: channels, programs: programs, refreshed: refreshed,
-                                            checked: checked)
+                                            checked: checked, givenBy: givenBy)
         }
         return out
     }
@@ -582,9 +594,9 @@ public actor GuideStore {
     /// nothing is written, so a connect never waits behind another writer for this. Another recorder takes
     /// the cache over, and in one transaction what the last one left goes -- the programme texts of its
     /// recordings (kept by the recording's number, which each recorder gives out for itself), the guide with
-    /// its logos, the marks of when each type was fetched, and the USB disk it was last known to have
-    /// registered (`knownUSBDisk`) -- and every reservation waiting for a recorder
-    /// is held with `reason`, as one a recorder refused is, until the reader sends it again. What the reader
+    /// its logos, the marks of when each type was fetched and of which device gave it, and the USB disk it was
+    /// last known to have registered (`knownUSBDisk`) -- and every reservation waiting for a recorder is held
+    /// with `reason`, as one a recorder refused is, until the reader sends it again. What the reader
     /// set stays: which channels are hidden, and their order. So does what waits for another device, which
     /// one recorder taking another's place says nothing about.
     ///
@@ -612,8 +624,10 @@ public actor GuideStore {
                 try db.run("DELETE FROM programs")
                 try db.run("DELETE FROM channels")
                 try db.run("DELETE FROM logos")
-                try db.run("DELETE FROM meta WHERE key LIKE 'epg_refreshed:%' OR key LIKE 'epg_checked:%' OR key=?",
-                           [.text(Self.knownUSBDiskKey)])
+                try db.run("""
+                DELETE FROM meta WHERE key LIKE 'epg_refreshed:%' OR key LIKE 'epg_checked:%'
+                    OR key LIKE 'guide_from:%' OR key=?
+                """, [.text(Self.knownUSBDiskKey)])
                 if let reason {
                     try db.run("UPDATE pending_reservations SET problem = ? WHERE target = ?",
                                [.text(reason), .text(DeviceSlot.recorder.rawValue)])

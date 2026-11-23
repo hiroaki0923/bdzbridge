@@ -84,6 +84,22 @@ final class GuideRefreshTests: XCTestCase {
         XCTAssertNil(counts["bs4k"]?.refreshed)
     }
 
+    /// What a refresh stores it stores as the device's its client asks (`GuideSource.slot`): the recorder's here,
+    /// over rows the cache held as the television's.
+    func testWhatARefreshStoresIsWrittenDownAsItsClientsDevice() async throws {
+        let (client, _) = try recorder(serving: ["td"]) { _ in HTTPResponse(statusCode: 416) }
+        let store = try GuideStore(path: ":memory:")
+        try await store.replace([], broadcasting: "td", givenBy: .tv)
+        try await store.replace([], broadcasting: "bs", givenBy: .tv)
+
+        _ = await GuideRefresh.run(client: client, store: store, types: ["td"])
+
+        let counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.programs, 4, "set up wrong: nothing was stored")
+        XCTAssertEqual(counts["td"]?.givenBy, .recorder)
+        XCTAssertEqual(counts["bs"]?.givenBy, .tv, "a type that was not fetched")
+    }
+
     /// A recorder without 4K tuners answers 500 for BS4K for good, and what it has given is all that tells that
     /// from a file not built yet. The type is said of nowhere, not offered, and not asked for again before the
     /// rebuild. It is not among what answered: a 500 is no answer, and with every file refused nothing has.

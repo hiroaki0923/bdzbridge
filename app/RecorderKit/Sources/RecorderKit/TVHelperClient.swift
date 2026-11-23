@@ -114,6 +114,8 @@ public actor TVHelperClient: GuideSource {
     public static let appName = "recbridge-helper"
     public static let apiVersion = 1
     public static let port = 8780
+    /// What the helper gives is the television's guide (`GuideSource.slot`).
+    public static let slot = DeviceSlot.tv
 
     public nonisolated let host: String
     private let port: Int

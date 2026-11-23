@@ -348,6 +348,88 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertEqual(counts["bs4k"]?.lastAnswered, later)
     }
 
+    // MARK: - which device gave a type's rows
+
+    /// The cache says of each type which device its rows came from, as the write that put them in said: the
+    /// recorder unless told otherwise, and the one that wrote last. A type nothing was written of is the
+    /// recorder's.
+    func testTheCacheKeepsWhichDeviceGaveEachTypesRows() async throws {
+        let store = try GuideStore(path: ":memory:")
+        let services = try sampleServices()
+        try await store.replace(services, broadcasting: "td")
+        try await store.replace(services, broadcasting: "bs", givenBy: .tv)
+
+        var counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.givenBy, .recorder)
+        XCTAssertEqual(counts["bs"]?.givenBy, .tv)
+        XCTAssertEqual(counts["cs"]?.givenBy, .recorder, "a type with nothing written")
+
+        try await store.replace(services, broadcasting: "td", givenBy: .tv)
+        try await store.replace(services, broadcasting: "bs", givenBy: .recorder)
+        counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.givenBy, .tv)
+        XCTAssertEqual(counts["bs"]?.givenBy, .recorder)
+    }
+
+    /// A cache written before the device was kept has only a recorder's guide in it, and reads so: an absent
+    /// device is the recorder, as an absent target on a waiting reservation is.
+    func testACacheFromBeforeTheDeviceWasKeptReadsAsTheRecorders() async throws {
+        let path = temporaryPath()
+        do {
+            let store = try GuideStore(path: path)
+            try await store.replace(try sampleServices(), broadcasting: "td", givenBy: .tv)
+        }
+        let db = try Sqlite(path: path)
+        try db.run("DELETE FROM meta WHERE key LIKE 'guide_from:%'")
+
+        let store = try GuideStore(path: path)
+        let counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.programs, 4, "set up wrong: the rows went")
+        XCTAssertEqual(counts["td"]?.givenBy, .recorder)
+    }
+
+    /// The device is written in the write that puts the rows in, and with nothing else: a write the cache
+    /// refuses, being another recorder's, leaves the device it had; and noting that a type has no guide, or
+    /// replacing its logos, says nothing of whose its rows are.
+    func testTheDeviceIsWrittenWithTheRowsAndByNothingElse() async throws {
+        let store = try GuideStore(path: ":memory:")
+        try await store.claim(for: recorder(1))
+        let services = try sampleServices()
+        try await store.replace(services, broadcasting: "td", from: recorder(1), givenBy: .tv)
+
+        do {
+            try await store.replace(services, broadcasting: "td", from: recorder(2), givenBy: .recorder)
+            XCTFail("another recorder's programmes were taken")
+        } catch {
+            XCTAssertTrue(error is CacheIsAnothers, "\(error)")
+        }
+        try await store.replaceLogos([(serviceID: 1024, channelNo: 1, png: Data([1, 2, 3]))], broadcasting: "td")
+        let counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.givenBy, .tv)
+    }
+
+    /// The device goes with the rows: a cache made over to another recorder, and one whose guide a schema
+    /// change threw away, hold no rows, and say of no type that the television gave it.
+    func testTheDeviceGoesWithTheRows() async throws {
+        let store = try GuideStore(path: ":memory:")
+        try await store.claim(for: recorder(1))
+        try await store.replace(try sampleServices(), broadcasting: "td", givenBy: .tv)
+        try await store.claim(for: recorder(2))
+        var counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.programs, 0, "set up wrong: the cache was not made over")
+        XCTAssertEqual(counts["td"]?.givenBy, .recorder, "a cache made over")
+
+        let path = temporaryPath()
+        do {
+            let store = try GuideStore(path: path, schemaVersion: "1")
+            try await store.replace(try sampleServices(), broadcasting: "td", givenBy: .tv)
+        }
+        let rebuilt = try GuideStore(path: path, schemaVersion: "2")
+        counts = try await rebuilt.counts()
+        XCTAssertEqual(counts["td"]?.programs, 0, "set up wrong: the guide was not thrown away")
+        XCTAssertEqual(counts["td"]?.givenBy, .recorder, "a guide thrown away")
+    }
+
     /// Counting a type's programmes, asked each time the day changes, is answered from an index rather than by
     /// reading every programme -- and a cache made before the index gets it when it is next opened.
     func testCountsAreAnsweredFromAnIndexWhichAnOldCacheGetsOnOpening() async throws {

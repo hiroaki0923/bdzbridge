@@ -129,6 +129,8 @@ final class TVHelperGuideTests: XCTestCase {
         XCTAssertEqual(noted, ["td"])
         XCTAssertNotNil(guide.lastCheck)
         XCTAssertFalse(guide.isFetching)
+        let givenBy = try await store.counts()["td"]?.givenBy
+        XCTAssertEqual(givenBy, .tv, "what the helper gives is written down as the television's")
     }
 
     func testOnlyTheTypesTheHelperHasNewerCopiesOfAreFetched() async throws {
