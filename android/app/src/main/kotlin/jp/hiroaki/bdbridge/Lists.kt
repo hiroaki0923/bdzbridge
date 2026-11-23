@@ -73,6 +73,7 @@ fun ReservationsScreen(search: () -> Unit, openConditions: () -> Unit) {
     val shown = RecBridge.reservations.collectAsState().value ?: return
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
+    val words = RecBridge.listWords
     LaunchedEffect(shown.loadKey) { RecBridge.act { it.reservations.load() } }
     LaunchedEffect(Unit) { RecBridge.act { it.reservations.loadTV() } }
     // What is said of a list that is old, read again each minute, as the iOS heading turns over.
@@ -101,12 +102,12 @@ fun ReservationsScreen(search: () -> Unit, openConditions: () -> Unit) {
     val logos = rememberLogos(shown.logos)
     Scaffold(topBar = { Refused {
         Column {
-            TopAppBar(title = { TitleWithSubtitle("予約", if (shown.hasNoRecorder) "" else shown.subtitle) },
+            TopAppBar(title = { TitleWithSubtitle(words.reservationsTitle, if (shown.hasNoRecorder) "" else shown.subtitle) },
                       actions = {
                           KindAndSort(shown)
                           // The recorder's own keyword conditions, which only a connected recorder can be asked for.
                           IconButton(onClick = openConditions, enabled = !shown.conditionsHeld) {
-                              Icon(Icons.Outlined.AutoAwesome, contentDescription = "おまかせ・まる録")
+                              Icon(Icons.Outlined.AutoAwesome, contentDescription = words.conditionsLabel)
                           }
                       })
             StripBar()
@@ -148,13 +149,13 @@ fun ReservationsScreen(search: () -> Unit, openConditions: () -> Unit) {
                         }
                         items(stale, key = { "stale-$it" }) { line -> Footnote(line, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                         if (shown.waiting.isNotEmpty()) {
-                            heading("送信待ち ${shown.waiting.size} 件")
+                            heading(shown.waitingHeading)
                             items(shown.waiting, key = { "waiting-" + it.id }) { waiting ->
                                 val again = if (!waiting.offersSendingAgain) null else
-                                    SwipeAction("もう一度送る", colors.primaryContainer, colors.onPrimaryContainer, !waiting.held) {
+                                    SwipeAction(words.sendAgainLabel, colors.primaryContainer, colors.onPrimaryContainer, !waiting.held) {
                                         scope.launch { RecBridge.act { it.reservations.sendAgain(waiting.id) } }
                                     }
-                                SwipeActions(toTheRight = again, toTheLeft = delete("削除", waiting.held) {
+                                SwipeActions(toTheRight = again, toTheLeft = delete(words.deleteLabel, waiting.held) {
                                     RecBridge.act { it.reservations.deleteWaiting(waiting.id) }
                                 }) { WaitingRow(waiting) }
                             }
@@ -165,7 +166,7 @@ fun ReservationsScreen(search: () -> Unit, openConditions: () -> Unit) {
                         for (section in shown.sections) {
                             heading(section.title)
                             items(section.rows, key = { it.id }) { row ->
-                                SwipeActions(toTheRight = null, toTheLeft = delete("削除", row.deleteHeld) {
+                                SwipeActions(toTheRight = null, toTheLeft = delete(words.deleteLabel, row.deleteHeld) {
                                     RecBridge.act { it.reservations.delete(row.id) }
                                 }) {
                                     ReservationRow(row, logos[row.logo], current = wide && row.id == opened?.id) {
@@ -189,18 +190,19 @@ private fun Reservations.lists(id: String): Boolean =
 @Composable
 private fun KindAndSort(shown: Reservations) {
     val scope = rememberCoroutineScope()
+    val words = RecBridge.listWords
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }) {
-            Icon(if (shown.filtering) Icons.Filled.FilterAlt else Icons.Outlined.FilterAlt, contentDescription = "並び順を変更")
+            Icon(if (shown.filtering) Icons.Filled.FilterAlt else Icons.Outlined.FilterAlt, contentDescription = words.menuLabel)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            MenuGroup("種類", shown.kinds, shown.kind) { code ->
+            MenuGroup(words.kindHeading, shown.kinds, shown.kind) { code ->
                 open = false
                 scope.launch { RecBridge.act { it.reservations.chooseKind(code) } }
             }
             HorizontalDivider()
-            MenuGroup("並び順", shown.sorts, shown.sort) { code ->
+            MenuGroup(words.sortHeading, shown.sorts, shown.sort) { code ->
                 open = false
                 scope.launch { RecBridge.act { it.reservations.chooseSort(code) } }
             }
@@ -244,9 +246,9 @@ internal fun ReservationRow(item: ReservationItem, logo: ImageBitmap?, current: 
         overlineContent = {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("${item.time} · ${item.length}")
-                if (item.recording) Mark("録画中", colors.errorContainer, colors.onErrorContainer)
-                if (item.conflict) Mark("重複", marks.reserved, marks.onReserved)
-                if (item.byTheRecorder) Mark("おまかせ", colors.surfaceContainerHighest, colors.onSurfaceVariant)
+                if (item.recording) Mark(RecBridge.listWords.recordingMark, colors.errorContainer, colors.onErrorContainer)
+                if (item.conflict) Mark(RecBridge.listWords.conflictMark, marks.reserved, marks.onReserved)
+                if (item.byTheRecorder) Mark(RecBridge.listWords.recorderMadeMark, colors.surfaceContainerHighest, colors.onSurfaceVariant)
             }
         },
         headlineContent = { Text(item.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
@@ -444,7 +446,7 @@ private fun Views(shown: Recordings) {
         }
     }
     Box {
-        IconButton(onClick = { open = true }) { Icon(icon(shown.mode), contentDescription = "表示を変える") }
+        IconButton(onClick = { open = true }) { Icon(icon(shown.mode), contentDescription = RecBridge.listWords.viewMenuLabel) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             for (mode in shown.modes) {
                 DropdownMenuItem(text = { Text(mode.label) }, leadingIcon = { Icon(icon(mode.code), contentDescription = null) },
@@ -462,12 +464,12 @@ private fun Views(shown: Recordings) {
 @Composable
 private fun Filters(shown: Recordings) {
     val scope = rememberCoroutineScope()
+    val words = RecBridge.listWords
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }) {
             Icon(if (shown.filtering) Icons.Filled.FilterAlt else Icons.Outlined.FilterAlt,
-                 contentDescription = if (shown.destinations.isEmpty()) "ジャンル・並び順・視聴状態で絞り込む"
-                                      else "録画先・ジャンル・並び順・視聴状態で絞り込む")
+                 contentDescription = shown.filterMenuLabel)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             val group = @Composable { heading: String, options: List<Labelled>, chosen: String, pick: suspend (String) -> Unit ->
@@ -477,14 +479,14 @@ private fun Filters(shown: Recordings) {
                 }
             }
             if (shown.destinations.isNotEmpty()) {
-                group("録画先", shown.destinations, shown.destination) { code -> RecBridge.act { it.recordings.chooseDestination(code) } }
+                group(words.destinationHeading, shown.destinations, shown.destination) { code -> RecBridge.act { it.recordings.chooseDestination(code) } }
                 HorizontalDivider()
             }
-            group("ジャンル", shown.genres, shown.genre) { code -> RecBridge.act { it.recordings.chooseGenre(code) } }
+            group(words.genreHeading, shown.genres, shown.genre) { code -> RecBridge.act { it.recordings.chooseGenre(code) } }
             HorizontalDivider()
-            group("並び順", shown.sorts, shown.sort) { code -> RecBridge.act { it.recordings.chooseSort(code) } }
+            group(words.sortHeading, shown.sorts, shown.sort) { code -> RecBridge.act { it.recordings.chooseSort(code) } }
             HorizontalDivider()
-            group("視聴状態", shown.states, shown.state) { code -> RecBridge.act { it.recordings.chooseState(code) } }
+            group(words.viewingHeading, shown.states, shown.state) { code -> RecBridge.act { it.recordings.chooseState(code) } }
         }
     }
 }
@@ -501,7 +503,7 @@ internal fun RecordingRow(item: RecordingItem, selected: Boolean? = null, logo: 
         headlineContent = {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (item.protected) Icon(Icons.Default.Lock, contentDescription = "保護", Modifier.size(14.dp), tint = colors.onSurfaceVariant)
-                if (item.recording) Mark("録画中", colors.errorContainer, colors.onErrorContainer)
+                if (item.recording) Mark(RecBridge.listWords.recordingMark, colors.errorContainer, colors.onErrorContainer)
                 Text(item.title, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         },

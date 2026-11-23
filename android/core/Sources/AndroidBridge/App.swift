@@ -210,6 +210,9 @@ public final class RecBridgeApp: Sendable {
     public func guideWords() -> GuideWordsText { .all }
     /// The names of the tabs, as the model has them, for Kotlin to keep (`TabWordsText`).
     public func tabWords() -> TabWordsText { .all }
+    /// The words of the reservations' list and of the recordings' that never change, as the model has them, for Kotlin
+    /// to keep (`ListWordsText`).
+    public func listWords() -> ListWordsText { .all }
     public func search() async -> SearchWindow {
         await MainActor.run { SearchWindow(model) }
     }

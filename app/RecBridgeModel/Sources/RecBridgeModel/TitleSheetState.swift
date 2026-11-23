@@ -103,7 +103,8 @@ public final class TitleSheetState {
 
     /// The sheet's title, and the words only this sheet says: the labels of when it was recorded, of its size and of
     /// how far it was watched, the section that plays it with its buttons beside 再生, and the button that deletes it.
-    /// What it says as the other sheets do is `SheetWords`.
+    /// What it says as the other sheets do is `SheetWords`. The recordings' menu that narrows heads the watch state
+    /// with 視聴状態 in the same word (`RecordingsState`).
     public static let sheetTitle = "録画"
     public static let recordedLabel = "録画"
     public static let sizeLabel = "サイズ"

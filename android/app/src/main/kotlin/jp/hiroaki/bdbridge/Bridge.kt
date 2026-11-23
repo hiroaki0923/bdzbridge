@@ -133,6 +133,13 @@ object RecBridge {
         private set
 
     /**
+     * The words of the reservations' list and of the recordings' that never change, as the model words them, kept the
+     * same way: the lists' rows, their menus and their swipes have them from their first frame.
+     */
+    lateinit var listWords: ListWords
+        private set
+
+    /**
      * Opens the model the first time it is asked, with the app's folder and the folder of its that never leaves the
      * device -- no backup and no move to another device takes it -- where the television's registration is kept, and
      * starts it.
@@ -155,6 +162,7 @@ object RecBridge {
             televisionWords = TelevisionWords(app.televisionWords(arena))
             guideWords = GuideWords(app.guideWords(arena))
             tabWords = TabWords(app.tabWords(arena))
+            listWords = ListWords(app.listWords(arena))
             // Before the start, which seeds the demo's guide with its tiles when the demo is on.
             app.drawsTiles(Tiles)
             watchTheNetwork(context.applicationContext, app)
@@ -748,7 +756,7 @@ data class Reservations(
     val hasNoRecorder: Boolean, val noRecorder: NoRecorder, val isEmpty: Boolean, val emptyTitle: String,
     val emptyDetail: String, val subtitle: String, val kinds: List<Labelled>, val kind: String,
     val sorts: List<Labelled>, val sort: String, val filtering: Boolean, val conditionsHeld: Boolean,
-    val staleKey: String, val waiting: List<Waiting>, val waitingSays: String, val sections: List<Section>, val asked: Asked?,
+    val staleKey: String, val waitingHeading: String, val waiting: List<Waiting>, val waitingSays: String, val sections: List<Section>, val asked: Asked?,
     val line: String, val lineIsAProblem: Boolean, val loadKey: String, val logos: Map<String, ByteArray>,
 )
 
@@ -776,7 +784,7 @@ data class Recordings(
     val loadingDetail: String, val emptyTitle: String, val emptyDetail: String, val heading: String,
     val subtitle: String, val destinations: List<Labelled>, val destination: String, val genres: List<Labelled>,
     val genre: String, val sorts: List<Labelled>, val sort: String, val states: List<Labelled>, val state: String,
-    val filtering: Boolean, val tvNote: String, val rows: List<RecordingItem>, val groups: List<GroupItem>,
+    val filtering: Boolean, val filterMenuLabel: String, val tvNote: String, val rows: List<RecordingItem>, val groups: List<GroupItem>,
     val asked: Asked?, val actionHeld: Boolean, val loadKey: String, val tvKey: String, val outdatedKey: String,
     val logos: Map<String, ByteArray>,
 )
@@ -985,7 +993,7 @@ private fun Reservations(it: jp.hiroaki.bdbridge.bridge.ReservationsScreen) = it
     Reservations(
         it.isHasNoRecorder, NoRecorder(it.getNoRecorder(arena)), it.isEmpty, empty.title, empty.detail, it.subtitle,
         labelled(it.getKinds(arena)), it.kind, labelled(it.getSorts(arena)), it.sort, it.isFiltering,
-        it.isConditionsHeld, it.staleKey,
+        it.isConditionsHeld, it.staleKey, it.waitingHeading,
         it.getWaiting(arena).map { row ->
             Waiting(row.id, row.title, row.details, row.problem, row.isOffersSendingAgain, row.isHeld)
         },
@@ -1006,7 +1014,7 @@ private fun Recordings(it: jp.hiroaki.bdbridge.bridge.RecordingsScreen): Recordi
         it.isHasNoRecorder, NoRecorder(it.getNoRecorder(arena)), it.isLoading, loading.title, loading.detail,
         empty.title, empty.detail, it.heading, it.subtitle, labelled(it.getDestinations(arena)), it.destination,
         labelled(it.getGenres(arena)), it.genre, labelled(it.getSorts(arena)), it.sort, labelled(it.getStates(arena)),
-        it.state, it.isFiltering, it.tvNote,
+        it.state, it.isFiltering, it.filterMenuLabel, it.tvNote,
         it.getRows(arena).map { row -> RecordingItem(row) },
         it.getGroups(arena).map { group ->
             GroupItem(group.id, group.name, group.count, group.size, group.unwatched, group.locked, group.span)
@@ -1175,6 +1183,23 @@ data class TabWords(val guide: String, val search: String, val reservations: Str
 
 private fun TabWords(it: jp.hiroaki.bdbridge.bridge.TabWordsText) = TabWords(
     it.guide, it.search, it.reservations, it.recordings, it.settings,
+)
+
+/**
+ * The words of the reservations' list and of the recordings' that never change, as the model words them
+ * (`ListWordsText`). Kept from the model's start (`RecBridge.listWords`).
+ */
+data class ListWords(
+    val deleteLabel: String, val sortHeading: String, val recordingMark: String,
+    val reservationsTitle: String, val conditionsLabel: String, val menuLabel: String, val kindHeading: String,
+    val conflictMark: String, val recorderMadeMark: String, val sendAgainLabel: String, val viewMenuLabel: String,
+    val destinationHeading: String, val genreHeading: String, val viewingHeading: String,
+)
+
+private fun ListWords(it: jp.hiroaki.bdbridge.bridge.ListWordsText) = ListWords(
+    it.deleteLabel, it.sortHeading, it.recordingMark, it.reservationsTitle, it.conditionsLabel,
+    it.menuLabel, it.kindHeading, it.conflictMark, it.recorderMadeMark, it.sendAgainLabel, it.viewMenuLabel,
+    it.destinationHeading, it.genreHeading, it.viewingHeading,
 )
 
 /**

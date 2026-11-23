@@ -419,9 +419,14 @@ final class AndroidBridgeTests: XCTestCase {
         await app.model.loadPending()
         let waiting = await until(list.read) { !$0.waiting.isEmpty }
         let row = try XCTUnwrap(waiting.waiting.first)
+        XCTAssertEqual(waiting.waitingHeading, ReservationsState.waitingHeading(1))
+        XCTAssertEqual(waiting.waitingHeading, "送信待ち 1 件")
         XCTAssertTrue(row.offersSendingAgain)
         XCTAssertFalse(row.held)
         XCTAssertEqual(row.problem, "断られた理由。")
+        let kept = try XCTUnwrap(app.model.pending.first { $0.id == row.id })
+        XCTAssertEqual(row.details, ReservationsState.waitingDetails(kept, device: app.model.deviceSaid(for: kept),
+                                                                     disk: app.model.diskShown(kept)))
 
         await list.deleteWaiting(row.id)
         let askingOfIt = await until(list.read) { $0.hasAsked }
@@ -835,6 +840,53 @@ extension AndroidBridgeTests {
                         words.channelsFailureTitle],
                        [ChannelsState.title, ChannelsState.resetLabel, ChannelsState.confirmResetLabel,
                         ChannelsState.failureTitle])
+    }
+
+    /// The lists' words that never change, as Kotlin keeps them, are the model's (`ListWords`, `ReservationsState`,
+    /// `RecordingsState`).
+    @MainActor
+    func testTheListsWordsAreTheModels() {
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
+        let words = app.listWords()
+        XCTAssertEqual([words.deleteLabel, words.sortHeading, words.recordingMark],
+                       [ListWords.deleteLabel, ListWords.sortHeading, ListWords.recordingMark])
+        XCTAssertEqual([words.reservationsTitle, words.conditionsLabel, words.menuLabel, words.kindHeading,
+                        words.conflictMark, words.recorderMadeMark, words.sendAgainLabel],
+                       [ReservationsState.title, ReservationsState.conditionsLabel, ReservationsState.menuLabel,
+                        ReservationsState.kindHeading, ReservationsState.conflictMark,
+                        ReservationsState.recorderMadeMark, ReservationsState.sendAgainLabel])
+        XCTAssertEqual([words.viewMenuLabel, words.destinationHeading, words.genreHeading, words.viewingHeading],
+                       [RecordingsState.viewMenuLabel, RecordingsState.destinationHeading,
+                        RecordingsState.genreHeading, RecordingsState.viewingHeading])
+    }
+
+    /// What the recordings' read says of its menu is the model's: the button's name by whether there is a disk to tell
+    /// apart, and the first choice of each filter.
+    @MainActor
+    func testTheRecordingsReadSaysTheMenusInTheModelsWords() async throws {
+        let app = await demo()
+        let recordings = await app.recordings()
+        await recordings.load()
+        let shown = await until(recordings.read) { !$0.rows.isEmpty }
+        XCTAssertEqual(shown.filterMenuLabel,
+                       RecordingsState.filterMenuLabel(hasDestinations: !shown.destinations.isEmpty))
+        XCTAssertEqual(shown.genres.first?.label, RecordingsState.allGenresLabel(count: app.model.titlesOnTheShownDisk.count))
+        XCTAssertEqual(shown.states.first?.label, ListWords.allLabel)
+        if let first = shown.destinations.first { XCTAssertEqual(first.label, ListWords.allLabel) }
+    }
+
+    /// The genre menu counts as the iOS menu does, in the reader's grouping of digits: 1,000 and not 1000 where the
+    /// locale puts a separator.
+    @MainActor
+    func testTheGenreChoicesGroupTheirDigits() {
+        let choices = RecordingsWindow.genres(of: [0x3: 12, 0x7: 1_000, 0xF: 0, 0x5: 12_345], among: 13_357)
+        let grouped = { (number: Int) in String(format: "%lld", locale: Locale.current, number) }
+        XCTAssertEqual(choices.map(\.code), ["", "3", "5", "7"])
+        XCTAssertEqual(choices.map(\.label), ["すべて \(grouped(13_357))", "ドラマ 12", "バラエティ \(grouped(12_345))",
+                                              "アニメ／特撮 \(grouped(1_000))"])
+        if let separator = Locale.current.groupingSeparator, !separator.isEmpty, grouped(1_000) != "1000" {
+            XCTAssertEqual(choices.last?.label, "アニメ／特撮 1\(separator)000")
+        }
     }
 
     /// The tabs' names, as Kotlin keeps them, are the model's (`TabWords`).

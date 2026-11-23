@@ -5,6 +5,44 @@ import RecorderKit
 // The reservations' and the recordings' screens as the iOS app lists them, over the model's states of them
 // (`ReservationsState`, `RecordingsState`).
 
+/// The words of the reservations' list and of the recordings' that never change, as the model words them (`ListWords`,
+/// and each list's own on `ReservationsState` and `RecordingsState`) -- for Kotlin to keep from the model's start. What
+/// the lists say by what the model holds comes with the read of their screens (`ReservationsScreen`,
+/// `RecordingsScreen`).
+public struct ListWordsText: Sendable {
+    /// What the two lists say alike: the swipe that deletes, the heading of the sort and the mark of a row being
+    /// recorded. The first choice of a menu that narrows comes with the menu's choices, in the screens' reads.
+    public var deleteLabel: String
+    public var sortHeading: String
+    public var recordingMark: String
+    /// The reservations' list: its title, the way to the keyword conditions, the menu's button and the heading of its
+    /// kinds, what a row marks (a clash, or made by the recorder's own conditions) and the button that sends a
+    /// waiting row again.
+    public var reservationsTitle: String
+    public var conditionsLabel: String
+    public var menuLabel: String
+    public var kindHeading: String
+    public var conflictMark: String
+    public var recorderMadeMark: String
+    public var sendAgainLabel: String
+    /// The recordings' list: the button that changes the view, and the headings of the disk, the genre and the watch
+    /// state in the menu that narrows.
+    public var viewMenuLabel: String
+    public var destinationHeading: String
+    public var genreHeading: String
+    public var viewingHeading: String
+
+    static let all = ListWordsText(
+        deleteLabel: ListWords.deleteLabel, sortHeading: ListWords.sortHeading,
+        recordingMark: ListWords.recordingMark,
+        reservationsTitle: ReservationsState.title, conditionsLabel: ReservationsState.conditionsLabel,
+        menuLabel: ReservationsState.menuLabel, kindHeading: ReservationsState.kindHeading,
+        conflictMark: ReservationsState.conflictMark, recorderMadeMark: ReservationsState.recorderMadeMark,
+        sendAgainLabel: ReservationsState.sendAgainLabel, viewMenuLabel: RecordingsState.viewMenuLabel,
+        destinationHeading: RecordingsState.destinationHeading, genreHeading: RecordingsState.genreHeading,
+        viewingHeading: RecordingsState.viewingHeading)
+}
+
 /// The logos of the stations a list's rows are of, each handed over once and named by a key the rows carry, as the
 /// search's are: a row that carried its own would send the same picture again for every recording of a station.
 @MainActor
@@ -42,8 +80,9 @@ public struct ReservationsScreen: Sendable {
     /// A device's list that is old, by the device and when it was read: what is said of it is read with `stale`,
     /// again each minute and each time this moves.
     public var staleKey: String
-    /// The reservations waiting on this device to be sent, with what is said of when they go, then the list under
-    /// its headings.
+    /// The reservations waiting on this device to be sent, under the heading that counts them, with what is said of
+    /// when they go, then the list under its headings.
+    public var waitingHeading: String
     public var waiting: [WaitingRow]
     public var waitingSays: String
     public var sections: [ReservationSection]
@@ -235,16 +274,13 @@ public final class ReservationsWindow: Sendable {
             sorts: AppModel.ReservationSort.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
             sort: model.reservationSort.rawValue, filtering: state.narrowedOrSorted,
             staleKey: state.stale.map { "\($0.device.rawValue)-\(seconds($0.since))" }.joined(separator: " "),
+            waitingHeading: ReservationsState.waitingHeading(model.pending.count),
             waiting: model.pending.map { waiting in
-                var parts = [model.deviceSaid(for: waiting), model.diskShown(waiting),
-                             Format.dateTime.string(from: waiting.request.start), waiting.serviceName].compactMap { $0 }
-                if let quality = Codes.quality(code: waiting.request.qualityCode) {
-                    parts.append(Codes.qualityLabel[quality] ?? quality)
-                }
-                if waiting.request.eventID == nil { parts.append("時刻指定") }
-                return WaitingRow(id: waiting.id, title: waiting.request.title, details: parts.joined(separator: " · "),
-                                  problem: waiting.problem?.asABody ?? "",
-                                  offersSendingAgain: state.offersSendingAgain(waiting), held: state.holds(waiting))
+                WaitingRow(id: waiting.id, title: waiting.request.title,
+                           details: ReservationsState.waitingDetails(waiting, device: model.deviceSaid(for: waiting),
+                                                                     disk: model.diskShown(waiting)),
+                           problem: waiting.problem?.asABody ?? "",
+                           offersSendingAgain: state.offersSendingAgain(waiting), held: state.holds(waiting))
             },
             waitingSays: model.whatWaitsSays,
             sections: sections,
@@ -302,6 +338,8 @@ public struct RecordingsScreen: Sendable {
     public var states: [Labelled]
     public var state: String
     public var filtering: Bool
+    /// What the menu's button is called, by what it filters by: the disk only where there is more than one.
+    public var filterMenuLabel: String
     /// More on the television's disk than the list holds, said under it.
     public var tvNote: String
     public var rows: [RecordingRow]
@@ -513,20 +551,17 @@ public final class RecordingsWindow: Sendable {
             empty: Said(model.noRecordingsSays),
             heading: state.heading, subtitle: state.subtitle(in: mode),
             destinations: model.titleDestinations.isEmpty ? []
-                : [Labelled(code: "", label: "すべて")]
+                : [Labelled(code: "", label: ListWords.allLabel)]
                     + model.titleDestinations.map { Labelled(code: $0.destination, label: $0.label) },
             destination: model.shownDestination ?? "",
-            genres: [Labelled(code: "", label: "すべて \(model.titlesOnTheShownDisk.count)")]
-                + Codes.genreLabel.keys.sorted().compactMap { level in
-                    guard let count = model.titleGenreCounts[level], count > 0 else { return nil }
-                    return Labelled(code: "\(level)", label: "\(Codes.genreLabel[level] ?? "") \(count)")
-                },
+            genres: genres(of: model.titleGenreCounts, among: model.titlesOnTheShownDisk.count),
             genre: model.titleGenre.map { "\($0)" } ?? "",
             sorts: AppModel.TitleSort.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
             sort: model.titleSort.rawValue,
-            states: [Labelled(code: "", label: "すべて")] + WatchState.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
+            states: [Labelled(code: "", label: ListWords.allLabel)] + WatchState.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
             state: model.titleState?.rawValue ?? "",
             filtering: state.filtering,
+            filterMenuLabel: RecordingsState.filterMenuLabel(hasDestinations: !model.titleDestinations.isEmpty),
             tvNote: model.tvTitlesNote?.asABody ?? "",
             rows: rows,
             groups: groups.map {
@@ -538,6 +573,17 @@ public final class RecordingsWindow: Sendable {
             actionHeld: state.ask.map(state.holdsTheAction) ?? false,
             loadKey: "\(model.connected && !model.offline)", tvKey: model.tvTitlesToRead,
             outdatedKey: "\(model.titlesOutOfStep)", logos: shelf.logos)
+    }
+
+    /// The genre menu's choices: every recording, then each genre that has any, each with how many, as the iOS menu
+    /// counts them.
+    @MainActor
+    static func genres(of counts: [Int: Int], among all: Int) -> [Labelled] {
+        [Labelled(code: "", label: RecordingsState.allGenresLabel(count: all))]
+            + Codes.genreLabel.keys.sorted().compactMap { level in
+                guard let count = counts[level], count > 0 else { return nil }
+                return Labelled(code: "\(level)", label: RecordingsState.genreChoiceLabel(level, count: count))
+            }
     }
 
     /// A recording's row. On a programme's page what it offers under a swipe and when that is held are the page's
