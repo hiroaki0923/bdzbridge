@@ -3,9 +3,15 @@ package jp.hiroaki.bdbridge
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.os.Looper
 import android.view.KeyEvent
+import android.view.ViewGroup
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.AndroidUiDispatcher
+import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -36,6 +42,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -45,7 +52,11 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.future.await
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -65,7 +76,18 @@ import org.junit.runner.RunWith
 @OptIn(ExperimentalTestApi::class)
 @RunWith(AndroidJUnit4::class)
 class DemoTests {
-    @get:Rule val compose = createEmptyComposeRule()
+    /**
+     * The screens' coroutines -- a LaunchedEffect's, a rememberCoroutineScope's -- run on the main thread, dispatched
+     * by the dispatcher the app's windows use. Left to itself the rule runs them on an unconfined test dispatcher, so
+     * that a coroutine waiting for the model goes on on the Swift thread that answered it, and a frame it sets off is
+     * composed and applied there: the views refuse it, and the composition is left half applied. The rule's queued
+     * test dispatcher runs a coroutine only as the test clock is advanced, which its own actions do not all do
+     * (performScrollToNode asks a lazy list to scroll, again and again, for ever); the main dispatcher's immediate
+     * form runs a coroutine resumed during a frame in the middle of that frame, which the app's dispatcher never does.
+     * The frames are still the test clock's, and only the frames: a screen's delay or timeout runs in real time, as
+     * in the app. Each step of an animation waits for the main thread's turn, which makes a test a second or so longer.
+     */
+    @get:Rule val compose = createEmptyComposeRule(AndroidUiDispatcher.Main)
     private lateinit var scenario: ActivityScenario<MainActivity>
 
     @Before fun openTheApp() {
@@ -626,6 +648,18 @@ class DemoTests {
         compose.waitUntilAtLeastOneExists(hasText("予約を削除") and isEnabled(), 30_000)
     }
 
+    /**
+     * 予約を削除 at the pane's foot, pressed by its own action and not by a touch. The reservation's window reads its
+     * programme's summary and details a moment after the rest, once it has looked the programme up, and they go above
+     * the button: on a window 800 dp tall they take a button that was in sight below the pane's foot, and a touch
+     * aimed at it then goes nowhere. Nothing on the screen says that read is over, and it is the model's, Swift's,
+     * which the rule's idling knows nothing of. The button is pressed by a touch where a programme is reserved and
+     * deleted again.
+     */
+    private fun deleteInThePane() {
+        compose.onNodeWithText("予約を削除").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+    }
+
     private fun theReservations() {
         destination("予約").performClick()
         compose.waitUntilAtLeastOneExists(aTimeAndALength, 30_000)
@@ -669,8 +703,7 @@ class DemoTests {
         openReservation(first)
         openReservation(second)
         assertTrue("the first is still in the pane", count(first) == 1)
-        // At the pane's foot, under the programme's details.
-        compose.onNodeWithText("予約を削除").performScrollTo().performClick()
+        deleteInThePane()
         compose.waitUntilAtLeastOneExists(hasText("この予約を削除しますか？"), 10_000)
         // The question says the second, beside its row and the pane's title; nothing says the first but its row.
         val saying = { title: String -> compose.onAllNodes(hasText(title, substring = true)).fetchSemanticsNodes().size }
@@ -834,7 +867,7 @@ class DemoTests {
         val (first, _) = twoReservations()
         val rows = RecBridge.reservations.value!!.sections.sumOf { it.rows.size }
         openReservation(first)
-        compose.onNodeWithText("予約を削除").performScrollTo().performClick()
+        deleteInThePane()
         compose.waitUntilAtLeastOneExists(hasText("この予約を削除しますか？"), 10_000)
         turned {
             compose.waitUntil(10_000) { windows() == 3 }
@@ -940,5 +973,33 @@ class DemoTests {
         compose.waitUntilAtLeastOneExists(hasScrollToNodeAction(), 10_000)
         compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("サンプルデータで試す"))
         compose.onNodeWithText("サンプルデータで試す").assertExists()
+    }
+
+    /**
+     * A screen's coroutine that has waited for an answer made on another thread -- as each of the model's is, on a
+     * thread of Swift's -- goes on on the main thread, as in the app (the rule's dispatcher, above). Asked of a
+     * coroutine in a view of the test's own beside the app's, composed as the app's screens are; answered from the
+     * test's thread a moment after the coroutine says it waits, by which time it has suspended.
+     */
+    @Test fun aScreensCoroutineGoesOnOnTheMainThreadOnceAnotherThreadHasAnswered() {
+        val answer = CompletableFuture<Unit>()
+        val waiting = AtomicBoolean(false)
+        val wentOnOn = AtomicReference<Thread>()
+        scenario.onActivity { activity ->
+            val view = ComposeView(activity)
+            view.setContent {
+                LaunchedEffect(Unit) {
+                    waiting.set(true)
+                    answer.await()
+                    wentOnOn.set(Thread.currentThread())
+                }
+            }
+            activity.addContentView(view, ViewGroup.LayoutParams(1, 1))
+        }
+        compose.waitUntil(10_000) { waiting.get() }
+        Thread.sleep(100)
+        answer.complete(Unit)
+        compose.waitUntil(10_000) { wentOnOn.get() != null }
+        assertTrue("went on on ${wentOnOn.get().name}", wentOnOn.get() === Looper.getMainLooper().thread)
     }
 }
