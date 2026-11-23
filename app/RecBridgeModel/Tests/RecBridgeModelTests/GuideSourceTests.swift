@@ -315,6 +315,108 @@ final class GuideSourceTests: XCTestCase {
                        "a type the recorder has no file of is behind still, to be asked for again at the next connect")
     }
 
+    // MARK: - a cache that holds the other device's guide
+
+    /// A cache the fault had mixed -- the recorder's 地上デジタル put where the television's was, under a setting
+    /// that says テレビ, the helper's copy unchanged since -- comes back to the television's when the helper is
+    /// next asked what it has, with nobody having pressed: the type the recorder gave is fetched again, the one
+    /// that is the television's still is not, and the recorder is asked for nothing.
+    func testACacheMixedUnderTheTelevisionComesBackToTheTelevisionsWithoutAPress() async throws {
+        let home = try await aHome(recorderGives: [0])
+        let model = try await started(home)
+        await model.setGuideSourcePreference(.tv)
+        try await expect("td", .televisions, in: home)
+        try await home.cache.replace(try Epg.decode(try vectorFile("epg-sample.dat")), broadcasting: "td")
+        try await expect("td", .recorders, in: home, "set up wrong")
+
+        let heard = await home.recorder.heard.count
+        let asked = home.helper.asked.count
+        model.tvHelper?.forgetTheCheck()
+        model.wentToBackground()
+        await model.returnedToForeground()
+        try await until("the return never came to rest") {
+            model.tvHelper?.isFetching == false && !isConnecting(model) && model.busy == nil
+        }
+
+        try await expect("td", .televisions, in: home, "the recorder's guide stayed under the television's setting")
+        try await expect("bs", .televisions, in: home)
+        XCTAssertEqual(home.helper.asked(since: asked), ["/v1/info", "/v1/guide/td", "/v1/logos/td"])
+        let files = await home.recorder.heard(since: heard).filter { Ask.guide.contains($0) }
+        XCTAssertEqual(files, [])
+        XCTAssertEqual(model.channels.map(\.name), [HelperOnTheTelevision.station("td")],
+                       "the screen does not show the television's guide")
+    }
+
+    /// ヘルパーの登録を解除, with the television chosen: the recorder gives the guide from then on, though nothing
+    /// took the guide over. What the cache holds stays the television's until the next connect to the recorder,
+    /// which fetches the recorder's over it -- the marks of the television's fetch a moment old -- and empties
+    /// the type this recorder has no file of. Registered again, the choice still テレビ, the television gives the
+    /// guide again, and the helper's next check fetches it over the recorder's.
+    func testTheGuideComesRoundWhenTheHelperIsForgottenAndWhenItIsRegisteredAgain() async throws {
+        let home = try await aHome(recorderGives: [0])
+        let model = try await started(home)
+        await model.setGuideSourcePreference(.tv)
+        try await expect("td", .televisions, in: home)
+
+        model.forgetHelper()
+        XCTAssertEqual(model.guideSource, .recorder)
+        try await expect("td", .televisions, in: home, "the cache was emptied at the press")
+        await reconnect(model)
+        try await until("the connect's refresh never ended") { !isConnecting(model) && model.busy == nil }
+        try await expect("td", .recorders, in: home, "the television's guide stayed with no helper registered")
+        try await expect("bs", .nothing, in: home)
+
+        let said = await model.registerHelper(code: "123456")
+        XCTAssertNil(said)
+        XCTAssertEqual(model.guideSource, .tv, "the choice was not kept")
+        model.tvHelper?.forgetTheCheck()
+        model.wentToBackground()
+        await model.returnedToForeground()
+        try await until("the return never came to rest") {
+            model.tvHelper?.isFetching == false && !isConnecting(model) && model.busy == nil
+        }
+        try await expect("td", .televisions, in: home, "the recorder's guide stayed under the television's setting")
+        try await expect("bs", .televisions, in: home)
+    }
+
+    /// A recorder added to a home that had a television alone: the recorder gives the guide from then on, nothing
+    /// having been chosen, and its first connect fetches every type over the television's, a moment old as its
+    /// marks are, and not only the types the television did not have.
+    func testTheGuideComesRoundWhenARecorderIsAddedToAHomeWithATelevisionAlone() async throws {
+        let home = try await aHome(recorderGives: [0, 1])
+        home.bench.defaults.removeObject(forKey: DefaultsKey.recorderHost)
+        let model = try await started(home, theHelperIsAsked: true)
+        XCTAssertEqual(model.guideSource, .tv)
+        try await expect("td", .televisions, in: home)
+        try await expect("bs", .televisions, in: home)
+
+        let heard = await home.recorder.heard.count
+        await model.adopt(host: Bench.host)
+        try await untilConnected(model)
+        XCTAssertEqual(model.guideSource, .recorder)
+        let files = await home.recorder.heard(since: heard).filter { Ask.guide.contains($0) }
+        XCTAssertEqual(files, Ask.guide, "the connect did not ask the recorder for every type")
+        try await expect("td", .recorders, in: home)
+        try await expect("bs", .recorders, in: home)
+    }
+
+    /// テレビを外す, with the television chosen: the recorder gives the guide, and the next connect to it fetches
+    /// its guide over the television's.
+    func testTheGuideComesRoundWhenTheTelevisionIsTakenAway() async throws {
+        let home = try await aHome(recorderGives: [0, 1])
+        let model = try await started(home)
+        await model.setGuideSourcePreference(.tv)
+        try await expect("td", .televisions, in: home)
+
+        model.removeTV()
+        XCTAssertEqual(model.guideSource, .recorder)
+        XCTAssertNil(home.tokens.load(), "the helper's registration was kept")
+        await reconnect(model)
+        try await until("the connect's refresh never ended") { !isConnecting(model) && model.busy == nil }
+        try await expect("td", .recorders, in: home)
+        try await expect("bs", .recorders, in: home)
+    }
+
     // MARK: - the home
 
     /// A home with a recorder and a television, each invented, the helper beside the television.

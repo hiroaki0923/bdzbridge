@@ -65,7 +65,9 @@ extension AppModel {
 
     /// Registers with the helper by the code the television shows, and says what went wrong, or nil. In a
     /// household with no recorder the television's guide is fetched at once; with one, the reader chooses in the
-    /// settings.
+    /// settings. Where the choice there is the television already, a helper registered again, the television
+    /// gives the guide from here on, and the helper's next check fetches it over the recorder's
+    /// (`TVHelperGuide.behind`).
     public func registerHelper(code: String) async -> String? {
         guard let tvHelper else { return TVDriver.notConnected }
         if let why = await tvHelper.register(code: code, label: surroundings.helperLabel) { return why }
@@ -75,7 +77,8 @@ extension AppModel {
     }
 
     /// Forgets the registration. What the cache holds of the television's guide stays until the recorder's
-    /// replaces it.
+    /// replaces it, which is at the next connect to the recorder: every type the television gave is behind to
+    /// it (`GuideRefresh.staleTypes`).
     public func forgetHelper() {
         tvHelper?.forgetRegistration()
         helperProblem = nil

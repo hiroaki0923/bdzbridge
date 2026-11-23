@@ -101,8 +101,9 @@ final class GuideRefreshTests: XCTestCase {
     }
 
     /// A type the recorder has no file of, which the cache holds as the television's, is emptied as the recorder
-    /// says so: the recorder gives this home's guide, and a type it does not have is not left the television's
-    /// under it. A type whose file is not built yet keeps the television's rows until the recorder's come.
+    /// says so, and is not behind after that: the recorder gives this home's guide, and a type it does not have
+    /// is not left the television's under it. A type whose file is not built yet keeps the television's rows
+    /// until the recorder's come, and is behind until then.
     func testATypeTheRecorderHasNoFileOfIsEmptiedOfTheTelevisionsRows() async throws {
         let (client, _) = try recorder(serving: ["td"]) { url in
             HTTPResponse(statusCode: url.hasSuffix(Codes.epgFiles["bs"]!) ? 500 : 416)
@@ -112,6 +113,9 @@ final class GuideRefreshTests: XCTestCase {
         for type in ["td", "bs", "cs"] {
             try await store.replace(try Epg.decode(services), broadcasting: type, givenBy: .tv)
         }
+        let before = Date()
+        expectEqual(GuideRefresh.staleTypes(try await store.counts(), now: before), GuideRefresh.broadcastingTypes,
+                    "the television's types, fetched a moment ago, are not behind to the recorder")
 
         let outcome = await GuideRefresh.run(client: client, store: store)
 
@@ -123,6 +127,7 @@ final class GuideRefreshTests: XCTestCase {
         XCTAssertEqual(counts["cs"]?.programs, 0)
         XCTAssertEqual(counts["bs"]?.programs, 4, "a type not built yet lost the rows it had")
         XCTAssertEqual(counts["bs"]?.givenBy, .tv)
+        XCTAssertEqual(GuideRefresh.staleTypes(counts, now: before), ["bs"])
     }
 
     /// A recorder that gives no guide answers that it has no file for every type. Over a cache that holds the

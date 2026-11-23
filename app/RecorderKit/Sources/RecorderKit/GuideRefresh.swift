@@ -296,19 +296,27 @@ public enum GuideRefresh {
     /// worth fetching again. Each type by its own time: by the newest, a type that failed while the others
     /// came in would count as fresh; by the oldest, one the recorder cannot give would have every connect
     /// fetch all four. A type it answered with no file for is marked as asked (`GuideCounts.checked`).
+    ///
+    /// A type whose rows the cache holds as the other device's is behind whatever its marks say
+    /// (`GuideCounts.givenBy`): the recorder has not given it. So where the recorder gives the home's guide,
+    /// a cache that holds the television's comes round to the recorder's by the next refresh, however the
+    /// guide's device was changed. This is the recorder's rule, and whether the recorder gives the guide is the
+    /// app's to say before it asks; the television's rule is `TVHelperGuide.behind`.
     public static func staleTypes(_ counts: [String: GuideCounts], now: Date = Date(),
                                   types: [String] = broadcastingTypes) -> [String] {
         staleTypes(counts, since: lastRebuild(before: now), types: types)
     }
 
     /// The same by any moment in place of the last rebuild: the types the recorder has not been asked for and
-    /// answered since `moment`, or never. A type whose mark is of that very moment counts as answered since.
+    /// answered since `moment`, or never, and those the other device gave. A type whose mark is of that very
+    /// moment counts as answered since.
     /// The marks are kept to the whole second (`RecorderTime.format`), so a moment that is to be told from a
     /// mark written just after it is taken to the whole second as well (`toTheSecond`).
     public static func staleTypes(_ counts: [String: GuideCounts], since moment: Date,
                                   types: [String] = broadcastingTypes) -> [String] {
         types.filter { broadcasting in
-            guard let answered = counts[broadcasting]?.lastAnswered else { return true }
+            guard let held = counts[broadcasting], held.givenBy == RecorderClient.slot,
+                  let answered = held.lastAnswered else { return true }
             return answered < moment
         }
     }

@@ -265,6 +265,31 @@ final class TVHelperGuideTests: XCTestCase {
         XCTAssertEqual(Array(asked.dropFirst(3)), ["/v1/guide/td", "/v1/guide/bs"])
     }
 
+    /// A type whose rows the cache holds as the recorder's is fetched though the helper's copy is the one the
+    /// cache was last filled from: the television gives this home's guide, and what the recorder put in its
+    /// place since is not it. The type that is the television's still is left alone.
+    func testATypeTheRecorderGaveIsFetchedThoughTheHelpersCopyIsUnchanged() async throws {
+        await guide.fetch(into: store, on: nil, stored: { _ in })
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let programme = GuideProgram(serviceID: 1024, eventID: 7, start: start, end: start.addingTimeInterval(3600),
+                                     title: "レコーダーの番組")
+        try await store.replace([GuideService(serviceID: 1024, name: "レコーダーの局", programs: [programme])],
+                                broadcasting: "td")
+        let mark = try await store.helperChanged(broadcasting: "td")
+        XCTAssertEqual(mark, copiesChanged, "set up wrong: the mark of the helper's copy went")
+
+        guide.forgetTheCheck()
+        let said = await guide.fetch(into: store, on: nil, stored: { _ in })
+
+        XCTAssertNil(said)
+        let asked = await guideRequests()
+        XCTAssertEqual(Array(asked.dropFirst(2)), ["/v1/guide/td"])
+        let counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.givenBy, .tv)
+        let titles = try await store.programs(broadcasting: "td").map(\.title)
+        XCTAssertEqual(titles, ["番組"])
+    }
+
     func testATypeTheCacheHoldsNoProgrammesOfIsFetchedThoughItsMarkIsFresh() async throws {
         try await store.noteHelperChanged(broadcasting: "td", at: copiesChanged)
         try await store.noteHelperChanged(broadcasting: "bs", at: copiesChanged)

@@ -41,7 +41,8 @@ extension AppModel {
     }
 
     /// The broadcasting types the recorder has not been asked for since it last rebuilt its guide files, or
-    /// never: the ones worth fetching again (`GuideRefresh.staleTypes`).
+    /// never, and those whose rows the television gave: the ones worth fetching again from the recorder
+    /// (`GuideRefresh.staleTypes`).
     var staleBroadcastingTypes: [String] { GuideRefresh.staleTypes(counts) }
 
     /// Whether the recorder's guide is to be fetched with nobody having pressed, as a connect to it ends
