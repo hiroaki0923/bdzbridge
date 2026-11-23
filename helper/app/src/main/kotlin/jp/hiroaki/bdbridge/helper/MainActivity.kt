@@ -62,7 +62,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         val left = Column(this)
         left.addView(text("RecBridge ヘルパー", 28f, bold = true))
-        left.addView(text("テレビの番組表を、同じ家の中の iPhone の RecBridge に配ります。予約はしません。", 18f, dim = true),
+        left.addView(text("テレビの番組表を、同じ家の中のスマートフォンやタブレットの RecBridge に配ります。予約はしません。", 18f, dim = true),
             below(2))
         status = text("", 16f)
         left.addView(status, below(8))
@@ -81,7 +81,7 @@ class MainActivity : Activity() {
         }, below(6, button = true))
 
         val right = Column(this)
-        right.addView(text("iPhone の登録", 22f, bold = true))
+        right.addView(text("端末の登録", 22f, bold = true))
         right.addView(text("RecBridge の設定でテレビを選び、ここに出る 6 桁の番号を入れてください。番号は 5 分で消えます。", 18f, dim = true),
             below(2))
         // A slot of the code's height at least, so that the button under it stays where it is whether the code, a
@@ -101,7 +101,7 @@ class MainActivity : Activity() {
             render()
         }
         right.addView(codeButton, below(0, button = true))
-        right.addView(text("登録した iPhone", 22f, bold = true), below(14))
+        right.addView(text("登録した端末", 22f, bold = true), below(14))
         noDevices = text("まだありません", 18f, dim = true)
         right.addView(noDevices, below(4))
         deviceList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }

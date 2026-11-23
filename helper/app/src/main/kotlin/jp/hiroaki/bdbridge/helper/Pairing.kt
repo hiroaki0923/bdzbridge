@@ -73,7 +73,7 @@ class Devices(private val file: File) {
         failures = 0
         val bytes = ByteArray(32).also { random.nextBytes(it) }
         val token = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
-        val device = Device(newId(), label.take(64).ifBlank { "iPhone" }, hash(token), now, null)
+        val device = Device(newId(), label.take(64).ifBlank { "端末" }, hash(token), now, null)
         devices.add(device)
         registered = device
         save()

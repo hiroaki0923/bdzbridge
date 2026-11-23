@@ -1,6 +1,6 @@
 # RecBridge ヘルパー（BRAVIA 用）
 
-テレビ（Android TV の BRAVIA）に入れる小さなアプリです。テレビが放送から受け取っている 8 日分の番組表を、同じ家の中の iPhone の RecBridge に HTTP/JSON で配ります。レコーダーのない家でも番組表から録画予約ができるようにするためのもので、予約そのものには関わりません（予約は iPhone がテレビに直接送ります）。
+テレビ（Android TV の BRAVIA）に入れる小さなアプリです。テレビが放送から受け取っている 8 日分の番組表を、同じ家の中のスマートフォンやタブレットの RecBridge に HTTP/JSON で配ります。レコーダーのない家でも番組表から録画予約ができるようにするためのもので、予約そのものには関わりません（予約は RecBridge がテレビに直接送ります）。
 
 読むのは、チューナーが Android の番組表ストア（`TvProvider`）に書いた局・番組・局ロゴだけです。視聴履歴、おすすめ、録画済みの番組、他のアプリの局は読みません。インターネットには何も送りません。
 
@@ -41,7 +41,7 @@ Mac か Windows のパソコンが、テレビと同じネットワークにあ�
 1. ランチャーから「RecBridge ヘルパー」を開きます
 2. 「番組表の読み取りを許可する」を押し、許可します。ダイアログが出ないテレビでは、B の道の 4 まで進めてから `adb shell pm grant jp.hiroaki.bdbridge.helper android.permission.READ_TV_LISTINGS` を打ちます
 3. 「権限の自動削除を除外」を押し、開いた設定で「アプリの権限を自動的に削除」をオフにします。Android は数か月開かれないアプリの許可を外しますが、ヘルパーは開かれることがほとんどないためです
-4. 「登録の番号を出す」で 6 桁の番号を出し、iPhone の RecBridge で 設定 → テレビ → 「ヘルパーに登録」に入れます。番号は 5 分で消えます
+4. 「登録の番号を出す」で 6 桁の番号を出し、スマートフォンやタブレットの RecBridge で 設定 → テレビ → 「ヘルパーに登録」に入れます。番号は 5 分で消えます
 5. レコーダーもある家では、RecBridge の 設定 → 「番組表の取得元」で「テレビ」を選ぶと、テレビの番組表になります
 
 ### 更新
@@ -65,7 +65,7 @@ Mac か Windows のパソコンが、テレビと同じネットワークにあ�
 | `GET /v1/guide/{bt}` | 種別（`td / bs / cs / bs4k / cs4k`）の番組すべて。ETag と `If-None-Match` → 304、gzip |
 | `GET /v1/logos/{bt}` | 種別の局ロゴ（PNG、base64）とハッシュ |
 
-番組の行は `sid, eid, startMs, endMs, title, short, long または longTail, genre, canonicalGenre, rating, videoWidth, videoHeight, flag1, flag2, flag4, siblings, siblingEids, data, recordingProhibited`。文字はテレビにあるとおりで、記号の変換や並べ替えはしません（それは iPhone 側の仕事です）。`long` が `short` と空行で始まるときは残りだけを `longTail` に入れます。
+番組の行は `sid, eid, startMs, endMs, title, short, long または longTail, genre, canonicalGenre, rating, videoWidth, videoHeight, flag1, flag2, flag4, siblings, siblingEids, data, recordingProhibited`。文字はテレビにあるとおりで、記号の変換や並べ替えはしません（それは RecBridge 側の仕事です）。`long` が `short` と空行で始まるときは残りだけを `longTail` に入れます。
 
 種別がテレビに無ければ 404 `{"error":"noSuchType"}`、写しをまだ作れていなければ 503 と `Retry-After`（理由は `noPermission / noTuner / building`）。
 
