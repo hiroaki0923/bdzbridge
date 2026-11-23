@@ -1,6 +1,7 @@
 package jp.hiroaki.bdbridge.helper
 
 import android.app.Activity
+import android.app.Dialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Rect
@@ -46,6 +47,9 @@ class MainActivity : Activity() {
     private var showingCode = false
     private var lastRegistered: Device? = null
     private var noSettingsScreen = false
+    /** The question last asked before a revoke, open or answered, and the device it is about. */
+    private var asking: Dialog? = null
+    private var askingAbout: String? = null
     private val format = SimpleDateFormat("M/d HH:mm", Locale.JAPAN)
 
     /** A registered device's row, kept from one drawing to the next so that its button keeps the remote's focus. */
@@ -155,6 +159,9 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         ui.removeCallbacks(refresh)
+        // A question is not left over the screen while it is away; the platform pauses an activity before it
+        // destroys it, so its window is never left behind either.
+        asking?.dismiss()
         super.onPause()
     }
 
@@ -248,13 +255,14 @@ class MainActivity : Activity() {
      * list only grows at its end and loses a device by a revoke, so a kept row never changes place. A row that
      * goes while the remote is on it hands the focus on first: to the next row's 取り消す, else the previous
      * one's, else 登録の番号を出す; the pane is scrolled to that row again once the rows have moved up into the
-     * gap (deviceRow).
+     * gap (deviceRow). A question still open about a device that has gone is closed.
      */
     private fun showDevices(list: List<Device>, devices: Devices) {
         val listed = list.map { it.id }.toSet()
         val kept = rows.filter { it.id in listed }
         for ((i, row) in rows.withIndex()) {
             if (row.id in listed) continue
+            if (row.id == askingAbout) asking?.dismiss()
             if (row.revoke.isFocused) {
                 val next = rows.drop(i + 1).firstOrNull { it in kept } ?: rows.take(i).lastOrNull { it in kept }
                 (next?.revoke ?: codeButton).requestFocus()
@@ -283,7 +291,8 @@ class MainActivity : Activity() {
             addView(name)
             addView(details)
         }
-        val revoke = remoteButton("取り消す", growFrom = 1f) { devices.revoke(d.id); render() }
+        // Asks first, with the name as the row shows it; what is revoked is this row's device.
+        val revoke = remoteButton("取り消す", growFrom = 1f) { ask(d.id, name.text.toString(), devices) }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -311,6 +320,24 @@ class MainActivity : Activity() {
             }
         }
         return DeviceRow(d.id, row, name, details, revoke)
+    }
+
+    /**
+     * Asks before a device is revoked: DOWN from 登録の番号を出す lands on the first row's 取り消す, and a centre
+     * key pressed there out of habit would otherwise cut a phone off at once. One question at a time. While it is
+     * open the screen behind is still drawn again every two seconds, but the remote stays in the question, and the
+     * 取り消す it came from keeps the screen's focus: やめる or BACK leaves the remote there again, the list where it
+     * was. 登録を取り消す revokes the device, and the focus is handed on as the row goes (showDevices).
+     */
+    private fun ask(id: String, label: String, devices: Devices) {
+        if (asking?.isShowing == true) return
+        askingAbout = id
+        asking = question("「$label」の登録を取り消しますか？",
+            "取り消すと、この端末はテレビの番組表を受け取れなくなります。もう一度使うには登録し直します。",
+            "やめる", "登録を取り消す") {
+            devices.revoke(id)
+            render()
+        }.also { it.show() }
     }
 
     private fun label(bt: String) = when (bt) {
