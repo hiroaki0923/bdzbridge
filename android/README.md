@@ -55,7 +55,8 @@ strip's 登録 on a sheet over the model's state of it (`TVRegisterState`), and 
 (`HelperRegisterState`), each in its state's words, and what the television speaks is read on a page in the model's
 words too (`TVCapabilitiesWords`); the television's words that never change -- the part's, the sheets' and the page's --
 are handed over once, at the model's start (`TelevisionWordsText`), as are the guide's and the stations' screen's
-words (`GuideWordsText`) and the names of the tabs (`TabWordsText`). As on iOS, a
+words (`GuideWordsText`), the names of the tabs (`TabWordsText`) and the words of the reservations' list and the
+recordings' (`ListWordsText`). As on iOS, a
 connect wakes a recorder that does not answer with a magic packet when its MAC is known. The stations' logos are on the
 guide's rows, on the reservations' and the recordings' and on the search's; the demo's stations have tiles that Kotlin
 draws (`Tiles.kt`) and hands to the model as files (`TileDrawer`). The model is told when the network changes, by a
