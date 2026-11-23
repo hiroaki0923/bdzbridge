@@ -11,6 +11,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -41,6 +42,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -646,6 +648,18 @@ class DemoTests {
         compose.waitUntilAtLeastOneExists(hasText("予約を削除") and isEnabled(), 30_000)
     }
 
+    /**
+     * 予約を削除 at the pane's foot, pressed by its own action and not by a touch. The reservation's window reads its
+     * programme's summary and details a moment after the rest, once it has looked the programme up, and they go above
+     * the button: on a window 800 dp tall they take a button that was in sight below the pane's foot, and a touch
+     * aimed at it then goes nowhere. Nothing on the screen says that read is over, and it is the model's, Swift's,
+     * which the rule's idling knows nothing of. The button is pressed by a touch where a programme is reserved and
+     * deleted again.
+     */
+    private fun deleteInThePane() {
+        compose.onNodeWithText("予約を削除").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+    }
+
     private fun theReservations() {
         destination("予約").performClick()
         compose.waitUntilAtLeastOneExists(aTimeAndALength, 30_000)
@@ -689,8 +703,7 @@ class DemoTests {
         openReservation(first)
         openReservation(second)
         assertTrue("the first is still in the pane", count(first) == 1)
-        // At the pane's foot, under the programme's details.
-        compose.onNodeWithText("予約を削除").performScrollTo().performClick()
+        deleteInThePane()
         compose.waitUntilAtLeastOneExists(hasText("この予約を削除しますか？"), 10_000)
         // The question says the second, beside its row and the pane's title; nothing says the first but its row.
         val saying = { title: String -> compose.onAllNodes(hasText(title, substring = true)).fetchSemanticsNodes().size }
@@ -854,7 +867,7 @@ class DemoTests {
         val (first, _) = twoReservations()
         val rows = RecBridge.reservations.value!!.sections.sumOf { it.rows.size }
         openReservation(first)
-        compose.onNodeWithText("予約を削除").performScrollTo().performClick()
+        deleteInThePane()
         compose.waitUntilAtLeastOneExists(hasText("この予約を削除しますか？"), 10_000)
         turned {
             compose.waitUntil(10_000) { windows() == 3 }
