@@ -213,6 +213,9 @@ public final class RecBridgeApp: Sendable {
     /// The words of the reservations' list and of the recordings' that never change, as the model has them, for Kotlin
     /// to keep (`ListWordsText`).
     public func listWords() -> ListWordsText { .all }
+    /// The words of the bulk job's bar, a programme's page and the duplicates that never change, as the model has
+    /// them, for Kotlin to keep (`RecordingsWordsText`).
+    public func recordingsWords() -> RecordingsWordsText { .all }
     public func search() async -> SearchWindow {
         await MainActor.run { SearchWindow(model) }
     }

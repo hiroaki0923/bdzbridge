@@ -80,12 +80,12 @@ fun JobBarView() {
                 Text(job.line, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 if (job.finished) {
                     IconButton(onClick = { scope.launch { RecBridge.act { it.job.clear() } } }) {
-                        Icon(Icons.Default.Close, contentDescription = "閉じる", Modifier.size(18.dp))
+                        Icon(Icons.Default.Close, contentDescription = RecBridge.recordingsWords.closeLabel, Modifier.size(18.dp))
                     }
                 } else {
                     if (job.stopping.isNotEmpty()) Footnote(job.stopping)
                     TextButton(onClick = { scope.launch { RecBridge.act { it.job.cancel() } } },
-                               enabled = job.stopping.isEmpty()) { Text("中止") }
+                               enabled = job.stopping.isEmpty()) { Text(RecBridge.recordingsWords.stopLabel) }
                 }
             }
             if (!job.finished) {
@@ -132,6 +132,7 @@ fun GroupRowView(group: GroupItem, open: () -> Unit) {
 fun GroupPage(group: GroupItem, close: () -> Unit) {
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
+    val words = RecBridge.recordingsWords
     val handle = rememberOpened(group.id) { RecBridge.openGroup(group.id) }.handle
     val shown = handle?.let { it.shown.collectAsState().value }
     val act = { work: suspend RecBridge.GroupHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
@@ -155,7 +156,7 @@ fun GroupPage(group: GroupItem, close: () -> Unit) {
                 },
                 actions = {
                     TextButton(onClick = { act { toggleSelecting() } }, enabled = shown != null && !shown.selectHeld) {
-                        Text(shown?.selectLabel ?: "選択")
+                        Text(shown?.selectLabel ?: words.beginSelectingLabel)
                     }
                     ProtectAll(enabled = shown != null && !shown.protectAllHeld) { on -> act { protectAll(on) } }
                 },
@@ -165,8 +166,8 @@ fun GroupPage(group: GroupItem, close: () -> Unit) {
                 Surface(color = colors.surfaceContainer) {
                     // Wrapped where the three do not fit side by side, as on a narrow phone.
                     FlowRow(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalArrangement = Arrangement.Center) {
-                        TextButton(onClick = { act { selectWhatCanBeDeleted() } }) { Text("削除できるものをすべて選択") }
-                        TextButton(onClick = { act { selectNothing() } }) { Text("選択解除") }
+                        TextButton(onClick = { act { selectWhatCanBeDeleted() } }) { Text(words.selectWhatCanBeDeletedLabel) }
+                        TextButton(onClick = { act { selectNothing() } }) { Text(words.selectNothingLabel) }
                         Text(shown.count, style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant,
                              maxLines = 1, softWrap = false,
                              modifier = Modifier.align(Alignment.CenterVertically).padding(horizontal = 12.dp))
@@ -182,8 +183,8 @@ fun GroupPage(group: GroupItem, close: () -> Unit) {
                            colors = ButtonDefaults.buttonColors(containerColor = colors.error, contentColor = colors.onError),
                            modifier = Modifier.fillMaxWidth()) { Text(shown.deleteLabel) }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { act { protect(true) } }, enabled = !shown.actionsHeld) { Text("保護する") }
-                        OutlinedButton(onClick = { act { protect(false) } }, enabled = !shown.actionsHeld) { Text("保護を解除") }
+                        OutlinedButton(onClick = { act { protect(true) } }, enabled = !shown.actionsHeld) { Text(words.protectLabel) }
+                        OutlinedButton(onClick = { act { protect(false) } }, enabled = !shown.actionsHeld) { Text(words.unprotectLabel) }
                     }
                 }
             }
@@ -225,14 +226,14 @@ private fun ProtectAll(enabled: Boolean, protect: (Boolean) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }, enabled = enabled) {
-            Icon(Icons.Default.MoreVert, contentDescription = "保護をまとめて変更")
+            Icon(Icons.Default.MoreVert, contentDescription = RecBridge.recordingsWords.protectAllMenuLabel)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(text = { Text("この番組をすべて保護") }, onClick = {
+            DropdownMenuItem(text = { Text(RecBridge.recordingsWords.protectAllLabel) }, onClick = {
                 open = false
                 protect(true)
             })
-            DropdownMenuItem(text = { Text("この番組の保護をすべて解除") }, onClick = {
+            DropdownMenuItem(text = { Text(RecBridge.recordingsWords.unprotectAllLabel) }, onClick = {
                 open = false
                 protect(false)
             })
@@ -249,8 +250,8 @@ fun RecordingSwipes(row: RecordingItem, delete: () -> Unit, unprotect: () -> Uni
     val colors = MaterialTheme.colorScheme
     val marks = LocalMarks.current
     val action = when (row.swipe) {
-        "delete" -> SwipeAction("削除", colors.errorContainer, colors.onErrorContainer, !row.held, delete)
-        "unprotect" -> SwipeAction("保護解除", marks.reserved, marks.onReserved, !row.held, unprotect)
+        "delete" -> SwipeAction(row.swipeLabel, colors.errorContainer, colors.onErrorContainer, !row.held, delete)
+        "unprotect" -> SwipeAction(row.swipeLabel, marks.reserved, marks.onReserved, !row.held, unprotect)
         else -> null
     }
     SwipeActions(toTheRight = null, toTheLeft = action, content = content)
@@ -288,7 +289,7 @@ fun DuplicatesView(pulled: @Composable (@Composable () -> Unit) -> Unit, current
                 item(key = "unread") {
                     Column(Modifier.padding(horizontal = 16.dp)) {
                         Footnote(shown.unread)
-                        TextButton(onClick = scan, enabled = !shown.scanAgainHeld) { Text("もう一度調べる") }
+                        TextButton(onClick = scan, enabled = !shown.scanAgainHeld) { Text(RecBridge.recordingsWords.scanAgainLabel) }
                     }
                 }
             }

@@ -383,6 +383,8 @@ public struct RecordingRow: Sendable {
     /// What the row offers under a swipe (`AppModel.swipe(for:)`): `delete`, `unprotect`, or nothing; held while the
     /// row's device works or a run is under way.
     public var swipe: String
+    /// The swipe's button, in the model's word for it (`AppModel.TitleSwipe.label`); empty where nothing is offered.
+    public var swipeLabel: String
     public var held: Bool
 }
 
@@ -613,6 +615,7 @@ public final class RecordingsWindow: Sendable {
                             resume: title.watchState == .partway ? Int64((title.resumeFraction * 100).rounded()) : -1,
                             genre: title.genre?.label ?? "",
                             swipe: offered == .delete ? "delete" : offered == .unprotect ? "unprotect" : "",
+                            swipeLabel: offered?.label ?? "",
                             held: held ?? !model.canAlter(title))
     }
 }
