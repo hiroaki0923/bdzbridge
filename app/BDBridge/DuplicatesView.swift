@@ -59,7 +59,7 @@ struct DuplicatesView: View {
             if let unread = state.unreadLine {
                 Section {
                     Text(unread).font(.caption).foregroundStyle(.secondary)
-                    Button("もう一度調べる") { state.scan() }
+                    Button(DuplicatesState.scanAgainLabel) { state.scan() }
                         .disabled(state.holdsScanningAgain)
                 }
             }

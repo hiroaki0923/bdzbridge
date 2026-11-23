@@ -38,6 +38,18 @@ final class GroupSheetTests: XCTestCase {
         sheet.askClosed()
     }
 
+    /// The programme's page says its buttons as the screen has always said them, byte for byte.
+    func testTheProgrammesPageSaysWhatTheScreenSaid() {
+        XCTAssertEqual(GroupSheetState.beginSelectingLabel, "選択")
+        XCTAssertEqual(GroupSheetState.selectWhatCanBeDeletedLabel, "削除できるものをすべて選択")
+        XCTAssertEqual(GroupSheetState.selectNothingLabel, "選択解除")
+        XCTAssertEqual(GroupSheetState.protectLabel, "保護する")
+        XCTAssertEqual(GroupSheetState.unprotectLabel, "保護を解除")
+        XCTAssertEqual(GroupSheetState.protectAllLabel, "この番組をすべて保護")
+        XCTAssertEqual(GroupSheetState.unprotectAllLabel, "この番組の保護をすべて解除")
+        XCTAssertEqual(GroupSheetState.protectAllMenuLabel, "保護をまとめて変更")
+    }
+
     /// 選択 turns to 完了 and back, the ticks going either way; a row tapped is ticked and unticked; 削除できるものを
     /// すべて選択 ticks what a delete would take and no more; and the bar of what to do is there only with a tick.
     func testTheSelectionTicksRowsAndGoesWithPicking() async throws {
@@ -167,6 +179,8 @@ final class GroupSheetTests: XCTestCase {
         let asked = try XCTUnwrap(sheet.ask(among: members))
         XCTAssertEqual(sheet.askTitle(asked, chosen: []), "この録画を削除しますか？")
         XCTAssertEqual(sheet.message(for: asked, chosen: []), AppModel.deleteMessage(title))
+        XCTAssertEqual(sheet.actionLabel(for: asked, chosen: [])?.label, "削除する")
+        XCTAssertEqual(sheet.closingLabel(for: asked), "キャンセル")
         try press(sheet, acting: true)
         XCTAssertTrue(sheet.asking, "the sheet was not held while its delete was out")
         try await until("the delete never came back") { !sheet.asking }
@@ -248,6 +262,8 @@ final class GroupSheetTests: XCTestCase {
             XCTAssertTrue(one.span.hasSuffix("〜 " + Format.time.string(from: one.lastEnd)), one.span)
         }
         XCTAssertEqual(BulkJob.stopping, "中止します…")
+        XCTAssertEqual(BulkJob.stopLabel, "中止")
+        XCTAssertEqual(BulkJob.closeLabel, "閉じる")
         XCTAssertEqual(BulkJob.pausesAway, "アプリを離れると一時停止し、戻ると再開します")
     }
 }

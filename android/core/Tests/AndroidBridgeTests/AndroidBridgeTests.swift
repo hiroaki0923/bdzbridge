@@ -458,6 +458,12 @@ final class AndroidBridgeTests: XCTestCase {
         let protected = try XCTUnwrap(listed.rows.first { $0.protected && !$0.recording }, "the demo has no protected recording")
         XCTAssertEqual(protected.swipe, "unprotect")
         XCTAssertTrue(listed.rows.filter(\.recording).allSatisfy { $0.swipe.isEmpty }, "a recording being recorded offers a swipe")
+        // The button's word is the model's for what the row offers, and nothing where it offers nothing.
+        XCTAssertTrue(listed.rows.allSatisfy {
+            $0.swipeLabel == ($0.swipe == "delete" ? AppModel.TitleSwipe.delete.label
+                              : $0.swipe == "unprotect" ? AppModel.TitleSwipe.unprotect.label : "")
+        })
+        XCTAssertEqual(protected.swipeLabel, AppModel.TitleSwipe.unprotect.label)
         let partway = try XCTUnwrap(listed.rows.first { $0.resume >= 0 }, "the demo has no recording watched partway")
         XCTAssertTrue((1...99).contains(partway.resume), "\(partway.resume)")
         XCTAssertTrue(listed.rows.filter { $0.watched != partway.watched }.allSatisfy { $0.resume == -1 })
@@ -858,6 +864,23 @@ extension AndroidBridgeTests {
         XCTAssertEqual([words.viewMenuLabel, words.destinationHeading, words.genreHeading, words.viewingHeading],
                        [RecordingsState.viewMenuLabel, RecordingsState.destinationHeading,
                         RecordingsState.genreHeading, RecordingsState.viewingHeading])
+    }
+
+    /// The words of the job bar, a programme's page and the duplicates that never change, as Kotlin keeps them, are the
+    /// model's (`BulkJob`, `GroupSheetState`, `DuplicatesState`).
+    @MainActor
+    func testTheRecordingsWordsAreTheModels() {
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
+        let words = app.recordingsWords()
+        XCTAssertEqual([words.stopLabel, words.closeLabel, words.scanAgainLabel],
+                       [BulkJob.stopLabel, BulkJob.closeLabel, DuplicatesState.scanAgainLabel])
+        XCTAssertEqual([words.beginSelectingLabel, words.selectWhatCanBeDeletedLabel, words.selectNothingLabel,
+                        words.protectLabel, words.unprotectLabel, words.protectAllLabel, words.unprotectAllLabel,
+                        words.protectAllMenuLabel],
+                       [GroupSheetState.beginSelectingLabel, GroupSheetState.selectWhatCanBeDeletedLabel,
+                        GroupSheetState.selectNothingLabel, GroupSheetState.protectLabel,
+                        GroupSheetState.unprotectLabel, GroupSheetState.protectAllLabel,
+                        GroupSheetState.unprotectAllLabel, GroupSheetState.protectAllMenuLabel])
     }
 
     /// What the recordings' read says of its menu is the model's: the button's name by whether there is a disk to tell

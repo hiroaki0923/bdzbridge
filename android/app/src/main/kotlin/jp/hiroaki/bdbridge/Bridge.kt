@@ -140,6 +140,13 @@ object RecBridge {
         private set
 
     /**
+     * The words of the bulk job's bar, of a programme's page and of the duplicates that never change, as the model
+     * words them, kept the same way.
+     */
+    lateinit var recordingsWords: RecordingsWords
+        private set
+
+    /**
      * Opens the model the first time it is asked, with the app's folder and the folder of its that never leaves the
      * device -- no backup and no move to another device takes it -- where the television's registration is kept, and
      * starts it.
@@ -163,6 +170,7 @@ object RecBridge {
             guideWords = GuideWords(app.guideWords(arena))
             tabWords = TabWords(app.tabWords(arena))
             listWords = ListWords(app.listWords(arena))
+            recordingsWords = RecordingsWords(app.recordingsWords(arena))
             // Before the start, which seeds the demo's guide with its tiles when the demo is on.
             app.drawsTiles(Tiles)
             watchTheNetwork(context.applicationContext, app)
@@ -791,12 +799,13 @@ data class Recordings(
 
 /**
  * A recording's row. `resume` is how far one watched partway was watched, in hundredths, and -1 for any other; `swipe`
- * what the row offers under a swipe (`delete`, `unprotect` or nothing), held with `held`.
+ * what the row offers under a swipe (`delete`, `unprotect` or nothing) and the button's word for it (`swipeLabel`,
+ * empty for nothing), held with `held`.
  */
 data class RecordingItem(
     val id: String, val title: String, val recording: Boolean = false, val protected: Boolean = false,
     val details: String = "", val watched: String = "", val unwatched: Boolean = false, val resume: Long = -1,
-    val genre: String = "", val swipe: String = "", val held: Boolean = false,
+    val genre: String = "", val swipe: String = "", val swipeLabel: String = "", val held: Boolean = false,
     /** The key of its station's logo among the screen's `logos` (empty for none), and where in `details` it goes. */
     val logo: String = "", val logoAt: Int = 0,
 )
@@ -913,7 +922,7 @@ private fun ReservationItem(row: jp.hiroaki.bdbridge.bridge.ReservationRow) =
 
 private fun RecordingItem(row: jp.hiroaki.bdbridge.bridge.RecordingRow) =
     RecordingItem(row.id, row.title, row.isRecording, row.isProtected, row.details, row.watched, row.isUnwatched,
-                  row.resume, row.genre, row.swipe, row.isHeld, row.logo, row.logoAt.toInt())
+                  row.resume, row.genre, row.swipe, row.swipeLabel, row.isHeld, row.logo, row.logoAt.toInt())
 
 /**
  * The search (`SearchWindow`): what is said in place of the results, or what was found in the scope picked. A
@@ -1200,6 +1209,23 @@ private fun ListWords(it: jp.hiroaki.bdbridge.bridge.ListWordsText) = ListWords(
     it.deleteLabel, it.sortHeading, it.recordingMark, it.reservationsTitle, it.conditionsLabel,
     it.menuLabel, it.kindHeading, it.conflictMark, it.recorderMadeMark, it.sendAgainLabel, it.viewMenuLabel,
     it.destinationHeading, it.genreHeading, it.viewingHeading,
+)
+
+/**
+ * The words of the bulk job's bar, of a programme's page and of the duplicates that never change, as the model words
+ * them (`RecordingsWordsText`). Kept from the model's start (`RecBridge.recordingsWords`).
+ */
+data class RecordingsWords(
+    val stopLabel: String, val closeLabel: String, val beginSelectingLabel: String,
+    val selectWhatCanBeDeletedLabel: String, val selectNothingLabel: String, val protectLabel: String,
+    val unprotectLabel: String, val protectAllLabel: String, val unprotectAllLabel: String,
+    val protectAllMenuLabel: String, val scanAgainLabel: String,
+)
+
+private fun RecordingsWords(it: jp.hiroaki.bdbridge.bridge.RecordingsWordsText) = RecordingsWords(
+    it.stopLabel, it.closeLabel, it.beginSelectingLabel, it.selectWhatCanBeDeletedLabel, it.selectNothingLabel,
+    it.protectLabel, it.unprotectLabel, it.protectAllLabel, it.unprotectAllLabel, it.protectAllMenuLabel,
+    it.scanAgainLabel,
 )
 
 /**

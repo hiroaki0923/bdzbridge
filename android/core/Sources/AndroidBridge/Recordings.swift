@@ -26,6 +26,38 @@ final class ShownMode {
     }
 }
 
+/// The words of the bulk job's bar, of a programme's page and of the duplicates that never change, as the model words
+/// them (`BulkJob`, `GroupSheetState`, `DuplicatesState`) -- for Kotlin to keep from the model's start. What they say
+/// by what the model holds comes with the read of their screens (`JobBar`, `GroupScreen`, `DuplicatesScreen`).
+public struct RecordingsWordsText: Sendable {
+    /// The job bar's: the button that stops a job under way, and what the one that closes the bar once it is over is
+    /// called for a screen reader.
+    public var stopLabel: String
+    public var closeLabel: String
+    /// A programme's page: the button that starts picking, as it is called before the first read of the page (a read
+    /// of it says it for the rest), the selection bar's two buttons, the bottom bar's two, and the menu that protects
+    /// or unprotects every recording of the programme, with what its button is called for a screen reader.
+    public var beginSelectingLabel: String
+    public var selectWhatCanBeDeletedLabel: String
+    public var selectNothingLabel: String
+    public var protectLabel: String
+    public var unprotectLabel: String
+    public var protectAllLabel: String
+    public var unprotectAllLabel: String
+    public var protectAllMenuLabel: String
+    /// The duplicates': the scan's button among the sets.
+    public var scanAgainLabel: String
+
+    static let all = RecordingsWordsText(
+        stopLabel: BulkJob.stopLabel, closeLabel: BulkJob.closeLabel,
+        beginSelectingLabel: GroupSheetState.beginSelectingLabel,
+        selectWhatCanBeDeletedLabel: GroupSheetState.selectWhatCanBeDeletedLabel,
+        selectNothingLabel: GroupSheetState.selectNothingLabel, protectLabel: GroupSheetState.protectLabel,
+        unprotectLabel: GroupSheetState.unprotectLabel, protectAllLabel: GroupSheetState.protectAllLabel,
+        unprotectAllLabel: GroupSheetState.unprotectAllLabel,
+        protectAllMenuLabel: GroupSheetState.protectAllMenuLabel, scanAgainLabel: DuplicatesState.scanAgainLabel)
+}
+
 // MARK: - the bulk job
 
 /// The bulk job's bar (`JobBarView`): nothing while there is no job (`hasJob`).

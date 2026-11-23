@@ -83,15 +83,15 @@ public final class GroupSheetState {
     public func actionLabel(for asked: Ask, chosen: [RecordedTitle]) -> (label: String, destructive: Bool)? {
         switch asked {
         case .bulk: ("\(Format.count(chosen.count)) 件を削除する", true)
-        case .one: ("削除する", true)
+        case .one: (SheetWords.confirmDeleteLabel, true)
         case .failed, .told: nil
         }
     }
 
     public func closingLabel(for asked: Ask) -> String {
         switch asked {
-        case .bulk, .one: "キャンセル"
-        case .failed, .told: "OK"
+        case .bulk, .one: SheetWords.cancelLabel
+        case .failed, .told: SheetWords.okLabel
         }
     }
 
@@ -141,8 +141,11 @@ public final class GroupSheetState {
 
     // MARK: - the selection
 
-    /// 選択, and 完了 while picking.
-    public var selectLabel: String { selecting ? "完了" : "選択" }
+    /// The button that starts picking, as it is called before anything is picked.
+    public static let beginSelectingLabel = "選択"
+
+    /// 選択, and 完了 while picking: the same button ends it.
+    public var selectLabel: String { selecting ? "完了" : Self.beginSelectingLabel }
 
     /// 選択 or 完了: either way the ticks go.
     public func toggleSelecting() {
@@ -170,10 +173,15 @@ public final class GroupSheetState {
     /// pass it over -- a protected one, and one still being recorded.
     public func wouldBeDeleted(_ title: RecordedTitle) -> Bool { model.whyNot(deleting: title) == nil }
 
+    /// The selection bar's two buttons: this one, and `selectNothingLabel`.
+    public static let selectWhatCanBeDeletedLabel = "削除できるものをすべて選択"
+
     /// 削除できるものをすべて選択.
     public func selectWhatCanBeDeleted(among members: [RecordedTitle]) {
         selected = Set(members.filter { model.whyNot(deleting: $0) == nil }.map(\.listKey))
     }
+
+    public static let selectNothingLabel = "選択解除"
 
     /// 選択解除.
     public func selectNothing() {
@@ -196,6 +204,10 @@ public final class GroupSheetState {
         confirmingDelete = true
     }
 
+    /// The bottom bar's two buttons under its delete, for what is ticked.
+    public static let protectLabel = "保護する"
+    public static let unprotectLabel = "保護を解除"
+
     /// 保護する or 保護を解除 over the ticked rows. The selection ends once the run has begun.
     public func protect(_ on: Bool, _ chosen: [RecordedTitle]) {
         guard model.startBulk(.protecting(on), ids: chosen.map(\.id)) else { return }
@@ -203,6 +215,11 @@ public final class GroupSheetState {
     }
 
     public func holdsActions(on chosen: [RecordedTitle]) -> Bool { !model.canStartARun(over: chosen) }
+
+    /// The menu's two items, and what its button is called for a screen reader.
+    public static let protectAllLabel = "この番組をすべて保護"
+    public static let unprotectAllLabel = "この番組の保護をすべて解除"
+    public static let protectAllMenuLabel = "保護をまとめて変更"
 
     /// この番組をすべて保護, or この番組の保護をすべて解除.
     public func protectAll(_ on: Bool, _ members: [RecordedTitle]) {
@@ -259,6 +276,10 @@ public extension BulkJob {
     var progressLine: String { "\(verb)中 \(Format.count(done)) / \(Format.count(total))" }
     /// Beside it, once 中止 was pressed and the recording in hand is being finished.
     static let stopping = "中止します…"
+    /// The bar's button that stops a job under way, and what the one that closes the bar once it is over is called
+    /// for a screen reader.
+    static let stopLabel = "中止"
+    static let closeLabel = "閉じる"
     /// Under a job under way, since nothing can say it once the reader has gone: the job finishes the recording it
     /// is on and waits there.
     static let pausesAway = "アプリを離れると一時停止し、戻ると再開します"

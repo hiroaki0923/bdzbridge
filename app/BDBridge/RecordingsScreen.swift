@@ -220,11 +220,11 @@ extension View {
         swipeActions(edge: .trailing, allowsFullSwipe: false) {
             switch offer {
             case .delete:
-                Button("削除") { ask() }.tint(.red).disabled(held)
+                Button(AppModel.TitleSwipe.delete.label) { ask() }.tint(.red).disabled(held)
             case .unprotect:
                 // `role: .destructive` would animate the row away as it is swiped, before there is an
                 // answer, and it stays away when the answer is no. The colour is all that is wanted.
-                Button("保護解除") { unprotect() }.tint(Color.legibleOrange).disabled(held)
+                Button(AppModel.TitleSwipe.unprotect.label) { unprotect() }.tint(Color.legibleOrange).disabled(held)
             case nil:
                 EmptyView()
             }
@@ -371,12 +371,12 @@ struct GroupSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("この番組をすべて保護") { sheet.protectAll(true, members) }
-                        Button("この番組の保護をすべて解除") { sheet.protectAll(false, members) }
+                        Button(GroupSheetState.protectAllLabel) { sheet.protectAll(true, members) }
+                        Button(GroupSheetState.unprotectAllLabel) { sheet.protectAll(false, members) }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
-                    .accessibilityLabel("保護をまとめて変更")
+                    .accessibilityLabel(GroupSheetState.protectAllMenuLabel)
                     .disabled(sheet.holdsProtectingAll(members))
                 }
                 ToolbarItem(placement: .topBarTrailing) { SheetCloseButton().disabled(sheet.asking) }
@@ -433,8 +433,8 @@ struct GroupSheet: View {
 
     private func selectionBar(members: [RecordedTitle], chosen: [RecordedTitle]) -> some View {
         HStack {
-            Button("削除できるものをすべて選択") { sheet.selectWhatCanBeDeleted(among: members) }
-            Button("選択解除") { sheet.selectNothing() }
+            Button(GroupSheetState.selectWhatCanBeDeletedLabel) { sheet.selectWhatCanBeDeleted(among: members) }
+            Button(GroupSheetState.selectNothingLabel) { sheet.selectNothing() }
             Spacer()
             Text(GroupSheetState.countLine(chosen)).foregroundStyle(.secondary)
         }
@@ -454,8 +454,8 @@ struct GroupSheet: View {
             }
             .buttonStyle(.borderedProminent)
             HStack {
-                Button("保護する") { sheet.protect(true, chosen) }
-                Button("保護を解除") { sheet.protect(false, chosen) }
+                Button(GroupSheetState.protectLabel) { sheet.protect(true, chosen) }
+                Button(GroupSheetState.unprotectLabel) { sheet.protect(false, chosen) }
             }
             .buttonStyle(.bordered)
         }
