@@ -42,6 +42,7 @@ final class DuplicatesStateTests: XCTestCase {
         XCTAssertTrue(model.duplicates.isEmpty)
         XCTAssertEqual(state.promptTitle, "重複はありませんでした")
         XCTAssertEqual(state.scanLabel, "もう一度調べる")
+        XCTAssertEqual(DuplicatesState.scanAgainLabel, "もう一度調べる")
     }
 
     /// The set found: the copy the recorder will not part with is kept and its tick held; the other is ticked by

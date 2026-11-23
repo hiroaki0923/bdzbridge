@@ -45,7 +45,10 @@ public final class DuplicatesState {
             + "1 件ずつ取得するため、初回は時間がかかります。"
     }
 
-    public var scanLabel: String { scanned ? "もう一度調べる" : "検出を開始" }
+    /// The scan's button once it has looked, and among the sets, where it reads only what was left unread.
+    public static let scanAgainLabel = "もう一度調べる"
+
+    public var scanLabel: String { scanned ? Self.scanAgainLabel : "検出を開始" }
 
     /// What starts a run is held while one is under way, and while the recorder works or connects
     /// (`AppModel.canStartARun`): the scan here and in the list, the delete at the foot and its confirm. The first
