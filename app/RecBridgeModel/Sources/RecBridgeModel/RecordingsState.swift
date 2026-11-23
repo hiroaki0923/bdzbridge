@@ -45,8 +45,9 @@ public final class RecordingsState {
 
     // MARK: - what the screen says
 
-    /// The button that changes the view, among the three of `Mode`.
+    /// The button that changes the view, among the three of `Mode`, and the heading over them.
     public static let viewMenuLabel = "表示を変える"
+    public static let viewHeading = "表示"
 
     /// The headings of the filters' menu, the sort's being `ListWords.sortHeading`: the disk, the genre and the watch
     /// state, called as the sheets call them.
@@ -59,11 +60,12 @@ public final class RecordingsState {
         hasDestinations ? "録画先・ジャンル・並び順・視聴状態で絞り込む" : "ジャンル・並び順・視聴状態で絞り込む"
     }
 
-    /// The genre menu's choices: every recording, and each genre, with how many there are of it.
+    /// The genre menu's first choice: every recording, with how many there are.
     public static func allGenresLabel(count: Int) -> String {
         "\(ListWords.allLabel) \(Format.count(count))"
     }
 
+    /// One of its other choices: a genre, with how many recordings there are of it.
     public static func genreChoiceLabel(_ level: Int, count: Int) -> String {
         "\(Codes.genreLabel[level] ?? "") \(Format.count(count))"
     }
@@ -128,7 +130,7 @@ public final class RecordingsState {
     /// The button that does something, beside the one that closes: nil where there is none.
     public func actionLabel(for asked: Ask) -> (label: String, destructive: Bool)? {
         switch asked {
-        case .confirm: ("削除する", true)
+        case .confirm: (SheetWords.confirmDeleteLabel, true)
         case .failed, .told: nil
         }
     }
@@ -136,8 +138,8 @@ public final class RecordingsState {
     /// The button that closes: OK for what only says, キャンセル for the question.
     public func closingLabel(for asked: Ask) -> String {
         switch asked {
-        case .confirm: "キャンセル"
-        case .failed, .told: "OK"
+        case .confirm: SheetWords.cancelLabel
+        case .failed, .told: SheetWords.okLabel
         }
     }
 

@@ -45,14 +45,16 @@ struct ReservationsScreen: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Picker(ReservationsState.kindHeading, selection: Binding(get: { model.reservationKind },
-                                                         set: { model.reservationKind = $0 })) {
+                        Picker(ReservationsState.kindHeading,
+                               selection: Binding(get: { model.reservationKind },
+                                                  set: { model.reservationKind = $0 })) {
                             ForEach(AppModel.ReservationKind.allCases, id: \.self) { kind in
                                 Text(kind.label).tag(kind)
                             }
                         }
-                        Picker(ListWords.sortHeading, selection: Binding(get: { model.reservationSort },
-                                                         set: { model.reservationSort = $0 })) {
+                        Picker(ListWords.sortHeading,
+                               selection: Binding(get: { model.reservationSort },
+                                                  set: { model.reservationSort = $0 })) {
                             ForEach(AppModel.ReservationSort.allCases, id: \.self) { sort in
                                 Text(sort.label).tag(sort)
                             }

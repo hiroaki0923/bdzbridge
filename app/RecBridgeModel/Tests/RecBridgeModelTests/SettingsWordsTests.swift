@@ -3,18 +3,18 @@ import RecorderKit
 import XCTest
 @testable import RecBridgeModel
 
+/// An Int as a screen's own text shows it when it is put into the text, `Text("\(n)")`: `%lld` in the reader's locale,
+/// the digits grouped as it groups them. For every test of a count the model puts into a sentence.
+func asATextShowsIt(_ number: Int) -> String {
+    String(format: "%lld", locale: Locale.current, number)
+}
+
 /// The settings' words as the screen has always said them, byte for byte (`SettingsWords`, the recorder's part's on
 /// `RecorderSettingsState`, the press of 番組表を更新's on `AppModel`), and the small rules of what they say: the
 /// counts and the search's progress with the digits grouped as a screen's own text groups them, the footers in and out
 /// of the demo, what the search found, where the guide comes from said alone, and when the search is held.
 @MainActor
 final class SettingsWordsTests: XCTestCase {
-    /// An Int as a screen's own text shows it when it is put into the text, `Text("\(n)")`: `%lld` in the reader's
-    /// locale, the digits grouped as it groups them.
-    private func asATextShowsIt(_ number: Int) -> String {
-        String(format: "%lld", locale: Locale.current, number)
-    }
-
     func testTheRecordersPartSaysWhatTheScreenSaid() {
         XCTAssertEqual(RecorderSettingsState.heading, "レコーダー")
         XCTAssertEqual(RecorderSettingsState.footer,

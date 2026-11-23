@@ -85,7 +85,7 @@ extension AppModel {
 
         public var label: String {
             switch self {
-            case .all: "すべて"
+            case .all: ListWords.allLabel
             case .mine: "通常の予約"
             case .automatic: "おまかせ"
             }

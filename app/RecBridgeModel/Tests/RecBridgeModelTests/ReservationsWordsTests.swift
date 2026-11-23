@@ -24,13 +24,17 @@ final class ReservationsWordsTests: XCTestCase {
         XCTAssertEqual(ReservationsState.recorderMadeMark, AppModel.ReservationKind.automatic.label)
     }
 
-    /// The count is put in as the screen's text put an Int into a sentence: grouped from 1,000.
+    /// The count is put in as the screen's text put an Int into a sentence: grouped where the reader's locale puts a
+    /// separator.
     func testTheWaitingHeadingCountsAsTheScreenCounted() {
         XCTAssertEqual(ReservationsState.waitingHeading(0), "送信待ち 0 件")
         XCTAssertEqual(ReservationsState.waitingHeading(1), "送信待ち 1 件")
         XCTAssertEqual(ReservationsState.waitingHeading(999), "送信待ち 999 件")
-        XCTAssertEqual(ReservationsState.waitingHeading(1_000), "送信待ち 1,000 件")
-        XCTAssertEqual(ReservationsState.waitingHeading(12_345), "送信待ち 12,345 件")
+        XCTAssertEqual(ReservationsState.waitingHeading(1_000), "送信待ち \(asATextShowsIt(1_000)) 件")
+        XCTAssertEqual(ReservationsState.waitingHeading(12_345), "送信待ち \(asATextShowsIt(12_345)) 件")
+        if let separator = Locale.current.groupingSeparator, !separator.isEmpty, asATextShowsIt(1_000) != "1000" {
+            XCTAssertEqual(ReservationsState.waitingHeading(1_000), "送信待ち 1\(separator)000 件")
+        }
     }
 
     // MARK: - a waiting row's details
@@ -61,7 +65,7 @@ final class ReservationsWordsTests: XCTestCase {
                        "USB HDD · 11/23(月) 21:00 · サンプルテレビ · DR(高画質) · 時刻指定")
     }
 
-    /// A mode the tables do not know is left out, and one they know only by name is said by it; a station with no
+    /// A mode the tables do not know is left out, and one they know is said by its label there; a station with no
     /// name is still a part, as it always was.
     func testAWaitingRowSaysTheModeOnlyWhereTheTablesKnowIt() {
         XCTAssertEqual(ReservationsState.waitingDetails(waiting(eventID: 7, qualityCode: 9999), device: nil, disk: nil),

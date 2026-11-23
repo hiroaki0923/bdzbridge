@@ -35,7 +35,7 @@ struct RecordingsScreen: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
-                        Picker("表示", selection: $mode) {
+                        Picker(RecordingsState.viewHeading, selection: $mode) {
                             Label(RecordingsState.Mode.list.label, systemImage: "list.bullet").tag("list")
                             Label(RecordingsState.Mode.groups.label, systemImage: "rectangle.stack").tag("groups")
                             Label(RecordingsState.Mode.dups.label, systemImage: "square.on.square").tag("dups")
@@ -66,8 +66,9 @@ struct RecordingsScreen: View {
                                 }
                             }
                         }
-                        Picker(RecordingsState.genreHeading, selection: Binding(get: { model.titleGenre },
-                                                            set: { model.titleGenre = $0 })) {
+                        Picker(RecordingsState.genreHeading,
+                               selection: Binding(get: { model.titleGenre },
+                                                  set: { model.titleGenre = $0 })) {
                             Text(RecordingsState.allGenresLabel(count: model.titlesOnTheShownDisk.count))
                                 .tag(Int?.none)
                             ForEach(Array(Codes.genreLabel.keys).sorted(), id: \.self) { level in
@@ -76,14 +77,16 @@ struct RecordingsScreen: View {
                                 }
                             }
                         }
-                        Picker(ListWords.sortHeading, selection: Binding(get: { model.titleSort },
-                                                         set: { model.titleSort = $0 })) {
+                        Picker(ListWords.sortHeading,
+                               selection: Binding(get: { model.titleSort },
+                                                  set: { model.titleSort = $0 })) {
                             ForEach(AppModel.TitleSort.allCases, id: \.self) { sort in
                                 Text(sort.label).tag(sort)
                             }
                         }
-                        Picker(RecordingsState.viewingHeading, selection: Binding(get: { model.titleState },
-                                                         set: { model.titleState = $0 })) {
+                        Picker(RecordingsState.viewingHeading,
+                               selection: Binding(get: { model.titleState },
+                                                  set: { model.titleState = $0 })) {
                             Text(ListWords.allLabel).tag(WatchState?.none)
                             ForEach(WatchState.allCases, id: \.self) { state in
                                 Text(state.label).tag(WatchState?.some(state))

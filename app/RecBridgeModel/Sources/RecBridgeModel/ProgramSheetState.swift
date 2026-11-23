@@ -235,7 +235,8 @@ public final class ProgramSheetState {
 
     /// The sheet's title, and the words only this sheet says: where a new reservation goes, the section that makes
     /// one and its button, the way to the reservation's own sheet, and the two buttons of a row that waits. What it
-    /// says as the other sheets do is `SheetWords`.
+    /// says as the other sheets do is `SheetWords`. The reservations' list says もう一度送る in the same word, under a
+    /// waiting row's swipe (`ReservationsState`).
     public static let sheetTitle = "番組"
     public static let destination = "予約先"
     public static let reserveHeading = "録画予約"

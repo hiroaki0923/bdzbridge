@@ -84,7 +84,7 @@ public final class ReservationsState {
     /// The button that does something, beside the one that closes: nil where there is none.
     public func actionLabel(for asked: Ask) -> (label: String, destructive: Bool)? {
         switch asked {
-        case .confirm, .confirmPending: ("削除する", true)
+        case .confirm, .confirmPending: (SheetWords.confirmDeleteLabel, true)
         case .failed, .said: nil
         }
     }
@@ -92,8 +92,8 @@ public final class ReservationsState {
     /// The button that closes: OK for what only says, キャンセル for a question.
     public func closingLabel(for asked: Ask) -> String {
         switch asked {
-        case .confirm, .confirmPending: "キャンセル"
-        case .failed, .said: "OK"
+        case .confirm, .confirmPending: SheetWords.cancelLabel
+        case .failed, .said: SheetWords.okLabel
         }
     }
 

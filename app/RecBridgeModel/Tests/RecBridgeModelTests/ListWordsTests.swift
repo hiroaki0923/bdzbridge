@@ -10,4 +10,10 @@ final class ListWordsTests: XCTestCase {
         XCTAssertEqual(ListWords.recordingMark, "録画中")
         XCTAssertEqual(ListWords.allLabel, "すべて")
     }
+
+    /// The reservations' menu that narrows offers the same first choice: that word, not another typed the same.
+    func testTheFirstChoiceOfTheReservationsKindsIsTheListsWord() {
+        XCTAssertEqual(AppModel.ReservationKind.all.label, ListWords.allLabel)
+        XCTAssertEqual(AppModel.ReservationKind.all.label, "すべて")
+    }
 }
