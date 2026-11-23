@@ -37,6 +37,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.collectAsState
@@ -97,6 +98,10 @@ fun SearchScreen() {
             reservation = row
             recording = title
         }
+    }
+    // The same when a turn, rather than a tap, puts what is open into the pane.
+    LaunchedEffect(wide) {
+        if (wide && (programme != null || reservation != null || recording != null)) focus.clearFocus()
     }
     val results = shown.shows == "results"
     Scaffold(topBar = { Refused {
