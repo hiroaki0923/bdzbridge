@@ -73,7 +73,7 @@ class HelperService : Service() {
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "RecBridge ヘルパー", NotificationManager.IMPORTANCE_MIN))
         return Notification.Builder(this, CHANNEL)
             .setContentTitle("RecBridge ヘルパー")
-            .setContentText("番組表を iPhone に配っています")
+            .setContentText("番組表を RecBridge に配っています")
             .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
             .build()
     }
