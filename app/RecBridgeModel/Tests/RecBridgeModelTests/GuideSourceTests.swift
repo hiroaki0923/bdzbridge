@@ -242,6 +242,79 @@ final class GuideSourceTests: XCTestCase {
         XCTAssertEqual(home.helper.asked(since: asked), [])
     }
 
+    // MARK: - a type the chosen device does not have
+
+    /// A recorder that gives no guide, added to a home that had a television alone: the recorder gives the guide
+    /// from then on by the rule, nothing having been chosen, and has none to give. Its connect asks it for every
+    /// type -- the cache a morning old -- and is answered each time that it has no file; nothing of the
+    /// television's guide is emptied for it, since it has given no type itself, and the screen shows the
+    /// television's stations as it did.
+    func testARecorderWithNoGuideAddedToAHomeWithATelevisionAloneTakesNothingAway() async throws {
+        let home = try await aHome(recorderGives: [])
+        home.bench.defaults.removeObject(forKey: DefaultsKey.recorderHost)
+        let model = try await started(home, theHelperIsAsked: true)
+        try await expect("td", .televisions, in: home)
+        try await expect("bs", .televisions, in: home)
+        try ageTheMarks(in: home)
+
+        let heard = await home.recorder.heard.count
+        await model.adopt(host: Bench.host)
+        try await untilConnected(model)
+        try await until("the connect's refresh never ended") { !isConnecting(model) && model.busy == nil }
+
+        XCTAssertEqual(model.guideSource, .recorder)
+        let files = await home.recorder.heard(since: heard).filter { Ask.guide.contains($0) }
+        XCTAssertEqual(files, Ask.guide, "set up wrong: the recorder was not asked for every type")
+        try await expect("td", .televisions, in: home, "the television's guide went for a recorder that gives none")
+        try await expect("bs", .televisions, in: home)
+        XCTAssertEqual(model.channels.map(\.name), [HelperOnTheTelevision.station("td")])
+    }
+
+    /// The television chosen: CS, which the television has no guide of and the cache held as the recorder's,
+    /// is emptied as the television's guide comes in, and the guide's screen says of it what it says in a home
+    /// with a television alone, over a cache that holds of it what that home's holds. The recorder chosen back:
+    /// BS, which this recorder has no file of, is emptied of the television's rows in its turn, stands as a type
+    /// the recorder answered with no file for, and is not behind to the recorder after that -- judged by its
+    /// rule from the moment of the choice, and not by a connect, which rightly asks again once the clock has
+    /// passed the recorder's next rebuild.
+    func testATypeTheChosenDeviceDoesNotHaveIsEmptiedAsInAHomeWithThatDeviceAlone() async throws {
+        let home = try await aHome(recorderGives: [0, 2])
+        let model = try await started(home)
+        try await expect("cs", .recorders, in: home)
+
+        await model.setGuideSourcePreference(.tv)
+        try await expect("td", .televisions, in: home)
+        try await expect("bs", .televisions, in: home)
+        try await expect("cs", .nothing, in: home, "the recorder's CS was left under the television's guide")
+        model.broadcasting = "cs"
+        await model.reloadFromCache()
+        XCTAssertEqual(model.guideShows(grid: false), .empty)
+        let said = model.guideEmpty(narrowed: false)
+        XCTAssertEqual(said, .typeNotAnswered)
+
+        let alone = try await aHome(recorderGives: [])
+        alone.bench.defaults.removeObject(forKey: DefaultsKey.recorderHost)
+        let televisionAlone = try await started(alone, theHelperIsAsked: true)
+        try await expect("td", .televisions, in: alone, "set up wrong: the television's guide never came")
+        televisionAlone.broadcasting = "cs"
+        await televisionAlone.reloadFromCache()
+        XCTAssertEqual(televisionAlone.guideShows(grid: false), .empty)
+        XCTAssertEqual(televisionAlone.guideEmpty(narrowed: false), said)
+        XCTAssertEqual(model.says(said), televisionAlone.says(said))
+        XCTAssertEqual(model.counts["cs"], televisionAlone.counts["cs"])
+
+        model.broadcasting = "td"
+        let chosen = GuideRefresh.toTheSecond(Date())
+        await model.setGuideSourcePreference(.recorder)
+        try await expect("td", .recorders, in: home)
+        try await expect("cs", .recorders, in: home)
+        try await expect("bs", .nothing, in: home, "the television's BS was left under the recorder's guide")
+        XCTAssertEqual(model.counts["bs"]?.channels, 0)
+        XCTAssertNotNil(model.counts["bs"]?.lastAnswered, "the recorder is not marked as having answered for it")
+        XCTAssertEqual(GuideRefresh.staleTypes(model.counts, since: chosen), [],
+                       "a type the recorder has no file of is behind still, to be asked for again at the next connect")
+    }
+
     // MARK: - the home
 
     /// A home with a recorder and a television, each invented, the helper beside the television.

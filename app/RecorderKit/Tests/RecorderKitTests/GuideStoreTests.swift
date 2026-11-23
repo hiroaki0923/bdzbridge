@@ -456,6 +456,120 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertEqual(counts["td"]?.givenBy, .recorder, "a guide thrown away")
     }
 
+    // MARK: - a type the device that gives the guide does not have
+
+    /// The television's rows of a type, with a logo, the mark of the helper's copy and a channel hidden.
+    private func storeWithTheTelevisionsRows(of broadcasting: String = "td") async throws -> GuideStore {
+        let store = try GuideStore(path: ":memory:")
+        try await store.replace(try sampleServices(), broadcasting: broadcasting, givenBy: .tv,
+                                at: jst("2026-09-14T03:00:00+09:00"))
+        try await store.replaceLogos([(serviceID: 1024, channelNo: 1, png: Data([1, 2, 3]))],
+                                     broadcasting: broadcasting)
+        try await store.noteHelperChanged(broadcasting: broadcasting, at: jst("2026-09-14T02:00:00+09:00"))
+        try await store.setChannelPreferences(broadcasting: broadcasting, hidden: [1025])
+        return store
+    }
+
+    /// A type the recorder answers with no guide for, which the cache holds as the television's, is emptied in
+    /// the write that notes the answer, the recorder having given another type: its channels, programmes and
+    /// logos go, with the marks of the television's fetch, and it stands as a type the recorder was asked for
+    /// and had none of. Which channels the reader hid stays.
+    func testATypeTheRecorderHasNoGuideOfIsEmptiedOfWhatTheTelevisionGave() async throws {
+        let store = try await storeWithTheTelevisionsRows()
+        try await store.replace(try sampleServices(), broadcasting: "bs")
+        let later = jst("2026-09-15T03:00:00+09:00")
+        try await store.noteNoGuide(broadcasting: "td", at: later)
+
+        var counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.channels, 0)
+        XCTAssertEqual(counts["td"]?.programs, 0)
+        XCTAssertNil(counts["td"]?.refreshed, "nothing of it was fetched")
+        XCTAssertEqual(counts["td"]?.lastAnswered, later, "the recorder answered for it")
+        XCTAssertEqual(counts["td"]?.givenBy, .recorder)
+        expectEqual(try await store.programs(broadcasting: "td", includeReferences: true, includeHidden: true), [])
+        expectNil(try await store.helperChanged(broadcasting: "td"))
+
+        // Noted again, it is the recorder's own, with nothing to empty; and the guide back, the logo is not the
+        // television's and the hidden channel is still hidden.
+        try await store.noteNoGuide(broadcasting: "td", at: later.addingTimeInterval(60))
+        try await store.replace(try sampleServices(), broadcasting: "td")
+        let channels = try await store.channels(broadcasting: "td", includeHidden: true)
+        XCTAssertEqual(channels.map(\.logo), [nil, nil])
+        XCTAssertEqual(channels.filter(\.hidden).map(\.serviceID), [1025])
+        counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.programs, 4)
+    }
+
+    /// A recorder that has given no type of its own empties nothing by having none to give: one with no guide
+    /// at all answers so for every type, and the television's guide is not taken away for a device that has
+    /// shown none to put in its place. The answer is noted all the same, the television's rows and marks
+    /// staying under the note. Channels the cache holds as the television's are none the recorder gave; a type
+    /// the recorder did give makes it a device with a guide, and then the television's type goes.
+    func testARecorderThatHasGivenNoTypeEmptiesNothingOfWhatTheTelevisionGave() async throws {
+        let store = try await storeWithTheTelevisionsRows()
+        try await store.replace(try sampleServices(), broadcasting: "bs", givenBy: .tv)
+        let later = jst("2026-09-15T03:00:00+09:00")
+        try await store.noteNoGuide(broadcasting: "td", at: later)
+
+        var counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.channels, 2, "the television's rows went for a recorder that has given nothing")
+        XCTAssertEqual(counts["td"]?.programs, 4)
+        XCTAssertEqual(counts["td"]?.givenBy, .tv)
+        XCTAssertEqual(counts["td"]?.refreshed, "2026-09-14T03:00:00+09:00")
+        XCTAssertEqual(counts["td"]?.lastAnswered, later, "the recorder's answer was not noted")
+        expectEqual(try await store.helperChanged(broadcasting: "td"), jst("2026-09-14T02:00:00+09:00"))
+        expectEqual(try await store.channels(broadcasting: "td", includeHidden: true).map(\.logo),
+                    [Data([1, 2, 3]), nil])
+
+        try await store.replace(try sampleServices(), broadcasting: "cs")
+        try await store.noteNoGuide(broadcasting: "td", at: later)
+        counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.channels, 0, "set up wrong: a recorder that has given a type emptied nothing")
+        XCTAssertEqual(counts["bs"]?.programs, 4, "a type nothing was said of")
+    }
+
+    /// The same for the television, which is asked for no file of a type it has none of: the type the cache
+    /// holds as the recorder's is emptied, and stands as one never fetched, with no mark at all. A type that is
+    /// the device's own is left as it is, by either.
+    func testATypeIsEmptiedOnlyOfWhatTheOtherDeviceGave() async throws {
+        let store = try await loadedStore()
+        try await store.replaceLogos([(serviceID: 1024, channelNo: 1, png: Data([1, 2, 3]))], broadcasting: "td")
+
+        try await store.empty(broadcasting: "td", notHadBy: .recorder)
+        var counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.programs, 4, "the recorder's own")
+        XCTAssertEqual(counts["td"]?.refreshed, "2026-09-14T03:00:00+09:00")
+
+        try await store.empty(broadcasting: "td", notHadBy: .tv)
+        counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.channels, 0)
+        XCTAssertEqual(counts["td"]?.programs, 0)
+        XCTAssertNil(counts["td"]?.refreshed)
+        XCTAssertNil(counts["td"]?.lastAnswered, "a type the television does not have has no mark")
+
+        try await store.replace(try sampleServices(), broadcasting: "td", givenBy: .tv)
+        expectEqual(try await store.channels(broadcasting: "td", includeHidden: true).map(\.logo), [nil, nil])
+        try await store.empty(broadcasting: "td", notHadBy: .tv)
+        counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.programs, 4, "the television's own")
+    }
+
+    /// Nothing is emptied in a cache that is another recorder's than the one that answered: its answer is not
+    /// about this cache.
+    func testNothingIsEmptiedForARecorderTheCacheIsNotOf() async throws {
+        let store = try await storeWithTheTelevisionsRows()
+        try await store.claim(for: recorder(1))
+        do {
+            try await store.noteNoGuide(broadcasting: "td", from: recorder(2))
+            XCTFail("the answer was taken from another recorder")
+        } catch {
+            XCTAssertTrue(error is CacheIsAnothers, "\(error)")
+        }
+        let counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.programs, 4)
+        XCTAssertEqual(counts["td"]?.givenBy, .tv)
+    }
+
     /// Counting a type's programmes, asked each time the day changes, is answered from an index rather than by
     /// reading every programme -- and a cache made before the index gets it when it is next opened.
     func testCountsAreAnsweredFromAnIndexWhichAnOldCacheGetsOnOpening() async throws {

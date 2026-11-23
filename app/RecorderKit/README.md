@@ -42,7 +42,7 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `DeviceEndpoint.swift` | What the shared rules ask of a device: to be probed, sent a waiting reservation in its own way, asked for a guide; and the recorder's way of sending one, which reads its list first and leaves a row it holds already unsent |
 | `RecorderClient.swift` | One recorder: identity, reservations, recordings, playback, free space, guide files |
 | `TVHelperClient.swift` | The helper on the television (`helper/`): its HTTP API on port 8780 -- ping, pairing, info, channels, guide and logos by broadcasting type -- and where the app keeps the token it hands out |
-| `TVHelperGuide.swift` | The television's guide through the helper: the registration, when its copies are asked about again, which types are behind, the fetch, and what is said of it |
+| `TVHelperGuide.swift` | The television's guide through the helper: the registration, when its copies are asked about again, which types are behind and which the television has no guide of, the fetch, and what is said of it |
 | `TVGuide.swift` | The helper's rows as it serves them, turned into the same `GuideService` the recorder's files decode to |
 | `Waking.swift` | Waiting for a recorder to come back after a magic packet |
 | `Reach.swift` | The order of one attempt at a device: packet, probe, permission, waking, looking elsewhere |

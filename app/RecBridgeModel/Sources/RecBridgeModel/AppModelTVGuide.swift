@@ -90,7 +90,10 @@ extension AppModel {
     }
 
     /// Takes the guide over to the device it is fetched from now: every type's marks are forgotten, so that
-    /// the device fetches them all, and the fetch is asked for. The programmes stay until each type's come in.
+    /// the device fetches them all, and the fetch is asked for. The programmes stay until each type's come in;
+    /// a type that device does not have is emptied by its fetch: the television's once the helper has said
+    /// what it has (`GuideStore.empty`), the recorder's as it answers that it has no file of the type
+    /// (`GuideStore.noteNoGuide`).
     func adoptGuideSource() async {
         if let store {
             for broadcasting in GuideRefresh.broadcastingTypes {

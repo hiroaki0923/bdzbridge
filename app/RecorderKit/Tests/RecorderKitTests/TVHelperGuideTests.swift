@@ -133,6 +133,113 @@ final class TVHelperGuideTests: XCTestCase {
         XCTAssertEqual(givenBy, .tv, "what the helper gives is written down as the television's")
     }
 
+    /// A type the television has no guide of, which the cache holds as the recorder's, is emptied once the
+    /// helper has said what it has, and stands as it does in a home with a television alone: no channels, no
+    /// programmes, no mark. So is one the television has channels of and no programmes. No file is asked for
+    /// either; the types the helper has programmes of are fetched over the recorder's.
+    func testATypeTheTelevisionHasNoGuideOfIsEmptiedOfTheRecordersRows() async throws {
+        helper.programs = ["td": 1, "bs": 0]
+        let recorders = [GuideService(serviceID: 301, name: "レコーダーの局", programs: [])]
+        for type in ["td", "bs", "cs"] { try await store.replace(recorders, broadcasting: type) }
+
+        let said = await guide.fetch(into: store, on: nil, stored: { _ in })
+
+        XCTAssertNil(said)
+        let asked = await guideRequests()
+        XCTAssertEqual(asked, ["/v1/guide/td"])
+        let counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.givenBy, .tv)
+        for type in ["bs", "cs"] {
+            XCTAssertEqual(counts[type]?.channels, 0, "\(type): the recorder's rows were left under the television's guide")
+            XCTAssertNil(counts[type]?.lastAnswered, type)
+            XCTAssertNil(counts[type]?.refreshed, type)
+        }
+    }
+
+    /// A helper that has no copy yet says nothing of what the television has, and nothing is emptied for it. Nor
+    /// is a type that is the television's own emptied when the helper has no programmes of it for the moment:
+    /// what the cache holds of it stays until the helper's next copy.
+    func testNothingIsEmptiedForAHelperWithNoCopyNorOfTheTelevisionsOwnRows() async throws {
+        let recorders = [GuideService(serviceID: 301, name: "レコーダーの局", programs: [])]
+        try await store.replace(recorders, broadcasting: "cs")
+        helper.programs = [:]
+        var said = await guide.fetch(every: true, into: store, on: nil, stored: { _ in })
+        XCTAssertNil(said)
+        var counts = try await store.counts()
+        XCTAssertEqual(counts["cs"]?.channels, 1, "emptied for a helper that has no copy")
+
+        helper.programs = ["td": 1, "bs": 1]
+        said = await guide.fetch(every: true, into: store, on: nil, stored: { _ in })
+        XCTAssertNil(said)
+        helper.programs = ["td": 1, "bs": 0]
+        guide.forgetTheCheck()
+        said = await guide.fetch(into: store, on: nil, stored: { _ in })
+        XCTAssertNil(said)
+        counts = try await store.counts()
+        XCTAssertEqual(counts["bs"]?.programs, 1, "the television's own rows went")
+        XCTAssertEqual(counts["cs"]?.channels, 0, "set up wrong: the recorder's type was not emptied")
+    }
+
+    /// The emptying is decided and done with the guide's turn in hand, by what the cache holds then. A refresh
+    /// of the recorder's that has the turn as the television's fetch comes -- out since before the television
+    /// was chosen -- stores CS, which the television has no guide of, while the fetch waits behind it: the cache
+    /// held nothing of CS as the fetch asked the helper what it has, and holds the recorder's as its turn comes.
+    /// It ends with CS empty, and the television's own type fetched.
+    func testWhatARecordersRefreshInFrontPutInIsEmptiedOnceTheTurnHasCome() async throws {
+        helper.programs = ["td": 1]
+        let sample = try Vectors.load("epg-sample.json").string("file")
+        let file = try Data(contentsOf: Vectors.directory.appendingPathComponent(sample))
+        let recorder = RecorderClient(host: Stub.host, transport: StubTransport { request, _ in
+            let isCS = request.url.lastPathComponent == Codes.epgFiles["cs"]
+            return isCS ? HTTPResponse(statusCode: 200, body: file) : HTTPResponse(statusCode: 404)
+        }, streamPort: 60151, busyRetryDelay: 0...0)
+        let held = Held()
+        let store = store!
+        let inFront = Task {
+            await GuideRefresh.run(asked: .only(["cs"]), onTurn: {
+                await held.wait()
+                return .fetch(client: recorder, store: store, from: nil)
+            })
+        }
+        await held.untilWaitedOn()
+
+        let fetch = Task { await guide.fetch(into: store, on: nil, stored: { _ in }) }
+        // The fetch has asked the helper and read the cache for what is behind, and waits for the turn.
+        let waits = await eventually { guide.lastCheck != nil }
+        XCTAssertTrue(waits, "the fetch never came to wait for its turn")
+        var counts = try await store.counts()
+        XCTAssertEqual(counts["cs"]?.channels, 0, "set up wrong: the recorder's refresh has stored already")
+        await held.letGo()
+        let recorders = await inFront.value
+        let said = await fetch.value
+
+        XCTAssertEqual(recorders.answered, ["cs"], "set up wrong: the recorder's refresh stored nothing")
+        XCTAssertNil(said)
+        counts = try await store.counts()
+        XCTAssertEqual(counts["cs"]?.channels, 0, "what the recorder's refresh put in stayed under the television's guide")
+        XCTAssertNil(counts["cs"]?.lastAnswered)
+        XCTAssertEqual(counts["td"]?.givenBy, .tv)
+        XCTAssertEqual(counts["td"]?.programs, 1)
+    }
+
+    /// With nothing to fetch, the helper's copies being the ones the cache was filled from, a type the
+    /// television has no guide of is emptied all the same.
+    func testATypeIsEmptiedByAFetchThatHasNothingToFetch() async throws {
+        await guide.fetch(into: store, on: nil, stored: { _ in })
+        try await store.replace([GuideService(serviceID: 301, name: "レコーダーの局", programs: [])],
+                                broadcasting: "cs")
+        let asked = await guideRequests().count
+
+        guide.forgetTheCheck()
+        let said = await guide.fetch(into: store, on: nil, stored: { _ in })
+
+        XCTAssertNil(said)
+        let since = await guideRequests().count
+        XCTAssertEqual(since, asked, "set up wrong: something was fetched")
+        let channels = try await store.counts()["cs"]?.channels
+        XCTAssertEqual(channels, 0)
+    }
+
     func testOnlyTheTypesTheHelperHasNewerCopiesOfAreFetched() async throws {
         await guide.fetch(into: store, on: nil, stored: { _ in })
         var asked = await guideRequests()
@@ -303,4 +410,22 @@ final class TVHelperGuideTests: XCTestCase {
 private final class Stored {
     private(set) var types: [String] = []
     func note(_ broadcasting: String) { types.append(broadcasting) }
+}
+
+/// Holds whoever waits on it until it is let go, and says when somebody waits.
+private actor Held {
+    private var waiting: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        await withCheckedContinuation { waiting = $0 }
+    }
+
+    func untilWaitedOn() async {
+        while waiting == nil { await Task.yield() }
+    }
+
+    func letGo() {
+        waiting?.resume()
+        waiting = nil
+    }
 }

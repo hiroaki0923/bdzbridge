@@ -1064,6 +1064,19 @@ to come after, it waits for the slot as the app does before it sends something t
 (`RecorderDriver.settle`). The television's guide is fetched as the app starts or comes to the front, an hour
 or more after the helper was last asked, and not at night. 番組表を更新 asks whichever device gives the guide.
 
+When the device that gives the guide changes, what the cache holds stays until the new device's comes in, a
+type at a time: the change empties nothing by itself. A type the new device does not have is
+emptied of what the other gave -- its channels, programmes and logos, with its marks -- rather than left the
+other's for good: as the recorder answers that it has no file of it (`GuideStore.noteNoGuide`), which is also
+what a recorder without 4K tuners comes to over the television's BS4K, the television's channels not being ones
+it gave; and, for the television, once the helper has said what it has (`TVHelperGuide.notHad`,
+`GuideStore.empty`) and the fetch has the guide's turn, by what the cache holds then, so that a refresh of the
+recorder's that was out before it cannot put the type back afterwards. A recorder empties nothing until it has
+given a type itself: one that gives no guide answers that it has no file for every type, and added to a home
+that had a television alone, where it gives the guide until テレビ is chosen, it leaves the television's guide
+as it is. The guide then says of an emptied type what it says in a home with that device alone. Which stations
+the reader hid, and their order, stay.
+
 Connecting fetches only the broadcasting types that are behind the recorder's last rebuild, each judged by
 when the recorder last answered for it -- with its file, or with none to give (`GuideStore.noteNoGuide`). A
 type that fails, such as the 500 the recorder answers for a file it has not built yet, is passed over, said on
