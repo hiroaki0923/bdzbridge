@@ -166,6 +166,41 @@ public final class ReservationsState {
 
     // MARK: - what the screen says
 
+    /// The screen's title.
+    public static let title = "予約"
+
+    /// The way to the recorder's own keyword conditions, called as that screen is.
+    public static let conditionsLabel = RecorderRulesState.title
+
+    /// The menu's button, and the heading of the kinds it offers (the sort's is `ListWords.sortHeading`).
+    public static let menuLabel = "並び順を変更"
+    public static let kindHeading = "種類"
+
+    /// What a row marks: a reservation that clashes with another, and one the recorder's own conditions made, which
+    /// is what the kind of the same name lists.
+    public static let conflictMark = "重複"
+    public static let recorderMadeMark = AppModel.ReservationKind.automatic.label
+
+    /// The button a swipe to the right on a waiting row offers, as the programme's sheet words it.
+    public static let sendAgainLabel = ProgramSheetState.sendAgainLabel
+
+    /// The heading over the reservations that wait to be sent, with how many.
+    public static func waitingHeading(_ count: Int) -> String {
+        "送信待ち \(Format.count(count)) 件"
+    }
+
+    /// What a waiting row says of the reservation under its title: the device and the disk where they are said, when
+    /// it starts, the station, the mode where the tables know the code, and 時刻指定 where it follows no programme.
+    public static func waitingDetails(_ waiting: PendingReservation, device: String?, disk: String?) -> String {
+        var parts = [device, disk, Format.dateTime.string(from: waiting.request.start), waiting.serviceName]
+            .compactMap { $0 }
+        if let quality = Codes.quality(code: waiting.request.qualityCode) {
+            parts.append(Codes.qualityLabel[quality] ?? quality)
+        }
+        if waiting.request.eventID == nil { parts.append("時刻指定") }
+        return parts.joined(separator: " · ")
+    }
+
     /// Under the screen's title: the kind shown when it is not all of them, how many, and how many of those are
     /// recording now or clash.
     public var subtitle: String {
@@ -175,8 +210,8 @@ public final class ReservationsState {
         var parts: [String] = []
         if model.reservationKind != .all { parts.append(model.reservationKind.label) }
         parts.append("\(shown.count) 件")
-        if recording > 0 { parts.append("録画中 \(recording)") }
-        if clashing > 0 { parts.append("重複 \(clashing)") }
+        if recording > 0 { parts.append("\(ListWords.recordingMark) \(recording)") }
+        if clashing > 0 { parts.append("\(Self.conflictMark) \(clashing)") }
         return parts.joined(separator: " · ")
     }
 

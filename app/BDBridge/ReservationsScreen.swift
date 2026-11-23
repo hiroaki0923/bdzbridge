@@ -39,13 +39,13 @@ struct ReservationsScreen: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 0) {
-                        Text("予約").font(.subheadline.weight(.semibold))
+                        Text(ReservationsState.title).font(.subheadline.weight(.semibold))
                         Text(state.subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Picker("種類", selection: Binding(get: { model.reservationKind },
+                        Picker(ReservationsState.kindHeading, selection: Binding(get: { model.reservationKind },
                                                          set: { model.reservationKind = $0 })) {
                             ForEach(AppModel.ReservationKind.allCases, id: \.self) { kind in
                                 Text(kind.label).tag(kind)
@@ -61,7 +61,7 @@ struct ReservationsScreen: View {
                         Image(systemName: state.narrowedOrSorted ? "line.3.horizontal.decrease.circle.fill"
                                                                   : "line.3.horizontal.decrease.circle")
                     }
-                    .accessibilityLabel("並び順を変更")
+                    .accessibilityLabel(ReservationsState.menuLabel)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
@@ -69,7 +69,7 @@ struct ReservationsScreen: View {
                     } label: {
                         Image(systemName: "wand.and.stars")
                     }
-                    .accessibilityLabel("おまかせ・まる録")
+                    .accessibilityLabel(ReservationsState.conditionsLabel)
                     .disabled(!model.connected)
                 }
             }
@@ -157,14 +157,14 @@ struct ReservationsScreen: View {
                             }
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                 if state.offersSendingAgain(waiting) {
-                                    Button("もう一度送る") { state.sendAgain(waiting) }
+                                    Button(ReservationsState.sendAgainLabel) { state.sendAgain(waiting) }
                                         .tint(.blue)
                                         .disabled(heldBack)
                                 }
                             }
                     }
                 } header: {
-                    Text("送信待ち \(model.pending.count) 件")
+                    Text(ReservationsState.waitingHeading(model.pending.count))
                 } footer: {
                     Text(model.whatWaitsSays)
                 }
@@ -239,13 +239,13 @@ struct ReservationRowView: View {
         }
         if reservation.conflict {
             line = line + Text.rowGap
-                + Text("重複").fontWeight(.semibold).foregroundStyle(Color.legibleOrange)
+                + Text(ReservationsState.conflictMark).fontWeight(.semibold).foregroundStyle(Color.legibleOrange)
         }
         return line.font(.caption2)
     }
 
     private var recorderBadge: some View {
-        Text("おまかせ")
+        Text(ReservationsState.recorderMadeMark)
             .font(.caption2)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
@@ -299,12 +299,6 @@ struct PendingRowView: View {
     }
 
     private var details: String {
-        var parts = [device, disk, Format.dateTime.string(from: waiting.request.start), waiting.serviceName]
-            .compactMap { $0 }
-        if let quality = Codes.quality(code: waiting.request.qualityCode) {
-            parts.append(Codes.qualityLabel[quality] ?? quality)
-        }
-        if waiting.request.eventID == nil { parts.append("時刻指定") }
-        return parts.joined(separator: " · ")
+        ReservationsState.waitingDetails(waiting, device: device, disk: disk)
     }
 }
