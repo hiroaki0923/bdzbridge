@@ -181,9 +181,10 @@ ANDROID_SERIAL=emulator-5554 ./gradlew :app:connectedDebugAndroidTest
 The tests of the pane beside a list run only on a window 840 dp wide or more and skip themselves on a narrower one. An
 emulator is made that wide with `adb shell wm size 1280x800` and `adb shell wm density 160`, and put back with
 `adb shell wm size reset` and `adb shell wm density reset`. The tests that turn the device turn it the other way from
-how it is and put it back as it was. At 1280x800 the emulator's display does not rotate: the upright window is
-letterboxed to about 580 dp wide, so the turn crosses both 600 dp and 840 dp. At `adb shell wm size 1760x1100`, with
-the same density, it turns to about 800 dp and crosses 840 dp alone, as a tablet does going from its side to upright.
+how it is and put it back as it was. At either size the emulator's display does not rotate, and the upright window is
+letterboxed: at 1280x800 to about 580 dp wide, so the turn crosses both 600 dp and 840 dp; at
+`adb shell wm size 1760x1100`, with the same density, to about 800 dp, so it crosses 840 dp alone, as a tablet does
+going from its side to upright.
 
 A file added to `app/RecorderKit` is sometimes not seen by the Android build, which goes on with the build
 description SwiftPM wrote before ("cannot find type" for something the Mac's build finds): deleting

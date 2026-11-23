@@ -188,7 +188,8 @@ fun FoundRecordersCard(recorders: List<FoundRecorder>, canChoose: Boolean, choos
 /**
  * The sheet a strip's 登録 puts up, which registers with the television added again: one for the app, put up at one
  * place (`RecorderScreen`) whichever strip it was pressed on. A recording's sheet has a strip of its own, which a turn
- * across 840 dp takes away as the recording goes into the pane, and the registration under way would go with it.
+ * across 840 dp takes away as the recording goes into the pane, and the registration under way would go with it. It
+ * lasts as long as the screen that shows it: a turn keeps it, and an activity made again starts without it.
  */
 internal object StripRegister {
     var request by mutableStateOf<TVSheetRequest?>(null)

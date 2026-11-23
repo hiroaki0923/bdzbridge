@@ -26,6 +26,7 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -109,8 +110,9 @@ fun RecorderScreen(search: () -> Unit) {
             null -> {}
         }
         group?.let { programme -> GroupPage(programme) { group = null } }
-        // A strip's 登録 sheet, here whichever strip put it up (`StripRegister`).
+        // A strip's 登録 sheet, here whichever strip put it up (`StripRegister`), and gone with this screen.
         StripRegister.request?.let { request -> TVRegisterSheetView(request) { StripRegister.request = null } }
+        DisposableEffect(Unit) { onDispose { StripRegister.request = null } }
     }
 }
 
