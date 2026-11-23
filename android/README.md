@@ -39,13 +39,12 @@ the same content, and while it has a request of its own out, by the rule that ke
 nothing that would replace it is taken. A turn or a resize does not make the activity again (`configChanges` in the
 manifest), and changes the form, not what is shown: the lists stay where they were scrolled, the top app bars keep
 what they have open, and what is open goes from the pane onto a sheet or back as the width crosses 840 dp, with the
-one window it has to the model, so its picks, its question and a request of its own still out go with it. Its
-settings have the recorder (what it
-says of itself, how the link stands, its address and MAC, このアドレスに接続 and 再接続), the mode a new reservation starts
-at, the television (what it says of itself, 対応状況を調べる, 登録する or 再接続, the helper on it, テレビを外す), the search
-and the recorders and televisions it found, which stations the guide shows and in what order, the guide kept on the
-device and which device it is fetched from, the demo and ご利用上の注意, over the model's states of them
-(`RecorderSettingsState`, `TVSettingsState`, `ChannelsState`) and in the model's words: `SettingsWords` and the
+one window it has to the model, so its picks, its question and a request of its own still out go with it. Its settings
+have the recorder (what it says of itself, how the link stands, its address and MAC, このアドレスに接続 and 再接続), the mode
+a new reservation starts at, the television (what it says of itself, 対応状況を調べる, 登録する or 再接続, the helper on it,
+テレビを外す), the search and the recorders and televisions it found, which stations the guide shows and in what order,
+the guide kept on the device and which device it is fetched from, the demo and ご利用上の注意, over the model's states of
+them (`RecorderSettingsState`, `TVSettingsState`, `ChannelsState`) and in the model's words: `SettingsWords` and the
 recorder's part's own, and the television's part's, which Kotlin keeps from the model's start as it keeps the sheets'.
 The chooser is the tutorial: the introduction and the four steps, then the search, an address and the demo, over the
 model's state of it (`WelcomeState`) and its sentences
@@ -95,18 +94,18 @@ settings say when it last fetched it (最終自動更新): below, "The overnight
   windows' calls into suspending ones. The screens are Material 3's, as an Android app's are: `Theme.kt` (the colours,
   the text marked as Japanese), `App.kt` (the place to choose a recorder over the rest, and the navigation: a bar at
   the foot of a phone, a rail down the side of anything 600 dp wide, the screen moved from one to the other rather
-  than made again), `Guide.kt`, `GuideGrid.kt` (the grid: one
-  gesture handler for the pan, the fling and the pinch, the rulers placed from the same position as the body, and only
-  the columns and the hours around what is in view composed), `Search.kt`, `Lists.kt`, `Panes.kt` (the pane beside a
-  list on a wide window, the list and the top app bar at the same place whatever the width, what is refused while what
-  is open in the pane is held, and what it says while nothing is), `Recordings.kt` (the job's bar, a programme's page,
-  the duplicates), `Conditions.kt` (the keyword conditions' page and the full-screen form for a new one), `Devices.kt`,
-  `Sheets.kt` (the sheets, which open at once with what the row says and fill in as their window is read, the window
-  the screen opened for what is open, whichever form shows it), `Settings.kt` (the
-  settings and ご利用上の注意), `Television.kt` (the television's sheets, the televisions a search found, and the
-  television's 対応状況), `Channels.kt` (the stations' page, a station dragged by its handle to another place),
-  `Night.kt` (the overnight run's worker, and when it is asked for), and `Parts.kt` (the empty states, the marks, the
-  strip, what a search found, and a row with what a swipe either way asks for, which never takes the row with it).
+  than made again), `Guide.kt`, `GuideGrid.kt` (the grid: one gesture handler for the pan, the fling and the pinch, the
+  rulers placed from the same position as the body, and only the columns and the hours around what is in view
+  composed), `Search.kt`, `Lists.kt`, `Panes.kt` (the pane beside a list on a wide window, the list and the top app bar
+  at the same place whatever the width, what is refused while what is open in the pane is held, and what it says while
+  nothing is), `Recordings.kt` (the job's bar, a programme's page, the duplicates), `Conditions.kt` (the keyword
+  conditions' page and the full-screen form for a new one), `Devices.kt`, `Sheets.kt` (the sheets, which open at once
+  with what the row says and fill in as their window is read, the window the screen opened for what is open, whichever
+  form shows it), `Settings.kt` (the settings and ご利用上の注意), `Television.kt` (the television's sheets, the
+  televisions a search found, and the television's 対応状況), `Channels.kt` (the stations' page, a station dragged by
+  its handle to another place), `Night.kt` (the overnight run's worker, and when it is asked for), and `Parts.kt` (the
+  empty states, the marks, the strip with its 登録 sheet put up at one place whichever strip it was pressed on, what a
+  search found, and a row with what a swipe either way asks for, which never takes the row with it).
 
 The model's settings are kept in `files/settings/recbridge.plist`: Foundation on Android keeps a `UserDefaults` suite
 named by the path of its file, and writes it out only when told to, which `WrittenDefaults` does at each change. One
@@ -182,8 +181,9 @@ ANDROID_SERIAL=emulator-5554 ./gradlew :app:connectedDebugAndroidTest
 The tests of the pane beside a list run only on a window 840 dp wide or more and skip themselves on a narrower one. An
 emulator is made that wide with `adb shell wm size 1280x800` and `adb shell wm density 160`, and put back with
 `adb shell wm size reset` and `adb shell wm density reset`. The tests that turn the device turn it the other way from
-how it is and put it back as it was: there, from 1280 dp wide to 800 dp, under the pane's width, and back, as a tablet
-goes from its side to upright.
+how it is and put it back as it was. At 1280x800 the emulator's display does not rotate: the upright window is
+letterboxed to about 580 dp wide, so the turn crosses both 600 dp and 840 dp. At `adb shell wm size 1760x1100`, with
+the same density, it turns to about 800 dp and crosses 840 dp alone, as a tablet does going from its side to upright.
 
 A file added to `app/RecorderKit` is sometimes not seen by the Android build, which goes on with the build
 description SwiftPM wrote before ("cannot find type" for something the Mac's build finds): deleting
