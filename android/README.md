@@ -36,7 +36,11 @@ state of it (`SearchState`): what is found opens the same sheets. On a window 84
 landscape -- the guide, the search, the reservations and the recordings' list and duplicates show what is opened from
 them in a pane beside the list rather than on a sheet, a form of Android's own, since the iOS app is an iPhone's alone:
 the same content, and while it has a request of its own out, by the rule that keeps a sheet from being put away,
-nothing that would replace it is taken. Its settings have the recorder (what it
+nothing that would replace it is taken. A turn or a resize does not make the activity again (`configChanges` in the
+manifest), and changes the form, not what is shown: the lists stay where they were scrolled, the top app bars keep
+what they have open, and what is open goes from the pane onto a sheet or back as the width crosses 840 dp, with the
+one window it has to the model, so its picks, its question and a request of its own still out go with it. Its
+settings have the recorder (what it
 says of itself, how the link stands, its address and MAC, このアドレスに接続 and 再接続), the mode a new reservation starts
 at, the television (what it says of itself, 対応状況を調べる, 登録する or 再接続, the helper on it, テレビを外す), the search
 and the recorders and televisions it found, which stations the guide shows and in what order, the guide kept on the
@@ -90,13 +94,15 @@ settings say when it last fetched it (最終自動更新): below, "The overnight
 - `app/` — the Compose app: `Bridge.kt` opens the model, keeps what each window shows for the screens and turns the
   windows' calls into suspending ones. The screens are Material 3's, as an Android app's are: `Theme.kt` (the colours,
   the text marked as Japanese), `App.kt` (the place to choose a recorder over the rest, and the navigation: a bar at
-  the foot of a phone, a rail down the side of anything 600 dp wide), `Guide.kt`, `GuideGrid.kt` (the grid: one
+  the foot of a phone, a rail down the side of anything 600 dp wide, the screen moved from one to the other rather
+  than made again), `Guide.kt`, `GuideGrid.kt` (the grid: one
   gesture handler for the pan, the fling and the pinch, the rulers placed from the same position as the body, and only
   the columns and the hours around what is in view composed), `Search.kt`, `Lists.kt`, `Panes.kt` (the pane beside a
-  list on a wide window, what is refused while what is open in it is held, and what it says while nothing is),
-  `Recordings.kt` (the job's bar, a programme's page, the duplicates), `Conditions.kt` (the keyword conditions' page
-  and the full-screen form for a new one), `Devices.kt`, `Sheets.kt`
-  (the sheets, which open at once with what the row says and fill in as their window is read), `Settings.kt` (the
+  list on a wide window, the list and the top app bar at the same place whatever the width, what is refused while what
+  is open in the pane is held, and what it says while nothing is), `Recordings.kt` (the job's bar, a programme's page,
+  the duplicates), `Conditions.kt` (the keyword conditions' page and the full-screen form for a new one), `Devices.kt`,
+  `Sheets.kt` (the sheets, which open at once with what the row says and fill in as their window is read, the window
+  the screen opened for what is open, whichever form shows it), `Settings.kt` (the
   settings and ご利用上の注意), `Television.kt` (the television's sheets, the televisions a search found, and the
   television's 対応状況), `Channels.kt` (the stations' page, a station dragged by its handle to another place),
   `Night.kt` (the overnight run's worker, and when it is asked for), and `Parts.kt` (the empty states, the marks, the
@@ -175,7 +181,9 @@ ANDROID_SERIAL=emulator-5554 ./gradlew :app:connectedDebugAndroidTest
 
 The tests of the pane beside a list run only on a window 840 dp wide or more and skip themselves on a narrower one. An
 emulator is made that wide with `adb shell wm size 1280x800` and `adb shell wm density 160`, and put back with
-`adb shell wm size reset` and `adb shell wm density reset`.
+`adb shell wm size reset` and `adb shell wm density reset`. The tests that turn the device turn it the other way from
+how it is and put it back as it was: there, from 1280 dp wide to 800 dp, under the pane's width, and back, as a tablet
+goes from its side to upright.
 
 A file added to `app/RecorderKit` is sometimes not seen by the Android build, which goes on with the build
 description SwiftPM wrote before ("cannot find type" for something the Mac's build finds): deleting
