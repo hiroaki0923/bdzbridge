@@ -204,6 +204,14 @@ extension AppModel {
         case delete
         /// 保護解除: the device refuses to delete a protected recording, so that has to happen first.
         case unprotect
+
+        /// The button's word: the lists' 削除 (`ListWords.deleteLabel`), or 保護解除.
+        public var label: String {
+            switch self {
+            case .delete: ListWords.deleteLabel
+            case .unprotect: "保護解除"
+            }
+        }
     }
 
     /// What `title`'s row offers under a swipe, by the delete's own door (`whyNot(deleting:)`): the delete where it

@@ -220,11 +220,11 @@ extension View {
         swipeActions(edge: .trailing, allowsFullSwipe: false) {
             switch offer {
             case .delete:
-                Button("削除") { ask() }.tint(.red).disabled(held)
+                Button(AppModel.TitleSwipe.delete.label) { ask() }.tint(.red).disabled(held)
             case .unprotect:
                 // `role: .destructive` would animate the row away as it is swiped, before there is an
                 // answer, and it stays away when the answer is no. The colour is all that is wanted.
-                Button("保護解除") { unprotect() }.tint(Color.legibleOrange).disabled(held)
+                Button(AppModel.TitleSwipe.unprotect.label) { unprotect() }.tint(Color.legibleOrange).disabled(held)
             case nil:
                 EmptyView()
             }

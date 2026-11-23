@@ -23,6 +23,13 @@ final class RecordingsWordsTests: XCTestCase {
         XCTAssertEqual(RecordingsState.viewingHeading, TitleSheetState.viewingLabel)
     }
 
+    /// A recording's row says 削除 as the lists do, and 保護解除 of its own.
+    func testARecordingsSwipeSaysWhatTheScreenSaid() {
+        XCTAssertEqual(AppModel.TitleSwipe.delete.label, "削除")
+        XCTAssertEqual(AppModel.TitleSwipe.unprotect.label, "保護解除")
+        XCTAssertEqual(AppModel.TitleSwipe.delete.label, ListWords.deleteLabel)
+    }
+
     /// The counts are put in as the screen's text put an Int into a sentence: grouped where the reader's locale puts
     /// a separator.
     func testTheGenreChoicesCountAsTheScreenCounted() {
