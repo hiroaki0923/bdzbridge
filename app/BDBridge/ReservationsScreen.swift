@@ -51,7 +51,7 @@ struct ReservationsScreen: View {
                                 Text(kind.label).tag(kind)
                             }
                         }
-                        Picker("並び順", selection: Binding(get: { model.reservationSort },
+                        Picker(ListWords.sortHeading, selection: Binding(get: { model.reservationSort },
                                                          set: { model.reservationSort = $0 })) {
                             ForEach(AppModel.ReservationSort.allCases, id: \.self) { sort in
                                 Text(sort.label).tag(sort)
@@ -151,7 +151,9 @@ struct ReservationsScreen: View {
                         PendingRowView(waiting: waiting, device: model.deviceSaid(for: waiting),
                                        disk: model.diskShown(waiting))
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button("削除") { state.deleteWaiting(waiting) }.tint(.red).disabled(heldBack)
+                                Button(ListWords.deleteLabel) { state.deleteWaiting(waiting) }
+                                    .tint(.red)
+                                    .disabled(heldBack)
                             }
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                 if state.offersSendingAgain(waiting) {
@@ -182,7 +184,7 @@ struct ReservationsScreen: View {
                         // Red without `role: .destructive`, which would animate the row away before there
                         // is an answer (see `titleSwipe`). A full swipe is off as well: this one asks first.
                         .swipeActions(allowsFullSwipe: false) {
-                            Button("削除") { state.delete(reservation) }
+                            Button(ListWords.deleteLabel) { state.delete(reservation) }
                                 .tint(.red)
                                 .disabled(state.holdsDeleting(reservation))
                         }
@@ -233,7 +235,7 @@ struct ReservationRowView: View {
             + Text.rowGap
             + Text(Format.duration(reservation.durationSec)).foregroundStyle(.secondary)
         if reservation.recording {
-            line = line + Text.rowGap + Text("録画中").fontWeight(.semibold).foregroundStyle(.red)
+            line = line + Text.rowGap + Text(ListWords.recordingMark).fontWeight(.semibold).foregroundStyle(.red)
         }
         if reservation.conflict {
             line = line + Text.rowGap

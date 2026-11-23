@@ -59,7 +59,7 @@ struct RecordingsScreen: View {
                         if !model.titleDestinations.isEmpty {
                             Picker("録画先", selection: Binding(get: { model.shownDestination },
                                                              set: { model.titleDestination = $0 })) {
-                                Text("すべて").tag(String?.none)
+                                Text(ListWords.allLabel).tag(String?.none)
                                 ForEach(model.titleDestinations, id: \.destination) { place in
                                     Text(place.label).tag(String?.some(place.destination))
                                 }
@@ -74,7 +74,7 @@ struct RecordingsScreen: View {
                                 }
                             }
                         }
-                        Picker("並び順", selection: Binding(get: { model.titleSort },
+                        Picker(ListWords.sortHeading, selection: Binding(get: { model.titleSort },
                                                          set: { model.titleSort = $0 })) {
                             ForEach(AppModel.TitleSort.allCases, id: \.self) { sort in
                                 Text(sort.label).tag(sort)
@@ -82,7 +82,7 @@ struct RecordingsScreen: View {
                         }
                         Picker("視聴状態", selection: Binding(get: { model.titleState },
                                                          set: { model.titleState = $0 })) {
-                            Text("すべて").tag(WatchState?.none)
+                            Text(ListWords.allLabel).tag(WatchState?.none)
                             ForEach(WatchState.allCases, id: \.self) { state in
                                 Text(state.label).tag(WatchState?.some(state))
                             }
@@ -251,7 +251,7 @@ struct TitleRowView: View {
     private var heading: Text {
         var line = Text(title.title).font(.subheadline)
         if title.recording {
-            line = Text("録画中").font(.caption2.weight(.semibold)).foregroundStyle(.red)
+            line = Text(ListWords.recordingMark).font(.caption2.weight(.semibold)).foregroundStyle(.red)
                 + Text.rowGap.font(.caption2) + line
         }
         if title.protected {
