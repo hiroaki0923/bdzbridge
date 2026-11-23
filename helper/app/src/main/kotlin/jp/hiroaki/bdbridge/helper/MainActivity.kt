@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -30,10 +31,15 @@ class MainActivity : Activity() {
     private lateinit var permissionButton: Button
     private lateinit var codeView: TextView
     private lateinit var codeButton: Button
+    private lateinit var noDevices: TextView
     private lateinit var deviceList: LinearLayout
+    private val rows = ArrayList<DeviceRow>()
     private var showingCode = false
     private var lastRegistered: String? = null
     private val format = SimpleDateFormat("M/d HH:mm", Locale.JAPAN)
+
+    /** A registered device's row, kept from one drawing to the next so that its button keeps the remote's focus. */
+    private class DeviceRow(val id: String, val view: LinearLayout, val text: TextView, val revoke: Button)
 
     private val refresh = object : Runnable {
         override fun run() {
@@ -72,6 +78,8 @@ class MainActivity : Activity() {
         root.addView(codeButton)
 
         root.addView(text("登録した iPhone", 26f, bold = true).apply { setPadding(0, dp(24), 0, dp(4)) })
+        noDevices = text("まだありません", 20f, dim = true)
+        root.addView(noDevices)
         deviceList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(deviceList)
 
@@ -133,7 +141,11 @@ class MainActivity : Activity() {
         snapshots.tunerLastWrite?.let { lines.add("テレビが番組表を最後に書いたのは ${format.format(Date(it))}") }
         snapshots.lastBuildError?.let { lines.add("写しを作れませんでした: $it") }
         status.text = lines.filter { it.isNotEmpty() }.joinToString("\n")
+        // The permission's button goes once the permission is given; the remote, if it was on it, moves on to the
+        // button to use next rather than to whichever the platform would pick.
+        if (granted && permissionButton.isFocused) codeButton.requestFocus()
         permissionButton.visibility = if (granted) View.GONE else View.VISIBLE
+        startOn(granted)
 
         val devices = Helper.devices(this)
         devices.takeRegistered()?.let { registered ->
@@ -156,26 +168,67 @@ class MainActivity : Activity() {
             codeButton.text = "登録の番号を出す"
         }
 
-        deviceList.removeAllViews()
-        val list = devices.list()
-        if (list.isEmpty()) {
-            deviceList.addView(text("まだありません", 20f, dim = true))
-        } else {
-            for (d in list) {
-                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-                val used = d.lastUsedAt?.let { "最後の利用 " + format.format(Date(it)) } ?: "まだ使われていません"
-                row.addView(text("${d.label}（${format.format(Date(d.createdAt))} に登録、$used）", 20f)
-                    .apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
-                row.addView(button("取り消す", growFrom = 1f) { devices.revoke(d.id); render() })
-                deviceList.addView(row)
-            }
-        }
+        showDevices(devices.list(), devices)
     }
 
     /** The button the remote starts on, for the platform: the permission's while it is not given, else the code's. */
     private fun startOn(granted: Boolean) {
         permissionButton.isFocusedByDefault = !granted
         codeButton.isFocusedByDefault = granted
+    }
+
+    /**
+     * Brings the rows in step with the registered devices without throwing away the ones still listed, so that a
+     * 取り消す the remote is on keeps the focus while the screen is drawn again every two seconds. The helper's
+     * list only grows at its end and loses a device by a revoke, so a kept row never changes place. A row that
+     * goes while the remote is on it hands the focus on first: to the next row's 取り消す, else the previous
+     * one's, else 登録の番号を出す; the page is scrolled to that row again once the rows have moved up into the
+     * gap (deviceRow).
+     */
+    private fun showDevices(list: List<Device>, devices: Devices) {
+        val listed = list.map { it.id }.toSet()
+        val kept = rows.filter { it.id in listed }
+        for ((i, row) in rows.withIndex()) {
+            if (row.id in listed) continue
+            if (row.revoke.isFocused) {
+                val next = rows.drop(i + 1).firstOrNull { it in kept } ?: rows.take(i).lastOrNull { it in kept }
+                (next?.revoke ?: codeButton).requestFocus()
+            }
+            deviceList.removeView(row.view)
+        }
+        rows.retainAll(kept)
+        for ((i, d) in list.withIndex()) {
+            val row = rows.getOrNull(i)?.takeIf { it.id == d.id }
+                ?: deviceRow(d, devices).also { rows.add(i, it); deviceList.addView(it.view, i) }
+            val used = d.lastUsedAt?.let { "最後の利用 " + format.format(Date(it)) } ?: "まだ使われていません"
+            row.text.text = "${d.label}（${format.format(Date(d.createdAt))} に登録、$used）"
+        }
+        noDevices.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
+    }
+
+    private fun deviceRow(d: Device, devices: Devices): DeviceRow {
+        val text = text("", 20f).apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) }
+        val revoke = button("取り消す", growFrom = 1f) { devices.revoke(d.id); render() }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(text)
+            addView(revoke)
+        }
+        val whole = { row.requestRectangleOnScreen(Rect(0, 0, row.width, row.height)) }
+        revoke.setOnFocusChangeListener { v, focused ->
+            grow(v, focused)
+            // The page scrolls to the button the remote has moved to; this brings the rest of its row in with it.
+            if (focused) whole()
+        }
+        // The focus is handed to this row while the row it leaves is still in the list, so the page first scrolls
+        // by where the rows were; when they have moved up into the gap, or this row has grown a line, the page is
+        // scrolled again by where it now is, before the frame is drawn, so that the button is not left partly off
+        // the screen.
+        row.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (revoke.isFocused && (top != oldTop || bottom != oldBottom)) whole()
+        }
+        return DeviceRow(d.id, row, text, revoke)
     }
 
     private fun label(bt: String) = when (bt) {

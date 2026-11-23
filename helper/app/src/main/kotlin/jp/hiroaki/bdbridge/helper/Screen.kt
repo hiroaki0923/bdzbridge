@@ -56,24 +56,30 @@ internal fun Context.remoteButton(label: String, growFrom: Float = 0f, onClick: 
     setPadding(dp(24), dp(6), dp(24), dp(6))
     isFocusable = true
     setOnClickListener { onClick() }
-    addOnLayoutChangeListener { v, left, top, right, bottom, _, _, _, _ ->
+    addOnLayoutChangeListener { v, left, top, right, bottom, _, oldTop, _, oldBottom ->
         v.pivotX = (right - left) * growFrom
         v.pivotY = (bottom - top) / 2f
+        // Moved while the remote is on it, by a line added above it when the screen is drawn again, say: it is
+        // brought back into view by where it now is, before the frame is drawn.
+        if (v.isFocused && (top != oldTop || bottom != oldBottom)) inView(v)
     }
     setOnFocusChangeListener { v, focused -> grow(v, focused) }
 }
 
-/**
- * Grows a button the remote has come to, and gives a button it has left its own size back. A pane that scrolls
- * brings in the room the button grows into as well as the button itself, so that its edge is never cut.
- */
+/** Grows a button the remote has come to, and gives a button it has left its own size back. */
 internal fun grow(view: View, focused: Boolean) {
     val scale = if (focused) GROWN else 1f
     view.animate().scaleX(scale).scaleY(scale).setDuration(GROW_MS).start()
-    if (focused) {
-        val room = (view.height * (GROWN - 1f)).toInt()
-        view.requestRectangleOnScreen(Rect(0, -room, view.width, view.height + room))
-    }
+    if (focused) inView(view)
+}
+
+/**
+ * Asks the pane a button is in to scroll it into view. It brings in the room the button grows into as well as
+ * the button itself, so that its edge is never cut.
+ */
+internal fun inView(view: View) {
+    val room = (view.height * (GROWN - 1f)).toInt()
+    view.requestRectangleOnScreen(Rect(0, -room, view.width, view.height + room))
 }
 
 private fun Context.shape(fill: Int, stroke: Int): Drawable = GradientDrawable().apply {
