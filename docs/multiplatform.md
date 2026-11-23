@@ -1,5 +1,7 @@
 # Android 版とマルチプラットフォーム化の調査（2026-09-28）
 
+> この文書は、日付の時点での調査の記録です。「まず試す」「GitHub Actions はまだ無い」などの記述は、その時点のものです。今の Android アプリの作りと現状は [`android/README.md`](../android/README.md) にあります。
+
 Android 版はないか、という問い合わせを受けての調査です。前提は、画面は各 OS のネイティブで作ること
 （iOS は SwiftUI、Android は Kotlin）。そのうえで、今 `app/RecorderKit` にあるレコーダー側の部分をどう共有するかを
 比べました。

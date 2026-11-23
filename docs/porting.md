@@ -1,6 +1,7 @@
 # ネイティブアプリへの移植ガイド
 
-bdzbridge はサーバー（Python）とブラウザ（PWA）、それに iOS アプリ（`app/`）の 3 つで動いています。サーバーも
+bdzbridge はサーバー（Python）とブラウザ（PWA）、iOS アプリ（`app/`）、Android アプリ（`android/`）、それに
+BRAVIA 用のヘルパー（`helper/`）で動いています。サーバーも
 VPN 前提の構成も要らずアプリがレコーダーと直接話す形が iOS アプリで、**これは実機で動いています**。このドキュメントは
 「何をそのまま持っていき、何を作り直し、何で検証するか」と、実機で分かったレコーダーの癖をまとめたものです。
 プロトコルそのものの説明は [`xsrs-api.md`](xsrs-api.md) と [`epg-format.md`](epg-format.md) にあり、ここでは
@@ -12,9 +13,11 @@ VPN 前提の構成も要らずアプリがレコーダーと直接話す形が 
   実装の背景です。アプリの構成そのものは `app/README.md`。
 - **他のプラットフォームに移植する人**: RecorderKit は Android 向けにもビルドでき、そのテストは Android の
   エミュレーターで通ります。ビルドとテストのやり方と、Android で分かった違いは
-  [`android-port-study.md`](android-port-study.md) にあります。Android のスマートフォン用のアプリはまだありません。
-  ほかの言語で作る人のために、機種依存の知識と検証ベクタは言語に依存しない形にしてあります。Android 利用者向けの
-  現状の道は、サーバーを自分で動かして PWA を使うことです。
+  [`android-port-study.md`](android-port-study.md) にあります。Android のアプリは `android/` にあり、開発中です。
+  Kotlin と Jetpack Compose の画面を、RecorderKit と `app/RecBridgeModel` に swift-java でつないでいます
+  （[`android/README.md`](../android/README.md)）。ほかの言語で作る人のために、機種依存の知識と検証ベクタは
+  言語に依存しない形にしてあります。Android のアプリは配布していないので、Android 利用者向けの今の道は、
+  サーバーを自分で動かして PWA を使うことです。
 
 ## 前提と方針
 
@@ -2615,10 +2618,11 @@ Android を配布する人向けの注意も一つ書いておきます。Play �
   重複の検出（候補の作り方、内容による分割、残す 1 本とその理由、`guide` から求める `fixed_blurbs` と定型文の組
   `boilerplate`）。**録画中のものは残す側に固定**され、削除候補には入りません。
 
-## iOS アプリの現状（0.3、2026-09-23）
+## iOS アプリの現状
 
 `app/BDBridge` に SwiftUI の 5 画面（番組表・検索・予約・録画・設定）があり、実機の iPhone で日常的に使えています。
-レコーダー側の機能はおおむね移植を終えました。
+レコーダー側の機能はおおむね移植を終えました。テレビの番組表をヘルパーから取ること（0.5 から）は、この表には
+まだ入れていません。
 
 | | 状態 |
 |---|---|
