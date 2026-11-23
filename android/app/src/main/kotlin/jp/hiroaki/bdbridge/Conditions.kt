@@ -64,7 +64,7 @@ import kotlinx.coroutines.launch
 fun ConditionsPage(close: () -> Unit) {
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
-    val handle = rememberOpened(Unit) { RecBridge.openConditions() }
+    val handle = rememberOpened(Unit) { RecBridge.openConditions() }.handle
     val shown = handle?.let { it.shown.collectAsState().value }
     val act = { work: suspend RecBridge.ConditionsHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
     var adding by remember { mutableStateOf(false) }
@@ -143,7 +143,7 @@ fun ConditionsPage(close: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConditionFormPage(page: RecBridge.ConditionsHandle, close: () -> Unit) {
-    val handle = rememberOpened(Unit) { page.newCondition() }
+    val handle = rememberOpened(Unit) { page.newCondition() }.handle
     val form = handle?.let { it.shown.collectAsState().value }
     val held = form?.asking ?: false
     BackHandler(enabled = true) { if (!held) close() }

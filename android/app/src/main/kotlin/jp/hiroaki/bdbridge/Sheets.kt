@@ -41,6 +41,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,33 +66,73 @@ import kotlinx.coroutines.launch
 // The programme's sheet, the reservation's and the recording's, as the iOS sheets lay them out: what each holds,
 // offers, holds back and says, and what each press does, are the model's, through the sheets' windows
 // (core/.../Sheets.swift). A sheet opens at once with what the row it was opened from already says, and the rest comes
-// in as its window is read. The same content is a bottom sheet, or on a wide screen the pane beside the list.
+// in as its window is read. The same content is a bottom sheet, or on a wide screen the pane beside the list, over the
+// one window the screen opened for what is open (`rememberOpened`).
+
+/** A sheet's window as it is opened: the window once it has come, and whether there was none to open. */
+class Opened<H : RecBridge.Sheet<*>> internal constructor() {
+    var handle by mutableStateOf<H?>(null)
+        internal set
+    /** There was no window to open, the row having gone since it was tapped. */
+    var missing by mutableStateOf(false)
+        internal set
+}
 
 /**
- * A sheet's window, opened as the sheet comes up and closed as it goes. The opening runs where the sheet going does
- * not cancel it, and a window that comes back for a sheet already gone is closed at once: left open, it would go on
- * following the model, and asking the recorder, for nobody. `missing` is told when there was no window to open, the
- * row having gone since it was tapped.
+ * A sheet's window, opened as what it is for is opened and closed as that goes, by `key`: another key -- another row
+ * taking the place of the one open beside the list -- closes the first one's window, whose presses would otherwise go
+ * on to the row before, and opens its own. The opening runs where what is open going does not cancel it, and a window
+ * that comes back for what has gone already is closed at once: left open, it would go on following the model, and
+ * asking the recorder, for nobody.
+ *
+ * What is opened from a list has its window opened by the screen, beside the screen's own state of what is open, and
+ * handed to whichever form shows it, the sheet or the pane: a turn across 840 dp changes the form and not the window,
+ * so its picks, its question, a request of its own out and the hold on it are as they were.
  */
 @Composable
-fun <H : RecBridge.Sheet<*>> rememberOpened(key: Any, missing: () -> Unit = {}, open: suspend () -> H?): H? {
-    var handle by remember(key) { mutableStateOf<H?>(null) }
+fun <H : RecBridge.Sheet<*>> rememberOpened(key: Any, open: suspend () -> H?): Opened<H> {
+    val opened = remember(key) { Opened<H>() }
     DisposableEffect(key) {
         var gone = false
         RecBridge.launch {
-            val opened = open()
+            val window = open()
             when {
-                gone -> opened?.close()
-                opened == null -> missing()
-                else -> handle = opened
+                gone -> window?.close()
+                window == null -> opened.missing = true
+                else -> opened.handle = window
             }
         }
         onDispose {
             gone = true
-            handle?.close()
+            opened.handle?.close()
         }
     }
-    return handle
+    return opened
+}
+
+/**
+ * A programme opened from a list, as the screen holds it: its window, and what 予約を変更する puts up over it -- the
+ * device whose reservation's own sheet is up, and that sheet's window -- each kept with the programme for the same
+ * reason (`rememberOpened`).
+ */
+class ProgrammeOpened(val programme: Opened<RecBridge.ProgrammeSheetHandle>, device: MutableState<String?>,
+                      val change: Opened<RecBridge.ReservationSheetHandle>?) {
+    /** The device whose reservation's own sheet is up over the programme's, or none. */
+    var editing by device
+}
+
+/** A programme's window, opened by the screen for the programme `id` (`rememberOpened`), and 予約を変更する's over it. */
+@Composable
+fun rememberProgramme(id: String, open: suspend () -> RecBridge.ProgrammeSheetHandle?): ProgrammeOpened {
+    val programme = rememberOpened(id, open)
+    // By the programme: on the pane, another programme takes the place of this one, and must not come up with this
+    // one's 予約を変更する.
+    val editing = remember(id) { mutableStateOf<String?>(null) }
+    val handle = programme.handle
+    val change = editing.value?.let { device ->
+        handle?.let { opened -> rememberOpened(id to device) { opened.change(device) } }
+    }
+    return remember(programme, change) { ProgrammeOpened(programme, editing, change) }
 }
 
 /**
@@ -166,26 +207,22 @@ internal fun AskDialog(asked: Asked, act: () -> Unit, closeAsked: () -> Unit, ac
 }
 
 /**
- * The programme's sheet: what it is, the reservations of it, and 録画予約 where it is offered. On the pane (`inPane`),
- * `listed` says whether the list beside it still has the programme.
+ * The programme's sheet: what it is, the reservations of it, and 録画予約 where it is offered, over the windows the
+ * screen opened for it (`rememberProgramme`). On the pane (`inPane`), `listed` says whether the list beside it still
+ * has the programme.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProgrammeSheetView(row: Programme,
-                       open: suspend () -> RecBridge.ProgrammeSheetHandle? = { RecBridge.openProgramme(row.id) },
-                       inPane: Boolean = false, listed: Boolean = true, close: () -> Unit) {
+fun ProgrammeSheetView(row: Programme, opened: ProgrammeOpened, inPane: Boolean = false, listed: Boolean = true,
+                       close: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var missing by remember(row.id) { mutableStateOf(false) }
-    val handle = rememberOpened(row.id, missing = { missing = true }, open = open)
+    val handle = opened.programme.handle
     val sheet = handle?.let { it.shown.collectAsState().value }
-    // By the programme: on the pane, another programme takes the place of this one without the view going, and must
-    // not come up with this one's 予約を変更する.
-    var editing by remember(row.id) { mutableStateOf<String?>(null) }
     val act = { work: suspend RecBridge.ProgrammeSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
     val free = sheet != null && sheet.asking.isEmpty()
     val held = sheet?.held ?: false
     // Up over it, the reservation's own sheet counts as its own: it may have a request out.
-    val gone = (missing || !listed) && !held && sheet?.asked == null && editing == null
+    val gone = (opened.programme.missing || !listed) && !held && sheet?.asked == null && opened.editing == null
     val words = RecBridge.sheetWords
 
     SheetOrPane(inPane, held, done = sheet?.done ?: false, gone = gone, close = close) {
@@ -200,10 +237,10 @@ fun ProgrammeSheetView(row: Programme,
             Working("")
         } else {
             sheet.recorders?.let { held ->
-                HeldSection(held, sheet, enabled = free, change = { editing = "recorder" }, delete = { act { delete("recorder") } })
+                HeldSection(held, sheet, enabled = free, change = { opened.editing = "recorder" }, delete = { act { delete("recorder") } })
             }
             sheet.televisions?.let { held ->
-                HeldSection(held, sheet, enabled = free, change = { editing = "tv" }, delete = { act { delete("tv") } })
+                HeldSection(held, sheet, enabled = free, change = { opened.editing = "tv" }, delete = { act { delete("tv") } })
             }
             sheet.waitingForTheRecorder?.let { waiting ->
                 WaitingSection(waiting, sheet, free, sendAgain = { act { sendAgain("recorder") } }, delete = { act { deleteWaiting("recorder") } })
@@ -220,11 +257,10 @@ fun ProgrammeSheetView(row: Programme,
     }
     sheet?.asked?.let { asked -> AskDialog(asked, act = { act { act(asked.key) } }, closeAsked = { act { closeAsked(asked.key) } }) }
     // A sheet over the sheet or the pane, as on iOS: it is the reservation's own.
-    editing?.let { device ->
-        val opened = handle ?: return@let
-        ReservationSheetView(row.id to device, row.title, open = { opened.change(device) }, close = {
-            editing = null
-            scope.launch { opened.changeClosed() }
+    opened.change?.let { change ->
+        ReservationSheetView(row.title, change, close = {
+            opened.editing = null
+            handle?.let { programme -> scope.launch { programme.changeClosed() } }
         })
     }
 }
@@ -318,24 +354,22 @@ private fun WaitingSection(waiting: WaitingReservation, sheet: ProgrammeSheetScr
 
 /**
  * The reservation's sheet: the reservation as the device that holds it has it, what can still be changed of it and
- * the change to send, and its delete. Opened from the reservations' list, or from a programme's sheet over it. Its
- * window is opened for `key`, the reservation's: on the pane another reservation takes the place of this one without
- * the view going, and the first one's window would otherwise be kept, its delete sent for the reservation before.
+ * the change to send, and its delete. Opened from the reservations' list, or from a programme's sheet over it, over
+ * the window opened for it there, by the reservation (`rememberOpened`).
  */
 @Composable
-fun ReservationSheetView(key: Any, title: String, open: suspend () -> RecBridge.ReservationSheetHandle?,
-                         inPane: Boolean = false, listed: Boolean = true, close: () -> Unit) {
+fun ReservationSheetView(title: String, window: Opened<RecBridge.ReservationSheetHandle>, inPane: Boolean = false,
+                         listed: Boolean = true, close: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var missing by remember(key) { mutableStateOf(false) }
-    val handle = rememberOpened(key, missing = { missing = true }, open = open)
+    val handle = window.handle
     val sheet = handle?.let { it.shown.collectAsState().value }
     val act = { work: suspend RecBridge.ReservationSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
     val free = sheet != null && sheet.asking.isEmpty()
     val held = sheet?.asking?.isNotEmpty() ?: false
     val words = RecBridge.sheetWords
 
-    SheetOrPane(inPane, held, done = sheet?.done ?: false, gone = (missing || !listed) && !held && sheet?.asked == null,
-                close = close) {
+    SheetOrPane(inPane, held, done = sheet?.done ?: false,
+                gone = (window.missing || !listed) && !held && sheet?.asked == null, close = close) {
         Title(sheet?.title ?: title)
         if (sheet == null) return@SheetOrPane Working("")
         // Not on the pane, under the strip that says it already.
@@ -388,22 +422,21 @@ fun ReservationSheetView(key: Any, title: String, open: suspend () -> RecBridge.
 
 /**
  * The recording's sheet: what it is, playing it on the television, protecting it, and deleting it, as the iOS sheet
- * lays them out. It opens at once with what the row says. On the pane, `listed` says whether the list beside it
- * still has the recording.
+ * lays them out, over the window opened for it where it was opened from (`rememberOpened`). It opens at once with what
+ * the row says. On the pane, `listed` says whether the list beside it still has the recording.
  */
 @Composable
-fun TitleSheetView(row: RecordingItem, open: suspend () -> RecBridge.TitleSheetHandle? = { RecBridge.openRecording(row.id) },
-                   inPane: Boolean = false, listed: Boolean = true, close: () -> Unit) {
+fun TitleSheetView(row: RecordingItem, window: Opened<RecBridge.TitleSheetHandle>, inPane: Boolean = false,
+                   listed: Boolean = true, close: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var missing by remember(row.id) { mutableStateOf(false) }
-    val handle = rememberOpened(row.id, missing = { missing = true }, open = open)
+    val handle = window.handle
     val sheet = handle?.let { it.shown.collectAsState().value }
     val act = { work: suspend RecBridge.TitleSheetHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
     val held = sheet?.asking ?: false
     val words = RecBridge.sheetWords
 
-    SheetOrPane(inPane, held, done = sheet?.done ?: false, gone = (missing || !listed) && !held && sheet?.asked == null,
-                close = close) {
+    SheetOrPane(inPane, held, done = sheet?.done ?: false,
+                gone = (window.missing || !listed) && !held && sheet?.asked == null, close = close) {
         Title(sheet?.title ?: row.title)
         // Not on the pane, under the strip that says it already. The strip, as on iOS, rather than the waking alone:
         // turning the recorder on to play takes as long as waking it, and the strip says how long it has been.

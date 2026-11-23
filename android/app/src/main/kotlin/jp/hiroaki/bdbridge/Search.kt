@@ -76,19 +76,16 @@ fun SearchScreen() {
     var programme by remember { mutableStateOf<FoundProgramme?>(null) }
     var reservation by remember { mutableStateOf<ReservationItem?>(null) }
     var recording by remember { mutableStateOf<RecordingItem?>(null) }
+    // The window of each, opened here and handed to the sheet or the pane, whichever shows it (`rememberOpened`).
+    val programmeOpened = programme?.let { found ->
+        found to rememberProgramme(found.row.id) { RecBridge.openFoundProgramme(found.row.id) }
+    }
+    val reservationOpened = reservation?.let { row -> row to rememberOpened(row.id) { RecBridge.openFoundReservation(row.id) } }
+    val recordingOpened = recording?.let { row -> row to rememberOpened(row.id) { RecBridge.openFoundRecording(row.id) } }
     if (!wide) {
-        programme?.let { found ->
-            ProgrammeSheetView(found.row,
-                               open = { RecBridge.openFoundProgramme(found.row.id) }) { programme = null }
-        }
-        reservation?.let { row ->
-            ReservationSheetView(row.id, row.title, open = { RecBridge.openFoundReservation(row.id) }) {
-                reservation = null
-            }
-        }
-        recording?.let { row ->
-            TitleSheetView(row, open = { RecBridge.openFoundRecording(row.id) }) { recording = null }
-        }
+        programmeOpened?.let { (found, windows) -> ProgrammeSheetView(found.row, windows) { programme = null } }
+        reservationOpened?.let { (row, window) -> ReservationSheetView(row.title, window) { reservation = null } }
+        recordingOpened?.let { (row, window) -> TitleSheetView(row, window) { recording = null } }
     }
     val focus = LocalFocusManager.current
     // Beside the results one at a time, and not while that one is held: it would take the request's answer with it.
@@ -128,25 +125,23 @@ fun SearchScreen() {
             }, detail = {
                 // Each by what it was found as, so that nothing of one carries to the next. Listed while the results
                 // of its own scope have it.
-                programme?.let { found ->
+                programmeOpened?.let { (found, windows) ->
                     key("programme-" + found.row.id) {
-                        ProgrammeSheetView(found.row,
-                                           open = { RecBridge.openFoundProgramme(found.row.id) }, inPane = true,
+                        ProgrammeSheetView(found.row, windows, inPane = true,
                                            listed = results && shown.scope == "guide" &&
                                                shown.programmes.any { it.row.id == found.row.id }) { programme = null }
                     }
                 }
-                reservation?.let { row ->
+                reservationOpened?.let { (row, window) ->
                     key("reservation-" + row.id) {
-                        ReservationSheetView(row.id, row.title, open = { RecBridge.openFoundReservation(row.id) },
-                                             inPane = true,
+                        ReservationSheetView(row.title, window, inPane = true,
                                              listed = results && shown.scope == "reservations" &&
                                                  shown.reservations.any { it.id == row.id }) { reservation = null }
                     }
                 }
-                recording?.let { row ->
+                recordingOpened?.let { (row, window) ->
                     key("recording-" + row.id) {
-                        TitleSheetView(row, open = { RecBridge.openFoundRecording(row.id) }, inPane = true,
+                        TitleSheetView(row, window, inPane = true,
                                        listed = results && shown.scope == "recordings" &&
                                            shown.recordings.any { it.id == row.id }) { recording = null }
                     }

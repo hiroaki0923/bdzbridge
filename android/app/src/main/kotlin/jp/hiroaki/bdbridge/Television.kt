@@ -75,7 +75,7 @@ fun TVRegisterSheetView(request: TVSheetRequest, close: () -> Unit) {
     val handle = rememberOpened(request.id) {
         if (request.again && request.host.isEmpty()) RecBridge.openTVRegisterAgain()
         else RecBridge.openTVRegister(request.host, request.connectAtOnce, request.again)
-    }
+    }.handle
     val sheet = handle?.let { it.shown.collectAsState().value }
     val words = RecBridge.televisionWords
     var host by remember(request.id) { mutableStateOf<String?>(null) }
@@ -122,7 +122,7 @@ fun TVRegisterSheetView(request: TVSheetRequest, close: () -> Unit) {
 /** Registering with the helper on the television, by the six-digit code its screen shows for five minutes. */
 @Composable
 fun HelperRegisterSheetView(key: Long, close: () -> Unit) {
-    val handle = rememberOpened(key) { RecBridge.openHelperRegister() }
+    val handle = rememberOpened(key) { RecBridge.openHelperRegister() }.handle
     val sheet = handle?.let { it.shown.collectAsState().value }
     var code by remember(key) { mutableStateOf("") }
     val words = RecBridge.televisionWords
