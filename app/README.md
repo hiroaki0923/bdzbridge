@@ -25,7 +25,7 @@
   `HelperRegisterState`, and the words of 番組表を更新 on `AppModel`), the words of the screen that says what the
   television speaks (`TVCapabilitiesWords`), the guide's words (`GuideWords`, the stations' screen's own on
   `ChannelsState`), the tabs' names (`TabWords`), the words the reservations' list and the recordings' say alike (`ListWords`, each list's
-  own on `ReservationsState` and `RecordingsState`, a recording's swipe's on `AppModel.TitleSwipe`), the disclaimer's words (`Disclaimer`) and the tutorial's (`Tutorial`, but for the three that say iPhone or name the
+  own on `ReservationsState` and `RecordingsState`, a recording's swipe's on `AppModel.TitleSwipe`, a programme's page's on `GroupSheetState` and the job bar's on `BulkJob`), the disclaimer's words (`Disclaimer`) and the tutorial's (`Tutorial`, but for the three that say iPhone or name the
   system's question, which the view keeps); the SwiftUI views lay them out and hand them the reader's presses. The connection to each device -- when it is
   asked, woken, made sure of, looked for at another address and given up on -- is RecorderKit's `DeviceLink`
   with the device's driver (`RecorderDriver`, `TVDriver`); what the link tells the app is told to a host of

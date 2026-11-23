@@ -22,13 +22,13 @@ struct JobBarView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
-                        .accessibilityLabel("閉じる")
+                        .accessibilityLabel(BulkJob.closeLabel)
                     } else {
                         ProgressView().controlSize(.small)
                         Text(job.progressLine).font(.footnote)
                         if job.cancelled { Text(BulkJob.stopping).font(.caption).foregroundStyle(.secondary) }
                         Spacer()
-                        Button("中止") { model.cancelBulk() }
+                        Button(BulkJob.stopLabel) { model.cancelBulk() }
                             .font(.footnote)
                             .disabled(job.cancelled)
                     }
