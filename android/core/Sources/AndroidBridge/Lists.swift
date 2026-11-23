@@ -81,8 +81,9 @@ public struct ReservationsScreen: Sendable {
     /// A device's list that is old, by the device and when it was read: what is said of it is read with `stale`,
     /// again each minute and each time this moves.
     public var staleKey: String
-    /// The reservations waiting on this device to be sent, with what is said of when they go, then the list under
-    /// its headings.
+    /// The reservations waiting on this device to be sent, under the heading that counts them, with what is said of
+    /// when they go, then the list under its headings.
+    public var waitingHeading: String
     public var waiting: [WaitingRow]
     public var waitingSays: String
     public var sections: [ReservationSection]
@@ -274,6 +275,7 @@ public final class ReservationsWindow: Sendable {
             sorts: AppModel.ReservationSort.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
             sort: model.reservationSort.rawValue, filtering: state.narrowedOrSorted,
             staleKey: state.stale.map { "\($0.device.rawValue)-\(seconds($0.since))" }.joined(separator: " "),
+            waitingHeading: ReservationsState.waitingHeading(model.pending.count),
             waiting: model.pending.map { waiting in
                 WaitingRow(id: waiting.id, title: waiting.request.title,
                            details: ReservationsState.waitingDetails(waiting, device: model.deviceSaid(for: waiting),
@@ -553,11 +555,7 @@ public final class RecordingsWindow: Sendable {
                 : [Labelled(code: "", label: ListWords.allLabel)]
                     + model.titleDestinations.map { Labelled(code: $0.destination, label: $0.label) },
             destination: model.shownDestination ?? "",
-            genres: [Labelled(code: "", label: "\(ListWords.allLabel) \(model.titlesOnTheShownDisk.count)")]
-                + Codes.genreLabel.keys.sorted().compactMap { level in
-                    guard let count = model.titleGenreCounts[level], count > 0 else { return nil }
-                    return Labelled(code: "\(level)", label: "\(Codes.genreLabel[level] ?? "") \(count)")
-                },
+            genres: genres(of: model.titleGenreCounts, among: model.titlesOnTheShownDisk.count),
             genre: model.titleGenre.map { "\($0)" } ?? "",
             sorts: AppModel.TitleSort.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
             sort: model.titleSort.rawValue,
@@ -576,6 +574,17 @@ public final class RecordingsWindow: Sendable {
             actionHeld: state.ask.map(state.holdsTheAction) ?? false,
             loadKey: "\(model.connected && !model.offline)", tvKey: model.tvTitlesToRead,
             outdatedKey: "\(model.titlesOutOfStep)", logos: shelf.logos)
+    }
+
+    /// The genre menu's choices: every recording, then each genre that has any, each with how many, as the iOS menu
+    /// counts them.
+    @MainActor
+    static func genres(of counts: [Int: Int], among all: Int) -> [Labelled] {
+        [Labelled(code: "", label: RecordingsState.allGenresLabel(count: all))]
+            + Codes.genreLabel.keys.sorted().compactMap { level in
+                guard let count = counts[level], count > 0 else { return nil }
+                return Labelled(code: "\(level)", label: RecordingsState.genreChoiceLabel(level, count: count))
+            }
     }
 
     /// A recording's row. On a programme's page what it offers under a swipe and when that is held are the page's

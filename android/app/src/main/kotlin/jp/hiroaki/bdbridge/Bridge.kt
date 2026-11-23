@@ -756,7 +756,7 @@ data class Reservations(
     val hasNoRecorder: Boolean, val noRecorder: NoRecorder, val isEmpty: Boolean, val emptyTitle: String,
     val emptyDetail: String, val subtitle: String, val kinds: List<Labelled>, val kind: String,
     val sorts: List<Labelled>, val sort: String, val filtering: Boolean, val conditionsHeld: Boolean,
-    val staleKey: String, val waiting: List<Waiting>, val waitingSays: String, val sections: List<Section>, val asked: Asked?,
+    val staleKey: String, val waitingHeading: String, val waiting: List<Waiting>, val waitingSays: String, val sections: List<Section>, val asked: Asked?,
     val line: String, val lineIsAProblem: Boolean, val loadKey: String, val logos: Map<String, ByteArray>,
 )
 
@@ -993,7 +993,7 @@ private fun Reservations(it: jp.hiroaki.bdbridge.bridge.ReservationsScreen) = it
     Reservations(
         it.isHasNoRecorder, NoRecorder(it.getNoRecorder(arena)), it.isEmpty, empty.title, empty.detail, it.subtitle,
         labelled(it.getKinds(arena)), it.kind, labelled(it.getSorts(arena)), it.sort, it.isFiltering,
-        it.isConditionsHeld, it.staleKey,
+        it.isConditionsHeld, it.staleKey, it.waitingHeading,
         it.getWaiting(arena).map { row ->
             Waiting(row.id, row.title, row.details, row.problem, row.isOffersSendingAgain, row.isHeld)
         },

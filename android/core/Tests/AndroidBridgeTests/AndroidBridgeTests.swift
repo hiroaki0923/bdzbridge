@@ -419,6 +419,8 @@ final class AndroidBridgeTests: XCTestCase {
         await app.model.loadPending()
         let waiting = await until(list.read) { !$0.waiting.isEmpty }
         let row = try XCTUnwrap(waiting.waiting.first)
+        XCTAssertEqual(waiting.waitingHeading, ReservationsState.waitingHeading(1))
+        XCTAssertEqual(waiting.waitingHeading, "送信待ち 1 件")
         XCTAssertTrue(row.offersSendingAgain)
         XCTAssertFalse(row.held)
         XCTAssertEqual(row.problem, "断られた理由。")
@@ -868,9 +870,17 @@ extension AndroidBridgeTests {
         let shown = await until(recordings.read) { !$0.rows.isEmpty }
         XCTAssertEqual(shown.filterLabel,
                        RecordingsState.filterMenuLabel(hasDestinations: !shown.destinations.isEmpty))
-        XCTAssertEqual(shown.genres.first?.label, "\(ListWords.allLabel) \(app.model.titlesOnTheShownDisk.count)")
+        XCTAssertEqual(shown.genres.first?.label, RecordingsState.allGenresLabel(count: app.model.titlesOnTheShownDisk.count))
         XCTAssertEqual(shown.states.first?.label, ListWords.allLabel)
         if let first = shown.destinations.first { XCTAssertEqual(first.label, ListWords.allLabel) }
+    }
+
+    /// The genre menu counts as the iOS menu does, in the reader's grouping of digits: 1,000 and not 1000.
+    @MainActor
+    func testTheGenreChoicesGroupTheirDigits() {
+        let choices = RecordingsWindow.genres(of: [0x3: 12, 0x7: 1_000, 0xF: 0, 0x5: 12_345], among: 13_357)
+        XCTAssertEqual(choices.map(\.code), ["", "3", "5", "7"])
+        XCTAssertEqual(choices.map(\.label), ["すべて 13,357", "ドラマ 12", "バラエティ 12,345", "アニメ／特撮 1,000"])
     }
 
     /// The tabs' names, as Kotlin keeps them, are the model's (`TabWords`).

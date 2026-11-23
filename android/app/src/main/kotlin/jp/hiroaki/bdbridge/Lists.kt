@@ -149,7 +149,7 @@ fun ReservationsScreen(search: () -> Unit, openConditions: () -> Unit) {
                         }
                         items(stale, key = { "stale-$it" }) { line -> Footnote(line, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                         if (shown.waiting.isNotEmpty()) {
-                            heading("送信待ち ${shown.waiting.size} 件")
+                            heading(shown.waitingHeading)
                             items(shown.waiting, key = { "waiting-" + it.id }) { waiting ->
                                 val again = if (!waiting.offersSendingAgain) null else
                                     SwipeAction(words.sendAgainLabel, colors.primaryContainer, colors.onPrimaryContainer, !waiting.held) {
