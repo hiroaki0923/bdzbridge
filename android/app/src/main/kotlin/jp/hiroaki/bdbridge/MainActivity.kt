@@ -14,8 +14,9 @@ class MainActivity : ComponentActivity() {
     }
 
     // The model is told when the app comes into sight and goes out of it, as the iOS app tells it its scene's. Not
-    // when the activity is only made again for a change of its configuration -- turned, or switched to dark --
-    // which the app does not leave: the model would take it for a return, and connect again.
+    // when the activity is only made again for a change of its configuration -- switched to dark, to another language,
+    // text size or display size; a turn does not make it again (the manifest) -- which the app does not leave: the
+    // model would take it for a return, and connect again.
     override fun onStart() {
         super.onStart()
         if (madeAgain) madeAgain = false else RecBridge.onScreen(true)

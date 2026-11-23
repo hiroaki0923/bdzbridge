@@ -132,14 +132,14 @@ fun GroupRowView(group: GroupItem, open: () -> Unit) {
 fun GroupPage(group: GroupItem, close: () -> Unit) {
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
-    val handle = rememberOpened(group.id) { RecBridge.openGroup(group.id) }
+    val handle = rememberOpened(group.id) { RecBridge.openGroup(group.id) }.handle
     val shown = handle?.let { it.shown.collectAsState().value }
     val act = { work: suspend RecBridge.GroupHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
     val held = shown?.asking ?: false
     BackHandler(enabled = true) { if (!held) close() }
     LaunchedEffect(shown?.done) { if (shown?.done == true) close() }
     var opened by remember { mutableStateOf<RecordingItem?>(null) }
-    opened?.let { row -> TitleSheetView(row, open = { handle?.open(row.id) }) { opened = null } }
+    opened?.let { row -> TitleSheetView(row, rememberOpened(row.id) { handle?.open(row.id) }) { opened = null } }
     shown?.asked?.let { asked ->
         AskDialog(asked, act = { act { act(asked.key) } }, closeAsked = { act { closeAsked(asked.key) } },
                   actionEnabled = !shown.actionHeld)

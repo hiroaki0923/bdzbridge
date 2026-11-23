@@ -8,7 +8,16 @@
         android:label="@string/app_name"
         android:allowBackup="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
-        <activity android:name=".MainActivity" android:exported="true">
+        <!-- A turn or a resize does not make the activity again: the composition is kept, which a new activity would
+             throw away, and Compose lays the screen out again for the size the configuration says, a bar or a rail at
+             600 dp (`Destinations`) and a sheet or the pane at 840 dp (`twoPanes`). Across either, what the screens
+             hold is kept: where the lists are scrolled, the top app bars with what they have open, and what is open,
+             which goes from a sheet into the pane or back with the one window it has to the model. A change of dark
+             or light, of language, of the text's size or of the display's still makes it again. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

@@ -85,11 +85,9 @@ fun ReservationsScreen(search: () -> Unit, openConditions: () -> Unit) {
     val wide = twoPanes()
     // The reservation whose sheet is open, or that is open beside the list.
     var opened by remember { mutableStateOf<ReservationItem?>(null) }
-    if (!wide) {
-        opened?.let { row ->
-            ReservationSheetView(row.id, row.title, open = { RecBridge.openReservation(row.id) }) { opened = null }
-        }
-    }
+    // Its window, opened here and handed to the sheet or the pane, whichever shows it (`rememberOpened`).
+    val reservation = opened?.let { row -> row to rememberOpened(row.id) { RecBridge.openReservation(row.id) } }
+    if (!wide) reservation?.let { (row, window) -> ReservationSheetView(row.title, window) { opened = null } }
     // Not while the one open beside the list is held: it would take the request's answer with it.
     val open = { row: ReservationItem -> if (!PaneHold.held) opened = row }
     shown.asked?.let { asked ->
@@ -122,11 +120,10 @@ fun ReservationsScreen(search: () -> Unit, openConditions: () -> Unit) {
                               }
                           },
                           detail = {
-                              opened?.let { row ->
+                              reservation?.let { (row, window) ->
                                   // By the reservation, so that nothing of one carries to the next.
                                   key(row.id) {
-                                      ReservationSheetView(row.id, row.title,
-                                                           open = { RecBridge.openReservation(row.id) }, inPane = true,
+                                      ReservationSheetView(row.title, window, inPane = true,
                                                            listed = shown.lists(row.id)) { opened = null }
                                   }
                               }
@@ -298,15 +295,16 @@ fun RecordingsScreen(search: () -> Unit, openGroup: (GroupItem) -> Unit) {
     }
     LaunchedEffect(shown.outdatedKey) { RecBridge.act { it.recordings.loadOutdated() } }
     val wide = twoPanes()
-    // The recording whose sheet is open, or that is open beside the list.
+    // The recording whose sheet is open, or that is open beside the list, and its window, opened here and handed to
+    // the sheet or the pane, whichever shows it (`rememberOpened`).
     var opened by remember { mutableStateOf<RecordingItem?>(null) }
-    if (!wide) opened?.let { row -> TitleSheetView(row) { opened = null } }
+    val recording = opened?.let { row -> row to rememberOpened(row.id) { RecBridge.openRecording(row.id) } }
+    if (!wide) recording?.let { (row, window) -> TitleSheetView(row, window) { opened = null } }
     val logos = rememberLogos(shown.logos)
-    // A copy among the duplicates, whose sheet is opened from its set.
+    // A copy among the duplicates, whose sheet is opened from its set, and its window, the same way.
     var openedCopy by remember { mutableStateOf<RecordingItem?>(null) }
-    if (!wide) {
-        openedCopy?.let { row -> TitleSheetView(row, open = { RecBridge.openCopy(row.id) }) { openedCopy = null } }
-    }
+    val copy = openedCopy?.let { row -> row to rememberOpened(row.id) { RecBridge.openCopy(row.id) } }
+    if (!wide) copy?.let { (row, window) -> TitleSheetView(row, window) { openedCopy = null } }
     // Beside the list one at a time, a recording of 一覧 or a copy of 重複, and not while that one is held: it would
     // take the request's answer with it.
     val open = { row: RecordingItem ->
@@ -376,16 +374,16 @@ fun RecordingsScreen(search: () -> Unit, openGroup: (GroupItem) -> Unit) {
                               },
                               detail = {
                                   // By the recording, so that nothing of one carries to the next.
-                                  opened?.let { row ->
+                                  recording?.let { (row, window) ->
                                       key(row.id) {
-                                          TitleSheetView(row, inPane = true, listed = shown.lists(row.id)) {
+                                          TitleSheetView(row, window, inPane = true, listed = shown.lists(row.id)) {
                                               opened = null
                                           }
                                       }
                                   }
-                                  openedCopy?.let { row ->
+                                  copy?.let { (row, window) ->
                                       key("copy-" + row.id) {
-                                          TitleSheetView(row, open = { RecBridge.openCopy(row.id) }, inPane = true,
+                                          TitleSheetView(row, window, inPane = true,
                                                          listed = shown.mode == "dups" && duplicates.lists(row.id)) {
                                               openedCopy = null
                                           }

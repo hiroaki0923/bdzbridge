@@ -1,6 +1,8 @@
 package jp.hiroaki.bdbridge
 
 import android.content.Context
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.view.KeyEvent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.Role
@@ -20,6 +22,7 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.isOff
 import androidx.compose.ui.test.isOn
+import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.isSelectable
 import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.isToggleable
@@ -31,6 +34,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
@@ -521,6 +525,62 @@ class DemoTests {
         compose.onNodeWithText("セットアップ手順を見る").assertExists()
     }
 
+    /**
+     * A programme open as the device is turned: it is still open, in the activity that was there, which the turn has
+     * not made again (what is open is kept in the composition, which a new activity would not have).
+     */
+    @Test fun aProgrammeOpenWhenTheDeviceIsTurnedIsStillOpen() {
+        openTheDemo()
+        compose.waitUntilAtLeastOneExists(hasText("放送中"), 10_000)
+        compose.onAllNodesWithText("放送中")[0].performClick()
+        compose.waitUntilAtLeastOneExists(hasText("開始"), 10_000)
+        var before: MainActivity? = null
+        scenario.onActivity { before = it }
+        turned {
+            compose.waitUntilAtLeastOneExists(hasText("開始"), 10_000)
+            compose.onNodeWithText("長さ").assertExists()
+            var after: MainActivity? = null
+            scenario.onActivity { after = it }
+            assertTrue("the turn made the activity again", before === after)
+        }
+        compose.waitUntilAtLeastOneExists(hasText("開始"), 10_000)
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntilDoesNotExist(hasText("開始"), 10_000)
+    }
+
+    /**
+     * Turns the device the other way from how it is -- upright onto its side, or from its side, as a run with two panes
+     * starts, upright -- does `check`, and puts the device back as it was: asked for however `check` ends, and waited
+     * for once it has passed, so that what fails in `check` is what is reported.
+     */
+    private fun turned(check: () -> Unit) {
+        val start = orientation()
+        try {
+            if (start == Configuration.ORIENTATION_LANDSCAPE) {
+                turnTo(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, Configuration.ORIENTATION_PORTRAIT)
+            } else {
+                turnTo(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, Configuration.ORIENTATION_LANDSCAPE)
+            }
+            check()
+        } finally {
+            scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
+        }
+        compose.waitUntil(10_000) { orientation() == start }
+    }
+
+    /** Asks the activity for an orientation and waits until the configuration it is shown with has it. */
+    private fun turnTo(request: Int, shown: Int) {
+        scenario.onActivity { it.requestedOrientation = request }
+        compose.waitUntil(10_000) { orientation() == shown }
+    }
+
+    /** The orientation of the configuration the activity is shown with. */
+    private fun orientation(): Int {
+        var now = Configuration.ORIENTATION_UNDEFINED
+        scenario.onActivity { now = it.resources.configuration.orientation }
+        return now
+    }
+
     // MARK: a wide screen's two panes, tried only on a window 840 dp wide or more and skipped on any other
 
     private fun assumeTwoPanes() {
@@ -536,6 +596,9 @@ class DemoTests {
         val width = compose.onRoot().fetchSemanticsNode().size.width
         return node.fetchSemanticsNode().boundsInRoot.left >= width - 400 * density - 1
     }
+
+    /** How many windows there are with something of the app's in them: the activity's, and a sheet, a dialog or a menu. */
+    private fun windows() = compose.onAllNodes(isRoot()).fetchSemanticsNodes().size
 
     /**
      * Two reservations of the list in the order it shows them, each with a title that no other row has and that is no
@@ -676,6 +739,195 @@ class DemoTests {
         compose.waitUntil(30_000) { count(first) == 0 }
         compose.waitUntilAtLeastOneExists(hasText(NothingOpenedSays.reservation), 10_000)
         compose.onAllNodesWithText("予約を削除").assertCountEquals(0)
+    }
+
+    // A turn of a wide screen to under 840 dp and back, as the tablet goes from its side to upright.
+
+    /**
+     * The guide's list scrolled well away from what is on now, where it opens, and a programme open beside it: turned,
+     * the programme is on a sheet, the row it was opened from still in sight and nothing on now; turned back, the
+     * programme is in the pane again, and the row still in sight. The row is the one scrolled to the top, since a list
+     * keeps its place by its first row: one further down may go below a shorter list.
+     */
+    @Test fun onAWideScreenATurnPutsWhatIsOpenOnASheetAndBackWithTheListWhereItWasScrolled() {
+        assumeTwoPanes()
+        openTheDemo()
+        // 今 answered before the list is scrolled: its answer scrolls the list back to what is on now.
+        val asked = RecBridge.guide.value!!.nowRequests
+        compose.onNodeWithContentDescription("今").performClick()
+        compose.waitUntil(10_000) { RecBridge.guide.value!!.nowRequests > asked }
+        compose.waitUntilAtLeastOneExists(hasText("放送中"), 10_000)
+        val programmes = RecBridge.guide.value!!.programmes
+        val now = System.currentTimeMillis() / 1000
+        val opening = programmes.indexOfFirst { it.ends > now }.coerceAtLeast(0)
+        // Halfway from it to the day's end, or to its start: well away from it, with rows enough below to fill the list.
+        val index = if (opening < programmes.size / 2) (opening + programmes.size) / 2 else opening / 2
+        val far = programmes[index]
+        val row = hasText(far.title) and hasText(far.time) and hasClickAction()
+        compose.onNode(hasScrollToNodeAction()).performScrollToIndex(index)
+        compose.onNode(row).performClick()
+        compose.waitUntilAtLeastOneExists(hasText("開始"), 10_000)
+        assertTrue("the programme is not in the pane", inThePane(compose.onNodeWithText("開始")))
+        // Nothing on now is in sight: a list made again would open at it.
+        compose.onAllNodesWithText("放送中").assertCountEquals(0)
+        turned {
+            compose.waitUntil(10_000) { windows() == 2 }
+            compose.waitUntilAtLeastOneExists(hasText("開始"), 10_000)
+            compose.onNode(row).assertIsDisplayed()
+            compose.onAllNodesWithText("放送中").assertCountEquals(0)
+        }
+        compose.waitUntil(10_000) { windows() == 1 }
+        assertTrue("the programme is not in the pane again", inThePane(compose.onNodeWithText("開始")))
+        compose.onNode(row).assertIsDisplayed()
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntilAtLeastOneExists(hasText(NothingOpenedSays.programme), 10_000)
+    }
+
+    /**
+     * A pick made in the pane -- 毎回録画 turned from しない to 毎日 -- is what the sheet shows once the device is turned,
+     * and the pane once it is turned back: the same window, where one opened again would start at しない. Nothing is
+     * reserved; the guide is put back to today whatever happens.
+     */
+    @Test fun onAWideScreenAPickMadeInThePaneIsStillPickedAfterATurn() {
+        assumeTwoPanes()
+        openTheDemo()
+        compose.onNodeWithContentDescription("今").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("放送中"), 10_000)
+        try {
+            compose.onNodeWithContentDescription("次の日").performClick()
+            compose.waitUntilDoesNotExist(hasText("放送中"), 10_000)
+            compose.waitUntilAtLeastOneExists(hasText("04:00"), 10_000)
+            compose.onAllNodesWithText("04:00")[0].performClick()
+            compose.waitUntilAtLeastOneExists(hasText("録画予約する") and isEnabled(), 30_000)
+            val never = hasText("しない") and hasClickAction()
+            val daily = hasText("毎日") and hasClickAction()
+            compose.onNode(never).performClick()
+            compose.onNode(daily).performClick()
+            compose.waitUntilDoesNotExist(never, 10_000)
+            compose.waitUntil(10_000) { windows() == 1 }
+            assertTrue("the pick is not in the pane", inThePane(compose.onNode(daily)))
+            turned {
+                compose.waitUntil(10_000) { windows() == 2 }
+                compose.waitUntilAtLeastOneExists(hasText("録画予約する"), 10_000)
+                compose.onNode(daily).assertExists()
+                compose.onAllNodes(never).assertCountEquals(0)
+            }
+            compose.waitUntil(10_000) { windows() == 1 }
+            assertTrue("the pick is not in the pane again", inThePane(compose.onNode(daily)))
+            compose.onAllNodes(never).assertCountEquals(0)
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            compose.waitUntilAtLeastOneExists(hasText(NothingOpenedSays.programme), 10_000)
+        } finally {
+            runBlocking { RecBridge.act { it.guide.goToNow() } }
+        }
+    }
+
+    /**
+     * The question 予約を削除 puts up in the pane is still up once the device is turned, over the reservation now on a
+     * sheet: the window's, which one opened again would not have. キャンセル deletes nothing, and turned back, the
+     * reservation is in the pane again.
+     */
+    @Test fun onAWideScreenAQuestionUpInThePaneIsStillUpAfterATurn() {
+        assumeTwoPanes()
+        openTheDemo()
+        theReservations()
+        val (first, _) = twoReservations()
+        val rows = RecBridge.reservations.value!!.sections.sumOf { it.rows.size }
+        openReservation(first)
+        compose.onNodeWithText("予約を削除").performScrollTo().performClick()
+        compose.waitUntilAtLeastOneExists(hasText("この予約を削除しますか？"), 10_000)
+        turned {
+            compose.waitUntil(10_000) { windows() == 3 }
+            compose.onNodeWithText("この予約を削除しますか？").assertExists()
+            compose.onNodeWithText("キャンセル").performClick()
+            compose.waitUntilDoesNotExist(hasText("この予約を削除しますか？"), 10_000)
+            compose.waitUntil(10_000) { windows() == 2 }
+        }
+        compose.waitUntil(10_000) { windows() == 1 }
+        compose.waitUntil(10_000) { count(first) == 2 }
+        assertTrue("キャンセル deleted a reservation", RecBridge.reservations.value!!.sections.sumOf { it.rows.size } == rows)
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntilAtLeastOneExists(hasText(NothingOpenedSays.reservation), 10_000)
+    }
+
+    /**
+     * The day's menu, open in the top app bar with nothing open beside the list, is still open once the device is
+     * turned, and once it is turned back; the back key closes it.
+     */
+    @Test fun onAWideScreenAMenuOpenInTheTopAppBarIsStillOpenAfterATurn() {
+        assumeTwoPanes()
+        openTheDemo()
+        compose.onNodeWithContentDescription("今").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("放送中"), 10_000)
+        compose.onNodeWithText(NothingOpenedSays.programme).assertExists()
+        val guide = RecBridge.guide.value!!
+        compose.onNode(hasText(guide.days[guide.day]) and hasClickAction()).performClick()
+        // The menu's 今: the top app bar's has it only as its description.
+        val now = hasText("今") and hasClickAction()
+        compose.waitUntilAtLeastOneExists(now, 10_000)
+        compose.waitUntil(10_000) { windows() == 2 }
+        turned {
+            compose.waitUntil(10_000) { windows() == 2 }
+            compose.onNode(now).assertExists()
+        }
+        compose.waitUntil(10_000) { windows() == 2 }
+        compose.onNode(now).assertExists()
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntil(10_000) { windows() == 1 }
+        compose.onAllNodes(now).assertCountEquals(0)
+    }
+
+    /**
+     * 予約を変更する on a programme of the next day that the demo's recorder holds a reservation of, opened beside the
+     * list: 毎回録画 turned from しない to 毎日 on the reservation's own sheet over it is what that sheet shows once the
+     * device is turned, over the programme now on a sheet of its own, and once it is turned back. The change is never
+     * sent; the guide is put back to today whatever happens.
+     */
+    @Test fun onAWideScreenAPickMadeOnAReservationsOwnSheetIsStillPickedAfterATurn() {
+        assumeTwoPanes()
+        openTheDemo()
+        compose.onNodeWithContentDescription("今").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("放送中"), 10_000)
+        try {
+            compose.onNodeWithContentDescription("次の日").performClick()
+            compose.waitUntilDoesNotExist(hasText("放送中"), 10_000)
+            compose.waitUntilAtLeastOneExists(hasText("04:00"), 10_000)
+            // Reserved by the demo's recorder from the start, as made by this app and recorded once.
+            val title = "みほんスポーツ中継「サンプルリーグ」"
+            compose.waitUntil(10_000) { RecBridge.guide.value!!.programmes.any { it.title == title } }
+            compose.onNode(hasScrollToNodeAction())
+                .performScrollToIndex(RecBridge.guide.value!!.programmes.indexOfFirst { it.title == title })
+            compose.onNode(hasText(title) and hasClickAction()).performClick()
+            val change = hasText("予約を変更する") and hasClickAction()
+            compose.waitUntilAtLeastOneExists(change and isEnabled(), 30_000)
+            compose.onNode(change).performClick()
+            val never = hasText("しない") and hasClickAction()
+            val daily = hasText("毎日") and hasClickAction()
+            compose.waitUntilAtLeastOneExists(never and isEnabled(), 30_000)
+            compose.waitUntil(10_000) { windows() == 2 }
+            compose.onNode(never).performClick()
+            compose.onNode(daily).performClick()
+            compose.waitUntilDoesNotExist(never, 10_000)
+            // Changed on the sheet, which offers to send it.
+            val send = hasText("変更をレコーダーに送る") and hasClickAction()
+            compose.waitUntilAtLeastOneExists(send, 10_000)
+            compose.waitUntil(10_000) { windows() == 2 }
+            turned {
+                compose.waitUntil(10_000) { windows() == 3 }
+                compose.onNode(daily).assertExists()
+                compose.onAllNodes(never).assertCountEquals(0)
+                compose.onNode(send).assertExists()
+            }
+            compose.waitUntil(10_000) { windows() == 2 }
+            compose.onNode(daily).assertExists()
+            compose.onAllNodes(never).assertCountEquals(0)
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            compose.waitUntil(10_000) { windows() == 1 }
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            compose.waitUntilAtLeastOneExists(hasText(NothingOpenedSays.programme), 10_000)
+        } finally {
+            runBlocking { RecBridge.act { it.guide.goToNow() } }
+        }
     }
 
     @Test fun leavingTheDemoSaysNoRecorderIsAddedAndOffersTheSearch() {

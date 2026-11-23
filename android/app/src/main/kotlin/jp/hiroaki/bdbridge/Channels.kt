@@ -68,7 +68,7 @@ import kotlinx.coroutines.launch
 fun ChannelsPage(close: () -> Unit) {
     BackHandler(onBack = close)
     val scope = rememberCoroutineScope()
-    val handle = rememberOpened(Unit) { RecBridge.openChannels() }
+    val handle = rememberOpened(Unit) { RecBridge.openChannels() }.handle
     val shown = handle?.shown?.collectAsState()?.value
     var resetting by remember { mutableStateOf(false) }
     Scaffold(topBar = {

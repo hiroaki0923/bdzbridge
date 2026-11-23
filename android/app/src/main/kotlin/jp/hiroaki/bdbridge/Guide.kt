@@ -88,11 +88,13 @@ fun GuideScreen(search: () -> Unit, arrange: () -> Unit) {
     val wide = twoPanes()
     // The programme whose sheet is open, or that is open beside the list: shown at once with what its row says.
     var opened by remember { mutableStateOf<Programme?>(null) }
+    // Its windows, opened here and handed to the sheet or the pane, whichever shows it (`rememberOpened`).
+    val programme = opened?.let { row -> row to rememberProgramme(row.id) { RecBridge.openProgramme(row.id) } }
     // Not while the one open beside the list is held: it would take the request's answer with it.
-    val open = { programme: Programme -> if (!PaneHold.held) opened = programme }
+    val open = { row: Programme -> if (!PaneHold.held) opened = row }
     var failure by remember { mutableStateOf<String?>(null) }
     var refreshing by remember { mutableStateOf(false) }
-    if (!wide) opened?.let { ProgrammeSheetView(it) { opened = null } }
+    if (!wide) programme?.let { (row, windows) -> ProgrammeSheetView(row, windows) { opened = null } }
     failure?.let { said ->
         AlertDialog(onDismissRequest = { failure = null },
                     confirmButton = { TextButton(onClick = { failure = null }) { Text(RecBridge.sheetWords.okLabel) } },
@@ -135,13 +137,12 @@ fun GuideScreen(search: () -> Unit, arrange: () -> Unit) {
                               if (shown) NothingOpened(Icons.Outlined.GridView, NothingOpenedSays.programme)
                           },
                           detail = {
-                              opened?.let { row ->
-                                  // By the programme, so that nothing of one carries to the next: its window, its
-                                  // pickers' menus, how far it was scrolled.
+                              programme?.let { (row, windows) ->
+                                  // By the programme, so that nothing of one carries to the next: its pickers' menus,
+                                  // how far it was scrolled. Its windows are by the programme as well.
                                   key(row.id) {
-                                      ProgrammeSheetView(row, inPane = true, listed = shown && guide.lists(row.id)) {
-                                          opened = null
-                                      }
+                                      ProgrammeSheetView(row, windows, inPane = true,
+                                                         listed = shown && guide.lists(row.id)) { opened = null }
                                   }
                               }
                           }) {

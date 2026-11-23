@@ -69,23 +69,30 @@ internal object PaneHold {
  * A screen's list and what is opened from it, in the screen's content under its top app bar and strip, which span
  * both. On a wide screen, the list, a divider and the pane of a fixed width beside it, saying `nothingOpened` while
  * nothing is open; elsewhere, and where `beside` is false, the list alone, as it was before there were two panes, and
- * what is opened goes over it as a sheet. The back key clears the pane first, and does nothing while it is held.
+ * what is opened goes over it as a sheet. The back key clears the pane first, and does nothing while it is held; with
+ * no pane, it is not taken here at all.
+ *
+ * The list is at the same place in either, and only the divider and the pane come and go beside it: a turn across
+ * 840 dp keeps all the list remembers -- where it is scrolled, the grid's position, a pull under way -- which a list
+ * put somewhere else would make again.
  */
 @Composable
-internal fun BoxScope.ListAndDetail(opened: Boolean, close: () -> Unit, nothingOpened: @Composable () -> Unit,
-                                    detail: @Composable () -> Unit, beside: Boolean = true,
-                                    list: @Composable BoxScope.() -> Unit) {
-    if (!twoPanes() || !beside) return list()
-    BackHandler(enabled = opened) { if (!PaneHold.held) close() }
+internal fun ListAndDetail(opened: Boolean, close: () -> Unit, nothingOpened: @Composable () -> Unit,
+                           detail: @Composable () -> Unit, beside: Boolean = true,
+                           list: @Composable BoxScope.() -> Unit) {
+    val wide = twoPanes() && beside
+    BackHandler(enabled = wide && opened) { if (!PaneHold.held) close() }
     Row(Modifier.fillMaxSize()) {
-        val held = PaneHold.held
+        val held = wide && PaneHold.held
         Box(Modifier.weight(1f).fillMaxHeight().then(if (held) Modifier.clearAndSetSemantics {} else Modifier)) {
             list()
             if (held) Cover()
         }
-        VerticalDivider()
-        Surface(Modifier.width(DetailWidth).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-            if (opened) detail() else nothingOpened()
+        if (wide) {
+            VerticalDivider()
+            Surface(Modifier.width(DetailWidth).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                if (opened) detail() else nothingOpened()
+            }
         }
     }
 }
@@ -93,12 +100,12 @@ internal fun BoxScope.ListAndDetail(opened: Boolean, close: () -> Unit, nothingO
 /**
  * What beside the pane would replace or take away what is open in it -- the top app bar with the strip, the
  * navigation rail -- refused while that is held (`PaneHold`), as what is under a sheet's scrim is. Only with two panes:
- * elsewhere a sheet covers it.
+ * elsewhere a sheet covers it. At the same place whatever the width, as the list is (`ListAndDetail`): a turn keeps
+ * what is open in it, a menu or the search box's focus.
  */
 @Composable
 internal fun Refused(content: @Composable () -> Unit) {
-    if (!twoPanes()) return content()
-    val held = PaneHold.held
+    val held = twoPanes() && PaneHold.held
     Box(if (held) Modifier.clearAndSetSemantics {} else Modifier) {
         content()
         if (held) Cover()
