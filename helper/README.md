@@ -6,6 +6,8 @@
 
 ## 入れ方
 
+まだ公開していません（準備中です）。公開されたときの入れ方を、以下に書いておきます。
+
 ファイルは [Releases](https://github.com/hiroaki0923/bdzbridge/releases) の `helper-v*` にあります（`recbridge-helper.apk` と `SHA256SUMS`）。最新版はいつも同じアドレスです:
 
 ```
@@ -41,7 +43,7 @@ Mac か Windows のパソコンが、テレビと同じネットワークにあ�
 1. ランチャーから「RecBridge ヘルパー」を開きます
 2. 「番組表の読み取りを許可する」を押し、許可します。ダイアログが出ないテレビでは、B の道の 4 まで進めてから `adb shell pm grant jp.hiroaki.bdbridge.helper android.permission.READ_TV_LISTINGS` を打ちます
 3. 「許可を取り消さない設定を開く」を押し、開いた設定で「アプリの権限を自動的に削除」をオフにします。Android は数か月開かれないアプリの許可を外しますが、ヘルパーは開かれることがほとんどないためです
-4. 「登録の番号を出す」で 6 桁の番号を出し、スマートフォンやタブレットの RecBridge で 設定 → テレビ → 「ヘルパーに登録」に入れます。番号は 5 分で消えます
+4. 「登録の番号を出す」で 6 桁の番号を出し、スマートフォンやタブレットの RecBridge で 設定 → テレビ → 「ヘルパーに登録」に入れます。番号は 5 分で消えます。登録した端末は番号の下に並び、リモコンの「取り消す」で（確かめの質問のあとに）登録を取り消せます
 5. レコーダーもある家では、RecBridge の 設定 → 「番組表の取得元」で「テレビ」を選ぶと、テレビの番組表になります
 
 ### 更新
@@ -59,7 +61,7 @@ Mac か Windows のパソコンが、テレビと同じネットワークにあ�
 | 経路 | 内容 |
 |---|---|
 | `GET /ping` | `{app, api, version}`。トークン不要 |
-| `POST /v1/pair` `{code, label}` | 画面の番号でトークンを 1 つ発行。5 回間違えると 10 分受け付けない |
+| `POST /v1/pair` `{code, label}` | 画面の番号でトークンを 1 つ発行。5 回間違えると 10 分受け付けない（その間は 429 `locked`、`Retry-After` 付き） |
 | `GET /v1/info` | 版、許可の状態、チューナーの有無、画面の状態、時計、写しの状態（種別ごとの `etag / snapshotAt / changedAt / programs / channels`）、`tunerLastWrite` |
 | `GET /v1/channels` | チューナーの局。`bt, sid, onid, tsid, number, name, serviceType, browsable, hasPrograms, siblings, data`（ETag） |
 | `GET /v1/guide/{bt}` | 種別（`td / bs / cs / bs4k / cs4k`）の番組すべて。ETag と `If-None-Match` → 304、gzip |

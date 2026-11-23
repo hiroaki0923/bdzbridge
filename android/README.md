@@ -5,6 +5,10 @@ and is built for Android with the Swift SDK for Android, and the screens call it
 [swift-java](https://github.com/swiftlang/swift-java)'s JNI mode. Why this way, and what was measured on the way, is
 in `docs/android-port-study.md`.
 
+The app is under development and is not distributed: `versionName` is 0.1, there is no release key yet
+(`-PsignWithDebugKey` signs a release build with the debug key to try it on a device), and the notifications of the
+overnight work do nothing, since the app posts none yet.
+
 It is the iOS app's model with Android's screens over it: the same `AppModel` (`app/RecBridgeModel/Sources/
 RecBridgeModel`), one for the process as the iOS app has one, with a window in front of it for each screen. So far it
 connects to a recorder as the iOS app's tutorial does -- by the search for both kinds (レコーダーとテレビを探す), by an
@@ -139,6 +143,11 @@ that one does nothing, as iOS runs no night twice. WorkManager adds to the manif
 service, and keeps its database in `no_backup/`.
 
 ## What has to be in place
+
+The Gradle build expects a Mac's paths: `core/build.gradle` reads the Swift SDK from
+`~/Library/org.swift.swiftpm/swift-sdks` and runs swiftly at `~/.swiftly/bin/swiftly` (or the one `$SWIFTLY_PATH`
+names). CI (`.github/workflows/android.yml`) tests RecorderKit and RecBridgeModel on an emulator but does not build
+this app.
 
 - swiftly with Swift 6.4.2, and the Swift SDK for Android 6.4.2 set up against NDK r30 (`docs/android-port-study.md`,
   「Android 向けのビルドとテストのやり方」).
