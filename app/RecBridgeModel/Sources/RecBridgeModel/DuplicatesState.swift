@@ -171,7 +171,7 @@ public final class DuplicatesState {
     /// The button that deletes: none while a set would lose every copy.
     public var actionLabel: String? { emptied.isEmpty ? "\(Format.count(chosen.count)) 件を削除する" : nil }
 
-    public var closingLabel: String { emptied.isEmpty ? "キャンセル" : "OK" }
+    public var closingLabel: String { emptied.isEmpty ? SheetWords.cancelLabel : SheetWords.okLabel }
 
     public var holdsTheAction: Bool { !model.canStartARun }
 

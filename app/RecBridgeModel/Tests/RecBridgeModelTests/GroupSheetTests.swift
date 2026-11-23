@@ -179,6 +179,8 @@ final class GroupSheetTests: XCTestCase {
         let asked = try XCTUnwrap(sheet.ask(among: members))
         XCTAssertEqual(sheet.askTitle(asked, chosen: []), "この録画を削除しますか？")
         XCTAssertEqual(sheet.message(for: asked, chosen: []), AppModel.deleteMessage(title))
+        XCTAssertEqual(sheet.actionLabel(for: asked, chosen: [])?.label, "削除する")
+        XCTAssertEqual(sheet.closingLabel(for: asked), "キャンセル")
         try press(sheet, acting: true)
         XCTAssertTrue(sheet.asking, "the sheet was not held while its delete was out")
         try await until("the delete never came back") { !sheet.asking }

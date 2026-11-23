@@ -83,15 +83,15 @@ public final class GroupSheetState {
     public func actionLabel(for asked: Ask, chosen: [RecordedTitle]) -> (label: String, destructive: Bool)? {
         switch asked {
         case .bulk: ("\(Format.count(chosen.count)) 件を削除する", true)
-        case .one: ("削除する", true)
+        case .one: (SheetWords.confirmDeleteLabel, true)
         case .failed, .told: nil
         }
     }
 
     public func closingLabel(for asked: Ask) -> String {
         switch asked {
-        case .bulk, .one: "キャンセル"
-        case .failed, .told: "OK"
+        case .bulk, .one: SheetWords.cancelLabel
+        case .failed, .told: SheetWords.okLabel
         }
     }
 
