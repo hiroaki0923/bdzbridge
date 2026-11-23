@@ -21,7 +21,8 @@ import java.util.Locale
 
 /**
  * The screen on the TV: what the helper is doing, the permission it needs, the code a phone registers
- * with, and the phones let in so far. Built in code so that the helper has no library to carry.
+ * with, and the phones let in so far. Built in code from the platform's own views (the button is in Screen.kt)
+ * so that the helper has no library to carry.
  */
 class MainActivity : Activity() {
     private val ui = Handler(Looper.getMainLooper())
@@ -46,7 +47,7 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(64), dp(40), dp(64), dp(40))
-            setBackgroundColor(Color.rgb(16, 20, 28))
+            setBackgroundColor(SCREEN_BACKGROUND)
         }
         root.addView(text("RecBridge ヘルパー", 36f, bold = true))
         root.addView(text("テレビの番組表を、同じ家の中の iPhone の RecBridge に配ります。予約はしません。", 20f, dim = true))
@@ -84,7 +85,17 @@ class MainActivity : Activity() {
             }
         })
 
-        setContentView(ScrollView(this).apply { addView(root) })
+        // The page is moved through by the focus, never focused itself.
+        setContentView(ScrollView(this).apply {
+            isFocusable = false
+            addView(root)
+        })
+
+        // The remote starts on the button to use first. focusedByDefault is the same choice for the platform,
+        // which gives the focus back to it when the window has none.
+        val granted = Helper.hasListingsPermission(this)
+        startOn(granted)
+        (if (granted) codeButton else permissionButton).requestFocus()
     }
 
     override fun onResume() {
@@ -155,10 +166,16 @@ class MainActivity : Activity() {
                 val used = d.lastUsedAt?.let { "最後の利用 " + format.format(Date(it)) } ?: "まだ使われていません"
                 row.addView(text("${d.label}（${format.format(Date(d.createdAt))} に登録、$used）", 20f)
                     .apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
-                row.addView(button("取り消す") { devices.revoke(d.id); render() })
+                row.addView(button("取り消す", growFrom = 1f) { devices.revoke(d.id); render() })
                 deviceList.addView(row)
             }
         }
+    }
+
+    /** The button the remote starts on, for the platform: the permission's while it is not given, else the code's. */
+    private fun startOn(granted: Boolean) {
+        permissionButton.isFocusedByDefault = !granted
+        codeButton.isFocusedByDefault = granted
     }
 
     private fun label(bt: String) = when (bt) {
@@ -173,14 +190,9 @@ class MainActivity : Activity() {
         setPadding(0, dp(6), 0, dp(6))
     }
 
-    private fun button(label: String, onClick: () -> Unit): Button = Button(this).apply {
-        text = label
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
-        isFocusable = true
-        setOnClickListener { onClick() }
-        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            .apply { topMargin = dp(8); bottomMargin = dp(8) }
-    }
-
-    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+    private fun button(label: String, growFrom: Float = 0f, onClick: () -> Unit): Button =
+        remoteButton(label, growFrom, onClick).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = dp(8); bottomMargin = dp(8) }
+        }
 }
