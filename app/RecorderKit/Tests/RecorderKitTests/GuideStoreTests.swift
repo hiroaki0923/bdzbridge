@@ -408,24 +408,50 @@ final class GuideStoreTests: XCTestCase {
         XCTAssertEqual(counts["td"]?.givenBy, .tv)
     }
 
-    /// The device goes with the rows: a cache made over to another recorder, and one whose guide a schema
-    /// change threw away, hold no rows, and say of no type that the television gave it.
-    func testTheDeviceGoesWithTheRows() async throws {
-        let store = try GuideStore(path: ":memory:")
+    /// Another recorder taking the cache over takes away what the recorder gave of the guide, and no more. A
+    /// type the cache holds as the television's is not what the last recorder left: it keeps its channels, its
+    /// programmes, its logos and every mark, and is still the television's. A type the recorder gave goes with
+    /// its marks, and so does one written before the device was kept, which reads as the recorder's.
+    func testAnotherRecorderTakingTheCacheOverLeavesWhatTheTelevisionGave() async throws {
+        let path = temporaryPath()
+        let store = try GuideStore(path: path)
         try await store.claim(for: recorder(1))
-        try await store.replace(try sampleServices(), broadcasting: "td", givenBy: .tv)
-        try await store.claim(for: recorder(2))
-        var counts = try await store.counts()
-        XCTAssertEqual(counts["td"]?.programs, 0, "set up wrong: the cache was not made over")
-        XCTAssertEqual(counts["td"]?.givenBy, .recorder, "a cache made over")
+        let fetched = jst("2026-09-14T03:00:00+09:00"), copied = jst("2026-09-14T02:00:00+09:00")
+        let logo = [(serviceID: 1024, channelNo: 1, png: Data([1, 2, 3]))]
+        for (type, device) in [("td", DeviceSlot.tv), ("bs", .recorder), ("cs", .recorder)] {
+            try await store.replace(try sampleServices(), broadcasting: type, givenBy: device, at: fetched)
+            try await store.replaceLogos(logo, broadcasting: type)
+            try await store.noteHelperChanged(broadcasting: type, at: copied)
+        }
+        try Sqlite(path: path).run("DELETE FROM meta WHERE key = 'guide_from:cs'")
 
+        let who = try await store.claim(for: recorder(2))
+
+        XCTAssertEqual(who, .another, "set up wrong: the cache was not made over")
+        let counts = try await store.counts()
+        XCTAssertEqual(counts["td"], GuideCounts(channels: 2, programs: 4, refreshed: RecorderTime.format(fetched),
+                                                 checked: RecorderTime.format(fetched), givenBy: .tv),
+                       "the television's type did not stay as it was")
+        expectEqual(try await store.channels(broadcasting: "td", includeHidden: true).map(\.logo),
+                    [Data([1, 2, 3]), nil], "the television's logo went")
+        expectEqual(try await store.helperChanged(broadcasting: "td"), copied)
+        for type in ["bs", "cs"] {
+            XCTAssertEqual(counts[type], GuideCounts(channels: 0, programs: 0, refreshed: nil, checked: nil),
+                           "\(type): what the recorder gave stayed for another recorder")
+            expectEqual(try await store.channels(broadcasting: type, includeHidden: true), [], type)
+        }
+    }
+
+    /// The device goes with the rows: a cache whose guide a schema change threw away holds no rows, and says of
+    /// no type that the television gave it.
+    func testTheDeviceGoesWithTheRows() async throws {
         let path = temporaryPath()
         do {
             let store = try GuideStore(path: path, schemaVersion: "1")
             try await store.replace(try sampleServices(), broadcasting: "td", givenBy: .tv)
         }
         let rebuilt = try GuideStore(path: path, schemaVersion: "2")
-        counts = try await rebuilt.counts()
+        let counts = try await rebuilt.counts()
         XCTAssertEqual(counts["td"]?.programs, 0, "set up wrong: the guide was not thrown away")
         XCTAssertEqual(counts["td"]?.givenBy, .recorder, "a guide thrown away")
     }

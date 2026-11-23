@@ -413,8 +413,9 @@ does the first to answer a phone that had not yet written down whose its cache i
 and wherever it was read: nothing is guessed. A recorder that stops saying which it is is still the one known,
 and one that never says is written down as nobody.
 
-Another recorder gets nothing that was the first's: its lists are read for itself, the texts go, the guide is
-fetched again, the warning can be given again, and what was waiting is held with a reason, said on the strip
+Another recorder gets nothing that was the first's: its lists are read for itself, the texts go, what the first
+gave of the guide goes and is fetched again where the recorder gives the guide (what the television gave
+stays), the warning can be given again, and what was waiting is held with a reason, said on the strip
 by whichever connect gets that far, until the reader asks for it to be sent again. That holds for a cache
 whose first owner could not be written down, since the app knows its lists were the first one's. Another
 recorder answering at the address the first one had, with nobody choosing, is found out at the next connect
@@ -1298,11 +1299,13 @@ an address the router has moved it to finds everything the phone keeps as it lef
 chosen in the settings, or found at the address the first one had -- gets nothing that was the first's: its
 lists are read for itself, the first's programme texts and guide go and the guide is fetched again, the
 low-space warning can be given again, and the MAC kept for waking is let go of unless the new recorder carries
-it. The check before an operation hears who is there too, and an operation meant for one recorder is not sent
-to another; a sheet left open on a recording or a reservation of the last one closes itself, and the strip
-says that another recorder answered and the lists were read again, on whichever screen is in front. A cache
-from a version before this was kept does not say whose it is, and is taken for the first answerer's as it
-stands. The queue is the reader's, and what becomes of it is under Reservations made away from home.
+it. What the television gave of the guide is not the first's, and stays as it is, type by type
+(`GuideStore.claim`). The check before an operation hears who is there too, and an operation meant for one
+recorder is not sent to another; a sheet left open on a recording or a reservation of the last one closes
+itself, and the strip says that another recorder answered and the lists were read again, on whichever screen
+is in front. A cache from a version before this was kept does not say whose it is, and is taken for the first
+answerer's as it stands. The queue is the reader's, and what becomes of it is under Reservations made away
+from home.
 
 Tapping the guide tab while it is already showing goes to what is on at this minute, and to today if
 another day was open. The tab bar's own answer to that tap is the top of the broadcast day, which is four

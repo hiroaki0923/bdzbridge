@@ -593,12 +593,15 @@ public actor GuideStore {
     /// The same recorder, at any address, finds everything as it left it. It is told by reading alone and
     /// nothing is written, so a connect never waits behind another writer for this. Another recorder takes
     /// the cache over, and in one transaction what the last one left goes -- the programme texts of its
-    /// recordings (kept by the recording's number, which each recorder gives out for itself), the guide with
-    /// its logos, the marks of when each type was fetched and of which device gave it, and the USB disk it was
-    /// last known to have registered (`knownUSBDisk`) -- and every reservation waiting for a recorder is held
-    /// with `reason`, as one a recorder refused is, until the reader sends it again. What the reader
-    /// set stays: which channels are hidden, and their order. So does what waits for another device, which
-    /// one recorder taking another's place says nothing about.
+    /// recordings (kept by the recording's number, which each recorder gives out for itself), the guide it
+    /// gave with its logos, the marks of when each type of that was fetched and of which device gave it, and
+    /// the USB disk it was last known to have registered (`knownUSBDisk`) -- and every reservation waiting for
+    /// a recorder is held with `reason`, as one a recorder refused is, until the reader sends it again. What
+    /// the reader set stays: which channels are hidden, and their order. So does what waits for another device,
+    /// which one recorder taking another's place says nothing about, and so does every type of the guide that
+    /// the television gave (`GuideCounts.givenBy`), rows and marks: it is not what the last recorder left, and
+    /// where the television gives the home's guide no recorder would put it back. A cache written before the
+    /// device was kept is the recorder's in every type, and all of its guide goes.
     ///
     /// A cache from before its owner was written down does not say whose it is, and nothing is guessed: the
     /// first to answer is put down as its owner and finds it as it is. (The MAC kept for waking would tell
@@ -621,13 +624,17 @@ public actor GuideStore {
             let who = judged(try recognises(description))
             if who == .another {
                 try db.run("DELETE FROM title_summaries")
-                try db.run("DELETE FROM programs")
-                try db.run("DELETE FROM channels")
-                try db.run("DELETE FROM logos")
-                try db.run("""
-                DELETE FROM meta WHERE key LIKE 'epg_refreshed:%' OR key LIKE 'epg_checked:%'
-                    OR key LIKE 'guide_from:%' OR key=?
-                """, [.text(Self.knownUSBDiskKey)])
+                // The types the television gave stay, rows and marks; every other type's go.
+                let kept = try Codes.epgFiles.keys.filter { try givenBy($0) == .tv }
+                let holes = kept.map { _ in "?" }.joined(separator: ",")
+                for table in ["programs", "channels", "logos"] {
+                    try db.run("DELETE FROM \(table) WHERE bt NOT IN (\(holes))", kept.map { .text($0) })
+                }
+                for mark in ["epg_refreshed", "epg_checked", "guide_from"] {
+                    try db.run("DELETE FROM meta WHERE key LIKE ? AND key NOT IN (\(holes))",
+                               [.text("\(mark):%")] + kept.map { .text("\(mark):\($0)") })
+                }
+                try db.run("DELETE FROM meta WHERE key=?", [.text(Self.knownUSBDiskKey)])
                 if let reason {
                     try db.run("UPDATE pending_reservations SET problem = ? WHERE target = ?",
                                [.text(reason), .text(DeviceSlot.recorder.rawValue)])

@@ -328,11 +328,11 @@ final class RecorderHost: RecorderLinkHost {
         if wasConnected { listsToReadAgain = had }
     }
 
-    /// The guide on screen was the other recorder's, and the rows waiting have a reason on them now. The marks
-    /// the defaults keep about its disks and its guide go with it, and so does what the runs with no screen
-    /// told of it (`ToldOnce`): the next run tells what it finds afresh. Their warning of reservations not yet at
-    /// the recorder is taken away, where the app asks the system about notifications at all: the rows it names
-    /// are held for the reader now, and none of them waits to go.
+    /// What the guide on screen had of the other recorder's is gone (`GuideStore.claim`), and the rows waiting
+    /// have a reason on them now. The marks the defaults keep about its disks and its guide go with it, and so
+    /// does what the runs with no screen told of it (`ToldOnce`): the next run tells what it finds afresh. Their
+    /// warning of reservations not yet at the recorder is taken away, where the app asks the system about
+    /// notifications at all: the rows it names are held for the reader now, and none of them waits to go.
     ///
     /// Both go again in the queue's turn, as the runs with no screen tell and keep what they tell once: a run
     /// telling as the cache is made over, which looked at the cache before it did, is over first, and what it
