@@ -44,7 +44,7 @@ class MainActivity : Activity() {
     private lateinit var deviceList: LinearLayout
     private val rows = ArrayList<DeviceRow>()
     private var showingCode = false
-    private var lastRegistered: String? = null
+    private var lastRegistered: Device? = null
     private val format = SimpleDateFormat("M/d HH:mm", Locale.JAPAN)
 
     /** A registered device's row, kept from one drawing to the next so that its button keeps the remote's focus. */
@@ -187,8 +187,12 @@ class MainActivity : Activity() {
         val devices = Helper.devices(this)
         devices.takeRegistered()?.let { registered ->
             showingCode = false
-            lastRegistered = registered.label
+            lastRegistered = registered
         }
+        // Read after the registration was taken, so that the device just registered is in it.
+        val list = devices.list()
+        // The line goes with the device: once it is revoked, the slot no longer says it was registered.
+        if (lastRegistered?.let { r -> list.none { it.id == r.id } } == true) lastRegistered = null
         if (showingCode) {
             val code = devices.showCode()
             if (code == null) slot("しばらく待ってから", 28f, bold = true)
@@ -196,11 +200,11 @@ class MainActivity : Activity() {
             codeButton.text = "番号を消す"
         } else {
             // A long name is cut at the end of the slot's second line; the list below has it whole.
-            slot(lastRegistered?.let { "「$it」を登録しました" } ?: "", 18f)
+            slot(lastRegistered?.let { "「${it.label}」を登録しました" } ?: "", 18f)
             codeButton.text = "登録の番号を出す"
         }
 
-        showDevices(devices.list(), devices)
+        showDevices(list, devices)
     }
 
     /**
