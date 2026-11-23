@@ -469,7 +469,7 @@ private fun Filters(shown: Recordings) {
     Box {
         IconButton(onClick = { open = true }) {
             Icon(if (shown.filtering) Icons.Filled.FilterAlt else Icons.Outlined.FilterAlt,
-                 contentDescription = shown.filterLabel)
+                 contentDescription = shown.filterMenuLabel)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             val group = @Composable { heading: String, options: List<Labelled>, chosen: String, pick: suspend (String) -> Unit ->

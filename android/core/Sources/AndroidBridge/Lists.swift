@@ -10,12 +10,11 @@ import RecorderKit
 /// the lists say by what the model holds comes with the read of their screens (`ReservationsScreen`,
 /// `RecordingsScreen`).
 public struct ListWordsText: Sendable {
-    /// What the two lists say alike: the swipe that deletes, the heading of the sort, the mark of a row being
-    /// recorded and the first choice of a menu that narrows.
+    /// What the two lists say alike: the swipe that deletes, the heading of the sort and the mark of a row being
+    /// recorded. The first choice of a menu that narrows comes with the menu's choices, in the screens' reads.
     public var deleteLabel: String
     public var sortHeading: String
     public var recordingMark: String
-    public var allLabel: String
     /// The reservations' list: its title, the way to the keyword conditions, the menu's button and the heading of its
     /// kinds, what a row marks (a clash, or made by the recorder's own conditions) and the button that sends a
     /// waiting row again.
@@ -35,7 +34,7 @@ public struct ListWordsText: Sendable {
 
     static let all = ListWordsText(
         deleteLabel: ListWords.deleteLabel, sortHeading: ListWords.sortHeading,
-        recordingMark: ListWords.recordingMark, allLabel: ListWords.allLabel,
+        recordingMark: ListWords.recordingMark,
         reservationsTitle: ReservationsState.title, conditionsLabel: ReservationsState.conditionsLabel,
         menuLabel: ReservationsState.menuLabel, kindHeading: ReservationsState.kindHeading,
         conflictMark: ReservationsState.conflictMark, recorderMadeMark: ReservationsState.recorderMadeMark,
@@ -340,7 +339,7 @@ public struct RecordingsScreen: Sendable {
     public var state: String
     public var filtering: Bool
     /// What the menu's button is called, by what it filters by: the disk only where there is more than one.
-    public var filterLabel: String
+    public var filterMenuLabel: String
     /// More on the television's disk than the list holds, said under it.
     public var tvNote: String
     public var rows: [RecordingRow]
@@ -562,7 +561,7 @@ public final class RecordingsWindow: Sendable {
             states: [Labelled(code: "", label: ListWords.allLabel)] + WatchState.allCases.map { Labelled(code: $0.rawValue, label: $0.label) },
             state: model.titleState?.rawValue ?? "",
             filtering: state.filtering,
-            filterLabel: RecordingsState.filterMenuLabel(hasDestinations: !model.titleDestinations.isEmpty),
+            filterMenuLabel: RecordingsState.filterMenuLabel(hasDestinations: !model.titleDestinations.isEmpty),
             tvNote: model.tvTitlesNote?.asABody ?? "",
             rows: rows,
             groups: groups.map {

@@ -784,7 +784,7 @@ data class Recordings(
     val loadingDetail: String, val emptyTitle: String, val emptyDetail: String, val heading: String,
     val subtitle: String, val destinations: List<Labelled>, val destination: String, val genres: List<Labelled>,
     val genre: String, val sorts: List<Labelled>, val sort: String, val states: List<Labelled>, val state: String,
-    val filtering: Boolean, val filterLabel: String, val tvNote: String, val rows: List<RecordingItem>, val groups: List<GroupItem>,
+    val filtering: Boolean, val filterMenuLabel: String, val tvNote: String, val rows: List<RecordingItem>, val groups: List<GroupItem>,
     val asked: Asked?, val actionHeld: Boolean, val loadKey: String, val tvKey: String, val outdatedKey: String,
     val logos: Map<String, ByteArray>,
 )
@@ -1014,7 +1014,7 @@ private fun Recordings(it: jp.hiroaki.bdbridge.bridge.RecordingsScreen): Recordi
         it.isHasNoRecorder, NoRecorder(it.getNoRecorder(arena)), it.isLoading, loading.title, loading.detail,
         empty.title, empty.detail, it.heading, it.subtitle, labelled(it.getDestinations(arena)), it.destination,
         labelled(it.getGenres(arena)), it.genre, labelled(it.getSorts(arena)), it.sort, labelled(it.getStates(arena)),
-        it.state, it.isFiltering, it.filterLabel, it.tvNote,
+        it.state, it.isFiltering, it.filterMenuLabel, it.tvNote,
         it.getRows(arena).map { row -> RecordingItem(row) },
         it.getGroups(arena).map { group ->
             GroupItem(group.id, group.name, group.count, group.size, group.unwatched, group.locked, group.span)
@@ -1190,14 +1190,14 @@ private fun TabWords(it: jp.hiroaki.bdbridge.bridge.TabWordsText) = TabWords(
  * (`ListWordsText`). Kept from the model's start (`RecBridge.listWords`).
  */
 data class ListWords(
-    val deleteLabel: String, val sortHeading: String, val recordingMark: String, val allLabel: String,
+    val deleteLabel: String, val sortHeading: String, val recordingMark: String,
     val reservationsTitle: String, val conditionsLabel: String, val menuLabel: String, val kindHeading: String,
     val conflictMark: String, val recorderMadeMark: String, val sendAgainLabel: String, val viewMenuLabel: String,
     val destinationHeading: String, val genreHeading: String, val viewingHeading: String,
 )
 
 private fun ListWords(it: jp.hiroaki.bdbridge.bridge.ListWordsText) = ListWords(
-    it.deleteLabel, it.sortHeading, it.recordingMark, it.allLabel, it.reservationsTitle, it.conditionsLabel,
+    it.deleteLabel, it.sortHeading, it.recordingMark, it.reservationsTitle, it.conditionsLabel,
     it.menuLabel, it.kindHeading, it.conflictMark, it.recorderMadeMark, it.sendAgainLabel, it.viewMenuLabel,
     it.destinationHeading, it.genreHeading, it.viewingHeading,
 )
