@@ -30,11 +30,11 @@ cd app && xcodegen generate && open BDBridge.xcodeproj
 
 ## 画面
 
-| iOS アプリ（番組表・リスト） | iOS アプリ（番組表・表） | PWA（番組表・表） |
+| iOS アプリ（番組表・リスト） | iOS アプリ（番組表・表） | iOS アプリ（予約） |
 |---|---|---|
-| <img src="docs/screenshots/ios-guide-list.png" alt="iOS アプリの番組表（リストモード）" width="240"> | <img src="docs/screenshots/ios-guide-grid.png" alt="iOS アプリの番組表（表モード）" width="240"> | <img src="docs/screenshots/guide-grid.png" alt="PWA の番組表（表モード）" width="240"> |
+| <img src="docs/screenshots/ios-guide-list.png" alt="iOS アプリの番組表（リストモード）" width="240"> | <img src="docs/screenshots/ios-guide-grid.png" alt="iOS アプリの番組表（表モード）" width="240"> | <img src="docs/screenshots/ios-reservations.png" alt="iOS アプリの予約一覧" width="240"> |
 
-表モードは横にチャンネル、縦に時間で、ピンチで時間軸を伸縮できます。番組表のデータと局ロゴはレコーダー（ヘルパーを使う家ではテレビ）が受信したもので、このリポジトリには含まれていません。ロゴを持たない局は名前だけで表示します（レコーダー自身の画面もそうなります）。
+画像はアプリのサンプルデータで撮ったもので、局も番組も架空です。表モードは横にチャンネル、縦に時間で、ピンチで時間軸を伸縮できます。番組表のデータと局ロゴはレコーダー（ヘルパーを使う家ではテレビ）が受信したもので、このリポジトリには含まれていません。ロゴを持たない局は名前だけで表示します（レコーダー自身の画面もそうなります）。
 
 ## 使い方
 
