@@ -188,8 +188,8 @@ extension AppModel {
     }
 
     public var channelName: String {
-        guard let serviceFilter else { return "すべての局" }
-        return channels.first { $0.serviceID == serviceFilter }?.name ?? "すべての局"
+        guard let serviceFilter else { return GuideWords.allStationsLabel }
+        return channels.first { $0.serviceID == serviceFilter }?.name ?? GuideWords.allStationsLabel
     }
 
     // MARK: - which channels the guide shows

@@ -52,19 +52,19 @@ struct RootView: View {
     var body: some View {
         TabView(selection: selection) {
             GuideScreen()
-                .tabItem { Label("番組表", systemImage: "squareshape.split.3x3") }
+                .tabItem { Label(TabWords.guide, systemImage: "squareshape.split.3x3") }
                 .tag("guide")
             SearchScreen(model: model)
-                .tabItem { Label("検索", systemImage: "magnifyingglass") }
+                .tabItem { Label(TabWords.search, systemImage: "magnifyingglass") }
                 .tag("search")
             ReservationsScreen(model: model)
-                .tabItem { Label("予約", systemImage: "clock") }
+                .tabItem { Label(TabWords.reservations, systemImage: "clock") }
                 .tag("reservations")
             RecordingsScreen(model: model)
-                .tabItem { Label("録画", systemImage: "play.rectangle") }
+                .tabItem { Label(TabWords.recordings, systemImage: "play.rectangle") }
                 .tag("recordings")
             SettingsScreen(model: model)
-                .tabItem { Label("設定", systemImage: "slider.horizontal.3") }
+                .tabItem { Label(TabWords.settings, systemImage: "slider.horizontal.3") }
                 .tag("settings")
         }
         .task {

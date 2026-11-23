@@ -4,8 +4,8 @@ import RecorderKit
 /// The settings' words, for the screen to lay out: its title, the mode a new reservation starts at, the search, the
 /// stations shown, the guide kept on the phone, the demo and the app. The recorder's part says its own
 /// (`RecorderSettingsState`), the television's part its own (`TVSettingsState`), and 番組表を更新 is the press's
-/// (`AppModel.refreshGuideLabel`). The tutorial says the search's button, its progress, the recorders and the
-/// televisions it found and the demo's button in the same words.
+/// (`AppModel.refreshGuideLabel`). The tutorial says the search's button, its progress, the causes it lists, the
+/// recorders and the televisions it found and the demo's button in the same words.
 public enum SettingsWords {
     public static let title = "設定"
 
@@ -47,6 +47,9 @@ public enum SettingsWords {
 
     /// What a found recorder's row says at its end while a tap connects to it.
     public static let connectFoundLabel = "接続する"
+
+    /// The heading over the likely causes a search that found nothing, or failed, lists.
+    public static let causesHeading = "考えられる原因"
 
     /// A found recorder's second line: its address and the name it gave, and whether it serves a guide.
     public static func foundRecorderDetails(_ found: RecorderDescription) -> String {

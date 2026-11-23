@@ -64,13 +64,15 @@ fun App() {
     if (choosing ?: shown.welcomes) DevicesScreen(shown, close) else RecorderScreen { choosing = true }
 }
 
-/** The screens the navigation goes between, as the iOS app's tabs. */
-enum class Destination(val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
-    Guide("番組表", Icons.Outlined.GridView, Icons.Filled.GridView),
-    Search("検索", Icons.Outlined.Search, Icons.Filled.Search),
-    Reservations("予約", Icons.Outlined.Schedule, Icons.Filled.Schedule),
-    Recordings("録画", Icons.Outlined.VideoLibrary, Icons.Filled.VideoLibrary),
-    Settings("設定", Icons.Outlined.Settings, Icons.Filled.Settings),
+/** The screens the navigation goes between, as the iOS app's tabs, named as the model names them (`RecBridge.tabWords`). */
+enum class Destination(private val named: (TabWords) -> String, val icon: ImageVector, val selectedIcon: ImageVector) {
+    Guide({ it.guide }, Icons.Outlined.GridView, Icons.Filled.GridView),
+    Search({ it.search }, Icons.Outlined.Search, Icons.Filled.Search),
+    Reservations({ it.reservations }, Icons.Outlined.Schedule, Icons.Filled.Schedule),
+    Recordings({ it.recordings }, Icons.Outlined.VideoLibrary, Icons.Filled.VideoLibrary),
+    Settings({ it.settings }, Icons.Outlined.Settings, Icons.Filled.Settings);
+
+    val label: String get() = named(RecBridge.tabWords)
 }
 
 /**

@@ -48,6 +48,15 @@ public final class ChannelsState {
     /// to.
     public var customised: Bool { channels.contains { $0.hidden || $0.position != nil } }
 
+    /// The screen's title: what the way to it is called in the settings.
+    public static let title = SettingsWords.channelsLabel
+
+    /// The button at the foot of the list that asks the question before the reset, that question's own button, and the
+    /// title of the alert that says a change could not be saved.
+    public static let resetLabel = "レコーダーの順に戻して、すべて表示"
+    public static let confirmResetLabel = "レコーダーの順に戻す"
+    public static let failureTitle = "保存できませんでした"
+
     /// What the screen says under the list, and the question before the reset, for the type the list is of.
     public static let footer = "オフにした局は、番組表と番組の検索に出なくなります。右端の三本線をドラッグすると、並び順を変えられます。"
         + "予約と録画の一覧、レコーダーの録画はそのままです。"

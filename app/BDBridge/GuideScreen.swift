@@ -61,11 +61,11 @@ struct GuideScreen: View {
                         // Above the channels rather than after them, where a type with sixty would leave it
                         // at the foot of a long scroll. In the grid as well, whose columns come in this order.
                         Button { arranging = true } label: {
-                            Label("チャンネルの表示と並び順", systemImage: "arrow.up.arrow.down")
+                            Label(GuideWords.channelsLabel, systemImage: "arrow.up.arrow.down")
                         }
                         if !grid {
                             Picker("局", selection: channelChoice) {
-                                Text("すべての局").tag(-1)
+                                Text(GuideWords.allStationsLabel).tag(-1)
                                 ForEach(model.channels) { channel in
                                     Text(channel.name).tag(channel.serviceID)
                                 }
@@ -85,10 +85,10 @@ struct GuideScreen: View {
                     HStack(spacing: 0) {
                         Button { step(-1) } label: { dayArrow("chevron.left") }
                             .disabled(dayIndex <= 0)
-                            .accessibilityLabel("前の日")
+                            .accessibilityLabel(GuideWords.previousDayLabel)
                         Menu {
                             // Where a tap on the guide's tab already showing goes, which few would guess.
-                            Button { model.goToNow() } label: { Label("今", systemImage: "clock") }
+                            Button { model.goToNow() } label: { Label(GuideWords.nowLabel, systemImage: "clock") }
                             Divider()
                             Picker("日付", selection: dayChoice) {
                                 ForEach(model.days, id: \.self) { day in
@@ -103,7 +103,7 @@ struct GuideScreen: View {
                         }
                         Button { step(1) } label: { dayArrow("chevron.right") }
                             .disabled(dayIndex >= model.days.count - 1)
-                            .accessibilityLabel("次の日")
+                            .accessibilityLabel(GuideWords.nextDayLabel)
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -129,7 +129,7 @@ struct GuideScreen: View {
             // Said here, where it was asked for: the line of what went wrong is not shown over a guide.
             .alert(AppModel.refreshFailedTitle,
                    isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
-                Button("OK", role: .cancel) {}
+                Button(SheetWords.okLabel, role: .cancel) {}
             } message: {
                 Text(failure?.asABody ?? "")
             }
@@ -291,14 +291,14 @@ struct GuideEmptyView: View {
                 Text(says.detail ?? "")
             } actions: {
                 if let arrange {
-                    Button("チャンネルの表示と並び順", action: arrange)
+                    Button(GuideWords.channelsLabel, action: arrange)
                 }
             }
         case .narrowedToNothing:
             ContentUnavailableView {
                 Label(says.title, systemImage: "calendar")
             } actions: {
-                Button("すべての局を表示") { model.serviceFilter = nil }
+                Button(GuideWords.showAllStationsLabel) { model.serviceFilter = nil }
             }
         default:
             ContentUnavailableView(says.title, systemImage: "calendar", description: Text(says.detail ?? ""))
@@ -378,7 +378,7 @@ struct ProgramRowView: View {
     private var meta: Text {
         var line = Text(program.serviceName)
         if onAir {
-            line = line + Text.rowGap + Text("放送中").fontWeight(.semibold).foregroundStyle(.tint)
+            line = line + Text.rowGap + Text(GuideWords.onAirLabel).fontWeight(.semibold).foregroundStyle(.tint)
         }
         if let mark = GuideMark(reservation: reservation, pending: pending) {
             line = line + Text.rowGap + Text(mark.word)
@@ -396,6 +396,6 @@ struct ProgramRowView: View {
         var found = AttributedString(snippet.match)
         found.foregroundColor = .primary
         found.inlinePresentationIntent = .stronglyEmphasized
-        return AttributedString("詳細：" + snippet.before) + found + AttributedString(snippet.after)
+        return AttributedString(GuideWords.detailsPrefix + snippet.before) + found + AttributedString(snippet.after)
     }
 }

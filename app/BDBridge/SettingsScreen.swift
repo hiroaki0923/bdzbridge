@@ -210,7 +210,7 @@ struct SettingsScreen: View {
             }
             .alert(AppModel.refreshFailedTitle,
                    isPresented: Binding(get: { guideFailure != nil }, set: { if !$0 { guideFailure = nil } })) {
-                Button("OK", role: .cancel) {}
+                Button(SheetWords.okLabel, role: .cancel) {}
             } message: {
                 Text(guideFailure?.asABody ?? "")
             }

@@ -24,6 +24,9 @@ public enum Tutorial {
     public static let step4Detail = "レコーダーはそのまま接続します。テレビは登録を始めるので、テレビの画面に出る 4 桁の番号を"
         + "入力してください。"
 
+    /// The button that shows the address field.
+    public static let typeAddressLabel = "IP アドレスを直接入力"
+
     /// Under the address field.
     public static let addressFooter = "見つからない場合は、レコーダーの設定画面で確認できる IP アドレスを直接入力できます。"
         + "テレビは、あとで設定の「テレビ」からアドレスを入力して追加できます。"

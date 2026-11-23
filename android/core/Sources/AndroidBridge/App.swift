@@ -205,6 +205,11 @@ public final class RecBridgeApp: Sendable {
     public func settingsWords() -> SettingsWordsText { .all }
     /// The television's words that never change, as the model has them, for Kotlin to keep (`TelevisionWordsText`).
     public func televisionWords() -> TelevisionWordsText { .all }
+    /// The guide's and the stations' screen's words that never change, as the model has them, for Kotlin to keep
+    /// (`GuideWordsText`).
+    public func guideWords() -> GuideWordsText { .all }
+    /// The names of the tabs, as the model has them, for Kotlin to keep (`TabWordsText`).
+    public func tabWords() -> TabWordsText { .all }
     public func search() async -> SearchWindow {
         await MainActor.run { SearchWindow(model) }
     }
@@ -373,6 +378,19 @@ final class Watched<Shown: Sendable>: Sendable {
             }
         }
     }
+}
+
+/// The names of the five tabs, as the model words them (`TabWords`), for Kotlin to keep from the model's start.
+public struct TabWordsText: Sendable {
+    public var guide: String
+    public var search: String
+    public var reservations: String
+    public var recordings: String
+    public var settings: String
+
+    static let all = TabWordsText(
+        guide: TabWords.guide, search: TabWords.search, reservations: TabWords.reservations,
+        recordings: TabWords.recordings, settings: TabWords.settings)
 }
 
 /// A title and what is said under it, as an empty screen says them.

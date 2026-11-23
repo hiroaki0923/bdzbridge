@@ -23,7 +23,8 @@
   report, and how a mode and a repeat are worded), the settings' words (`SettingsWords`, the recorder's part's on
   `RecorderSettingsState`, the television's and its sheets' on `TVSettingsState`, `TVRegisterState` and
   `HelperRegisterState`, and the words of 番組表を更新 on `AppModel`), the words of the screen that says what the
-  television speaks (`TVCapabilitiesWords`), the disclaimer's words (`Disclaimer`) and the tutorial's (`Tutorial`, but for the three that say iPhone or name the
+  television speaks (`TVCapabilitiesWords`), the guide's words (`GuideWords`, the stations' screen's own on
+  `ChannelsState`), the tabs' names (`TabWords`), the disclaimer's words (`Disclaimer`) and the tutorial's (`Tutorial`, but for the three that say iPhone or name the
   system's question, which the view keeps); the SwiftUI views lay them out and hand them the reader's presses. The connection to each device -- when it is
   asked, woken, made sure of, looked for at another address and given up on -- is RecorderKit's `DeviceLink`
   with the device's driver (`RecorderDriver`, `TVDriver`); what the link tells the app is told to a host of

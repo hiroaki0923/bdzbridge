@@ -32,12 +32,16 @@ public struct SheetWordsText: Sendable {
     public var detailsHeading: String
     public var recordingLine: String
     public var deleteReservationLabel: String
+    /// The button that closes a report, and the one that gives up a question.
+    public var okLabel: String
+    public var cancelLabel: String
 
     static let all = SheetWordsText(
         station: SheetWords.station, starts: SheetWords.starts, length: SheetWords.length, genre: SheetWords.genre,
         quality: SheetWords.quality, repeating: SheetWords.repeating, disk: SheetWords.disk,
         summaryHeading: SheetWords.summaryHeading, detailsHeading: SheetWords.detailsHeading,
-        recordingLine: SheetWords.recordingLine, deleteReservationLabel: SheetWords.deleteReservationLabel)
+        recordingLine: SheetWords.recordingLine, deleteReservationLabel: SheetWords.deleteReservationLabel,
+        okLabel: SheetWords.okLabel, cancelLabel: SheetWords.cancelLabel)
 }
 
 /// The one question or answer up at a time: its title and what it says, the button that does something (`action`,

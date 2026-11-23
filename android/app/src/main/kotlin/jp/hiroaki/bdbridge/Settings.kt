@@ -81,7 +81,7 @@ fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit, setUp: () ->
     var helperSheet by remember { mutableStateOf<Long?>(null) }
     guideFailure?.let { said ->
         AlertDialog(onDismissRequest = { guideFailure = null },
-                    confirmButton = { TextButton(onClick = { guideFailure = null }) { Text("OK") } },
+                    confirmButton = { TextButton(onClick = { guideFailure = null }) { Text(RecBridge.sheetWords.okLabel) } },
                     title = { Text(words.refreshFailedTitle) }, text = { Text(said) })
     }
     tvSheet?.let { request -> TVRegisterSheetView(request) { tvSheet = null } }

@@ -95,7 +95,7 @@ fun GuideScreen(search: () -> Unit, arrange: () -> Unit) {
     if (!wide) opened?.let { ProgrammeSheetView(it) { opened = null } }
     failure?.let { said ->
         AlertDialog(onDismissRequest = { failure = null },
-                    confirmButton = { TextButton(onClick = { failure = null }) { Text("OK") } },
+                    confirmButton = { TextButton(onClick = { failure = null }) { Text(RecBridge.sheetWords.okLabel) } },
                     title = { Text(RecBridge.settingsWords.refreshFailedTitle) }, text = { Text(said) })
     }
     Scaffold(topBar = { Refused {
@@ -110,7 +110,7 @@ fun GuideScreen(search: () -> Unit, arrange: () -> Unit) {
                              contentDescription = guide.modeLabel)
                     }
                     IconButton(onClick = { scope.launch { RecBridge.act { it.guide.goToNow() } } }) {
-                        Icon(Icons.Outlined.Today, contentDescription = "今")
+                        Icon(Icons.Outlined.Today, contentDescription = RecBridge.guideWords.nowLabel)
                     }
                     IconButton(onClick = {
                         refreshing = true
@@ -120,7 +120,7 @@ fun GuideScreen(search: () -> Unit, arrange: () -> Unit) {
                             if (said.isNotEmpty()) failure = said
                         }
                     }, enabled = guide.canRefresh && !refreshing) {
-                        Icon(Icons.Default.Refresh, contentDescription = "番組表を更新")
+                        Icon(Icons.Default.Refresh, contentDescription = RecBridge.settingsWords.refreshGuideLabel)
                     }
                 },
             )
@@ -150,10 +150,10 @@ fun GuideScreen(search: () -> Unit, arrange: () -> Unit) {
                     "fetching" -> Unavailable(Icons.Outlined.GridView, guide.title, guide.detail) { CircularProgressIndicator() }
                     "empty" -> Unavailable(if (guide.offers == "arrange") Icons.Outlined.VisibilityOff else Icons.Outlined.GridView,
                                            guide.title, guide.detail) {
-                        if (guide.offers == "arrange") Button(onClick = arrange) { Text("チャンネルの表示と並び順") }
+                        if (guide.offers == "arrange") Button(onClick = arrange) { Text(RecBridge.guideWords.channelsLabel) }
                         if (guide.offers == "everyStation") {
                             TextButton(onClick = { scope.launch { RecBridge.act { it.guide.chooseStation(-1) } } }) {
-                                Text("すべての局を表示")
+                                Text(RecBridge.guideWords.showAllStationsLabel)
                             }
                         }
                     }
@@ -193,7 +193,7 @@ private fun WhatIsShown(guide: Guide, arrange: () -> Unit) {
             // Above the stations rather than after them, where a type with sixty would leave it at the foot of a long
             // menu, as on iOS.
             HorizontalDivider()
-            DropdownMenuItem(text = { Text("チャンネルの表示と並び順") }, leadingIcon = { Icon(Icons.Default.SwapVert, contentDescription = null) },
+            DropdownMenuItem(text = { Text(RecBridge.guideWords.channelsLabel) }, leadingIcon = { Icon(Icons.Default.SwapVert, contentDescription = null) },
                              onClick = {
                                  open = false
                                  arrange()
@@ -201,7 +201,7 @@ private fun WhatIsShown(guide: Guide, arrange: () -> Unit) {
             // The grid shows every station, whatever the list is narrowed to.
             if (!guide.grid && guide.stations.isNotEmpty()) {
                 HorizontalDivider()
-                Choosable("すべての局", guide.station < 0) {
+                Choosable(RecBridge.guideWords.allStationsLabel, guide.station < 0) {
                     open = false
                     scope.launch { RecBridge.act { it.guide.chooseStation(-1) } }
                 }
@@ -233,7 +233,7 @@ private fun DayBar(guide: Guide) {
         horizontalArrangement = Arrangement.Center) {
         IconButton(onClick = { scope.launch { RecBridge.act { it.guide.chooseDay((guide.day - 1).toLong()) } } },
                    enabled = guide.day > 0) {
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "前の日")
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = RecBridge.guideWords.previousDayLabel)
         }
         Box {
             TextButton(onClick = { open = true }) {
@@ -241,7 +241,7 @@ private fun DayBar(guide: Guide) {
                 Icon(Icons.Default.ArrowDropDown, contentDescription = null)
             }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                DropdownMenuItem(text = { Text("今") }, leadingIcon = { Icon(Icons.Outlined.Today, contentDescription = null) },
+                DropdownMenuItem(text = { Text(RecBridge.guideWords.nowLabel) }, leadingIcon = { Icon(Icons.Outlined.Today, contentDescription = null) },
                                  onClick = {
                                      open = false
                                      scope.launch { RecBridge.act { it.guide.goToNow() } }
@@ -257,7 +257,7 @@ private fun DayBar(guide: Guide) {
         }
         IconButton(onClick = { scope.launch { RecBridge.act { it.guide.chooseDay((guide.day + 1).toLong()) } } },
                    enabled = guide.day < guide.days.size - 1) {
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "次の日")
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = RecBridge.guideWords.nextDayLabel)
         }
     }
 }
@@ -332,7 +332,7 @@ internal fun ProgrammeRow(item: Programme, logo: ImageBitmap?, now: Long, day: S
                 val middle = Modifier.align(Alignment.CenterVertically)
                 if (logo != null) Image(logo, contentDescription = null, middle.height(14.dp))
                 Text(item.station, style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant, modifier = middle)
-                if (onAir) Mark("放送中", colors.primaryContainer, colors.onPrimaryContainer, middle)
+                if (onAir) Mark(RecBridge.guideWords.onAirLabel, colors.primaryContainer, colors.onPrimaryContainer, middle)
                 if (item.mark.isNotEmpty()) {
                     if (item.markIsRed) Mark(item.mark, colors.errorContainer, colors.onErrorContainer, middle)
                     else Mark(item.mark, marks.reserved, marks.onReserved, middle)

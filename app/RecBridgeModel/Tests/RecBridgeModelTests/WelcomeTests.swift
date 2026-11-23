@@ -190,6 +190,7 @@ final class WelcomeTests: XCTestCase {
         XCTAssertEqual(Tutorial.heading, "セットアップ")
         XCTAssertEqual(Tutorial.reviewRow, "セットアップ手順を見る")
         XCTAssertEqual(Tutorial.step3Title, "「レコーダーとテレビを探す」をタップする")
+        XCTAssertEqual(Tutorial.typeAddressLabel, "IP アドレスを直接入力")
         XCTAssertTrue(Tutorial.demoFooter.hasSuffix("いつでも設定から終了できます。"))
     }
 }

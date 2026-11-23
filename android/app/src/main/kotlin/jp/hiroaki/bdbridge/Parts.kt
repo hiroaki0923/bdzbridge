@@ -149,7 +149,7 @@ fun SearchOutcome(outcome: String, failed: Boolean, note: String, causes: List<S
              modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         if (note.isNotEmpty()) Footnote(note)
         if (causes.isNotEmpty()) {
-            Text("考えられる原因", style = MaterialTheme.typography.labelMedium)
+            Text(RecBridge.settingsWords.causesHeading, style = MaterialTheme.typography.labelMedium)
             for (cause in causes) Footnote("・$cause")
         }
     }
