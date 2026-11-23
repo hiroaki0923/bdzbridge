@@ -45,6 +45,7 @@ class MainActivity : Activity() {
     private val rows = ArrayList<DeviceRow>()
     private var showingCode = false
     private var lastRegistered: Device? = null
+    private var noSettingsScreen = false
     private val format = SimpleDateFormat("M/d HH:mm", Locale.JAPAN)
 
     /** A registered device's row, kept from one drawing to the next so that its button keeps the remote's focus. */
@@ -76,7 +77,9 @@ class MainActivity : Activity() {
             try {
                 startActivity(Intent(Intent.ACTION_AUTO_REVOKE_PERMISSIONS, Uri.fromParts("package", packageName, null)))
             } catch (e: ActivityNotFoundException) {
-                status.text = "この設定画面はこのテレビにありません"
+                // One of the state's lines until the screen is next shown, so that the next drawing keeps it.
+                noSettingsScreen = true
+                render()
             }
         }, below(6, button = true))
 
@@ -145,6 +148,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        noSettingsScreen = false
         HelperService.start(this)
         ui.post(refresh)
     }
@@ -177,6 +181,7 @@ class MainActivity : Activity() {
         }
         snapshots.tunerLastWrite?.let { lines.add("テレビが番組表を最後に書いたのは ${format.format(Date(it))}") }
         snapshots.lastBuildError?.let { lines.add("写しを作れませんでした: $it") }
+        if (noSettingsScreen) lines.add("この設定画面はこのテレビにありません")
         status.text = lines.filter { it.isNotEmpty() }.joinToString("\n")
         // The permission's button goes once the permission is given; the remote, if it was on it, moves on to the
         // button to use next rather than to whichever the platform would pick.
