@@ -6,7 +6,7 @@
 #   例:     app/scripts/screenshots/capture.sh CDE5C2E2-... iphone-6.7
 #
 # 中身は架空。RecorderKit の偽レコーダー（DemoRecorder）と架空の局と番組（DemoLineUp）で、
-# BDBridge/DemoData.swift が入れるサンプルデータで起動するので、実機もレコーダーも要らず、
+# RecBridgeModel/Sources/RecBridgeModel/DemoData.swift が入れるサンプルデータで起動するので、実機もレコーダーも要らず、
 # 誰の録画一覧も写らない。撮るのは BDBridgeUITests/ScreenshotTests.swift。
 #
 set -euo pipefail

@@ -1,6 +1,7 @@
 # RecorderKit
 
-The recorder-facing layer of the iOS app, as a Swift package with no UI. Its tests hand it the recorder's
+The device-facing layer of the iOS and Android apps, as a Swift package with no UI: the recorder, the television
+and the helper that runs on it. Its tests hand it the recorder's
 answers through a stubbed transport, so they run from the command line on the Mac with no recorder to ask:
 
 ```
@@ -37,8 +38,12 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `SerialQueue.swift` | One request at a time, in the order the calls arrive; a turn that is waited for and given back, for work that has to stay in the task that asked for it; and the clients a link has made (`LinkClients`): which are retired, sending nothing once the device they were made for has been let go of, and which has a request on the wire at an address, for the link's other clients to wait for |
 | `RecorderError.swift` | Faults, transport failures, and what the UPnP error codes mean |
 | `DeviceFailure.swift` | What a failure means whichever device it came from: silent, busy, refused and the rest |
+| `DeviceHost.swift` | What the screens and the app's entries ask of either device's host, and the six entries of a device's reservations written once over the driver's steps |
 | `DeviceEndpoint.swift` | What the shared rules ask of a device: to be probed, sent a waiting reservation in its own way, asked for a guide; and the recorder's way of sending one, which reads its list first and leaves a row it holds already unsent |
 | `RecorderClient.swift` | One recorder: identity, reservations, recordings, playback, free space, guide files |
+| `TVHelperClient.swift` | The helper on the television (`helper/`): its HTTP API on port 8780 -- ping, pairing, info, channels, guide and logos by broadcasting type -- and where the app keeps the token it hands out |
+| `TVHelperGuide.swift` | The television's guide through the helper: the registration, when its copies are asked about again, which types are behind, the fetch, and what is said of it |
+| `TVGuide.swift` | The helper's rows as it serves them, turned into the same `GuideService` the recorder's files decode to |
 | `Waking.swift` | Waiting for a recorder to come back after a magic packet |
 | `Reach.swift` | The order of one attempt at a device: packet, probe, permission, waking, looking elsewhere |
 | `LinkRules.swift` | Whether to give up, try once more or make sure of the device first; where it was last tried |
@@ -49,19 +54,28 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `RecorderDriver.swift` | What is particular to a recorder in a link: who answered and whose the cache is, what every attach reads, waking it, finding it at another address; and its reservations -- read, made, changed and deleted, what waits for it sent, sent again and deleted -- by the rules a television's keep, each answered with its sentence |
 | `RecorderRecordings.swift` | The recorder's recordings, by the same rules: the list with the free space, read once for everyone who asks together, a recording's details, protect and delete (and which recordings cannot be deleted), playback, turning a recorder in standby on to play and waiting for it, and the power; how one of these is asked of the recorder |
 | `RecorderConditions.swift` | The recorder's own keyword conditions, by the same rules: read with why they could not be, added (to the USB disk after the slot answers) and deleted, each under its one line, with the list read after an add that went through, and after a delete that went through or that the recorder refused as of a condition it does not hold |
+| `BulkRuns.swift` | The loop of a run over many recordings: the bulk delete and the bulk protect over either device's rows, and the scan for duplicates over the recorder's |
 | `RecorderRuns.swift` | The recorder's side of a run over many recordings -- the bulk delete, the bulk protect and the scan for duplicates -- by the same rules: its words, when a run may begin and go on, one recording asked a request at a time with the recorder's two traps, why a run stopped, and the free space read as it ends |
 | `RecorderGuide.swift` | The guide fetched by hand and after a connect, by the same rules: the step, the press that connects first where the recorder cannot be asked, the asking that makes sure of the recorder once a refresh has its turn and before each later file, and what a refresh came to, for its screen to say |
 | `RecorderNoScreen.swift` | The recorder's runs with no screen, which have no link: the one attempt at the recorder, whether the one that answered is the one the cache is of, the order of the overnight run and of the Shortcuts action's sending, what each tells and what it tells once, and the sentences |
 | `ScalarClient.swift` | A Sony BRAVIA's own control API: the JSON-RPC envelope, its errors, the registration by PIN and the cookie it hands out |
 | `TVDriver.swift` | What is particular to a television in a link: asked whether it is on and never woken, told apart by the MAC it wakes on, renewed while registered; and its reservations -- read, made, changed and deleted, what waits for it sent, sent again and deleted |
+| `TVRegistration.swift` | What became of a registration with a television, and what the form that adds one does after each press |
+| `TVCapabilities.swift` | What a television says it speaks, for the services the app sends to, read without a registration and changing nothing |
+| `TVRecordings.swift` | A television's recordings: the list, the rule that finds a recording again before a write, and what a write goes by |
 | `TVSchedule.swift` | One row of a television's schedule list as read, kept in the television's own spellings, and the rule that finds it again before a change or a delete |
 | `TVReservation.swift` | A station as a television lists it, and what the two reservation requests send for one reservation on it |
 | `TVNoScreen.swift` | The television's runs with no screen, which have no link: the one attempt at the television, what is said of what it came to, and the television's words for what is told once (`NoScreenWords.television`) |
 | `NoScreen.swift` | What the runs with no screen of either device share: what a sending came to (`NoScreenSending`), and the rule of what is told once and kept between runs (`ToldOnce.after`), with a device's own words for it (`NoScreenWords`) and the notices it comes to (`NoScreenNotices`), and which of the television's notices a registration or the television taken away takes away, and what it keeps (`ToldOnce.withdrawn`, `ToldOnce.kept`) |
+| `DemoDevices.swift` | The demo's surroundings that are not one device's: the television's address, the pace of the recorder, the invented guide written into a cache, and the devices as a search meets them |
+| `ReservationSentences.swift` | What the screens say of a reservation and of a row that waits |
+| `StripReport.swift` | The report the strip at the foot of the screens holds of what the sendings came to, and how its sentences are added |
+| `KeptOnce.swift` | Where something is kept between runs (`KeptData`), and what the runs with no screen have told once of one device |
 | `DemoTV.swift` | An invented BRAVIA that answers in the real one's shapes, for the tests and the demo |
 | `DemoRecorder.swift` | An invented BDZ-FBT4100 that answers in the real one's XML and remembers what is done to it, for the demo and the tests |
 | `DemoLineUp.swift` | The invented stations and their days the demo's guide, recorder and television are made of |
 | `Activities.swift` | What is under way with the device, each piece of work with a line of its own |
+| `AppleShims.swift` | What the package takes from Apple's `os` module, for a platform that has none (a logger that writes to the system's log on Android) |
 | `Inflate.swift` | One zlib stream at a time, reporting how much input it used |
 | `Epg.swift` | The guide file: XOR, the zlib run, and the @SRV / @DAY / @EVT records |
 | `Guide.swift` | `GuideService`, `GuideProgram` and `Genre` |
@@ -97,8 +111,8 @@ waits up to a minute for it to answer, printing how long that took. The MAC is n
 
 ## What is not here
 
-The app itself is in `app/BDBridge`, beside this package and depending on it. Everything with a screen
-lives there; everything that talks to a recorder or decodes one of its files lives here.
+The model the screens share is `app/RecBridgeModel`, over this package; the iOS screens are in `app/BDBridge`
+and the Android ones in `android/`. Everything that talks to a device or decodes one of its files lives here.
 
 Keyword auto-reservation is still only on the server side, which is the right place for it: it has to run
 whether or not anybody is holding a phone.

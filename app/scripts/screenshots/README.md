@@ -5,7 +5,7 @@
 いるか」「どこに住んでいるか」「何を契約しているか」なので、店先に出すものではない。
 
 中身は RecorderKit の偽レコーダー（`DemoRecorder`）と架空の局と番組（`DemoLineUp`）で、切り替えと
-番組表の書き込みはアプリの `app/BDBridge/DemoData.swift`。局名・番組名・録画タイトル・キーワード・
+番組表の書き込みはモデルの `app/RecBridgeModel/Sources/RecBridgeModel/DemoData.swift`。局名・番組名・録画タイトル・キーワード・
 IP・MAC はすべて架空。**これはチュートリアルが出す「サンプルデータで試す」と同じもの**で、
 製品ビルドにも入っている（レコーダーを持っていない人と審査担当者のため）。
 `-demoData 1` は、それをコマンドラインから入れるための引数。
