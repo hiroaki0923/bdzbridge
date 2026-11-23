@@ -186,6 +186,15 @@ fun FoundRecordersCard(recorders: List<FoundRecorder>, canChoose: Boolean, choos
 }
 
 /**
+ * The sheet a strip's 登録 puts up, which registers with the television added again: one for the app, put up at one
+ * place (`RecorderScreen`) whichever strip it was pressed on. A recording's sheet has a strip of its own, which a turn
+ * across 840 dp takes away as the recording goes into the pane, and the registration under way would go with it.
+ */
+internal object StripRegister {
+    var request by mutableStateOf<TVSheetRequest?>(null)
+}
+
+/**
  * The strip under every screen's top app bar (`RecorderActivityBar` on iOS): what the app is doing with a device, or
  * what the reader is to know of now, one thing at a time, as the model chooses it. `inSheet` is a sheet's or a form's
  * own, which leaves out the demo's line.
@@ -196,9 +205,6 @@ fun StripBar(inSheet: Boolean = false) {
     val scope = rememberCoroutineScope()
     // The last line shown, kept while the strip slides away, so that it does not empty itself as it goes.
     var last by remember { mutableStateOf<Strip?>(null) }
-    // 登録's sheet, which registers with the television added again.
-    var registering by remember { mutableStateOf<TVSheetRequest?>(null) }
-    registering?.let { request -> TVRegisterSheetView(request) { registering = null } }
     if (strip != null && strip.kind.isNotEmpty()) last = strip
     AnimatedVisibility(visible = strip != null && strip.kind.isNotEmpty()) {
         val line = last ?: return@AnimatedVisibility
@@ -224,7 +230,7 @@ fun StripBar(inSheet: Boolean = false) {
                             Icon(Icons.Default.Close, contentDescription = line.actionLabel, Modifier.size(18.dp))
                         }
                         "registerTV" -> TextButton(onClick = {
-                            registering = TVSheetRequest("", connectAtOnce = false, again = true)
+                            StripRegister.request = TVSheetRequest("", connectAtOnce = false, again = true)
                         }, enabled = line.actionEnabled) { Text(line.actionLabel) }
                         else -> TextButton(onClick = {
                             scope.launch {

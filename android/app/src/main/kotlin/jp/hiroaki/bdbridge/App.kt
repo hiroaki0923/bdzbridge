@@ -109,6 +109,8 @@ fun RecorderScreen(search: () -> Unit) {
             null -> {}
         }
         group?.let { programme -> GroupPage(programme) { group = null } }
+        // A strip's 登録 sheet, here whichever strip put it up (`StripRegister`).
+        StripRegister.request?.let { request -> TVRegisterSheetView(request) { StripRegister.request = null } }
     }
 }
 

@@ -101,7 +101,7 @@ internal fun BoxScope.ListAndDetail(opened: Boolean, close: () -> Unit, nothingO
  * What beside the pane would replace or take away what is open in it -- the top app bar with the strip, the
  * navigation rail -- refused while that is held (`PaneHold`), as what is under a sheet's scrim is. Only with two panes:
  * elsewhere a sheet covers it. At the same place whatever the width, as the list is (`ListAndDetail`): a turn keeps
- * what is open in it, a menu, the search box's focus, the strip's 登録 sheet.
+ * what is open in it, a menu or the search box's focus.
  */
 @Composable
 internal fun Refused(content: @Composable () -> Unit) {
