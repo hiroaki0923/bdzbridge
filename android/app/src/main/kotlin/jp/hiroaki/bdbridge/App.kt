@@ -29,9 +29,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -125,17 +127,24 @@ private fun Destinations(search: () -> Unit, open: (Page) -> Unit, openGroup: (G
             destination = chosen
         }
     }
-    val screen = @Composable {
+    val latestOpen by rememberUpdatedState(open)
+    val latestSearch by rememberUpdatedState(search)
+    val latestOpenGroup by rememberUpdatedState(openGroup)
+    // Moved, not made again, when the width crosses 600 dp and the navigation changes from a bar to a rail, as it does
+    // when most phones are turned: what the screen holds -- what is open, where its lists are scrolled -- is kept in
+    // its composition.
+    val screen = remember { movableContentOf {
         when (destination) {
-            Destination.Guide -> GuideScreen(search) { open(Page.Channels) }
+            Destination.Guide -> GuideScreen(latestSearch) { latestOpen(Page.Channels) }
             Destination.Search -> SearchScreen()
-            Destination.Reservations -> ReservationsScreen(search) { open(Page.Conditions) }
-            Destination.Recordings -> RecordingsScreen(search, openGroup)
+            Destination.Reservations -> ReservationsScreen(latestSearch) { latestOpen(Page.Conditions) }
+            Destination.Recordings -> RecordingsScreen(latestSearch, latestOpenGroup)
             Destination.Settings -> SettingsScreen(
-                { open(Page.Channels) }, { open(Page.Disclaimer) }, { open(Page.Setup) }, { open(Page.Capabilities) },
+                { latestOpen(Page.Channels) }, { latestOpen(Page.Disclaimer) }, { latestOpen(Page.Setup) },
+                { latestOpen(Page.Capabilities) },
             )
         }
-    }
+    } }
     if (LocalConfiguration.current.screenWidthDp >= 600) {
         Row(Modifier.fillMaxSize()) {
             Refused {
