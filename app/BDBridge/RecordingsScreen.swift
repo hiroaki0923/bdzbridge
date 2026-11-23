@@ -44,7 +44,7 @@ struct RecordingsScreen: View {
                         Image(systemName: duplicating ? "square.on.square"
                                                       : grouped ? "rectangle.stack" : "list.bullet")
                     }
-                    .accessibilityLabel("表示を変える")
+                    .accessibilityLabel(RecordingsState.viewMenuLabel)
                 }
                 // the free space is worth a permanent place; the sort and the watch state are worth a menu
                 ToolbarItem(placement: .principal) {
@@ -57,20 +57,22 @@ struct RecordingsScreen: View {
                     Menu {
                         // Only where there is more than one place to tell apart.
                         if !model.titleDestinations.isEmpty {
-                            Picker("録画先", selection: Binding(get: { model.shownDestination },
-                                                             set: { model.titleDestination = $0 })) {
+                            Picker(RecordingsState.destinationHeading,
+                                   selection: Binding(get: { model.shownDestination },
+                                                      set: { model.titleDestination = $0 })) {
                                 Text(ListWords.allLabel).tag(String?.none)
                                 ForEach(model.titleDestinations, id: \.destination) { place in
                                     Text(place.label).tag(String?.some(place.destination))
                                 }
                             }
                         }
-                        Picker("ジャンル", selection: Binding(get: { model.titleGenre },
+                        Picker(RecordingsState.genreHeading, selection: Binding(get: { model.titleGenre },
                                                             set: { model.titleGenre = $0 })) {
-                            Text("すべて \(model.titlesOnTheShownDisk.count)").tag(Int?.none)
+                            Text(RecordingsState.allGenresLabel(count: model.titlesOnTheShownDisk.count))
+                                .tag(Int?.none)
                             ForEach(Array(Codes.genreLabel.keys).sorted(), id: \.self) { level in
                                 if let count = model.titleGenreCounts[level], count > 0 {
-                                    Text("\(Codes.genreLabel[level] ?? "") \(count)").tag(Int?.some(level))
+                                    Text(RecordingsState.genreChoiceLabel(level, count: count)).tag(Int?.some(level))
                                 }
                             }
                         }
@@ -80,7 +82,7 @@ struct RecordingsScreen: View {
                                 Text(sort.label).tag(sort)
                             }
                         }
-                        Picker("視聴状態", selection: Binding(get: { model.titleState },
+                        Picker(RecordingsState.viewingHeading, selection: Binding(get: { model.titleState },
                                                          set: { model.titleState = $0 })) {
                             Text(ListWords.allLabel).tag(WatchState?.none)
                             ForEach(WatchState.allCases, id: \.self) { state in
@@ -91,8 +93,8 @@ struct RecordingsScreen: View {
                         Image(systemName: state.filtering ? "line.3.horizontal.decrease.circle.fill"
                                                           : "line.3.horizontal.decrease.circle")
                     }
-                    .accessibilityLabel(model.titleDestinations.isEmpty ? "ジャンル・並び順・視聴状態で絞り込む"
-                                                                        : "録画先・ジャンル・並び順・視聴状態で絞り込む")
+                    .accessibilityLabel(
+                        RecordingsState.filterMenuLabel(hasDestinations: !model.titleDestinations.isEmpty))
                 }
             }
             // Keyed on `connected`, and on what the load itself checks, as the keyword conditions' screen is.

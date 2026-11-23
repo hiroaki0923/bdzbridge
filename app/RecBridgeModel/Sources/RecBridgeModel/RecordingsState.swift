@@ -45,6 +45,29 @@ public final class RecordingsState {
 
     // MARK: - what the screen says
 
+    /// The button that changes the view, among the three of `Mode`.
+    public static let viewMenuLabel = "表示を変える"
+
+    /// The headings of the filters' menu, the sort's being `ListWords.sortHeading`: the disk, the genre and the watch
+    /// state, called as the sheets call them.
+    public static let destinationHeading = SheetWords.disk
+    public static let genreHeading = SheetWords.genre
+    public static let viewingHeading = TitleSheetState.viewingLabel
+
+    /// The menu's button, by what it filters by: the disk only where there is more than one place to tell apart.
+    public static func filterMenuLabel(hasDestinations: Bool) -> String {
+        hasDestinations ? "録画先・ジャンル・並び順・視聴状態で絞り込む" : "ジャンル・並び順・視聴状態で絞り込む"
+    }
+
+    /// The genre menu's choices: every recording, and each genre, with how many there are of it.
+    public static func allGenresLabel(count: Int) -> String {
+        "\(ListWords.allLabel) \(Format.count(count))"
+    }
+
+    public static func genreChoiceLabel(_ level: Int, count: Int) -> String {
+        "\(Codes.genreLabel[level] ?? "") \(Format.count(count))"
+    }
+
     /// The screen's title: the free space of the disk shown, which is worth a permanent place, or 録画 while it is
     /// not known.
     public var heading: String {
