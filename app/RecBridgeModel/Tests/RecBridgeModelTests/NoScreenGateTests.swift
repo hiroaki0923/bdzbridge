@@ -50,7 +50,7 @@ final class NoScreenGateTests: XCTestCase {
         let told = Tellings()
         let count = await recorder.heard.count
         let stored = await BackgroundWork.refresh(client: aClient(of: recorder), store: store, mac: nil,
-                                                  telling: telling(told))
+                                                  givesTheGuide: true, telling: telling(told))
         return (stored, told, await recorder.heard(since: count))
     }
 
@@ -125,7 +125,9 @@ final class NoScreenGateTests: XCTestCase {
         let count = await recorder.heard.count
         await recorder.holdTheNext(kind)
         addTeardownBlock { await recorder.letGo() }
-        let run = Task { await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tell) }
+        let run = Task {
+            await BackgroundWork.refresh(client: client, store: store, mac: nil, givesTheGuide: true, telling: tell)
+        }
         try await until("the night never asked for \(kind)") { await recorder.asked(kind, since: before) == 1 }
         run.cancel()
         await recorder.letGo()
@@ -187,7 +189,9 @@ final class NoScreenGateTests: XCTestCase {
         let count = await recorder.heard.count
         await recorder.holdTheNext(kind)
         addTeardownBlock { await recorder.letGo() }
-        let run = Task { await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tell) }
+        let run = Task {
+            await BackgroundWork.refresh(client: client, store: store, mac: nil, givesTheGuide: true, telling: tell)
+        }
         try await until("the night never asked for \(kind)") { await recorder.asked(kind, since: before) == 1 }
         try await meanwhile(run)
         await recorder.letGo()
@@ -275,7 +279,8 @@ final class NoScreenGateTests: XCTestCase {
         }
         let (client, count, tellingIt) = (aClient(of: recorder), await recorder.heard.count, tell)
         let stored = await Task {
-            await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tellingIt)
+            await BackgroundWork.refresh(client: client, store: store, mac: nil, givesTheGuide: true,
+                                         telling: tellingIt)
         }.value
         XCTAssertEqual(told.names, ["flushed"])
         XCTAssertEqual(posted(told.rounds.first), Said.sent("昼の番組"))
@@ -416,7 +421,8 @@ final class NoScreenGateTests: XCTestCase {
             _ = try? await screens.claim(for: another)
         }
         let (client, count, tellingIt) = (aClient(of: recorder), await recorder.heard.count, tell)
-        let stored = await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tellingIt)
+        let stored = await BackgroundWork.refresh(client: client, store: store, mac: nil, givesTheGuide: true,
+                                                  telling: tellingIt)
         XCTAssertEqual(told.names, ["flushed"])
         expectEqual(await recorder.heard(since: count), [Ask.description, Ask.reservations, Ask.create],
                     "the night went on over a cache made over as what became of the queue was told")
@@ -603,7 +609,9 @@ final class NoScreenGateTests: XCTestCase {
         let tell = telling(told)
         let client = aClient(of: recorder)
         let count = await recorder.heard.count
-        let run = Task { await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tell) }
+        let run = Task {
+            await BackgroundWork.refresh(client: client, store: store, mac: nil, givesTheGuide: true, telling: tell)
+        }
         try await until("the night never came to its guide") { told.names.contains("freeSpace") }
         run.cancel()
         await other.letGo()
@@ -703,7 +711,9 @@ final class NoScreenGateTests: XCTestCase {
         let count = await recorder.heard.count
         await recorder.holdTheNext(Ask.guide[0])
         addTeardownBlock { await recorder.letGo() }
-        let run = Task { await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tell) }
+        let run = Task {
+            await BackgroundWork.refresh(client: client, store: store, mac: nil, givesTheGuide: true, telling: tell)
+        }
         try await until("the night never asked for the guide") {
             await recorder.asked(Ask.guide[0], since: before) == 1
         }
@@ -776,6 +786,31 @@ final class NoScreenGateTests: XCTestCase {
         XCTAssertEqual(ran.heard, [Ask.description, Ask.slot, Ask.freeSpace],
                        "the night went on after silence on the free space")
         XCTAssertFalse(ran.stored)
+    }
+
+    /// A night that fetches no guide, the television giving this home's, with a USB disk known that takes
+    /// recordings and a recorder just woken, whose slot answers none at first. The slot's second read has no
+    /// guide to come after, which is what gave the disk its while to come up: the slot is waited for instead, as
+    /// before something that names it is sent, and the disk it answers on a later read has its space told. The
+    /// slot is read three times here: the night's first read, and two of the wait's.
+    func testANightThatFetchesNoGuideWaitsForTheSlotOfADiskKnown() async throws {
+        let (recorder, store, _) = try await home()
+        try await store.keep(knownUSBDisk: USBDiskTests.disk)
+        await recorder.answer(Ask.slot, with: .result(USBDiskTests.slot()), times: 1000, after: 2)
+        let told = Tellings()
+        let count = await recorder.heard.count
+        let client = RecorderClient(host: Bench.host, transport: recorder, busyRetryDelay: 0...0,
+                                    slotSettling: SlotSettling(every: .milliseconds(5), for: .milliseconds(50)))
+
+        let stored = await BackgroundWork.refresh(client: client, store: store, mac: nil, givesTheGuide: false,
+                                                  telling: telling(told))
+
+        XCTAssertFalse(stored)
+        XCTAssertEqual(told.names, ["flushed", "freeSpace", "usbSpace"],
+                       "the USB disk's space was not told by a night that fetched no guide")
+        XCTAssertEqual(told.said.last, .usbSpace(USBDiskTests.disk))
+        expectEqual(await recorder.heard(since: count),
+                    [Ask.description, Ask.slot, Ask.freeSpace, Ask.slot, Ask.slot])
     }
 
     /// A night that finds nobody at the address, and one answered by a recorder it cannot take for the cache's
@@ -1081,8 +1116,8 @@ final class NoScreenGateTests: XCTestCase {
             addTeardownBlock { await recorder.letGo() }
         }
         let run = Task {
-            await BackgroundWork.refresh(client: client, store: store, mac: nil, telling: tell, told: { told },
-                                         nextRun: Self.nextRun)
+            await BackgroundWork.refresh(client: client, store: store, mac: nil, givesTheGuide: true,
+                                         telling: tell, told: { told }, nextRun: Self.nextRun)
         }
         if let kind {
             try await until("the night never asked for \(kind)") { await recorder.asked(kind, since: before) == 1 }
@@ -1547,7 +1582,8 @@ final class NoScreenGateTests: XCTestCase {
         }
         let night = Task { [tell] in
             await BackgroundWork.refresh(client: aClient(of: SilentRecorder()), store: store, mac: nil,
-                                         telling: tell, told: { kept.value ?? ToldOnce() }, nextRun: Self.nextRun)
+                                         givesTheGuide: true, telling: tell, told: { kept.value ?? ToldOnce() },
+                                         nextRun: Self.nextRun)
         }
         try await within(10, "the night never came to keep what it told once") { await held.untilCome() }
 

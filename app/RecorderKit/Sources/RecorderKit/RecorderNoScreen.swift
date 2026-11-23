@@ -141,6 +141,15 @@ extension RecorderDriver {
     /// step: what became of the queue and the free space are told before a guide download that can outlast the
     /// task.
     ///
+    /// The guide is fetched only where the recorder is the device the home's guide is fetched from
+    /// (`givesTheGuide`), which is the app's to say: one device gives a household's guide, and where that is
+    /// the television, the recorder's files would put the recorder's guide in the television's place. The run
+    /// then keeps its order and all else it does, and leaves the guide out: no file is asked for, nothing is
+    /// told of a guide fetched, and it hands back that no programme was stored. The slot's second read, which
+    /// otherwise comes once the guide has given a disk a while to come up, has no guide to wait behind: the
+    /// slot is then waited for as it is before something that names it is sent (`settle`), read until it
+    /// answers a disk or the client's time for that is up (`RecorderClient.slotSettling`).
+    ///
     /// Silence ends the run where it is first met: whatever came next would wait the same silence out again, of
     /// a recorder that has gone. A round of what waits that met it is told, and nothing is asked after it. The
     /// slot's ends it with nothing told. The free space's ends it once the USB disk's space has been told, where
@@ -215,6 +224,7 @@ extension RecorderDriver {
     /// take a while. With no `nextRun` none of this is done but for that look: the queue held back is told
     /// whenever something waits and the cache is whose it was, and nothing else.
     public nonisolated static func refreshWithNoScreen(_ client: RecorderClient, store: GuideStore,
+                                                       givesTheGuide: Bool,
                                                        told reading: @escaping @Sendable () -> ToldOnce
                                                            = { ToldOnce() }, nextRun: Date? = nil,
                                                        sendPacket: @escaping @Sendable () -> Bool,
@@ -297,7 +307,8 @@ extension RecorderDriver {
         // kept with the cache stays for the screens to settle. While that disk takes recordings there are still
         // two disks, so the internal disk's notice names its disk as the screens do, and the slot is read once
         // more after the guide, which gives the disk a while to come up, for the USB disk's notice. One request
-        // more on such a night, and none in a home with no USB disk known.
+        // more on such a night, or the slot's wait where no guide is fetched (`theSlotAgain`), and none in a
+        // home with no USB disk known.
         let usb: RecorderDisk?
         do {
             usb = try await usbDisk(of: client)
@@ -337,11 +348,15 @@ extension RecorderDriver {
         // The two looks are made again once the guide's turn has come, behind a wait that can be as long as a
         // refresh of the screens' takes: turned away there the night has asked for no file, and ends as it
         // does where a telling is kept back.
+        // Where the recorder's guide is not this home's, none is asked for, and nothing came of one.
         let answering = await client.info
-        let refresh = await GuideRefresh.run(asked: .all, onTurn: {
-            guard await mayStillTell(of: client, in: store) else { return .turnedAway(nil) }
-            return .fetch(client: client, store: store, from: answering)
-        })
+        var refresh = GuideRefresh.Outcome()
+        if givesTheGuide {
+            refresh = await GuideRefresh.run(asked: .all, onTurn: {
+                guard await mayStillTell(of: client, in: store) else { return .turnedAway(nil) }
+                return .fetch(client: client, store: store, from: answering)
+            })
+        }
         // Not told of a guide the cache ended by being made over, nor is anything handed back as stored then:
         // such a cache is another recorder's, which is where the telling ends the run.
         if !refresh.answered.isEmpty {
@@ -349,11 +364,23 @@ extension RecorderDriver {
         }
         // Not after a guide that silence stopped: one request more of a recorder just found silent.
         // Nothing is kept of what this read finds either: what the slot holds is for the screens' attach to say.
-        if refresh.stopped == nil, readAgain, !Task.isCancelled, let again = try? await usbDisk(of: client),
-           again.takesRecordings {
+        if refresh.stopped == nil, readAgain, !Task.isCancelled,
+           let again = await theSlotAgain(of: client, afterAGuide: givesTheGuide), again.takesRecordings {
             guard await tell(.usbSpace(again), of: client, in: store, to: found) else { return false }
         }
         return refresh.stored > 0
+    }
+
+    /// The slot read once more by a night whose first read was answered none while a disk was known, for the
+    /// USB disk's notice: the disk it answers now, or nil. After a guide, one read: the files have given a disk
+    /// its while to come up. With no guide fetched nothing has, and the slot is waited for by the wait that
+    /// comes before something that names it is sent (`settle`): at once, and while it answers none, again until
+    /// the client's time for that is up. Silence, and a night whose time ran out meanwhile, are no disk.
+    private nonisolated static func theSlotAgain(of client: RecorderClient,
+                                                 afterAGuide: Bool) async -> RecorderDisk? {
+        if afterAGuide { return try? await usbDisk(of: client) }
+        guard case .answered(let disk) = await settle(client, by: client.slotSettling) else { return nil }
+        return disk
     }
 
     /// Whether a night may still tell what it finds: not once its time is up, and not once the cache has

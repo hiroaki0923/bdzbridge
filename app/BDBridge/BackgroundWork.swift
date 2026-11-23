@@ -84,12 +84,13 @@ extension BackgroundWork {
 
 extension NoScreenSurroundings {
     /// The app's own, as the model's are (`Surroundings.app`): the standard defaults, the guide's folder, the
-    /// real sessions -- the television's keeping no cookies -- the registration in the Keychain, and the
-    /// system's notifications.
+    /// real sessions -- the television's keeping no cookies -- the registration and the helper's token in the
+    /// Keychain, and the system's notifications.
     static var app: NoScreenSurroundings {
         NoScreenSurroundings(defaults: .standard, folder: Storage.directory,
                              transport: { _ in URLSessionTransport() },
                              tvTransport: { _ in URLSessionTransport.withoutCookies() },
-                             tvCredentials: KeychainTVCredentials(), notifications: .system)
+                             tvCredentials: KeychainTVCredentials(), tvHelperTokens: KeychainTVHelperToken(),
+                             notifications: .system)
     }
 }

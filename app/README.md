@@ -1050,6 +1050,20 @@ time for it runs out, the task is completed there and then, and the work stops b
 broadcasting type's guide, or its logos -- rather than going on to the end. The night fetches every type
 whatever the cache's marks say; a connect only what is behind.
 
+All of that is where the recorder gives the home's guide. One device does, for the whole household
+(`GuideSourceChoice.of`): the television, through the helper on it, where a helper is registered and either no
+recorder is saved or the reader chose テレビ under 番組表の取得元; the recorder otherwise. The other device is asked
+for no guide by itself. Where the television gives it, a connect to the recorder reads the reservations and the
+lists and starts no refresh (`AppModel.guideIsStale`), and the night wakes the recorder, sends what waits and
+reads the slot and the free space, and asks for no guide file (`RecorderDriver.refreshWithNoScreen`, told by the
+entry, which reads the three facts from what the screens saved, `BackgroundWork.guideSource(in:)`): the
+settings' 最終自動更新 is not written, and the task is completed as it is in a home with no recorder, as having
+stored no guide. A night that reads the slot a second time, for a USB disk known that the slot first answered
+as none, used to read it once after the guide, which gave a disk just woken its while to come up; with no guide
+to come after, it waits for the slot as the app does before it sends something that names it
+(`RecorderDriver.settle`). The television's guide is fetched as the app starts or comes to the front, an hour
+or more after the helper was last asked, and not at night. 番組表を更新 asks whichever device gives the guide.
+
 Connecting fetches only the broadcasting types that are behind the recorder's last rebuild, each judged by
 when the recorder last answered for it -- with its file, or with none to give (`GuideStore.noteNoGuide`). A
 type that fails, such as the 500 the recorder answers for a file it has not built yet, is passed over, said on
@@ -1300,12 +1314,12 @@ chosen in the settings, or found at the address the first one had -- gets nothin
 lists are read for itself, the first's programme texts and guide go and the guide is fetched again, the
 low-space warning can be given again, and the MAC kept for waking is let go of unless the new recorder carries
 it. What the television gave of the guide is not the first's, and stays as it is, type by type
-(`GuideStore.claim`). The check before an operation hears who is there too, and an operation meant for one
-recorder is not sent to another; a sheet left open on a recording or a reservation of the last one closes
-itself, and the strip says that another recorder answered and the lists were read again, on whichever screen
-is in front. A cache from a version before this was kept does not say whose it is, and is taken for the first
-answerer's as it stands. The queue is the reader's, and what becomes of it is under Reservations made away
-from home.
+(`GuideStore.claim`); where the television gives the home's guide that is the guide, and the newcomer is asked
+for none. The check before an operation hears who is there too, and an operation meant for one recorder is not
+sent to another; a sheet left open on a recording or a reservation of the last one closes itself, and the strip
+says that another recorder answered and the lists were read again, on whichever screen is in front. A cache
+from a version before this was kept does not say whose it is, and is taken for the first answerer's as it
+stands. The queue is the reader's, and what becomes of it is under Reservations made away from home.
 
 Tapping the guide tab while it is already showing goes to what is on at this minute, and to today if
 another day was open. The tab bar's own answer to that tap is the top of the broadcast day, which is four

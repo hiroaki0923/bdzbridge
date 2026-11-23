@@ -501,7 +501,8 @@ final class GuideRefreshTests: XCTestCase {
             let store = try temporaryStore()
             try await store.claim(for: described(1))
             let night = Task {
-                await RecorderDriver.refreshWithNoScreen(client, store: store, sendPacket: { false }, found: { _ in })
+                await RecorderDriver.refreshWithNoScreen(client, store: store, givesTheGuide: true,
+                                                         sendPacket: { false }, found: { _ in })
             }
             func askedForTheFreeSpace() async -> Bool {
                 await recorder.bodies.contains { $0.contains("X_HDLnkGetRecordDestinationInfo") }
@@ -524,6 +525,36 @@ final class GuideRefreshTests: XCTestCase {
             XCTAssertFalse(stored, row)
             expectEqual(await recorder.requests.count, asked,
                         "\(row): the night asked for a file of the guide once its turn had come")
+        }
+    }
+
+    /// A night told that the recorder does not give the home's guide keeps its order and leaves the guide out:
+    /// the recorder is asked who it is, for its slot and for its free space, and for no file; what became of the
+    /// queue and the free space are handed over, no guide is said to have been fetched, and nothing is handed
+    /// back as stored. Told that it does, the same night goes on to ask for every type, and says a guide was
+    /// fetched.
+    func testANightAsksForNoGuideWhereTheRecorderDoesNotGiveTheHomesGuide() async throws {
+        for givesTheGuide in [false, true] {
+            let demo = DemoRecorder()
+            let transport = StubTransport { request, _ in try await demo.send(request) }
+            let client = RecorderClient(host: Stub.host, transport: transport, streamPort: 60151, busyRetryDelay: 0...0)
+            let found = Stored()
+
+            let stored = await RecorderDriver.refreshWithNoScreen(
+                client, store: try temporaryStore(), givesTheGuide: givesTheGuide, sendPacket: { false },
+                found: { what in
+                    switch what {
+                    case .queue: found.add("queue")
+                    case .freeSpace: found.add("free space")
+                    case .fetched: found.add("fetched")
+                    default: found.add("something else")
+                    }
+                })
+
+            XCTAssertFalse(stored, "the demo's recorder has no file to store")
+            let files = await transport.requests.map(\.url.lastPathComponent).filter { $0.hasSuffix(".dat") }
+            XCTAssertEqual(files, givesTheGuide ? GuideRefresh.broadcastingTypes.compactMap { Codes.epgFiles[$0] } : [])
+            XCTAssertEqual(found.types, ["queue", "free space"] + (givesTheGuide ? ["fetched"] : []))
         }
     }
 }

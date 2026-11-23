@@ -67,7 +67,7 @@ extension WhichRecorderTests {
         let told = Told()
 
         _ = await BackgroundWork.refresh(client: client(recorder), store: try store(bench), mac: nil,
-                                         telling: telling(told))
+                                         givesTheGuide: true, telling: telling(told))
 
         expectEqual(await recorder.asked("X_CreateRecordSchedule"), 1)
         expectTrue(await recorder.asked("EPG_TRDEPG_FILE.dat", since: before) >= 1, "the guide was not asked for")
@@ -87,7 +87,7 @@ extension WhichRecorderTests {
             let told = Told()
 
             let refreshed = await BackgroundWork.refresh(client: client(stranger), store: cache, mac: nil,
-                                                         telling: telling(told))
+                                                         givesTheGuide: true, telling: telling(told))
 
             XCTAssertFalse(refreshed)
             expectEqual(await stranger.asked("X_CreateRecordSchedule"), 0)

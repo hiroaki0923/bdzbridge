@@ -95,7 +95,8 @@ final class RecorderToldOnceTests: XCTestCase {
                               each: @escaping @Sendable (Handed) async -> Void = { _ in }) async -> [Handed] {
         let record = Record()
         _ = await RecorderDriver.refreshWithNoScreen(
-            RecorderClient(host: Stub.host, transport: transport), store: store, told: { told }, nextRun: nextRun,
+            RecorderClient(host: Stub.host, transport: transport), store: store, givesTheGuide: true,
+            told: { told }, nextRun: nextRun,
             sendPacket: {
                 packet()
                 return false
@@ -544,8 +545,8 @@ final class RecorderToldOnceTests: XCTestCase {
     private static func night(_ transport: StubTransport, _ store: GuideStore, told: Kept,
                               holdingAt latch: Latch? = nil) async -> Bool {
         await RecorderDriver.refreshWithNoScreen(
-            RecorderClient(host: Stub.host, transport: transport), store: store, told: { told.value },
-            nextRun: Self.afterIt, sendPacket: { false }, found: { found in
+            RecorderClient(host: Stub.host, transport: transport), store: store, givesTheGuide: true,
+            told: { told.value }, nextRun: Self.afterIt, sendPacket: { false }, found: { found in
                 guard case .told(let notYet, _, let kept) = found else { return }
                 told.note(notYet)
                 await latch?.wait()

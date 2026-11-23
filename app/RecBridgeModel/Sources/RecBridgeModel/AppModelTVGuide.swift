@@ -6,6 +6,23 @@ import RecorderKit
 public enum GuideSourceChoice: String, Sendable {
     case recorder
     case tv
+
+    /// Where a household's guide is fetched from, by the three facts that decide it: the television where a
+    /// helper is registered and either no recorder is saved or the reader chose the television; the recorder
+    /// otherwise, the helper registered or not. One rule for the screens, which ask the model
+    /// (`AppModel.guideSource`), and for a run with no screen, which has none to ask
+    /// (`BackgroundWork.guideSource(in:)`).
+    static func of(recorderSaved: Bool, helperRegistered: Bool,
+                   preference: GuideSourceChoice) -> GuideSourceChoice {
+        guard helperRegistered else { return .recorder }
+        return recorderSaved ? preference : .tv
+    }
+
+    /// The reader's choice where both devices could give the guide, as the settings saved it
+    /// (`DefaultsKey.guideSource`): unset is the recorder.
+    static func preference(in defaults: UserDefaults) -> GuideSourceChoice {
+        GuideSourceChoice(rawValue: defaults.string(forKey: DefaultsKey.guideSource) ?? "") ?? .recorder
+    }
 }
 
 /// The television's guide, through the helper that runs on it: which device the guide is fetched from, and when.
@@ -13,15 +30,15 @@ public enum GuideSourceChoice: String, Sendable {
 /// (`TVHelperGuide`); what the last fetch said is kept here.
 extension AppModel {
     /// The reader's choice where both devices could give the guide: unset is the recorder.
-    public var guideSourcePreference: GuideSourceChoice {
-        GuideSourceChoice(rawValue: defaults.string(forKey: DefaultsKey.guideSource) ?? "") ?? .recorder
-    }
+    public var guideSourcePreference: GuideSourceChoice { .preference(in: defaults) }
 
     /// Where the guide is fetched from now: the television where a helper is registered and either there is no
-    /// recorder or the reader chose it; the recorder otherwise, the helper registered or not.
+    /// recorder or the reader chose it; the recorder otherwise, the helper registered or not
+    /// (`GuideSourceChoice.of`). The other device is asked for no guide by itself: not the recorder after a
+    /// connect (`guideIsStale`) or overnight (`BackgroundWork.guideSource(in:)`), not the helper as the app
+    /// starts or comes to the front (`refreshGuideFromTVIfBehind`).
     public var guideSource: GuideSourceChoice {
-        guard helperRegistered else { return .recorder }
-        return host.isEmpty ? .tv : guideSourcePreference
+        .of(recorderSaved: !host.isEmpty, helperRegistered: helperRegistered, preference: guideSourcePreference)
     }
 
     /// Whether the app holds a registration with the helper.

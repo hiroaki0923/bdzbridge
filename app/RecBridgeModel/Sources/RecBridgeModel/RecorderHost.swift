@@ -395,7 +395,8 @@ final class RecorderHost: RecorderLinkHost {
     /// read, kept on what was said as it began (`DeviceHost.readReservationsNow`), which opens nothing. Inside the
     /// connect, so nothing here may await `start()`. Then whether the guide is behind, by what the cache holds
     /// now, which is read here as it was; the refresh itself is not awaited here, and is started as the connect
-    /// ends, only where there is something to fetch (`refreshTheGuideAfterTheConnect`).
+    /// ends, only where there is something to fetch (`refreshTheGuideAfterTheConnect`) and the recorder is
+    /// the device this home's guide is fetched from (`AppModel.guideIsStale`).
     func reached() async {
         guard let model else { return }
         let surroundings = model.surroundings
@@ -415,11 +416,12 @@ final class RecorderHost: RecorderLinkHost {
     }
 
     /// The guide, fetched where it is behind, in a task of the host's own that the connect does not wait for.
-    /// Fetching the guide is what connecting is for, so it happens without being asked: the first run would
-    /// otherwise land on an empty guide, and a cache the overnight run never got to would stay a day behind. A
-    /// cache that is already current costs nothing, which is what makes this safe on every launch: where the
-    /// cache read inside the connect says nothing is behind (`AppModel.keepUpWithTheCache`), none is started, so
-    /// that no line goes up, none is counted as out, and nothing holds a second connect off after the connect.
+    /// Where the recorder gives the home's guide, fetching it is what connecting is for, so it happens without
+    /// being asked: the first run would otherwise land on an empty guide, and a cache the overnight run never
+    /// got to would stay a day behind. A cache that is already current costs nothing, which is what makes this
+    /// safe on every launch: where the cache read inside the connect says nothing is behind
+    /// (`AppModel.keepUpWithTheCache`), none is started, so that no line goes up, none is counted as out, and
+    /// nothing holds a second connect off after the connect.
     ///
     /// Not inside the connect: a refresh that is out as the connect is made -- the overnight run's, a press of
     /// 番組表を更新 -- holds the turn until it has fetched its files, and the connect would stand as under way all
@@ -427,7 +429,8 @@ final class RecorderHost: RecorderLinkHost {
     /// turn (`GuideAsked.whatIsBehind`), not what was behind here: what the refresh in front fetched is not
     /// fetched again. Started in the connect's last turn, so that the connect's end and the refresh being out are
     /// never apart (`refreshesTheGuideAfterAConnect`), and asked for in the task's first turn, for the recorder it
-    /// was started for or not at all: its line goes up there. While it is out for the recorder still in play it
+    /// was started for or not at all, and not where the television has come to give the guide since the connect
+    /// looked (`AppModel.guideSource`): its line goes up there. While it is out for the recorder still in play it
     /// holds a second connect off (`holdsOffConnect`), and a connect turned away meanwhile is made once it ends,
     /// unless silence met the recorder after it was turned away (`DeviceLink.lost`). From the screens that is, in
     /// practice, 再接続 or a pull-down in the few turns after a refresh that met silence has taken its line down.
@@ -440,7 +443,9 @@ final class RecorderHost: RecorderLinkHost {
         let noted = link.generation
         guideAfterAConnect = noted
         Task {
-            if model.connected, !link.letGo(since: noted) { await model.refreshGuide(.whatIsBehind) }
+            if model.connected, !link.letGo(since: noted), model.guideSource == .recorder {
+                await model.refreshGuide(.whatIsBehind)
+            }
             // Only the last one started takes the hold down: an older one ending first leaves a newer one's.
             guard guideRefreshesStarted == this else { return }
             guideAfterAConnect = nil

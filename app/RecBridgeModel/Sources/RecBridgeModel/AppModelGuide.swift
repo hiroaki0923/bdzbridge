@@ -44,8 +44,11 @@ extension AppModel {
     /// never: the ones worth fetching again (`GuideRefresh.staleTypes`).
     var staleBroadcastingTypes: [String] { GuideRefresh.staleTypes(counts) }
 
-    /// Whether any broadcasting type is behind the recorder's last rebuild.
-    var guideIsStale: Bool { !staleBroadcastingTypes.isEmpty }
+    /// Whether the recorder's guide is to be fetched with nobody having pressed, as a connect to it ends
+    /// (`RecorderHost.reached`): the recorder gives this home's guide (`guideSource`), and a broadcasting type
+    /// is behind its last rebuild. Never where the television gives the guide: the recorder is then connected
+    /// to for its reservations and its recordings, and asked for no guide.
+    var guideIsStale: Bool { guideSource == .recorder && !staleBroadcastingTypes.isEmpty }
 
     /// Whether the guide is on its way: being downloaded, from the recorder or from the television's helper, or
     /// about to be, by a connect that has reached the recorder and found the cache behind -- it reads the

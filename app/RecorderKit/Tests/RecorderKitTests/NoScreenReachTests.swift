@@ -121,7 +121,7 @@ final class NoScreenReachTests: XCTestCase {
 
         let stored = await RecorderDriver.refreshWithNoScreen(
             RecorderClient(host: Stub.host, transport: transport), store: try temporaryStore(),
-            sendPacket: {
+            givesTheGuide: true, sendPacket: {
                 events.put("packet")
                 return true
             }, found: { _ in })

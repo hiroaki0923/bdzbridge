@@ -261,14 +261,16 @@ final class NoScreenEntryTests: XCTestCase {
     // MARK: - what the tests start from
 
     /// What the entries are handed on the bench: its defaults and folder, `recorder` and `television` at whatever
-    /// address is asked for, the television's registration in `credentials`, and the notifications of a record of
-    /// what was posted (`Posted`). What an entry reached of these is noted in order (`Reached`).
+    /// address is asked for, the television's registration in `credentials`, the helper's token in `helperTokens`
+    /// -- none, unless a test registers one -- and the notifications of a record of what was posted (`Posted`).
+    /// What an entry reached of these is noted in order (`Reached`).
     ///
     /// The recorder's MAC is taken out first: a connect the test made may have written down the one its recorder
     /// reported, and a run with no screen sends its packet to it itself.
     private func handedIn(_ bench: Bench, recorder: any HTTPTransport = SilentRecorder(),
                           television: any HTTPTransport = NoTelevision(),
-                          credentials: any TVCredentialStore = MemoryTVCredentials())
+                          credentials: any TVCredentialStore = MemoryTVCredentials(),
+                          helperTokens: any TVHelperTokenStore = MemoryTVHelperToken())
         -> (surroundings: NoScreenSurroundings, reached: Reached, posted: Posted) {
         bench.defaults.removeObject(forKey: DefaultsKey.recorderMac)
         let reached = Reached(), posted = Posted()
@@ -287,7 +289,8 @@ final class NoScreenEntryTests: XCTestCase {
                 reached.note("television \(host)")
                 return television
             },
-            tvCredentials: credentials, notifications: posted.notifications(keptIn: bench.defaults))
+            tvCredentials: credentials, tvHelperTokens: helperTokens,
+            notifications: posted.notifications(keptIn: bench.defaults))
         return (surroundings, reached, posted)
     }
 
