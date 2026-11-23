@@ -77,9 +77,9 @@ internal object PaneHold {
  * put somewhere else would make again.
  */
 @Composable
-internal fun BoxScope.ListAndDetail(opened: Boolean, close: () -> Unit, nothingOpened: @Composable () -> Unit,
-                                    detail: @Composable () -> Unit, beside: Boolean = true,
-                                    list: @Composable BoxScope.() -> Unit) {
+internal fun ListAndDetail(opened: Boolean, close: () -> Unit, nothingOpened: @Composable () -> Unit,
+                           detail: @Composable () -> Unit, beside: Boolean = true,
+                           list: @Composable BoxScope.() -> Unit) {
     val wide = twoPanes() && beside
     BackHandler(enabled = wide && opened) { if (!PaneHold.held) close() }
     Row(Modifier.fillMaxSize()) {
