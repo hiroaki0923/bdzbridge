@@ -1,5 +1,7 @@
 # Android への移植の検討
 
+> この文書は、日付の時点での検討の記録です。「まだ確かめていない」などの記述は、その時点のものです。今の Android アプリの作りと現状は [`android/README.md`](../android/README.md) にあります。
+
 RecBridge の iOS アプリを Android に持っていけるか、とくにレコーダーとテレビに話す層の `app/RecorderKit` を
 どう持っていくかを検討したものです（2026-11-04、main 6f65a255 の時点）。移植一般の手引きと機種の癖は
 [`porting.md`](porting.md) にあり、ここでは繰り返しません。
