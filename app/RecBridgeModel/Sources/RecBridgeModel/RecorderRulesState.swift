@@ -23,6 +23,15 @@ public final class RecorderRulesState {
 
     public static let title = "おまかせ・まる録"
 
+    /// The + button's name for a screen reader: the title of the form it opens (`RecorderRuleSheetState.title`).
+    public static let addLabel = RecorderRuleSheetState.title
+
+    /// A row's swipe: the lists' word (`ListWords.deleteLabel`).
+    public static let deleteLabel = ListWords.deleteLabel
+
+    /// The title of the alert that says why a delete, or a registration from the form, was turned down.
+    public static let failureTitle = "エラー"
+
     /// Under the conditions.
     public static let footer = "レコーダー本体が番組を自動で探して録画する条件です。アプリを閉じていても動作します。"
         + "対象チャンネルの指定はレコーダー本体でのみ設定でき、ここには表示されません。"
@@ -74,7 +83,7 @@ public final class RecorderRulesState {
     }
 
     public var askTitle: String {
-        if case .failed = ask { return "エラー" }
+        if case .failed = ask { return Self.failureTitle }
         return "この条件を削除しますか？"
     }
 
@@ -87,15 +96,15 @@ public final class RecorderRulesState {
 
     public func actionLabel(for asked: Ask) -> (label: String, destructive: Bool)? {
         switch asked {
-        case .confirm: ("削除する", true)
+        case .confirm: (SheetWords.confirmDeleteLabel, true)
         case .failed: nil
         }
     }
 
     public func closingLabel(for asked: Ask) -> String {
         switch asked {
-        case .confirm: "キャンセル"
-        case .failed: "OK"
+        case .confirm: SheetWords.cancelLabel
+        case .failed: SheetWords.okLabel
         }
     }
 
@@ -163,6 +172,45 @@ public final class RecorderRuleSheetState {
         self.model = model
         draft = RecorderRuleDraft(quality: DefaultQuality.current(in: model.defaults))
     }
+
+    // MARK: - the sheet's words
+
+    /// The form's title, and the name of the button that opens it (`RecorderRulesState.addLabel`).
+    public static let title = "条件を追加"
+
+    /// The title of the alert that says why a registration was turned down: the list's (`RecorderRulesState`).
+    public static let failureTitle = RecorderRulesState.failureTitle
+
+    /// The button that sends the condition.
+    public static let registerLabel = "レコーダーに登録"
+
+    /// Over the keyword rows, and what an empty one says in its field.
+    public static let keywordHeading = "キーワード"
+    public static let keywordPlaceholder = keywordHeading
+    public static let addKeywordLabel = "キーワードを追加"
+
+    /// Over the rows of the words left out, and what an empty one says in its field.
+    public static let excludedHeading = "除外ワード"
+    public static let excludedPlaceholder = excludedHeading
+    public static let addExclusionLabel = "除外ワードを追加"
+
+    /// 検索方法, which asks how the keywords are combined once there is more than one.
+    public static let logicLabel = "検索方法"
+
+    /// Over the narrowing, and the labels of its pickers that no other sheet says: the sub-genre, the broadcast and the
+    /// time of day. 放送 is said of a programme's station on the sheets (`SheetWords.station`), by another word that
+    /// happens to be spelt the same. The genre, the mode and the disk are the sheets' (`SheetWords`).
+    public static let narrowingHeading = "絞り込み"
+    public static let subGenreLabel = "サブジャンル"
+    public static let scopeLabel = "放送"
+    public static let timeLabel = "時間帯"
+
+    /// The first choice of the genre's picker and of the sub-genre's.
+    public static let anyGenreLabel = "指定しない"
+    public static let allSubGenresLabel = "すべて"
+
+    /// What a row's button that takes it away is called for a screen reader.
+    public static let removeRowLabel = "この行を削除"
 
     // MARK: - the words
 

@@ -3,7 +3,8 @@ import Foundation
 /// The words the reservations' list and the recordings' list say alike, for each screen to lay out: the button of a
 /// row's swipe that deletes it, the heading of the menu that sorts, the mark of a row that is being recorded and the
 /// first choice of a menu that narrows. A recording's swipe says its word through `AppModel.TitleSwipe.label`, on the
-/// recordings' list and on a programme's page. What only one of the lists says is that list's state's
+/// recordings' list and on a programme's page; the keyword conditions' rows say the same word
+/// (`RecorderRulesState.deleteLabel`). What only one of the lists says is that list's state's
 /// (`ReservationsState`, `RecordingsState`).
 public enum ListWords {
     public static let deleteLabel = "削除"

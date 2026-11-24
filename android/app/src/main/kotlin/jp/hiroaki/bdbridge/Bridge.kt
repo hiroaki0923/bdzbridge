@@ -147,6 +147,13 @@ object RecBridge {
         private set
 
     /**
+     * The words of the keyword conditions' page and of its form that never change, as the model words them, kept the
+     * same way: the page's top bar has its title before the page is first read.
+     */
+    lateinit var conditionsWords: ConditionsWords
+        private set
+
+    /**
      * Opens the model the first time it is asked, with the app's folder and the folder of its that never leaves the
      * device -- no backup and no move to another device takes it -- where the television's registration is kept, and
      * starts it.
@@ -171,6 +178,7 @@ object RecBridge {
             tabWords = TabWords(app.tabWords(arena))
             listWords = ListWords(app.listWords(arena))
             recordingsWords = RecordingsWords(app.recordingsWords(arena))
+            conditionsWords = ConditionsWords(app.conditionsWords(arena))
             // Before the start, which seeds the demo's guide with its tiles when the demo is on.
             app.drawsTiles(Tiles)
             watchTheNetwork(context.applicationContext, app)
@@ -1226,6 +1234,27 @@ private fun RecordingsWords(it: jp.hiroaki.bdbridge.bridge.RecordingsWordsText) 
     it.stopLabel, it.closeLabel, it.beginSelectingLabel, it.selectWhatCanBeDeletedLabel, it.selectNothingLabel,
     it.protectLabel, it.unprotectLabel, it.protectAllLabel, it.unprotectAllLabel, it.protectAllMenuLabel,
     it.scanAgainLabel,
+)
+
+/**
+ * The words of the keyword conditions' page and of its form that never change, as the model words them
+ * (`ConditionsWordsText`). Kept from the model's start (`RecBridge.conditionsWords`). A row's swipe is the lists'
+ * word (`ListWords`), and the form's genre, mode, disk, キャンセル and OK are the sheets' (`SheetWords`). `addLabel` is
+ * the form's title as well as the + button's name, and `failureTitle` the title of the form's alert as of the
+ * page's: each is one word in the model.
+ */
+data class ConditionsWords(
+    val title: String, val addLabel: String, val failureTitle: String, val registerLabel: String,
+    val keywordHeading: String, val keywordPlaceholder: String, val addKeywordLabel: String,
+    val excludedHeading: String, val excludedPlaceholder: String, val addExclusionLabel: String,
+    val logicLabel: String, val narrowingHeading: String, val subGenreLabel: String, val scopeLabel: String,
+    val timeLabel: String, val removeRowLabel: String,
+)
+
+private fun ConditionsWords(it: jp.hiroaki.bdbridge.bridge.ConditionsWordsText) = ConditionsWords(
+    it.title, it.addLabel, it.failureTitle, it.registerLabel, it.keywordHeading, it.keywordPlaceholder,
+    it.addKeywordLabel, it.excludedHeading, it.excludedPlaceholder, it.addExclusionLabel, it.logicLabel,
+    it.narrowingHeading, it.subGenreLabel, it.scopeLabel, it.timeLabel, it.removeRowLabel,
 )
 
 /**

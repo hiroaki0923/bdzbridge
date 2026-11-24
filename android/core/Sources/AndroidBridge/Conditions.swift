@@ -5,6 +5,43 @@ import RecorderKit
 // The recorder's own keyword conditions (おまかせ・まる録) as the iOS screen and its form lay them out, over the
 // model's states of them (`RecorderRulesState`, `RecorderRuleSheetState`).
 
+/// The words of the conditions' page and of its form that never change, for Kotlin to keep from the model's start
+/// (`RecorderRulesState`, `RecorderRuleSheetState`): the top bar's title before the page is first read, the + button's
+/// name, which is also the form's title, and the title of the alert of a failure, and the form's labels. A row's
+/// swipe is the lists' word (`ListWordsText`), and the form's genre, mode, disk, キャンセル and OK are the sheets'
+/// (`SheetWordsText`).
+public struct ConditionsWordsText: Sendable {
+    public var title: String
+    public var addLabel: String
+    public var failureTitle: String
+    public var registerLabel: String
+    public var keywordHeading: String
+    public var keywordPlaceholder: String
+    public var addKeywordLabel: String
+    public var excludedHeading: String
+    public var excludedPlaceholder: String
+    public var addExclusionLabel: String
+    public var logicLabel: String
+    public var narrowingHeading: String
+    public var subGenreLabel: String
+    public var scopeLabel: String
+    public var timeLabel: String
+    public var removeRowLabel: String
+
+    static let all = ConditionsWordsText(
+        title: RecorderRulesState.title, addLabel: RecorderRulesState.addLabel,
+        failureTitle: RecorderRulesState.failureTitle, registerLabel: RecorderRuleSheetState.registerLabel,
+        keywordHeading: RecorderRuleSheetState.keywordHeading,
+        keywordPlaceholder: RecorderRuleSheetState.keywordPlaceholder,
+        addKeywordLabel: RecorderRuleSheetState.addKeywordLabel,
+        excludedHeading: RecorderRuleSheetState.excludedHeading,
+        excludedPlaceholder: RecorderRuleSheetState.excludedPlaceholder,
+        addExclusionLabel: RecorderRuleSheetState.addExclusionLabel, logicLabel: RecorderRuleSheetState.logicLabel,
+        narrowingHeading: RecorderRuleSheetState.narrowingHeading,
+        subGenreLabel: RecorderRuleSheetState.subGenreLabel, scopeLabel: RecorderRuleSheetState.scopeLabel,
+        timeLabel: RecorderRuleSheetState.timeLabel, removeRowLabel: RecorderRuleSheetState.removeRowLabel)
+}
+
 /// The conditions' page (`RecorderRulesScreen`).
 public struct ConditionsScreen: Sendable {
     public var title: String
@@ -276,11 +313,11 @@ public final class ConditionFormWindow: Sendable {
             mayAddExclusion: draft.mayAddExclusion, excludedFooter: RecorderRuleSheetState.excludedFooter,
             asksHowToCombine: draft.asksHowToCombine,
             logics: RecorderRuleDraft.logics.map { Labelled(code: $0.code, label: $0.label) }, logic: draft.logic,
-            genres: [Labelled(code: "", label: "指定しない")]
+            genres: [Labelled(code: "", label: RecorderRuleSheetState.anyGenreLabel)]
                 + RecorderRuleDraft.genres.map { Labelled(code: "\($0)", label: Codes.genreLabel[$0] ?? "") },
             genre: draft.genre.map { "\($0)" } ?? "",
             subGenres: sheet.subGenres.isEmpty ? []
-                : [Labelled(code: "", label: "すべて")] + sheet.subGenres.map {
+                : [Labelled(code: "", label: RecorderRuleSheetState.allSubGenresLabel)] + sheet.subGenres.map {
                     Labelled(code: "\($0)", label: Codes.subGenre(level1: draft.genre, level2: $0) ?? "")
                 },
             subGenre: draft.subGenre.map { "\($0)" } ?? "",

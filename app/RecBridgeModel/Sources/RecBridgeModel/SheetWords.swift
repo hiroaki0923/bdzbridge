@@ -6,8 +6,9 @@ import RecorderKit
 /// recorded and the button that deletes one, the buttons of the question before a delete and of a report, and how a
 /// mode, a repeat and a reservation's repeat are worded. What only one sheet says is that sheet's state's. OK and
 /// キャンセル are also those of the screens' alerts and questions that have none of their own, and 削除する that of the
-/// lists' and a programme's page's question before one delete; 録画先 and ジャンル also head the recordings' menu that
-/// narrows (`RecordingsState`).
+/// question before one delete on the lists, on a programme's page and on the keyword conditions' list; 録画先 and
+/// ジャンル also head the recordings' menu that narrows (`RecordingsState`), and the form for a new keyword condition
+/// (`RecorderRuleSheetState`) says 録画モード, 録画先, ジャンル and キャンセル as well.
 public enum SheetWords {
     public static let station = "放送"
     public static let starts = "開始"
