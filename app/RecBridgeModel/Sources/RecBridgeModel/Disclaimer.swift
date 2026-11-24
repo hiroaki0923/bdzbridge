@@ -1,14 +1,14 @@
 import Foundation
 
-/// What the reader should know before this app writes to their recorder: above all that a recording deleted here is
-/// gone from the recorder, which has no undo. The screens lay it out.
+/// What the reader should know before this app writes to their recorder or their television: above all that a
+/// recording deleted here is gone from the device, which has no undo. The screens lay it out.
 ///
 /// The same words are in `docs/disclaimer.md`, which is where the store links to. Change both.
 public enum Disclaimer {
     public static let title = "ご利用上の注意"
 
-    public static let opening = "RecBridge は、ソニー製ブルーレイディスクレコーダー（BDZ シリーズ）を家庭内ネットワーク"
-        + "越しに操作する、個人が作った非公式のアプリです。ソニーグループとは関係がなく、"
+    public static let opening = "RecBridge は、ソニー製のブルーレイディスクレコーダー（BDZ シリーズ）とテレビを"
+        + "家庭内ネットワーク越しに操作する、個人が作った非公式のアプリです。ソニーグループとは関係がなく、"
         + "同社の公式アプリではありません。"
 
     public struct Section: Sendable {

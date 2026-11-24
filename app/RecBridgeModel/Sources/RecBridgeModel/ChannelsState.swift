@@ -44,30 +44,34 @@ public final class ChannelsState {
     /// The broadcasting types the picker offers.
     public var types: [String] { GuideRefresh.offeredTypes(model.counts) }
 
-    /// Whether anything differs from the recorder's order with everything shown, which is what the reset goes back
-    /// to.
+    /// Whether anything differs from the order of the device that gives the guide with everything shown, which is
+    /// what the reset goes back to.
     public var customised: Bool { channels.contains { $0.hidden || $0.position != nil } }
 
     /// The screen's title: what the way to it is called in the settings.
     public static let title = SettingsWords.channelsLabel
 
-    /// The button at the foot of the list that asks the question before the reset, that question's own button, and the
-    /// title of the alert that says a change could not be saved.
-    public static let resetLabel = "レコーダーの順に戻して、すべて表示"
-    public static let confirmResetLabel = "レコーダーの順に戻す"
+    /// The title of the alert that says a change could not be saved.
     public static let failureTitle = "保存できませんでした"
+
+    /// The button at the foot of the list that asks the question before the reset, and that question's own button.
+    /// The order gone back to is that of the device this home's guide is fetched from, which they name
+    /// (`AppModel.guideDeviceName`), as the question and the empty list do.
+    public var resetLabel: String { "\(model.guideDeviceName)の順に戻して、すべて表示" }
+    public var confirmResetLabel: String { "\(model.guideDeviceName)の順に戻す" }
 
     /// What the screen says under the list, and the question before the reset, for the type the list is of.
     public static let footer = "オフにした局は、番組表と番組の検索に出なくなります。右端の三本線をドラッグすると、並び順を変えられます。"
         + "予約と録画の一覧、レコーダーの録画はそのままです。"
     public var resetQuestion: String {
-        "\(Codes.broadcastingInSentence(listed))の局をすべて表示して、レコーダーの順に戻しますか？"
+        "\(Codes.broadcastingInSentence(listed))の局をすべて表示して、\(model.guideDeviceName)の順に戻しますか？"
     }
 
     /// What an empty list says: the type has no channels, and where they come from.
     public var empty: AppModel.ScreenSays {
         AppModel.ScreenSays("\(Codes.broadcastingInSentence(broadcasting))の局はありません",
-                            model.demo ? DemoLineUp.guideCoverage : "局の一覧は、番組表と一緒にレコーダーから取得します")
+                            model.demo ? DemoLineUp.guideCoverage
+                                : "局の一覧は、番組表と一緒に\(model.guideDeviceName)から取得します")
     }
 
     // MARK: - the reader's changes
@@ -101,7 +105,8 @@ public final class ChannelsState {
         save { try await self.model.setChannelPreferences(broadcasting: broadcasting, order: order) }
     }
 
-    /// レコーダーの順に戻す: every channel shown, in the recorder's order, and the list read again.
+    /// The reset (`confirmResetLabel`): every channel shown, in the order of the device that gives the guide, and
+    /// the list read again.
     public func reset() {
         let broadcasting = listed
         save {

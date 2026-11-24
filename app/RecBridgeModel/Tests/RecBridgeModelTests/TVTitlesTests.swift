@@ -771,8 +771,10 @@ final class TVTitlesTests: XCTestCase {
 
         XCTAssertFalse(model.waitingForTVTitles)
         XCTAssertTrue(model.tvTitlesStillComing, "the list would say that there are no recordings")
+        XCTAssertEqual(model.noRecordingsSays, .init("読み込み中", "テレビの録画を読み込んでいます"))
         model.titleDestination = RecorderDisk.internalID
         XCTAssertFalse(model.tvTitlesStillComing)
+        XCTAssertEqual(model.noRecordingsSays, .init("録画された番組はありません"))
     }
 
     /// Nothing is read with the app away: the wait's task ends as the app is left, and begins again on the return.

@@ -842,10 +842,8 @@ extension AndroidBridgeTests {
                        [GuideWords.nowLabel, GuideWords.previousDayLabel, GuideWords.nextDayLabel,
                         GuideWords.allStationsLabel, GuideWords.showAllStationsLabel, GuideWords.onAirLabel,
                         GuideWords.detailsPrefix, GuideWords.channelsLabel])
-        XCTAssertEqual([words.channelsTitle, words.channelsResetLabel, words.channelsConfirmResetLabel,
-                        words.channelsFailureTitle],
-                       [ChannelsState.title, ChannelsState.resetLabel, ChannelsState.confirmResetLabel,
-                        ChannelsState.failureTitle])
+        XCTAssertEqual([words.channelsTitle, words.channelsFailureTitle],
+                       [ChannelsState.title, ChannelsState.failureTitle])
     }
 
     /// The lists' words that never change, as Kotlin keeps them, are the model's (`ListWords`, `ReservationsState`,
@@ -1003,7 +1001,16 @@ extension AndroidBridgeTests {
         XCTAssertEqual(shown.demoFooter, SettingsWords.demoFooter(inDemo: true))
         XCTAssertEqual(shown.guideSourceFooter, "", "a footer of a choice was said with no choice to make")
         XCTAssertEqual(shown.guideSourceAlone, "")
+        XCTAssertEqual(shown.helperProblem, "")
         XCTAssertEqual(shown.searchingLine, "")
+
+        // What the helper's last fetch said is a line of its own, as a body says it, and no part of the footer.
+        app.model.helperProblem = TVHelperError.transport("").explanation
+        let said = await until(settings.read) { !$0.helperProblem.isEmpty }
+        XCTAssertEqual(said.helperProblem, "テレビのヘルパーが応答しません。")
+        XCTAssertEqual(said.guideSourceFooter, "")
+        app.model.helperProblem = nil
+        _ = await until(settings.read) { $0.helperProblem.isEmpty }
 
         let devices = await app.devices()
         app.model.scanning = (done: 3, total: 1024)
@@ -1517,6 +1524,10 @@ extension AndroidBridgeTests {
         XCTAssertEqual(listed.broadcasting, "td")
         XCTAssertFalse(listed.customised)
         XCTAssertEqual(listed.footer, ChannelsState.footer)
+        // The reset's words come with the screen, naming the device that gives the guide: the demo's recorder.
+        XCTAssertEqual([listed.resetLabel, listed.resetQuestion, listed.confirmResetLabel],
+                       ["レコーダーの順に戻して、すべて表示", "地上デジタルの局をすべて表示して、レコーダーの順に戻しますか？",
+                        "レコーダーの順に戻す"])
         XCTAssertTrue(listed.types.contains { $0.code == "bs" })
         let first = listed.stations[0], third = listed.stations[2]
 

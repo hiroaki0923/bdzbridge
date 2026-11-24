@@ -415,6 +415,74 @@ final class GuideSourceTests: XCTestCase {
         try await expect("bs", .recorders, in: home)
     }
 
+    // MARK: - what the screens say of the device
+
+    /// The sentences that say which device the guide comes from name the one that gives this home's guide, by
+    /// the name 番組表の取得元 has for it: an empty guide's, the stations' screen's reset with its question, and
+    /// its empty list's. The recorder with nothing chosen, as these have always read; the television once it is
+    /// chosen, and in a home with a television alone. A type the other types came in without is said of the
+    /// recorder as one it does not have, and of the television only as one it has no guide of.
+    func testTheSentencesNameTheDeviceThatGivesTheGuide() async throws {
+        let home = try await aHome(recorderGives: [0])
+        let defaults = home.bench.defaults
+        func named(_ device: String, _ noType: String, _ message: String,
+                    file: StaticString = #filePath, line: UInt = #line) {
+            let model = model(in: home)
+            XCTAssertEqual(model.guideDeviceName, device, message, file: file, line: line)
+            let refresh = "右上の更新ボタンで\(device)から取得できます"
+            XCTAssertEqual(model.says(.notFetched), .init("番組表をまだ取得していません", refresh), message,
+                           file: file, line: line)
+            XCTAssertEqual(model.says(.nothingThatDay), .init("この日の番組表はありません", refresh), message,
+                           file: file, line: line)
+            XCTAssertEqual(model.says(.typeNotAnswered),
+                           .init("地上デジタルの番組表はありません", noType + "。右上の更新ボタンで取得し直せます"), message,
+                           file: file, line: line)
+            let channels = ChannelsState(broadcasting: "td", model: model)
+            XCTAssertEqual(channels.resetLabel, "\(device)の順に戻して、すべて表示", message, file: file, line: line)
+            XCTAssertEqual(channels.confirmResetLabel, "\(device)の順に戻す", message, file: file, line: line)
+            XCTAssertEqual(channels.resetQuestion, "地上デジタルの局をすべて表示して、\(device)の順に戻しますか？", message,
+                           file: file, line: line)
+            XCTAssertEqual(channels.empty, .init("地上デジタルの局はありません", "局の一覧は、番組表と一緒に\(device)から取得します"),
+                           message, file: file, line: line)
+        }
+
+        named("レコーダー", "レコーダーが対応していない放送は空のままです", "nothing chosen")
+        defaults.set(GuideSourceChoice.tv.rawValue, forKey: DefaultsKey.guideSource)
+        named("テレビ", "テレビに番組表が無い放送は空のままです", "the television chosen")
+        home.tokens.remove()
+        named("レコーダー", "レコーダーが対応していない放送は空のままです",
+               "the television chosen and the helper's registration gone")
+        home.tokens.save("token")
+        defaults.set(GuideSourceChoice.recorder.rawValue, forKey: DefaultsKey.guideSource)
+        defaults.removeObject(forKey: DefaultsKey.recorderHost)
+        named("テレビ", "テレビに番組表が無い放送は空のままです", "a television alone")
+    }
+
+    /// 最終自動更新 is said only while the recorder gives the guide: where the television does, no overnight run
+    /// fetches one, and the row would stand at the recorder's last night. What the run wrote is kept, and said
+    /// again once the recorder is the source.
+    func testTheOvernightRefreshIsNotSaidWhileTheTelevisionGivesTheGuide() async throws {
+        let home = try await aHome(recorderGives: [0])
+        let defaults = home.bench.defaults
+        defaults.set(RecorderTime.format(Date(timeIntervalSince1970: 1_700_000_000)),
+                     forKey: DefaultsKey.lastBackgroundRefresh)
+        XCTAssertEqual(model(in: home).lastOvernightRefresh, "11/15(水) 07:13", "nothing chosen")
+
+        defaults.set(GuideSourceChoice.tv.rawValue, forKey: DefaultsKey.guideSource)
+        XCTAssertNil(model(in: home).lastOvernightRefresh, "the television chosen")
+        XCTAssertNotNil(defaults.string(forKey: DefaultsKey.lastBackgroundRefresh), "what the run wrote was not kept")
+        defaults.set(GuideSourceChoice.recorder.rawValue, forKey: DefaultsKey.guideSource)
+        XCTAssertEqual(model(in: home).lastOvernightRefresh, "11/15(水) 07:13", "the recorder chosen back")
+
+        defaults.set(GuideSourceChoice.tv.rawValue, forKey: DefaultsKey.guideSource)
+        home.tokens.remove()
+        XCTAssertEqual(model(in: home).lastOvernightRefresh, "11/15(水) 07:13",
+                       "the television chosen and the helper's registration gone")
+        home.tokens.save("token")
+        defaults.removeObject(forKey: DefaultsKey.recorderHost)
+        XCTAssertNil(model(in: home).lastOvernightRefresh, "a television alone")
+    }
+
     // MARK: - the home
 
     /// A home with a recorder and a television, each invented, the helper beside the television.

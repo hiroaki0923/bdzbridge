@@ -75,7 +75,7 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf("android.permission.READ_TV_LISTINGS"), 1)
         }
         left.addView(permissionButton, below(10, button = true))
-        left.addView(text("しばらく使わないと Android が許可を取り消すことがあります。取り消さないように設定できます。", 18f, dim = true),
+        left.addView(text("この画面を数か月開かないと、Android が許可を取り消すことがあります。取り消さないように設定できます。", 18f, dim = true),
             below(10))
         left.addView(remoteButton("許可を取り消さない設定を開く") {
             try {
@@ -89,7 +89,7 @@ class MainActivity : Activity() {
 
         val right = Column(this)
         right.addView(text("端末の登録", 22f, bold = true))
-        right.addView(text("RecBridge の設定でテレビを選び、ここに出る 6 桁の番号を入れてください。番号は 5 分で消えます。", 18f, dim = true),
+        right.addView(text("RecBridge の設定の「テレビ」で「ヘルパーに登録」を選び、ここに出る 6 桁の番号を入力してください。番号は 5 分で消えます。", 18f, dim = true),
             below(2))
         // A slot of the code's height at least, so that the button under it stays where it is whether the code, a
         // wait or the device just registered is shown, or nothing. On a television set to larger text it grows
@@ -207,7 +207,9 @@ class MainActivity : Activity() {
         if (lastRegistered?.let { r -> list.none { it.id == r.id } } == true) lastRegistered = null
         if (showingCode) {
             val code = devices.showCode()
-            if (code == null) slot("しばらく待ってから", 28f, bold = true)
+            // No code while wrong ones have locked the registration, in the words the app says it in. Small enough
+            // for the sentence to fit the slot's two lines.
+            if (code == null) slot("間違いが続いたので、しばらく登録を受け付けません", 24f, bold = true)
             else slot(code.substring(0, 3) + " " + code.substring(3), 64f, bold = true, code = true)
             codeButton.text = "番号を消す"
         } else {

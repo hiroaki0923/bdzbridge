@@ -235,4 +235,17 @@ final class OlderTelevisionTests: XCTestCase {
         XCTAssertEqual(error.explanation, "このテレビは、RecBridge が使う方式での予約に対応していません")
         XCTAssertEqual(error.failure, .deviceCannot(reason: error.explanation))
     }
+
+    /// The two lists are called as every other sentence of the television's calls them, and a method with no
+    /// words of its own is named in brackets, with a space on either side.
+    func testWhatAnOlderTelevisionCannotReadIsNamed() {
+        let said = { (method: String) in
+            ScalarError.rpc(method: method, version: "1.0", code: 12, message: method).explanation
+        }
+        XCTAssertEqual(said("getScheduleList"), "このテレビは、RecBridge が使う方式での予約一覧の読み取りに対応していません")
+        XCTAssertEqual(said("getContentList"), "このテレビは、RecBridge が使う方式での録画一覧の読み取りに対応していません")
+        XCTAssertEqual(said("getContentCount"), said("getContentList"))
+        XCTAssertEqual(said("getSystemSupportedFunction"),
+                       "このテレビは、RecBridge が使う方式での操作 (getSystemSupportedFunction) に対応していません")
+    }
 }

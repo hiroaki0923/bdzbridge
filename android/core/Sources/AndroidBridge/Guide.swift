@@ -18,11 +18,10 @@ public struct GuideWordsText: Sendable {
     public var onAirLabel: String
     public var detailsPrefix: String
     public var channelsLabel: String
-    /// The stations' screen: its title, the button at the foot, the one of the question it asks, and the title of the
-    /// alert that says a change was not saved.
+    /// The stations' screen: its title, and the title of the alert that says a change was not saved. The button at
+    /// its foot and the one of the question it asks name the device the guide comes from, and come with the read of
+    /// the screen (`ChannelsScreen`).
     public var channelsTitle: String
-    public var channelsResetLabel: String
-    public var channelsConfirmResetLabel: String
     public var channelsFailureTitle: String
 
     static let all = GuideWordsText(
@@ -30,8 +29,7 @@ public struct GuideWordsText: Sendable {
         nextDayLabel: GuideWords.nextDayLabel, allStationsLabel: GuideWords.allStationsLabel,
         showAllStationsLabel: GuideWords.showAllStationsLabel, onAirLabel: GuideWords.onAirLabel,
         detailsPrefix: GuideWords.detailsPrefix, channelsLabel: GuideWords.channelsLabel,
-        channelsTitle: ChannelsState.title, channelsResetLabel: ChannelsState.resetLabel,
-        channelsConfirmResetLabel: ChannelsState.confirmResetLabel, channelsFailureTitle: ChannelsState.failureTitle)
+        channelsTitle: ChannelsState.title, channelsFailureTitle: ChannelsState.failureTitle)
 }
 
 /// The guide's screen as the iOS app shows it (`GuideScreen`): one broadcasting type and one broadcast day, from the

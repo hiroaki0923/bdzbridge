@@ -58,6 +58,10 @@ final class SettingsWordsTests: XCTestCase {
         XCTAssertEqual(SettingsWords.leaveDemoLabel, "サンプルデータを終了する")
         XCTAssertEqual(SettingsWords.appHeading, "このアプリ")
         XCTAssertEqual(Disclaimer.title, "ご利用上の注意")
+        // What it opens with names both kinds of device the app works, as the page the store links to does.
+        XCTAssertEqual(Disclaimer.opening,
+                       "RecBridge は、ソニー製のブルーレイディスクレコーダー（BDZ シリーズ）とテレビを家庭内ネットワーク越しに操作する、"
+                       + "個人が作った非公式のアプリです。ソニーグループとは関係がなく、同社の公式アプリではありません。")
         XCTAssertEqual(SettingsWords.versionLabel, "バージョン")
         XCTAssertEqual(SettingsWords.version(release: "0.2", build: "12"), "0.2 (12)")
     }
@@ -102,8 +106,9 @@ final class SettingsWordsTests: XCTestCase {
                        + "もう一度探してください。")
     }
 
-    /// The footers in the demo and out of it, and the guide's with what the helper's last fetch said on a line of its
-    /// own, as it said it.
+    /// The footers in the demo and out of it, and the guide's where there is a source to choose, which says nothing
+    /// of the stations' logos and has nothing of what the helper's last fetch said: that is a line of the screen's
+    /// own, in red and as a body says it (`AppModel.helperProblem`).
     func testTheFootersFollowTheDemoAndTheHelper() {
         XCTAssertEqual(SettingsWords.searchFooter(inDemo: true),
                        "サンプルデータの表示中は、架空のレコーダーとテレビだけが見つかります。"
@@ -116,10 +121,9 @@ final class SettingsWordsTests: XCTestCase {
                        + "元のレコーダーとテレビの設定に戻ります。レコーダーを選んで接続したときも、サンプルは終了します。")
         XCTAssertEqual(SettingsWords.demoFooter(inDemo: false),
                        "レコーダーが無いときに、架空の番組表と録画一覧でアプリの動きを確かめられます。")
-        let note = "テレビの番組表は、番組名などが半角で表示されます。予約、局の設定、ロゴはどちらを選んでも変わりません。"
-        XCTAssertEqual(SettingsWords.guideSourceFooter(helperProblem: nil), note)
-        XCTAssertEqual(SettingsWords.guideSourceFooter(helperProblem: "ヘルパーに接続できません"),
-                       note + "\nヘルパーに接続できません")
+        XCTAssertEqual(SettingsWords.guideSourceFooter,
+                       "テレビの番組表は、番組名などが半角で表示されます。予約と局の設定は、どちらを選んでも変わりません。")
+        XCTAssertEqual(TVHelperError.transport("").explanation.asABody, "テレビのヘルパーが応答しません。")
     }
 
     /// The counts and the search's progress group their digits as the screen's text grouped them: with four figures

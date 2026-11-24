@@ -216,8 +216,10 @@ final class RecorderDriverTests: XCTestCase {
 
     /// The recorder's lines of what both devices do name the recorder in a home with a television saved beside it,
     /// as the television's lines name the television, and are bare in a home with the recorder alone, as they have
-    /// always been. A line of what only the recorder does is never named. Each in the letters the strip shows. The
-    /// driver puts them up by what its host says: the connect's line, and the read's after it.
+    /// always been: the connect's, the reservations' and the recordings'. A line of what only the recorder does is
+    /// never named, nor the guide's, which is never beside a television's. Each in the letters the strip shows.
+    /// The driver puts them up by what its host says: the connect's line, and the read's after it (the
+    /// recordings' are held where they are put up, `RecorderRecordingsTests`).
     func testTheRecordersLinesNameItBesideATelevision() async throws {
         let lines = [
             (RecorderDriver.connectingLine, "接続中", "レコーダーに接続中"),
@@ -232,7 +234,18 @@ final class RecorderDriverTests: XCTestCase {
             XCTAssertEqual(RecorderDriver.line(line, withATelevisionSaved: false), bare)
             XCTAssertEqual(RecorderDriver.line(line, withATelevisionSaved: true), named)
         }
+        let recordings = [
+            ("録画一覧を取得中", "レコーダーの録画一覧を取得中"), ("保護中", "レコーダーの録画を保護中"),
+            ("保護を解除中", "レコーダーの録画の保護を解除中"), ("削除中", "レコーダーの録画を削除中"),
+        ]
+        for (bare, named) in recordings {
+            XCTAssertEqual(RecorderDriver.line(bare, withATelevisionSaved: false), bare)
+            XCTAssertEqual(RecorderDriver.line(bare, withATelevisionSaved: true), named)
+        }
         XCTAssertEqual(RecorderDriver.line(RecorderDriver.guideLine, withATelevisionSaved: true), "番組表を取得中")
+        for alone in ["再生を指示中", "停止中", "電源を入れています", "おまかせ・まる録の設定を取得中"] {
+            XCTAssertEqual(RecorderDriver.line(alone, withATelevisionSaved: true), alone)
+        }
 
         for saved in [false, true] {
             let world = LinkWorld()

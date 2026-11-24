@@ -85,10 +85,11 @@ final class TVWordsTests: XCTestCase {
         XCTAssertEqual(SheetWords.cancelLabel, "キャンセル")
     }
 
-    /// The helper's sheet: its title, the code field, the two sentences under it with the link and where it goes, and
-    /// the button.
+    /// The helper's sheet: its title, which is the name of the button that opens it, the code field, the two sentences
+    /// under it with the link and where it goes, and the button.
     func testTheHelpersSheetSaysWhatItSaid() {
-        XCTAssertEqual(HelperRegisterState.sheetTitle, "テレビの番組表に登録")
+        XCTAssertEqual(HelperRegisterState.sheetTitle, "ヘルパーに登録")
+        XCTAssertEqual(HelperRegisterState.sheetTitle, TVSettingsState.registerHelperLabel)
         XCTAssertEqual(HelperRegisterState.codePlaceholder, "6 桁の番号")
         XCTAssertEqual(HelperRegisterState.codeNote,
                        "テレビで「RecBridge ヘルパー」を開き、「登録の番号を出す」で表示された 6 桁の番号を入力してください。"

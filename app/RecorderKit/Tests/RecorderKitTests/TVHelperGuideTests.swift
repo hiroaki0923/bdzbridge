@@ -392,8 +392,21 @@ final class TVHelperGuideTests: XCTestCase {
                               environment: world.environment)
         link.owner = world
         await guide.fetch(into: store, on: link, stored: { _ in })
-        XCTAssertEqual(world.begun, [TVHelperGuide.line])
-        XCTAssertEqual(world.updated, ["番組表を取得中（テレビ: 地上デジタル）", "番組表を取得中（テレビ: BS）"])
+        XCTAssertEqual(world.begun, ["テレビの番組表を取得中"])
+        XCTAssertEqual(world.updated, ["テレビの番組表を取得中 (地上デジタル)", "テレビの番組表を取得中 (BS)"])
+    }
+
+    /// What the helper's refusals say, in the letters a screen shows: the way to register again and the way to
+    /// the permission by the names of the buttons to press, and what an answer of no known shape was, in
+    /// brackets after the sentence.
+    func testWhatTheHelpersRefusalsSay() {
+        XCTAssertEqual(TVHelperError.unauthorized.explanation,
+                       "テレビのヘルパーに登録されていません。設定の「テレビ」で「ヘルパーの登録を解除」を選んでから、"
+                           + "もう一度「ヘルパーに登録」を選んでください")
+        XCTAssertEqual(TVHelperError.notReady("noPermission").explanation,
+                       "テレビで「RecBridge ヘルパー」を開き、「番組表の読み取りを許可する」を選んでください")
+        XCTAssertEqual(TVHelperError.unexpected("HTTP 500").explanation,
+                       "テレビのヘルパーの応答を読み取れませんでした (HTTP 500)")
     }
 
     func testRegisteringMakesSureOfTheHelperAndSaysWhyItCouldNot() async throws {

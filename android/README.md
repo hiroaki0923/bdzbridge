@@ -59,7 +59,8 @@ strip's 登録 on a sheet over the model's state of it (`TVRegisterState`), and 
 (`HelperRegisterState`), each in its state's words, and what the television speaks is read on a page in the model's
 words too (`TVCapabilitiesWords`); the television's words that never change -- the part's, the sheets' and the page's --
 are handed over once, at the model's start (`TelevisionWordsText`), as are the guide's and the stations' screen's
-words (`GuideWordsText`), the names of the tabs (`TabWordsText`), the words of the reservations' list and the
+words (`GuideWordsText`; the stations' reset and its question name the device the guide is fetched from, so they come
+with the read of that screen instead), the names of the tabs (`TabWordsText`), the words of the reservations' list and the
 recordings' (`ListWordsText`) and those of the job bar, a programme's page and the duplicates
 (`RecordingsWordsText`) and of the keyword conditions' page and form (`ConditionsWordsText`). As on iOS, a
 connect wakes a recorder that does not answer with a magic packet when its MAC is known. The stations' logos are on the
@@ -71,7 +72,8 @@ are, never an address or a name. What a search for devices came to, which iOS
 announces to VoiceOver, is a polite live region for TalkBack. At night, with no screen, it wakes the recorder, sends
 what waits for the recorder and the television and fetches the guide, as the iOS app's background task does, and the
 settings say when it last fetched it (最終自動更新): below, "The overnight run". The guide is the recorder's, and is
-fetched only where the recorder gives the home's guide; the television's is not fetched at night.
+fetched only where the recorder gives the home's guide; the television's is not fetched at night, and the settings
+leave that row out while the television gives the guide.
 
 ## Layout
 

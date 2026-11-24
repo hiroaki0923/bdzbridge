@@ -41,6 +41,11 @@ extension AppModel {
         .of(recorderSaved: !host.isEmpty, helperRegistered: helperRegistered, preference: guideSourcePreference)
     }
 
+    /// The device the guide is fetched from now, as a sentence about the guide names it: by the name 番組表の取得元
+    /// has for it (`SettingsWords.guideSourceName`). The recorder in a home with no helper registered, and in
+    /// the demo, which has no helper.
+    public var guideDeviceName: String { SettingsWords.guideSourceName(guideSource) }
+
     /// Whether the app holds a registration with the helper.
     public var helperRegistered: Bool { tvHelper?.isRegistered ?? false }
 

@@ -15,8 +15,9 @@ public final class TVHelperGuide {
     /// How long the helper's copy is trusted before the helper is asked again whether it changed.
     public nonisolated static let checkInterval: TimeInterval = 3600
 
-    /// The line on screen while the guide is fetched, and as each type of it is.
-    public nonisolated static let line = "番組表を取得中（テレビ）"
+    /// The line on screen while the guide is fetched, and as each type of it is: named as the television's
+    /// lines are, the type in the brackets the recorder's line has it in (`RecorderDriver.guideLine(for:)`).
+    public nonisolated static let line = "テレビの番組表を取得中"
 
     /// The helper's silence while the television answers beside it: the helper is not running there. A television
     /// that restarted itself was seen to leave it so, and opening it once on the television starts it again. Said
@@ -26,7 +27,7 @@ public final class TVHelperGuide {
         "テレビは応答していますが、ヘルパーが応答しません。テレビで「RecBridge ヘルパー」を一度開いてください"
 
     public nonisolated static func line(for broadcasting: String) -> String {
-        "番組表を取得中（テレビ: \(Codes.broadcastingLabel[broadcasting] ?? broadcasting)）"
+        "\(line) (\(Codes.broadcastingLabel[broadcasting] ?? broadcasting))"
     }
 
     public let client: TVHelperClient

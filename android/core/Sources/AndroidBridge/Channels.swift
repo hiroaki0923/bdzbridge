@@ -14,10 +14,14 @@ public struct ChannelsScreen: Sendable {
     /// The list has been read once: an empty one is then the type's having no stations (`empty`).
     public var loaded: Bool
     public var empty: Said
-    /// Whether anything differs from the recorder's order with every station shown, which the reset goes back to.
+    /// Whether anything differs from the order of the device that gives the guide with every station shown, which
+    /// the reset goes back to.
     public var customised: Bool
     public var footer: String
+    /// The button at the foot, the question it asks and that question's own button, which name that device.
+    public var resetLabel: String
     public var resetQuestion: String
+    public var confirmResetLabel: String
     /// What a save that did not go through had to say.
     public var failure: String
 }
@@ -91,7 +95,7 @@ public final class ChannelsWindow: Sendable {
         }
     }
 
-    /// レコーダーの順に戻す, answered yes.
+    /// The reset's question (`ChannelsScreen.resetQuestion`), answered yes.
     public func reset() async {
         await MainActor.run { if channels.customised { channels.reset() } }
     }
@@ -110,7 +114,8 @@ public final class ChannelsWindow: Sendable {
                 ArrangedStation(id: $0.id, name: $0.name, logo: $0.logo.map { [UInt8]($0) } ?? [], shown: !$0.hidden)
             },
             loaded: channels.loaded, empty: Said(channels.empty), customised: channels.customised,
-            footer: ChannelsState.footer, resetQuestion: channels.resetQuestion,
+            footer: ChannelsState.footer, resetLabel: channels.resetLabel, resetQuestion: channels.resetQuestion,
+            confirmResetLabel: channels.confirmResetLabel,
             failure: channels.failure?.asABody ?? "")
     }
 }
