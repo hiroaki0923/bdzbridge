@@ -185,9 +185,9 @@ extension AppModel {
     public static let loadingRecordings = ScreenSays("読み込み中", "レコーダーから録画一覧を取得しています")
 
     /// What an empty list of recordings says: that there is nothing, or, while a television's list may still be
-    /// coming, that it is on its way.
+    /// coming, that it is on its way, with no full stop, as what every empty screen says under its title.
     public var noRecordingsSays: ScreenSays {
-        tvTitlesStillComing ? ScreenSays("読み込み中", TVDriver.titlesComingLine.asABody)
+        tvTitlesStillComing ? ScreenSays("読み込み中", TVDriver.titlesComingLine)
             : ScreenSays("録画された番組はありません")
     }
 }

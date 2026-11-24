@@ -63,7 +63,8 @@ public enum TVHelperError: Error, Equatable, Sendable {
     /// What answered is not the helper: another program on the port, or a helper speaking an API this app does
     /// not.
     case notAHelper
-    /// The helper takes no token of the app's: it is to be registered again on the television screen.
+    /// The helper takes no token of the app's: the registration is to be taken off in the app's settings and
+    /// made again.
     case unauthorized
     /// Registration was turned down: `noCode` with no code showing on the television, `badCode` for the wrong
     /// one, `locked` after too many wrong ones.
@@ -90,14 +91,17 @@ extension TVHelperError: DeviceError {
         switch self {
         case .transport: "テレビのヘルパーが応答しません"
         case .notAHelper: "テレビのヘルパーではないものが応答しました"
-        case .unauthorized: "テレビのヘルパーに登録されていません。テレビの画面で登録し直してください"
+        case .unauthorized:
+            "テレビのヘルパーに登録されていません。設定の「テレビ」で「ヘルパーの登録を解除」を選んでから、"
+                + "もう一度「ヘルパーに登録」を選んでください"
         case .pairingRefused("noCode"): "テレビの画面に登録の番号が出ていません"
         case .pairingRefused("locked"): "間違いが続いたので、しばらく登録を受け付けません"
         case .pairingRefused: "登録の番号が違います"
-        case .notReady("noPermission"): "テレビでヘルパーに番組表の読み取りを許可してください"
+        case .notReady("noPermission"):
+            "テレビで「RecBridge ヘルパー」を開き、「番組表の読み取りを許可する」を選んでください"
         case .notReady("noTuner"): "テレビにチューナーのアプリが見つかりません"
         case .notReady: "テレビのヘルパーが番組表の写しを作っています"
-        case .unexpected(let what): "テレビのヘルパーの答えを読み取れませんでした: \(what)"
+        case .unexpected(let what): "テレビのヘルパーの応答を読み取れませんでした (\(what))"
         }
     }
 }

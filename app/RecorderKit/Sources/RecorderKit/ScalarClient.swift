@@ -112,20 +112,21 @@ public enum ScalarError: Error, Equatable, Sendable {
 extension ScalarError: DeviceError {}
 
 extension ScalarError {
-    /// What a method does, in words for a sentence about a television that does not have it.
+    /// What a method does, in words for a sentence about a television that does not have it. One with no words
+    /// of its own is named in brackets, with the space that goes between its letters and the kana after them.
     static func feature(of method: String, version: String) -> String {
         switch method {
-        case "getScheduleList": "予約の一覧の読み取り"
+        case "getScheduleList": "予約一覧の読み取り"
         case "addSchedule" where version == "1.2": "予約の変更"
         case "addSchedule": "予約"
         case "deleteSchedule": "予約の削除"
         case "getConflictScheduleList": "予約の重なりの確認"
-        case "getContentList", "getContentCount": "録画の一覧の読み取り"
+        case "getContentList", "getContentCount": "録画一覧の読み取り"
         case "deleteContent": "録画の削除"
         case "setDeleteProtection": "録画の保護"
         case "getRecordingStatus": "録画中かどうかの確認"
         case "getStorageList": "USB HDD の確認"
-        default: "操作（\(method)）"
+        default: "操作 (\(method)) "
         }
     }
 }
