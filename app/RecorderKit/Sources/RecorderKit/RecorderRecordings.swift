@@ -7,7 +7,8 @@ import Foundation
 extension RecorderDriver {
     // MARK: - the list and the free space
 
-    /// The line on screen while the recordings are read.
+    /// The line on screen while the recordings are read. This and the three of a protect and a delete name the
+    /// recorder in a home with a television saved beside it (`named(_:on:)`).
     static let titlesLine = "録画一覧を取得中"
 
     /// Reads every recording, in pages of 200, the internal disk's and then those of a USB disk in the slot
@@ -57,7 +58,7 @@ extension RecorderDriver {
     private func readTitles(on link: DeviceLink, keep: @MainActor ([RecordedTitle], RecorderDisk?) -> Void) async
         -> Bool {
         let began = link.generation
-        return await link.underALine(Self.titlesLine) { _ in
+        return await link.underALine(named(Self.titlesLine, on: link)) { _ in
             let came = await self.asked(nil, .aRead, on: link, since: began) { _, client
                 -> (list: [RecordedTitle], client: RecorderClient)? in
                 let list = try await client.allTitles()
@@ -326,7 +327,7 @@ extension RecorderDriver {
         guard !link.session.unreachable else { return (.notDone(whyNotConnected), false) }
         guard canBeAsked(on: link) else { return (.notDone(whyNotConnected), false) }
         let began = link.generation
-        let came = await asked(on ? Self.protectingLine : Self.unprotectingLine,
+        let came = await asked(named(on ? Self.protectingLine : Self.unprotectingLine, on: link),
                                .aWrite(sending: Self.mayHaveArrived), on: link, since: began) { _, client in
             // Under the protect's line and on the client it was asked on: one let go of meanwhile sends nothing.
             await self.afterTheListRead()
@@ -372,7 +373,7 @@ extension RecorderDriver {
         guard !link.session.unreachable else { return (.notDone(whyNotConnected), false) }
         guard canBeAsked(on: link) else { return (.notDone(whyNotConnected), false) }
         let began = link.generation
-        return await link.underALine(Self.deletingTitleLine) { _ in
+        return await link.underALine(named(Self.deletingTitleLine, on: link)) { _ in
             let there = await self.asked(nil, .aWrite(sending: nil), on: link, since: began) { _, client in
                 await self.afterTheListRead()
                 let client = try await self.waitForTheDisk(of: title, handed: client, since: began)

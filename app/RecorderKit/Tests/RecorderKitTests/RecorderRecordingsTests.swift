@@ -1104,6 +1104,35 @@ final class RecorderRecordingsTests: XCTestCase {
         expectEqual(await answeredRecorder.actions.filter { $0 == "X_DeleteTitle" }.count, 1)
     }
 
+    /// The lines of the recordings name the recorder in a home with a television saved beside it, as the
+    /// television's name the television, and are bare in a home with the recorder alone: the list's read, a
+    /// protect, its taking off and a delete, as the driver puts each up by what its host says.
+    func testTheRecordingsLinesNameTheRecorderBesideATelevision() async throws {
+        let detail = Stub.soap("X_GetTitleDetail", result: "<detail><summary>あらすじ</summary></detail>")
+        let title = try await Self.title()
+        let bare = ["録画一覧を取得中", "保護中", "保護を解除中", "削除中"]
+        let named = ["レコーダーの録画一覧を取得中", "レコーダーの録画を保護中", "レコーダーの録画の保護を解除中",
+                     "レコーダーの録画を削除中"]
+        for saved in [false, true] {
+            let (world, driver, _) = try await Self.playing([
+                "X_GetTitleList": [Stub.soap("X_GetTitleList", result: "<xsrs></xsrs>", totalMatches: 0)],
+                "X_UpdateTitle": [Stub.soap("X_UpdateTitle")],
+                "X_GetTitleDetail": [detail], "X_DeleteTitle": [Stub.soap("X_DeleteTitle")],
+            ])
+            world.televisionSaved = saved
+            let before = world.begun.count
+            expectTrue(await driver.titles { _, _ in })
+            let protected = await driver.protect(title, true) {}
+            XCTAssertEqual(protected.altered, .done(saying: nil))
+            let unprotected = await driver.protect(title, false) {}
+            XCTAssertEqual(unprotected.altered, .done(saying: nil))
+            let deleted = await driver.delete(title) {}
+            XCTAssertEqual(deleted.altered, .done(saying: nil))
+            let begun = world.begun.dropFirst(before).filter { (bare + named).contains($0) }
+            XCTAssertEqual(begun, saved ? named : bare, "saved: \(saved)")
+        }
+    }
+
     /// A single delete whose question is out as the recorder is let go of sends nothing, whatever the question is
     /// answered -- that the recording is there, a refusal, or nothing: the result says why (`whyLetGo`), the list
     /// is not touched, and nothing is said on the line, which is the newcomer's.

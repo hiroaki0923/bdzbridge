@@ -225,9 +225,12 @@ public final class RecorderDriver: LinkDriver {
     /// the recorder it names the recorder, as the television's lines name the television (テレビの予約を削除中),
     /// and as the strip's reports name the device then (`PendingQueue.Outcome.said(withATelevisionSaved:)`); a
     /// home with the recorder alone reads it bare, as it always has. Only the lines of what both devices do are
-    /// named: the recordings', the keyword conditions', the guide's and the waking's are the recorder's alone,
-    /// and any line not named here is handed back as it is. For the lines the driver puts up, by what its host
-    /// says (`RecorderLinkHost.televisionSaved`), and for a sheet that shows one of them itself.
+    /// named: the connect's, the reservations' and the recordings' (the list read, a recording protected, its
+    /// protection taken off, one deleted), which the television has lines of its own for (`TVRecordings.swift`).
+    /// The keyword conditions', playback's, the power's and the waking's are the recorder's alone; the guide's
+    /// is never beside a television's, a home's guide being fetched from one device; and any line not named
+    /// here is handed back as it is. For the lines the driver puts up, by what its host says
+    /// (`RecorderLinkHost.televisionSaved`), and for a sheet that shows one of them itself.
     public static func line(_ line: String, withATelevisionSaved televisionSaved: Bool) -> String {
         televisionSaved ? namedLines[line] ?? line : line
     }
@@ -236,10 +239,12 @@ public final class RecorderDriver: LinkDriver {
         connectingLine: "レコーダーに接続中", readingLine: "レコーダーの予約一覧を取得中",
         deletingLine: "レコーダーの予約を削除中", changingLine: "レコーダーの予約を変更中",
         reservingLine: "レコーダーに予約を送信中", sendingLine: "レコーダーに送信待ちの予約を送信中",
+        titlesLine: "レコーダーの録画一覧を取得中", protectingLine: "レコーダーの録画を保護中",
+        unprotectingLine: "レコーダーの録画の保護を解除中", deletingTitleLine: "レコーダーの録画を削除中",
     ]
 
     /// A line the driver puts up on `link`, as the home its host keeps reads it (`line(_:withATelevisionSaved:)`).
-    private func named(_ line: String, on link: DeviceLink) -> String {
+    func named(_ line: String, on link: DeviceLink) -> String {
         Self.line(line, withATelevisionSaved: recorderHost(link.owner)?.televisionSaved ?? false)
     }
 
