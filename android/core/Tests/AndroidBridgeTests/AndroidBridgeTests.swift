@@ -1001,7 +1001,16 @@ extension AndroidBridgeTests {
         XCTAssertEqual(shown.demoFooter, SettingsWords.demoFooter(inDemo: true))
         XCTAssertEqual(shown.guideSourceFooter, "", "a footer of a choice was said with no choice to make")
         XCTAssertEqual(shown.guideSourceAlone, "")
+        XCTAssertEqual(shown.helperProblem, "")
         XCTAssertEqual(shown.searchingLine, "")
+
+        // What the helper's last fetch said is a line of its own, as a body says it, and no part of the footer.
+        app.model.helperProblem = TVHelperError.transport("").explanation
+        let said = await until(settings.read) { !$0.helperProblem.isEmpty }
+        XCTAssertEqual(said.helperProblem, "テレビのヘルパーが応答しません。")
+        XCTAssertEqual(said.guideSourceFooter, "")
+        app.model.helperProblem = nil
+        _ = await until(settings.read) { $0.helperProblem.isEmpty }
 
         let devices = await app.devices()
         app.model.scanning = (done: 3, total: 1024)

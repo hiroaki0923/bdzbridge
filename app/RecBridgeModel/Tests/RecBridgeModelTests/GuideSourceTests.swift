@@ -458,6 +458,31 @@ final class GuideSourceTests: XCTestCase {
         named("テレビ", "テレビに番組表が無い放送は空のままです", "a television alone")
     }
 
+    /// 最終自動更新 is said only while the recorder gives the guide: where the television does, no overnight run
+    /// fetches one, and the row would stand at the recorder's last night. What the run wrote is kept, and said
+    /// again once the recorder is the source.
+    func testTheOvernightRefreshIsNotSaidWhileTheTelevisionGivesTheGuide() async throws {
+        let home = try await aHome(recorderGives: [0])
+        let defaults = home.bench.defaults
+        defaults.set(RecorderTime.format(Date(timeIntervalSince1970: 1_700_000_000)),
+                     forKey: DefaultsKey.lastBackgroundRefresh)
+        XCTAssertEqual(model(in: home).lastOvernightRefresh, "11/15(水) 07:13", "nothing chosen")
+
+        defaults.set(GuideSourceChoice.tv.rawValue, forKey: DefaultsKey.guideSource)
+        XCTAssertNil(model(in: home).lastOvernightRefresh, "the television chosen")
+        XCTAssertNotNil(defaults.string(forKey: DefaultsKey.lastBackgroundRefresh), "what the run wrote was not kept")
+        defaults.set(GuideSourceChoice.recorder.rawValue, forKey: DefaultsKey.guideSource)
+        XCTAssertEqual(model(in: home).lastOvernightRefresh, "11/15(水) 07:13", "the recorder chosen back")
+
+        defaults.set(GuideSourceChoice.tv.rawValue, forKey: DefaultsKey.guideSource)
+        home.tokens.remove()
+        XCTAssertEqual(model(in: home).lastOvernightRefresh, "11/15(水) 07:13",
+                       "the television chosen and the helper's registration gone")
+        home.tokens.save("token")
+        defaults.removeObject(forKey: DefaultsKey.recorderHost)
+        XCTAssertNil(model(in: home).lastOvernightRefresh, "a television alone")
+    }
+
     // MARK: - the home
 
     /// A home with a recorder and a television, each invented, the helper beside the television.

@@ -102,11 +102,12 @@ public enum SettingsWords {
     }
 
     /// What is said under the guide where there is a source to choose: what the television's guide looks like and
-    /// what the choice leaves alone, and on a line of its own what the helper's last fetch said, as it said it.
-    public static func guideSourceFooter(helperProblem: String?) -> String {
-        "テレビの番組表は、番組名などが半角で表示されます。予約、局の設定、ロゴはどちらを選んでも変わりません。"
-            + (helperProblem.map { "\n" + $0 } ?? "")
-    }
+    /// what the choice leaves alone. The stations' logos are not among that: each type's are those of the device
+    /// that last gave its guide. What the helper's last fetch said (`AppModel.helperProblem`) is no part of it:
+    /// a line of its own under it, in red and as a body says it, as what any device said is shown in the settings,
+    /// with a source to choose or none.
+    public static let guideSourceFooter = "テレビの番組表は、番組名などが半角で表示されます。"
+        + "予約と局の設定は、どちらを選んでも変わりません。"
 
     // MARK: - the demo
 

@@ -252,10 +252,15 @@ struct SettingsScreen: View {
         } header: {
             Text(SettingsWords.keptGuideHeading)
         } footer: {
-            if model.guideSourceIsChoosable {
-                Text(SettingsWords.guideSourceFooter(helperProblem: model.helperProblem))
-            } else if let problem = model.helperProblem {
-                Text(problem.asABody).foregroundStyle(.red).font(.callout)
+            // What the helper's last fetch said is a line of its own, in red as what any device said, under the
+            // note where there is a source to choose.
+            if model.guideSourceIsChoosable || model.helperProblem != nil {
+                VStack(alignment: .leading, spacing: 8) {
+                    if model.guideSourceIsChoosable { Text(SettingsWords.guideSourceFooter) }
+                    if let problem = model.helperProblem {
+                        Text(problem.asABody).foregroundStyle(.red).font(.callout)
+                    }
+                }
             }
         }
     }

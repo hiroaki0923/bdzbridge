@@ -162,11 +162,14 @@ fun SettingsScreen(arrange: () -> Unit, readDisclaimer: () -> Unit, setUp: () ->
                     Text(words.refreshGuideLabel)
                 }
             }
-            if (shown.guideSources.isNotEmpty()) item {
+            if (shown.guideSourceFooter.isNotEmpty()) item {
                 Footnote(shown.guideSourceFooter, Modifier.padding(horizontal = 16.dp))
-            } else if (shown.helperProblem.isNotEmpty()) item {
+            }
+            // What the helper's last fetch said: a line of its own in the error colour, under the note where there is one.
+            if (shown.helperProblem.isNotEmpty()) item {
                 Text(shown.helperProblem, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
-                     modifier = Modifier.padding(horizontal = 16.dp))
+                     modifier = Modifier.padding(horizontal = 16.dp)
+                         .padding(top = if (shown.guideSourceFooter.isNotEmpty()) 4.dp else 0.dp))
             }
 
             item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }

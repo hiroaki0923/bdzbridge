@@ -53,16 +53,17 @@ public struct SettingsScreen: Sendable {
     /// for.
     public var canChoose: Bool
     /// 番組表の取得元: a choice where both a recorder and a registered helper could give the guide, said alone where the
-    /// television gives it with no choice to make (`guideSourceAlone`), and nothing otherwise; what the helper's last
-    /// fetch said, as a body says it, in red where there is no choice; and what is said under the guide where there
-    /// is one, which says what the helper said as it said it (`guideSourceFooter`, empty otherwise).
+    /// television gives it with no choice to make (`guideSourceAlone`), and nothing otherwise; what is said under the
+    /// guide where there is a choice (`guideSourceFooter`, empty otherwise); and what the helper's last fetch said, as
+    /// a body says it, for a line of its own in red, with a choice or none.
     public var guideSources: [Labelled]
     public var guideSource: String
     public var guideSourceAlone: String
     public var helperProblem: String
     public var guideSourceFooter: String
     /// 保存されている番組表: each broadcasting type's stations and programmes, when the guide was last fetched, and
-    /// when the overnight run last fetched it (最終自動更新).
+    /// when the overnight run last fetched it (最終自動更新), which is not said while the television gives the guide
+    /// (`AppModel.lastOvernightRefresh`).
     public var guide: [Fact]
     public var refreshHeld: Bool
     /// Whether the demo is on, and what is said under its button.
@@ -397,8 +398,7 @@ public final class SettingsWindow: Sendable {
             guideSource: model.guideSourcePreference.rawValue,
             guideSourceAlone: model.guideSourceAlone ?? "",
             helperProblem: model.helperProblem?.asABody ?? "",
-            guideSourceFooter: model.guideSourceIsChoosable
-                ? SettingsWords.guideSourceFooter(helperProblem: model.helperProblem) : "",
+            guideSourceFooter: model.guideSourceIsChoosable ? SettingsWords.guideSourceFooter : "",
             guide: guide, refreshHeld: !model.canRefreshGuideByHand, demo: model.demo,
             demoFooter: SettingsWords.demoFooter(inDemo: model.demo), version: version,
             tutorialRow: Tutorial.reviewRow,

@@ -72,7 +72,8 @@ are, never an address or a name. What a search for devices came to, which iOS
 announces to VoiceOver, is a polite live region for TalkBack. At night, with no screen, it wakes the recorder, sends
 what waits for the recorder and the television and fetches the guide, as the iOS app's background task does, and the
 settings say when it last fetched it (最終自動更新): below, "The overnight run". The guide is the recorder's, and is
-fetched only where the recorder gives the home's guide; the television's is not fetched at night.
+fetched only where the recorder gives the home's guide; the television's is not fetched at night, and the settings
+leave that row out while the television gives the guide.
 
 ## Layout
 

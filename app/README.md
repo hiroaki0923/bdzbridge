@@ -1057,12 +1057,17 @@ for no guide by itself. Where the television gives it, a connect to the recorder
 lists and starts no refresh (`AppModel.guideIsStale`), and the night wakes the recorder, sends what waits and
 reads the slot and the free space, and asks for no guide file (`RecorderDriver.refreshWithNoScreen`, told by the
 entry, which reads the three facts from what the screens saved, `BackgroundWork.guideSource(in:)`): the
-settings' 最終自動更新 is not written, and the task is completed as it is in a home with no recorder, as having
-stored no guide. A night that reads the slot a second time, for a USB disk known that the slot first answered
-as none, used to read it once after the guide, which gave a disk just woken its while to come up; with no guide
+settings' 最終自動更新 is not written, nor is the row shown while the television gives the guide (what a night wrote
+before is kept, and said again once the recorder gives it; `AppModel.lastOvernightRefresh`), and the task is
+completed as it is in a home with no recorder, as having stored no guide. A night that reads the slot a second
+time, for a USB disk known that the slot first answered as none, used to read it once after the guide, which
+gave a disk just woken its while to come up; with no guide
 to come after, it waits for the slot as the app does before it sends something that names it
 (`RecorderDriver.settle`). The television's guide is fetched as the app starts or comes to the front, an hour
 or more after the helper was last asked, and not at night. 番組表を更新 asks whichever device gives the guide.
+What the helper's last fetch had to say stays under the settings' 保存されている番組表 until the next fetch,
+as a line of its own in red, as what any device said is shown there; where there is a source to choose, it is
+under the note that says what the choice changes (`SettingsWords.guideSourceFooter`), not part of it.
 
 When the device that gives the guide changes, what the cache holds stays until the new device's comes in, a
 type at a time: the change empties nothing by itself. The cache keeps which device gave each type's
