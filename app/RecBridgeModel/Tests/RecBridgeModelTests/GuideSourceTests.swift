@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 @testable import RecorderKit
 import XCTest
 @testable import RecBridgeModel
