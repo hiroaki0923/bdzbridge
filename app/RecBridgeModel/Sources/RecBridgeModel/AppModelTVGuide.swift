@@ -42,8 +42,9 @@ extension AppModel {
     /// Where the guide is fetched from now: the television where a helper is registered and either there is no
     /// recorder, or the recorder gives no guide, or the reader chose it; the recorder otherwise, the helper
     /// registered or not (`GuideSourceChoice.of`). The other device is asked for no guide by itself: not the
-    /// recorder after a connect (`guideIsStale`) or overnight (`BackgroundWork.guideSource(in:)`), not the helper
-    /// as the app starts or comes to the front (`refreshGuideFromTVIfBehind`).
+    /// recorder after a connect (`guideIsStale`) or overnight, not the helper as the app starts or comes to the
+    /// front (`refreshGuideFromTVIfBehind`) or overnight, the night reading the same rule from what the screens
+    /// saved (`BackgroundWork.guideSource(in:)`).
     public var guideSource: GuideSourceChoice {
         .of(recorderSaved: !host.isEmpty, recorderGivesAGuide: recorderGivesAGuide, helperRegistered: helperRegistered,
             preference: guideSourcePreference)
@@ -60,9 +61,9 @@ extension AppModel {
     /// and whose guide the recorder gave until then -- the television's guide is fetched, what is behind of it, in
     /// a task the attach does not wait for, as a helper registered there fetches it at once. Said again as it was,
     /// nothing is fetched: the television's guide is fetched as the app starts and comes to the front
-    /// (`refreshGuideFromTVIfBehind`). Where it has made the recorder the source again, the connect it is part of
-    /// fetches the recorder's guide over the television's, every type the television gave being behind to the
-    /// recorder (`guideIsStale`).
+    /// (`refreshGuideFromTVIfBehind`), and overnight. Where it has made the recorder the source again, the connect
+    /// it is part of fetches the recorder's guide over the television's, every type the television gave being
+    /// behind to the recorder (`guideIsStale`).
     func recorderSaid(givesAGuide: Bool) {
         let before = guideSource
         savedRecorderGivesAGuide = givesAGuide
@@ -176,9 +177,13 @@ extension AppModel {
     // MARK: - fetching
 
     /// Fetches what is behind where the television is the guide's source and the helper was not asked within the
-    /// hour (`TVHelperGuide.isDue`). What the app does as it starts and as it comes to the front.
+    /// hour (`TVHelperGuide.isDue`). What the app does as it starts and as it comes to the front. Asked within the
+    /// hour, it reads the cache again where that differs from what this model read last (`keepUpWithTheCache`),
+    /// as a connect to the recorder does: the overnight run fetches the television's guide with no model to tell,
+    /// in this very process when the app was kept alive behind it. A fetch reads the cache again as it ends.
     func refreshGuideFromTVIfBehind() async {
-        guard guideSource == .tv, tvHelper?.isDue() ?? false else { return }
+        guard guideSource == .tv else { return }
+        guard tvHelper?.isDue() ?? false else { return await keepUpWithTheCache() }
         await refreshGuideFromTV()
     }
 

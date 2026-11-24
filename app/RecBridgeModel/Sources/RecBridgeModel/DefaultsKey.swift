@@ -72,10 +72,11 @@ public enum DefaultsKey {
 
     // MARK: - the overnight run
 
-    /// When the overnight run last fetched a guide. Shown on the settings screen
+    /// When the overnight run last fetched a guide, from whichever device gives it. Shown on the settings screen
     /// (`AppModel.lastOvernightRefresh`), so that something invisible can still be seen to be working. Written
-    /// by a run that still has its time and whose cache is still its recorder's, when a broadcasting type
-    /// answered. This and the two marks below go with the cache when it is made over to another recorder.
+    /// by a run that still has its time when a broadcasting type answered: the recorder's part, whose cache is
+    /// still its recorder's, or the television's, through the helper (`BackgroundWork.refreshNow(in:)`). This
+    /// and the two marks below go with the cache when it is made over to another recorder.
     public static let lastBackgroundRefresh = "lastBackgroundRefresh"
     /// Whether the low-space warning has been given since the disk last had room. See `Notify.lowSpace`.
     public static let warnedLowSpace = "warnedLowSpace"

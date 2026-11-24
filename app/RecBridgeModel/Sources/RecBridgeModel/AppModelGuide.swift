@@ -70,14 +70,11 @@ extension AppModel {
     }
 
     /// When the overnight run last fetched a guide, as the settings say it under the guide's own last refresh
-    /// (最終自動更新), or nil while no run has. Nil too while the television gives the guide (`guideSource`): the
-    /// overnight run fetches none then, and the row would stand at the recorder's last night for as long as that
-    /// lasts. What the run wrote is kept, and said again once the recorder gives the guide. Read from where the
-    /// run wrote it (`DefaultsKey.lastBackgroundRefresh`) each time it is asked: the run writes it with no model
-    /// to tell.
+    /// (最終自動更新), or nil while no run has: from whichever device gives the guide, the recorder's files or the
+    /// television's through its helper (`BackgroundWork.refreshNow(in:)`). Read from where the run wrote it
+    /// (`DefaultsKey.lastBackgroundRefresh`) each time it is asked: the run writes it with no model to tell.
     public var lastOvernightRefresh: String? {
-        guard guideSource == .recorder else { return nil }
-        return defaults.string(forKey: DefaultsKey.lastBackgroundRefresh).map { Format.when(stored: $0) }
+        defaults.string(forKey: DefaultsKey.lastBackgroundRefresh).map { Format.when(stored: $0) }
     }
 
     /// When the guide was last fetched, as the settings say it (最終更新): by the terrestrial type's mark, nil while

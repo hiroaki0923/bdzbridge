@@ -39,13 +39,51 @@ public enum BackgroundWork {
     /// The television's runs whether or not a recorder is saved, so a home with a television alone has one too.
     /// Both are awaited before the task is completed, unless its time runs out first: the app's handler then
     /// completes it, and each part sees the cancellation only where it looks for it. An `async let` left
-    /// unawaited is cancelled as the scope ends, so each is awaited on the one way out.
+    /// unawaited is cancelled as the scope ends, so each is awaited on the one way out. Whether either part
+    /// stored a guide, which the app completes the task with.
     @discardableResult
     public static func refreshNow(in surroundings: NoScreenSurroundings) async -> Bool {
-        async let television = sendToTheTelevisionNow(in: surroundings)
+        async let television = theTelevisionsNight(in: surroundings)
         let refreshed = await refreshTheRecorderNow(in: surroundings)
-        _ = await television
-        return refreshed
+        let fetched = await television
+        return refreshed || fetched
+    }
+
+    /// The television's part of the overnight run: what waits for it is sent first (`sendToTheTelevisionNow`),
+    /// which is the part with a deadline, and its guide is fetched after that (`fetchTheTelevisionsGuideNow`),
+    /// whether or not the sending had anything to do or reached the television. Whether a guide was stored. The
+    /// Shortcuts action only sends: it fetches no guide.
+    private static func theTelevisionsNight(in surroundings: NoScreenSurroundings) async -> Bool {
+        await sendToTheTelevisionNow(in: surroundings)
+        return await fetchTheTelevisionsGuideNow(in: surroundings)
+    }
+
+    /// The television's guide, through the helper on it, where the television is the device this home's guide is
+    /// fetched from (`guideSource(in:)`, which counts the helper's token only with a television saved): what is
+    /// behind, by the television's own rule, as the app's fetch as it starts asks for it
+    /// (`TVHelperGuide.refreshWithNoScreen`). The helper is reached at the television's address, by the way to
+    /// the television handed in, with its token where the platform keeps it, and the cache is opened directly.
+    /// The time the fetch tells is written where the settings read it, as the recorder's night writes its own
+    /// (`keepWhenAGuideWasFetched`). Nothing is posted, as nothing is for the recorder's guide. Nothing is
+    /// opened, asked or written in the demo, where the recorder gives the guide, and with no cache.
+    private static func fetchTheTelevisionsGuideNow(in surroundings: NoScreenSurroundings) async -> Bool {
+        let defaults = surroundings.defaults
+        guard !DemoData.on(in: defaults), guideSource(in: surroundings) == .tv,
+              let host = defaults.string(forKey: DefaultsKey.tvHost), !host.isEmpty,
+              let store = surroundings.openGuide() else {
+            return false
+        }
+        let client = TVHelperClient(host: host, transport: surroundings.tvTransport(host),
+                                    tokens: surroundings.tvHelperTokens)
+        return await TVHelperGuide.refreshWithNoScreen(client, store: store) {
+            keepWhenAGuideWasFetched(at: $0, in: surroundings.defaults)
+        }
+    }
+
+    /// Writes when a night fetched a guide, from either device, where the settings read it
+    /// (`AppModel.lastOvernightRefresh`), to the second as the cache's marks are.
+    static func keepWhenAGuideWasFetched(at time: Date, in defaults: UserDefaults) {
+        defaults.set(RecorderTime.format(time), forKey: DefaultsKey.lastBackgroundRefresh)
     }
 
     /// The recorder's part: the address comes from what the screens saved, and the cache is opened directly. The
@@ -54,7 +92,7 @@ public enum BackgroundWork {
     /// and the reader is told. Nothing is opened, asked, posted or written in the demo, with no recorder saved,
     /// and with no cache. The guide is fetched only where the recorder is the device this home's guide is
     /// fetched from (`guideSource(in:)`): where the television is, the run does all else it does and asks the
-    /// recorder for no guide.
+    /// recorder for no guide, and the television's part fetches the television's (`fetchTheTelevisionsGuideNow`).
     ///
     /// What the runs with no screen told of the recorder before is handed in to be read
     /// (`DefaultsKey.recorderTold`, `KeptOnce`) with the hour of the next run, so that another recorder
@@ -81,9 +119,10 @@ public enum BackgroundWork {
                              nextRun: nextNightlyRun())
     }
 
-    /// The television's part of a run with no screen, from what the screens saved: its address and MAC in the
-    /// defaults, its registration where the platform keeps it, the cache opened directly, a transport that keeps
-    /// no cookies. What it found is posted (`Notifications.television`), what was told is written back
+    /// The television's sending in a run with no screen -- the overnight run's, before its guide, and the
+    /// Shortcuts action's -- from what the screens saved: its address and MAC in the defaults, its registration
+    /// where the platform keeps it, the cache opened directly, a transport that keeps no cookies. The helper is
+    /// asked nothing here. What it found is posted (`Notifications.television`), what was told is written back
     /// (`KeptOnce`), as the run hands them over, and what it came to is handed back for the Shortcuts action to
     /// say. Nil, with nothing opened, asked, posted or written, in the demo, with no television saved, and with
     /// no cache.
@@ -396,9 +435,7 @@ extension BackgroundWork.Telling {
                         await notifications.recorder(notYet, withdraws)
                         KeptOnce.recorder(in: surroundings.defaults).keep(told)
                     },
-                    fetched: {
-                        surroundings.defaults.set(RecorderTime.format($0), forKey: DefaultsKey.lastBackgroundRefresh)
-                    })
+                    fetched: { BackgroundWork.keepWhenAGuideWasFetched(at: $0, in: surroundings.defaults) })
     }
 }
 
@@ -418,14 +455,15 @@ public struct NoScreenSurroundings: @unchecked Sendable {
     let folder: @Sendable () throws -> URL
     /// How requests reach the recorder at an address, asked for only by a run that asks the recorder.
     let transport: @Sendable (_ host: String) -> any HTTPTransport
-    /// How requests reach the television at an address: a transport that keeps no cookies of its own, since the
-    /// client sends its registration's by hand (`Surroundings.tvTransport`).
+    /// How requests reach the television at an address, and the helper on it at its own port: a transport that
+    /// keeps no cookies of its own, since the client sends its registration's by hand (`Surroundings.tvTransport`).
     let tvTransport: @Sendable (_ host: String) -> any HTTPTransport
     /// Where the television's registration is kept (`Surroundings.tvCredentials`).
     let tvCredentials: any TVCredentialStore
     /// Where the token of the helper on the television is kept (`Surroundings.tvHelperTokens`): read for whether
     /// a helper is registered, which is one of what says which device the guide is fetched from
-    /// (`BackgroundWork.guideSource(in:)`). The helper itself is asked nothing by a run with no screen.
+    /// (`BackgroundWork.guideSource(in:)`), and sent with what the overnight run asks the helper where that is the
+    /// television. Nothing else with no screen asks the helper anything.
     let tvHelperTokens: any TVHelperTokenStore
     /// What a run posts and takes away for the reader to see.
     let notifications: Notifications

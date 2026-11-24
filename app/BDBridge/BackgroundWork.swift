@@ -7,7 +7,8 @@ import RecorderKit
 /// The overnight guide refresh.
 ///
 /// The recorder rebuilds its own guide and logo files in the small hours, so this asks for them after that and
-/// the reader wakes up to a guide that is current for the whole eight days, without the app or the LAN. iOS
+/// the reader wakes up to a guide that is current for the whole eight days, without the app or the LAN. Where the
+/// television gives the home's guide, the same run fetches the television's through its helper instead. iOS
 /// decides whether to run it at all: it will not while the app is force-quit, while Background App Refresh is
 /// switched off, or in Low Power Mode. Nothing breaks when a night is missed.
 extension BackgroundWork {
@@ -72,7 +73,7 @@ extension BackgroundWork {
     @discardableResult
     static func refreshNow() async -> Bool { await refreshNow(in: .app) }
 
-    /// The television's part of it, which the Shortcuts action runs beside the recorder's sending
+    /// The television's sending, which the Shortcuts action runs beside the recorder's sending
     /// (`sendToTheTelevisionNow(in:)`).
     @discardableResult
     static func sendToTheTelevisionNow() async -> NoScreenSending? { await sendToTheTelevisionNow(in: .app) }

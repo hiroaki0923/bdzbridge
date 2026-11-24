@@ -4,13 +4,14 @@ import XCTest
 @testable import RecBridgeModel
 
 /// The entries the system calls with no screen -- the overnight run (`BackgroundWork.refreshNow(in:)`), its
-/// television's part, which the Shortcuts action runs too (`sendToTheTelevisionNow(in:)`), and the action's sending
-/// to the recorder (`sendWaiting(in:)`) -- each handed what it reaches of its platform (`NoScreenSurroundings`) as
-/// the app hands in its own: what they read of what the screens saved, what they open and ask, what they post and
+/// television's sending, which the Shortcuts action runs too (`sendToTheTelevisionNow(in:)`), and the action's
+/// sending to the recorder (`sendWaiting(in:)`) -- each handed what it reaches of its platform (`NoScreenSurroundings`)
+/// as the app hands in its own: what they read of what the screens saved, what they open and ask, what they post and
 /// in which order against what they keep, and what the settings then say of the last overnight refresh.
 ///
 /// What each run does once it has its client and its cache is held in `NoScreenGateTests`, `QueueWithATelevisionTests`
-/// and the others; here it is what the entry adds to it. The app's own hand-in -- the standard defaults, its folder,
+/// and the others, and the night's fetch of the television's guide through the helper in `GuideSourceTests`; here it
+/// is what the entry adds to it. The app's own hand-in -- the standard defaults, its folder,
 /// the real sessions, the Keychain and `Notify` -- is reached by no test.
 ///
 /// No MAC is saved for the recorder when an entry runs: the entries send their packet themselves, not through the
