@@ -71,9 +71,9 @@ the system log under the tag `RecBridgeScan` (`adb logcat -s RecBridgeScan`): co
 are, never an address or a name. What a search for devices came to, which iOS
 announces to VoiceOver, is a polite live region for TalkBack. At night, with no screen, it wakes the recorder, sends
 what waits for the recorder and the television and fetches the guide, as the iOS app's background task does, and the
-settings say when it last fetched it (最終自動更新): below, "The overnight run". The guide is the recorder's, and is
-fetched only where the recorder gives the home's guide; the television's is not fetched at night, and the settings
-leave that row out while the television gives the guide.
+settings say when it last fetched it (最終自動更新): below, "The overnight run". The guide is fetched from the device
+that gives the home's guide: the recorder's files, or the television's through the helper, once what waits for the
+television has been sent; the settings say the time under either.
 
 ## Layout
 
@@ -128,8 +128,9 @@ device, and a device the app comes to some other way registers again.
 The run is the model's (`BackgroundWork.refreshNow(in:)`), handed by `NightRun` what it reaches of Android: the
 model's defaults object, the app's folder, the sessions the screens send through, the television's registration, the
 helper's token, which with what the defaults keep -- the recorder's address, whether it gives a guide, the reader's
-choice -- tells the run which device gives the guide (`BackgroundWork.guideSource(in:)`), and notifications that do
-nothing, as the app posts none yet. `NightWorker` is asked for at each start of the app and
+choice -- tells the run which device gives the guide (`BackgroundWork.guideSource(in:)`) and goes with what it asks
+the helper where that is the television, and notifications that do nothing, as the app posts none yet.
+`NightWorker` is asked for at each start of the app and
 again as it begins, as on iOS: one request waits at a time, tagged `overnight`, from the next 02:00 by the model's rule
 (`BackgroundWork.nextNightlyRun`), on an unmetered network, charging or not. A request not yet begun is replaced; a run
 under way is left alone, since replacing it would stop it.

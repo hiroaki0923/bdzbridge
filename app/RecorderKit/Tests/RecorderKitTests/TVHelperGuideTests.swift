@@ -14,9 +14,9 @@ final class TVHelperGuideTests: XCTestCase {
         private var _changedAt: [String: Date] = ["td": copiesChanged, "bs": copiesChanged]
         /// What the helper answers to a path in place of what it has; a nil answer is silence.
         private var _instead: [String: HTTPResponse?] = [:]
-        /// Holds the answer to /v1/info until `release`.
+        /// Holds the answer to one path until `release`: /v1/info, unless a test says another.
         private var held: CheckedContinuation<Void, Never>?
-        private var _holdsInfo = false
+        private var _holds: String?
         private var _infoAsked = 0
         var infoAsked: Int { lock.withLock { _infoAsked } }
 
@@ -29,16 +29,17 @@ final class TVHelperGuideTests: XCTestCase {
             set { lock.withLock { _changedAt = newValue } }
         }
         func answer(_ path: String, with response: HTTPResponse?) { lock.withLock { _instead[path] = .some(response) } }
-        func holdInfo() { lock.withLock { _holdsInfo = true } }
+        func holdInfo() { hold("/v1/info") }
+        func hold(_ path: String) { lock.withLock { _holds = path } }
         func release() {
             let waiting = lock.withLock { () -> CheckedContinuation<Void, Never>? in
-                _holdsInfo = false
+                _holds = nil
                 defer { held = nil }
                 return held
             }
             waiting?.resume()
         }
-        var isHoldingInfo: Bool { lock.withLock { held != nil } }
+        var isHolding: Bool { lock.withLock { held != nil } }
 
         func respond(to request: HTTPRequest) async throws -> HTTPResponse {
             let path = request.url.path
@@ -46,13 +47,13 @@ final class TVHelperGuideTests: XCTestCase {
                 guard let instead else { throw TVHelperError.transport("no answer") }
                 return instead
             }
+            let hold = lock.withLock { () -> Bool in
+                if path == "/v1/info" { _infoAsked += 1 }
+                return _holds == path
+            }
+            if hold { await withCheckedContinuation { continuation in lock.withLock { held = continuation } } }
             switch path {
             case "/v1/info":
-                let hold = lock.withLock { () -> Bool in
-                    _infoAsked += 1
-                    return _holdsInfo
-                }
-                if hold { await withCheckedContinuation { continuation in lock.withLock { held = continuation } } }
                 let changedAt = changedAt
                 let types: [String: Any] = Dictionary(uniqueKeysWithValues: programs.map { type, count -> (String, Any) in
                     let changed = Int((changedAt[type] ?? copiesChanged).timeIntervalSince1970 * 1000)
@@ -361,7 +362,7 @@ final class TVHelperGuideTests: XCTestCase {
         let store = store!
         let first = Task { await guide.fetch(into: store, on: nil, stored: { _ in }) }
         let helper = helper
-        let held = await eventually { helper.isHoldingInfo }
+        let held = await eventually { helper.isHolding }
         XCTAssertTrue(held, "the first fetch never asked the helper")
         XCTAssertTrue(guide.isFetching)
         let second = Task { await guide.fetch(every: true, into: store, on: nil, stored: { _ in }) }
@@ -394,6 +395,152 @@ final class TVHelperGuideTests: XCTestCase {
         await guide.fetch(into: store, on: link, stored: { _ in })
         XCTAssertEqual(world.begun, ["テレビの番組表を取得中"])
         XCTAssertEqual(world.updated, ["テレビの番組表を取得中 (地上デジタル)", "テレビの番組表を取得中 (BS)"])
+    }
+
+    // MARK: - the overnight run
+
+    /// The overnight run's fetch (`refreshWithNoScreen`), with a client of its own as each night has: what is
+    /// behind, as the app's fetch as it starts asks for it -- here every type the helper has programmes of, the
+    /// cache being empty -- under the television's name, each type's mark noted, the time told once, and a
+    /// programme stored. The next night, the helper's copies unchanged, asks the helper what it has and for no
+    /// file, tells nothing and stores nothing; after a newer copy of BS, it fetches BS alone. No line goes up
+    /// anywhere: there is no link to put one on.
+    func testTheNightFetchesWhatIsBehindAndTellsWhenItDid() async throws {
+        let told = Told()
+        var stored = await TVHelperGuide.refreshWithNoScreen(aNightsClient(), store: store, fetched: told.note)
+
+        XCTAssertTrue(stored)
+        var asked = await guideRequests()
+        XCTAssertEqual(asked, ["/v1/guide/td", "/v1/guide/bs"])
+        let counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.givenBy, .tv)
+        XCTAssertEqual(counts["bs"]?.givenBy, .tv)
+        for type in ["td", "bs"] {
+            let mark = try await store.helperChanged(broadcasting: type)
+            XCTAssertEqual(mark, copiesChanged, "\(type)'s mark was not noted")
+        }
+        XCTAssertEqual(told.times.count, 1)
+        XCTAssertNil(guide.lastCheck, "the screens' check learnt of the night")
+
+        stored = await TVHelperGuide.refreshWithNoScreen(aNightsClient(), store: store, fetched: told.note)
+        XCTAssertFalse(stored, "a night with nothing behind said it stored a guide")
+        asked = await guideRequests()
+        XCTAssertEqual(asked.count, 2, "a night asked for a file of a copy the cache was filled from")
+        XCTAssertEqual(helper.infoAsked, 2)
+        XCTAssertEqual(told.times.count, 1, "a night with nothing behind told a time")
+
+        helper.changedAt["bs"] = copiesChanged.addingTimeInterval(60)
+        stored = await TVHelperGuide.refreshWithNoScreen(aNightsClient(), store: store, fetched: told.note)
+        XCTAssertTrue(stored)
+        asked = await guideRequests()
+        XCTAssertEqual(Array(asked.dropFirst(2)), ["/v1/guide/bs"])
+        XCTAssertEqual(told.times.count, 2)
+    }
+
+    /// A type the television has no guide of, held as the recorder's, is emptied by a night as by the screens'
+    /// fetch: here by a night that has nothing to fetch, the helper's copies being the ones the cache was filled
+    /// from. That is no type answered for, and no time is told.
+    func testTheNightEmptiesATypeTheTelevisionHasNoGuideOf() async throws {
+        let told = Told()
+        _ = await TVHelperGuide.refreshWithNoScreen(aNightsClient(), store: store, fetched: told.note)
+        try await store.replace([GuideService(serviceID: 301, name: "レコーダーの局", programs: [])],
+                                broadcasting: "cs")
+        let asked = await guideRequests().count
+
+        let stored = await TVHelperGuide.refreshWithNoScreen(aNightsClient(), store: store, fetched: told.note)
+
+        XCTAssertFalse(stored)
+        let since = await guideRequests().count
+        XCTAssertEqual(since, asked, "set up wrong: something was fetched")
+        let cs = try await store.counts()["cs"]
+        XCTAssertEqual(cs?.channels, 0, "the recorder's rows were left under the television's guide")
+        XCTAssertNil(cs?.lastAnswered)
+        XCTAssertEqual(told.times.count, 1)
+    }
+
+    /// A helper that is silent, or that answers with something other than what it has -- no copy yet, a
+    /// registration it does not take -- is told of nowhere by a night: nothing is told, nothing is written,
+    /// nothing is emptied, and nothing is stored.
+    func testANightWhoseHelperIsSilentOrRefusesWritesNothing() async throws {
+        try await store.replace([GuideService(serviceID: 301, name: "レコーダーの局", programs: [])],
+                                broadcasting: "cs")
+        let told = Told()
+        for answer in [nil, Helper.json(503, ["error": "building"]), HTTPResponse(statusCode: 401)] {
+            helper.answer("/v1/info", with: answer)
+            let stored = await TVHelperGuide.refreshWithNoScreen(aNightsClient(), store: store, fetched: told.note)
+            XCTAssertFalse(stored, "\(String(describing: answer?.statusCode))")
+        }
+        let asked = await guideRequests()
+        XCTAssertEqual(asked, [])
+        XCTAssertEqual(told.times, [])
+        let counts = try await store.counts()
+        XCTAssertEqual(counts["cs"]?.channels, 1, "emptied by a helper that did not say what it has")
+        for type in ["td", "bs"] {
+            let mark = try await store.helperChanged(broadcasting: type)
+            XCTAssertNil(mark, type)
+        }
+    }
+
+    /// A night whose time is up -- its task cancelled, as the system's expiry cancels it -- asks nothing more,
+    /// notes no mark, tells no time and hands back that nothing was stored. Cancelled before it begins, the
+    /// helper is asked nothing; while the helper says what it has, no file is asked for and nothing is emptied,
+    /// the turn having not yet come; while 地上デジタル's file is out, nothing after it, neither its logos nor BS.
+    /// That file is stored as it comes, as `GuideRefresh.run` stores the file under way.
+    func testANightWhoseTimeIsUpAsksNothingMoreAndWritesNothing() async throws {
+        try await store.replace([GuideService(serviceID: 301, name: "レコーダーの局", programs: [])],
+                                broadcasting: "cs")
+        let told = Told()
+        let store = store!
+        let helper = helper
+        var client = aNightsClient()
+        let before = Task { [client] in
+            while !Task.isCancelled { await Task.yield() }
+            return await TVHelperGuide.refreshWithNoScreen(client, store: store, fetched: told.note)
+        }
+        before.cancel()
+        var stored = await before.value
+        XCTAssertFalse(stored)
+        XCTAssertEqual(helper.infoAsked, 0, "the helper was asked once the time was up")
+
+        func cancelled(whileHolding path: String) async -> Bool {
+            helper.hold(path)
+            let night = Task { [client] in
+                await TVHelperGuide.refreshWithNoScreen(client, store: store, fetched: told.note)
+            }
+            let held = await eventually { helper.isHolding }
+            XCTAssertTrue(held, "the night never asked for \(path)")
+            night.cancel()
+            helper.release()
+            return await night.value
+        }
+
+        client = aNightsClient()
+        stored = await cancelled(whileHolding: "/v1/info")
+        XCTAssertFalse(stored)
+        var asked = await transport.requests.map(\.url.path)
+        XCTAssertEqual(asked, ["/v1/info"], "a file was asked for once the time was up")
+        var counts = try await store.counts()
+        XCTAssertEqual(counts["cs"]?.channels, 1, "emptied once the time was up")
+
+        client = aNightsClient()
+        stored = await cancelled(whileHolding: "/v1/guide/td")
+        XCTAssertFalse(stored)
+        asked = await transport.requests.map(\.url.path)
+        XCTAssertEqual(Array(asked.dropFirst()), ["/v1/info", "/v1/channels", "/v1/guide/td"],
+                       "the night asked for more once its time was up")
+        counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.programs, 1, "the file under way was not stored")
+        XCTAssertEqual(counts["bs"]?.programs ?? 0, 0)
+        for type in ["td", "bs"] {
+            let mark = try await store.helperChanged(broadcasting: type)
+            XCTAssertNil(mark, "\(type)'s mark was noted once the time was up")
+        }
+        XCTAssertEqual(told.times, [])
+    }
+
+    /// The client a night makes for itself, on the same helper and token as the screens' fetch.
+    private func aNightsClient() -> TVHelperClient {
+        TVHelperClient(host: Stub.host, transport: transport, tokens: tokens)
     }
 
     /// What the helper's refusals say, in the letters a screen shows: the way to register again and the way to
@@ -440,6 +587,18 @@ final class TVHelperGuideTests: XCTestCase {
         let sent = await transport.requests.dropFirst(before).map(\.url.path)
         XCTAssertEqual(sent, ["/ping"])
         XCTAssertFalse(guide.isRegistered)
+    }
+}
+
+/// The times a night told that it fetched a guide, in order.
+private final class Told: @unchecked Sendable {
+    private let lock = NSLock()
+    private var told: [Date] = []
+
+    var times: [Date] { lock.withLock { told } }
+
+    func note(_ time: Date) {
+        lock.withLock { told.append(time) }
     }
 }
 

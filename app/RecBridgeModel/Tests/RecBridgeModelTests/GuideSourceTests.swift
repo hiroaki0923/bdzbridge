@@ -177,9 +177,11 @@ final class GuideSourceTests: XCTestCase {
     // MARK: - the overnight run, with the television chosen
 
     /// The overnight run in that home keeps its order and all else it does -- it reaches the recorder, sends
-    /// what waits for it, reads the slot and the free space -- and leaves the guide out: no file is asked for,
-    /// the cache holds the television's guide as it did, and 最終自動更新 is not written. It hands back that no
-    /// guide was stored, as the night of a home with a television alone does.
+    /// what waits for it, reads the slot and the free space -- and leaves the recorder's guide out: no file is
+    /// asked of the recorder, though the recorder's marks are two days old. The television's part asks the helper
+    /// what it has and, its copies unchanged since the choice fetched them, for no file: the cache holds the
+    /// television's guide as it did, 最終自動更新 is not written, and the night hands back that no guide was
+    /// stored.
     func testWithTheTelevisionChosenTheNightAsksTheRecorderForNoGuideAndStillSendsWhatWaits() async throws {
         let home = try await aHome(recorderGives: [0])
         let model = try await started(home)
@@ -197,19 +199,282 @@ final class GuideSourceTests: XCTestCase {
         let since = await home.recorder.heard(since: heard)
         XCTAssertEqual(since, [Ask.description, Ask.reservations, Ask.create, Ask.slot, Ask.freeSpace],
                        "the night's order with the guide left out")
-        XCTAssertEqual(home.helper.asked(since: asked), [], "the night asked the helper")
+        XCTAssertEqual(home.helper.asked(since: asked), ["/v1/info"],
+                       "the night asked the helper for more than what it has, its copies being unchanged")
         let left = try await home.cache.pendingReservations()
         XCTAssertEqual(left, [], "what waited was not sent")
         try await expect("td", .televisions, in: home)
         XCTAssertNil(home.bench.defaults.object(forKey: DefaultsKey.lastBackgroundRefresh),
                      "最終自動更新 was written by a night that fetched no guide")
         XCTAssertNil(model.lastOvernightRefresh)
+    }
 
-        // A home with a television alone: its night hands back the same.
+    // MARK: - the overnight run, from the television
+
+    /// Where the television gives the guide, the overnight run fetches it through the helper, in its television's
+    /// part: in a home with a television alone, beside a recorder that gives a guide with テレビ chosen, and beside
+    /// a recorder that gives none. It asks the helper what it has and fetches the types behind, here both of the
+    /// television's, the cache being empty; the cache's rows are the television's, each type's mark is noted, the
+    /// time is written, 最終自動更新 says it under テレビ, and the night hands back that a guide was stored. The
+    /// recorder is asked for no guide.
+    func testWhereTheTelevisionGivesTheGuideTheNightFetchesItThroughTheHelper() async throws {
         let alone = try await aHome(recorderGives: [])
         alone.bench.defaults.removeObject(forKey: DefaultsKey.recorderHost)
-        let aloneStored = await BackgroundWork.refreshNow(in: noScreen(alone))
-        XCTAssertEqual(aloneStored, stored)
+        try await expectTheNightFetchesTheTelevisionsGuide(in: alone, "a television alone")
+
+        let chosen = try await aHome(recorderGives: [0])
+        chosen.bench.defaults.set(GuideSourceChoice.tv.rawValue, forKey: DefaultsKey.guideSource)
+        try await expectTheNightFetchesTheTelevisionsGuide(in: chosen,
+                                                           "テレビ chosen beside a recorder that gives a guide")
+
+        let none = try await aHome(recorderGives: [])
+        none.bench.defaults.set(false, forKey: DefaultsKey.recorderGivesAGuide)
+        try await expectTheNightFetchesTheTelevisionsGuide(in: none, "beside a recorder that gives no guide")
+    }
+
+    /// The next night, the helper's copies unchanged, asks the helper what it has and for no guide file: it hands
+    /// back that no guide was stored, and the time the settings say stays where it was.
+    func testANightAfterWhichTheHelpersCopiesAreUnchangedAsksForNoFileAndLeavesTheTime() async throws {
+        let home = try await aHome(recorderGives: [])
+        let defaults = home.bench.defaults
+        defaults.removeObject(forKey: DefaultsKey.recorderHost)
+        let first = await BackgroundWork.refreshNow(in: noScreen(home))
+        XCTAssertTrue(first, "set up wrong: the first night stored no guide")
+        let earlier = RecorderTime.format(Date(timeIntervalSince1970: 1_700_000_000))
+        defaults.set(earlier, forKey: DefaultsKey.lastBackgroundRefresh)
+
+        let asked = home.helper.asked.count
+        let stored = await BackgroundWork.refreshNow(in: noScreen(home))
+
+        XCTAssertFalse(stored, "a night with nothing behind said it stored a guide")
+        XCTAssertEqual(home.helper.asked(since: asked), ["/v1/info"])
+        XCTAssertEqual(defaults.string(forKey: DefaultsKey.lastBackgroundRefresh), earlier, "the time moved")
+        XCTAssertEqual(model(in: home).lastOvernightRefresh, "11/15(水) 07:13")
+        try await expect("td", .televisions, in: home)
+    }
+
+    /// In the demo, with no television saved, and with no token, the night asks the helper nothing and writes
+    /// nothing, the rest of a home whose guide the television gives being in place: a token kept with no
+    /// television saved is no helper registered. With all of it in place, the night asks it.
+    func testInTheDemoWithNoTelevisionOrWithNoTokenTheNightAsksTheHelperNothing() async throws {
+        let home = try await aHome(recorderGives: [])
+        let defaults = home.bench.defaults
+        defaults.removeObject(forKey: DefaultsKey.recorderHost)
+
+        defaults.set(true, forKey: DefaultsKey.demoData)
+        _ = await BackgroundWork.refreshNow(in: noScreen(home))
+        XCTAssertEqual(home.helper.asked, [], "in the demo")
+        defaults.removeObject(forKey: DefaultsKey.demoData)
+
+        defaults.removeObject(forKey: DefaultsKey.tvHost)
+        _ = await BackgroundWork.refreshNow(in: noScreen(home))
+        XCTAssertEqual(home.helper.asked, [], "with no television saved")
+        defaults.set(Bench.tvHost, forKey: DefaultsKey.tvHost)
+
+        home.tokens.remove()
+        _ = await BackgroundWork.refreshNow(in: noScreen(home))
+        XCTAssertEqual(home.helper.asked, [], "with no token")
+        XCTAssertNil(defaults.object(forKey: DefaultsKey.lastBackgroundRefresh))
+        for type in ["td", "bs"] {
+            let mark = try await home.cache.helperChanged(broadcasting: type)
+            XCTAssertNil(mark, type)
+        }
+
+        home.tokens.save("token")
+        let stored = await BackgroundWork.refreshNow(in: noScreen(home))
+        XCTAssertTrue(stored, "set up wrong: the night asked nothing with all of it in place")
+    }
+
+    /// A silent helper: the night writes nothing of the television's guide and says nothing of the helper, and the
+    /// rest of it is as in the same home with a helper that answers -- the recorder woken for what waits for it,
+    /// its slot and its free space read and no guide asked of it, the television sent what waits for it, and the
+    /// same posted, in whichever order the two parts post.
+    func testASilentHelperWritesNothingAndLeavesTheRestOfTheNightAsItWas() async throws {
+        func aNight(helperSilent: Bool) async throws
+            -> (home: Home, stored: Bool, heard: [String], sent: [Int?], posted: [String]) {
+            let home = try await aHome(recorderGives: [])
+            home.bench.defaults.set(false, forKey: DefaultsKey.recorderGivesAGuide)
+            await home.way.television.receives([DemoTV.Station()])
+            try await home.cache.queue(aReservationWaiting())
+            try await home.cache.queue(aReservationWaiting(programme: 4401, for: .tv))
+            if helperSilent { home.helper.goSilent() }
+            let posted = Notices()
+            let notifications = Notifications(recorder: { _, _ in posted.note("recorder") },
+                                              queueFlushed: { _ in posted.note("queueFlushed") },
+                                              queueHeldBack: { posted.note("queueHeldBack") },
+                                              lowSpace: { _, _, _ in posted.note("lowSpace") },
+                                              usbLowSpace: { _ in posted.note("usbLowSpace") },
+                                              television: { posted.note("television \($0.queue ?? "")") })
+            let stored = await BackgroundWork.refreshNow(in: noScreen(home, notifications: notifications))
+            let heard = await home.recorder.heard
+            let sent = await home.way.television.schedules.map(\.eventId)
+            return (home, stored, heard, sent, posted.all.compactMap { $0 }.sorted())
+        }
+        let silent = try await aNight(helperSilent: true)
+        let answering = try await aNight(helperSilent: false)
+
+        XCTAssertFalse(silent.stored, "a night whose helper was silent said it stored a guide")
+        XCTAssertTrue(answering.stored, "set up wrong: the helper that answers gave no guide")
+        XCTAssertEqual(silent.home.helper.asked, ["/v1/info"], "the silent helper was asked again")
+        XCTAssertNil(silent.home.bench.defaults.object(forKey: DefaultsKey.lastBackgroundRefresh))
+        for type in ["td", "bs"] {
+            try await expect(type, .nothing, in: silent.home)
+            let mark = try await silent.home.cache.helperChanged(broadcasting: type)
+            XCTAssertNil(mark, type)
+        }
+        XCTAssertEqual(silent.heard, [Ask.description, Ask.reservations, Ask.create, Ask.slot, Ask.freeSpace],
+                       "the recorder's part was not as it is with no guide to fetch")
+        XCTAssertEqual(silent.heard, answering.heard)
+        XCTAssertEqual(silent.sent, [4401], "what waited for the television was not sent")
+        XCTAssertEqual(silent.sent, answering.sent)
+        XCTAssertTrue(silent.posted.contains { $0.hasPrefix("television ") },
+                      "set up wrong: nothing posted of the television")
+        XCTAssertEqual(silent.posted, answering.posted)
+        let left = try await silent.home.cache.pendingReservations()
+        XCTAssertEqual(left, [], "what waited was not sent")
+    }
+
+    /// What waits for the television is sent before the helper is asked for the guide, the part with a deadline
+    /// first: in a home with a television alone, with the helper's first answer held, the television already has
+    /// the reservation that waited for it.
+    func testTheNightSendsWhatWaitsForTheTelevisionBeforeItAsksTheHelper() async throws {
+        let home = try await aHome(recorderGives: [])
+        home.bench.defaults.removeObject(forKey: DefaultsKey.recorderHost)
+        await home.way.television.receives([DemoTV.Station()])
+        try await home.cache.queue(aReservationWaiting(programme: 4401, for: .tv))
+        let surroundings = noScreen(home)
+        let helper = home.helper
+        helper.hold("/v1/info")
+
+        let night = Task { await BackgroundWork.refreshNow(in: surroundings) }
+        try await until("the night never asked the helper what it has") { helper.isHolding }
+        let sent = await home.way.television.schedules.map(\.eventId)
+        helper.letGo()
+        let stored = await night.value
+
+        XCTAssertEqual(sent, [4401], "the helper was asked before what waited for the television was sent")
+        XCTAssertTrue(stored, "set up wrong: the night stored no guide")
+        let left = try await home.cache.pendingReservations()
+        XCTAssertEqual(left, [], "what waited was not sent")
+    }
+
+    /// A night whose time is up -- its task cancelled, as the system's expiry cancels it -- asks the helper nothing
+    /// more and writes no mark and no time. Cancelled before the night begins, the helper is asked nothing; while
+    /// 地上デジタル's guide file is out, neither its logos nor BS are asked for after it, and the night hands back
+    /// that no guide was stored.
+    func testANightWhoseTimeIsUpAsksTheHelperNothingMoreAndWritesNothing() async throws {
+        let home = try await aHome(recorderGives: [])
+        let defaults = home.bench.defaults
+        defaults.removeObject(forKey: DefaultsKey.recorderHost)
+        let surroundings = noScreen(home)
+
+        let before = Task {
+            while !Task.isCancelled { await Task.yield() }
+            return await BackgroundWork.refreshNow(in: surroundings)
+        }
+        before.cancel()
+        var stored = await before.value
+        XCTAssertFalse(stored)
+        XCTAssertEqual(home.helper.asked, [], "the helper was asked once the time was up")
+
+        let helper = home.helper
+        helper.hold("/v1/guide/td")
+        let night = Task { await BackgroundWork.refreshNow(in: surroundings) }
+        try await until("the night never asked for 地上デジタル's guide") { helper.isHolding }
+        night.cancel()
+        helper.letGo()
+        stored = await night.value
+
+        XCTAssertFalse(stored, "a night whose time was up said it stored a guide")
+        XCTAssertEqual(helper.asked, ["/v1/info", "/v1/channels", "/v1/guide/td"],
+                       "the helper was asked for more once the time was up")
+        for type in ["td", "bs"] {
+            let mark = try await home.cache.helperChanged(broadcasting: type)
+            XCTAssertNil(mark, "\(type)'s mark was noted once the time was up")
+        }
+        XCTAssertNil(defaults.object(forKey: DefaultsKey.lastBackgroundRefresh), "最終自動更新 was written")
+        try await expect("bs", .nothing, in: home)
+    }
+
+    /// The Shortcuts action's entries -- the recorder's sending and the television's -- ask the helper nothing, in
+    /// a home whose guide the television gives and with something waiting for each device: the action sends, and
+    /// fetches no guide.
+    func testTheShortcutsActionsEntriesAskTheHelperNothing() async throws {
+        let home = try await aHome(recorderGives: [])
+        home.bench.defaults.set(false, forKey: DefaultsKey.recorderGivesAGuide)
+        await home.way.television.receives([DemoTV.Station()])
+        try await home.cache.queue(aReservationWaiting())
+        try await home.cache.queue(aReservationWaiting(programme: 4401, for: .tv))
+        let surroundings = noScreen(home)
+        XCTAssertEqual(BackgroundWork.guideSource(in: surroundings), .tv)
+
+        let recorders = await BackgroundWork.sendWaiting(in: surroundings)
+        let televisions = await BackgroundWork.sendToTheTelevisionNow(in: surroundings)
+
+        guard case .sent = recorders else {
+            return XCTFail("set up wrong: the recorder was sent nothing: \(recorders)")
+        }
+        guard case .sent? = televisions else {
+            return XCTFail("set up wrong: the television was sent nothing: \(String(describing: televisions))")
+        }
+        XCTAssertEqual(home.helper.asked, [], "the action asked the helper")
+        XCTAssertNil(home.bench.defaults.object(forKey: DefaultsKey.lastBackgroundRefresh))
+        try await expect("td", .nothing, in: home)
+    }
+
+    /// A type the television has no guide of, which the cache holds as the recorder's -- CS, the recorder having
+    /// given the guide until テレビ was chosen with nothing fetched since -- is emptied by the night as by the
+    /// screens' fetch (`testATypeTheChosenDeviceDoesNotHaveIsEmptiedAsInAHomeWithThatDeviceAlone`), and the
+    /// types the television has come round to its own.
+    func testTheNightEmptiesATypeTheTelevisionHasNoGuideOf() async throws {
+        let home = try await aHome(recorderGives: [0, 2])
+        _ = try await started(home)
+        try await expect("cs", .recorders, in: home)
+        try await expect("td", .recorders, in: home)
+        home.bench.defaults.set(GuideSourceChoice.tv.rawValue, forKey: DefaultsKey.guideSource)
+
+        let stored = await BackgroundWork.refreshNow(in: noScreen(home))
+
+        XCTAssertTrue(stored)
+        try await expect("cs", .nothing, in: home, "the recorder's CS was left under the television's guide")
+        let cs = try await home.cache.counts()["cs"]
+        XCTAssertEqual(cs?.channels ?? 0, 0)
+        XCTAssertNil(cs?.lastAnswered)
+        try await expect("td", .televisions, in: home)
+        try await expect("bs", .televisions, in: home)
+    }
+
+    /// A model alive in the process the night ran in -- the app kept alive behind it -- shows what the night
+    /// stored as it comes back to the front, as it shows what a recorder's night stored once a connect reads the
+    /// cache: within the hour of the helper's last check, by reading the cache again, asking the helper nothing;
+    /// past it, by that check, which asks the helper what it has and, the night having noted the marks, for no
+    /// file.
+    func testAModelAliveBesideTheNightShowsWhatTheNightStored() async throws {
+        let home = try await aHome(recorderGives: [])
+        home.bench.defaults.removeObject(forKey: DefaultsKey.recorderHost)
+        let model = try await started(home, theHelperIsAsked: true)
+        XCTAssertEqual(model.counts["td"]?.programs, 2, "set up wrong")
+
+        home.helper.newCopies(["td": 3, "bs": 1])
+        var stored = await BackgroundWork.refreshNow(in: noScreen(home))
+        XCTAssertTrue(stored, "set up wrong: the night stored nothing")
+        XCTAssertEqual(model.counts["td"]?.programs, 2, "set up wrong: the model read the night's guide by itself")
+        var asked = home.helper.asked.count
+        model.wentToBackground()
+        await model.returnedToForeground()
+        XCTAssertEqual(model.counts["td"]?.programs, 3, "the screen does not show the night's guide")
+        XCTAssertEqual(home.helper.asked(since: asked), [], "the helper was asked within the hour")
+
+        home.helper.newCopies(["td": 4, "bs": 1])
+        stored = await BackgroundWork.refreshNow(in: noScreen(home))
+        XCTAssertTrue(stored, "set up wrong: the second night stored nothing")
+        model.tvHelper?.forgetTheCheck()
+        asked = home.helper.asked.count
+        model.wentToBackground()
+        await model.returnedToForeground()
+        XCTAssertEqual(home.helper.asked(since: asked), ["/v1/info"],
+                       "the check after the night asked the helper for more than what it has")
+        XCTAssertEqual(model.counts["td"]?.programs, 4, "the screen does not show the second night's guide")
     }
 
     // MARK: - the recorder chosen
@@ -591,10 +856,12 @@ final class GuideSourceTests: XCTestCase {
 
     /// The overnight run reads what the screens kept of the recorder's guide (`BackgroundWork.guideSource(in:)`): in
     /// a home whose recorder said it gives none and whose helper is registered, the television gives the guide, and
-    /// the night keeps its order, asks the helper nothing, and asks the recorder for no guide -- no type is marked as
-    /// answered for, 最終自動更新 is not written -- handing back that no guide was stored. With the helper's
+    /// the night keeps its order and asks the recorder for no guide -- no type is marked as answered for -- while
+    /// its television's part asks the helper what it has and, the launch having fetched its copies, for no file:
+    /// 最終自動更新 is not written, and the night hands back that no guide was stored. With the helper's
     /// registration gone, the recorder gives the guide again, and the night asks it for every type, which a
-    /// recorder that gives none answers by having none, each type marked as answered for.
+    /// recorder that gives none answers by having none, each type marked as answered for, and asks the helper
+    /// nothing.
     func testTheNightReadsThatTheRecorderGivesNoGuide() async throws {
         let home = try await aHome(recorderGives: [])
         await home.recorder.describeItself(givingAGuide: false)
@@ -602,13 +869,14 @@ final class GuideSourceTests: XCTestCase {
         XCTAssertEqual(BackgroundWork.guideSource(in: noScreen(home)), .tv)
 
         let heard = await home.recorder.heard.count
-        let asked = home.helper.asked.count
+        var asked = home.helper.asked.count
         let stored = await BackgroundWork.refreshNow(in: noScreen(home))
 
         XCTAssertFalse(stored, "the night said it stored a guide")
         let since = await home.recorder.heard(since: heard)
         XCTAssertEqual(since, [Ask.description, Ask.slot, Ask.freeSpace], "the night's order with the guide left out")
-        XCTAssertEqual(home.helper.asked(since: asked), [], "the night asked the helper")
+        XCTAssertEqual(home.helper.asked(since: asked), ["/v1/info"],
+                       "the night asked the helper for more than what it has, its copies being unchanged")
         let after = try await home.cache.counts()
         XCTAssertNil(after["cs"]?.checked, "the night asked the recorder for a guide")
         XCTAssertNil(home.bench.defaults.object(forKey: DefaultsKey.lastBackgroundRefresh),
@@ -616,10 +884,12 @@ final class GuideSourceTests: XCTestCase {
 
         home.tokens.remove()
         XCTAssertEqual(BackgroundWork.guideSource(in: noScreen(home)), .recorder)
+        asked = home.helper.asked.count
         _ = await BackgroundWork.refreshNow(in: noScreen(home))
         let asTheSource = try await home.cache.counts()
         XCTAssertNotNil(asTheSource["cs"]?.checked,
                         "set up wrong: the night with the recorder the source asked it for no guide")
+        XCTAssertEqual(home.helper.asked(since: asked), [], "the night asked the helper with the recorder the source")
     }
 
     // MARK: - what the screens say of the device
@@ -665,29 +935,33 @@ final class GuideSourceTests: XCTestCase {
         named("テレビ", "テレビに番組表が無い放送は空のままです", "a television alone")
     }
 
-    /// 最終自動更新 is said only while the recorder gives the guide: where the television does, no overnight run
-    /// fetches one, and the row would stand at the recorder's last night. What the run wrote is kept, and said
-    /// again once the recorder is the source.
-    func testTheOvernightRefreshIsNotSaidWhileTheTelevisionGivesTheGuide() async throws {
+    /// 最終自動更新 says when a night last fetched a guide, under either source: the recorder's night's time while
+    /// nothing is chosen, and under テレビ the same until the television's night fetches its guide, whose time it
+    /// says from then on -- with the recorder chosen back, and in a home with a television alone.
+    func testTheOvernightRefreshSaysTheTelevisionsNightUnderTheTelevision() async throws {
         let home = try await aHome(recorderGives: [0])
         let defaults = home.bench.defaults
         defaults.set(RecorderTime.format(Date(timeIntervalSince1970: 1_700_000_000)),
                      forKey: DefaultsKey.lastBackgroundRefresh)
         XCTAssertEqual(model(in: home).lastOvernightRefresh, "11/15(水) 07:13", "nothing chosen")
-
         defaults.set(GuideSourceChoice.tv.rawValue, forKey: DefaultsKey.guideSource)
-        XCTAssertNil(model(in: home).lastOvernightRefresh, "the television chosen")
-        XCTAssertNotNil(defaults.string(forKey: DefaultsKey.lastBackgroundRefresh), "what the run wrote was not kept")
-        defaults.set(GuideSourceChoice.recorder.rawValue, forKey: DefaultsKey.guideSource)
-        XCTAssertEqual(model(in: home).lastOvernightRefresh, "11/15(水) 07:13", "the recorder chosen back")
-
-        defaults.set(GuideSourceChoice.tv.rawValue, forKey: DefaultsKey.guideSource)
-        home.tokens.remove()
         XCTAssertEqual(model(in: home).lastOvernightRefresh, "11/15(水) 07:13",
-                       "the television chosen and the helper's registration gone")
-        home.tokens.save("token")
+                       "the television chosen, before its night")
+
+        let began = Date()
+        let stored = await BackgroundWork.refreshNow(in: noScreen(home))
+
+        XCTAssertTrue(stored, "set up wrong: the television's night stored no guide")
+        let written = try XCTUnwrap(defaults.string(forKey: DefaultsKey.lastBackgroundRefresh))
+        let fetched = try XCTUnwrap(RecorderTime.parse(written))
+        XCTAssertTrue(fetched >= began.addingTimeInterval(-1) && fetched <= Date(), "\(written)")
+        let underTheTelevision = model(in: home)
+        XCTAssertEqual(underTheTelevision.guideSource, .tv)
+        expectTheOvernightRefresh(of: underTheTelevision, says: fetched, "the television's night")
+        defaults.set(GuideSourceChoice.recorder.rawValue, forKey: DefaultsKey.guideSource)
+        expectTheOvernightRefresh(of: model(in: home), says: fetched, "the recorder chosen back")
         defaults.removeObject(forKey: DefaultsKey.recorderHost)
-        XCTAssertNil(model(in: home).lastOvernightRefresh, "a television alone")
+        expectTheOvernightRefresh(of: model(in: home), says: fetched, "a television alone")
     }
 
     // MARK: - the home
@@ -755,14 +1029,62 @@ final class GuideSourceTests: XCTestCase {
         return model
     }
 
-    /// What the overnight run is handed in that home. The recorder's MAC is taken out of the defaults first, so
-    /// that the run, which sends its packet itself, has none to send.
-    private func noScreen(_ home: Home) -> NoScreenSurroundings {
+    /// What the overnight run is handed in that home, with notifications that post nowhere unless a test hands
+    /// its own. The recorder's MAC is taken out of the defaults first, so that the run, which sends its packet
+    /// itself, has none to send.
+    private func noScreen(_ home: Home, notifications: Notifications = Notifications()) -> NoScreenSurroundings {
         home.bench.defaults.removeObject(forKey: DefaultsKey.recorderMac)
         let folder = home.bench.folder, recorder = home.recorder, way = home.way
         return NoScreenSurroundings(defaults: home.bench.defaults, folder: { folder }, transport: { _ in recorder },
                                     tvTransport: { _ in way }, tvCredentials: home.credentials,
-                                    tvHelperTokens: home.tokens, notifications: Notifications())
+                                    tvHelperTokens: home.tokens, notifications: notifications)
+    }
+
+    /// The overnight run in a home whose guide the television gives, its cache holding nothing of the television's:
+    /// what `testWhereTheTelevisionGivesTheGuideTheNightFetchesItThroughTheHelper` expects of it.
+    private func expectTheNightFetchesTheTelevisionsGuide(in home: Home, _ which: String,
+                                                          file: StaticString = #filePath,
+                                                          line: UInt = #line) async throws {
+        XCTAssertEqual(BackgroundWork.guideSource(in: noScreen(home)), .tv, "set up wrong: \(which)",
+                       file: file, line: line)
+        let heard = await home.recorder.heard.count
+        let began = Date()
+
+        let stored = await BackgroundWork.refreshNow(in: noScreen(home))
+
+        XCTAssertTrue(stored, "\(which): the night said it stored no guide", file: file, line: line)
+        XCTAssertEqual(home.helper.asked, ["/v1/info", "/v1/channels", "/v1/guide/td", "/v1/logos/td",
+                                           "/v1/guide/bs", "/v1/logos/bs"], which, file: file, line: line)
+        try await expect("td", .televisions, in: home, which, file: file, line: line)
+        try await expect("bs", .televisions, in: home, which, file: file, line: line)
+        for type in ["td", "bs"] {
+            let mark = try await home.cache.helperChanged(broadcasting: type)
+            XCTAssertEqual(mark, home.helper.copiesChangedAt, "\(which): \(type)'s mark was not noted",
+                           file: file, line: line)
+        }
+        let files = await home.recorder.heard(since: heard).filter { Ask.guide.contains($0) || Ask.logos.contains($0) }
+        XCTAssertEqual(files, [], "\(which): the night asked the recorder for a guide", file: file, line: line)
+        let written = try XCTUnwrap(home.bench.defaults.string(forKey: DefaultsKey.lastBackgroundRefresh),
+                                    "\(which): 最終自動更新 was not written", file: file, line: line)
+        let fetched = try XCTUnwrap(RecorderTime.parse(written), file: file, line: line)
+        // Written to the second.
+        XCTAssertTrue(fetched >= began.addingTimeInterval(-1) && fetched <= Date(), "\(which): \(written)",
+                      file: file, line: line)
+        let model = model(in: home)
+        XCTAssertEqual(model.guideSource, .tv, which, file: file, line: line)
+        expectTheOvernightRefresh(of: model, says: fetched, which, file: file, line: line)
+    }
+
+    /// 最終自動更新 says `time`, which a night wrote a moment ago. The model says it against the clock (`Format.when`),
+    /// so it is read between two sayings of the test's own and may equal either: a second that turns between the
+    /// reads is no failure.
+    private func expectTheOvernightRefresh(of model: AppModel, says time: Date, _ message: String,
+                                           file: StaticString = #filePath, line: UInt = #line) {
+        let before = Format.when(time)
+        let said = model.lastOvernightRefresh
+        let after = Format.when(time)
+        XCTAssertTrue(said == before || said == after, "\(message): 最終自動更新 says \(said ?? "nothing"), not \(after)",
+                      file: file, line: line)
     }
 
     /// Notes `started` once the refresh a connect starts on finding the recorder's guide behind is started, as
@@ -782,13 +1104,16 @@ final class GuideSourceTests: XCTestCase {
             "UPDATE meta SET value=? WHERE key LIKE 'epg_refreshed:%' OR key LIKE 'epg_checked:%'", [.text(then)])
     }
 
-    /// A reservation of the test's own making waiting for the recorder: half an hour on the demo's first
-    /// channel, in DR and not repeated, starting in half a day.
-    private func aReservationWaiting() -> PendingReservation {
+    /// A reservation of the test's own making waiting for the recorder, or for the television (`target`): half
+    /// an hour on the demo's first channel, which the invented television receives once a test says so, in DR and
+    /// not repeated, starting in half a day.
+    private func aReservationWaiting(programme: Int = 4332, for target: DeviceSlot = .recorder) -> PendingReservation {
         let request = ReservationRequest(title: "夜のあいだに送る番組", start: Date().addingTimeInterval(12 * 3600),
                                          durationSec: 1800, repeatCode: "1", broadcastingType: 2, serviceID: 1024,
-                                         qualityCode: 100, eventID: 4332)
-        return PendingReservation(request: request, serviceName: "サンプルテレビ")
+                                         qualityCode: 100, eventID: programme)
+        var row = PendingReservation(request: request, serviceName: "サンプルテレビ")
+        row.target = target
+        return row
     }
 
     private enum Whose: String {
@@ -841,7 +1166,8 @@ private struct TelevisionWithAHelper: HTTPTransport {
 
 /// An invented helper: programmes of 地上デジタル (service 1024, the recorder's first) and BS (service 101), each
 /// titled テレビの番組, the first three hours from now and one an hour after it; any token is taken. Its copies
-/// do not change. `asked` is every path it was asked for, in order.
+/// do not change unless a test makes new ones (`newCopies`). `asked` is every path it was asked for, in order,
+/// silence and a held answer among them.
 private final class HelperOnTheTelevision: @unchecked Sendable {
     static let titlePrefix = "テレビの番組"
     /// The name of its one station of a type.
@@ -849,17 +1175,61 @@ private final class HelperOnTheTelevision: @unchecked Sendable {
 
     private let lock = NSLock()
     private let services = ["td": 1024, "bs": 101]
-    private let programs = ["td": 2, "bs": 1]
+    private var programs = ["td": 2, "bs": 1]
     private let first = Int(Date().addingTimeInterval(3 * 3600).timeIntervalSince1970) * 1000
-    private let changedAt = 1_800_000_000_000
+    private var changedAt = 1_800_000_000_000
     private var paths: [String] = []
+    private var silent = false
+    /// The path whose answer is held until `letGo`, and the request held there.
+    private var holds: String?
+    private var held: CheckedContinuation<Void, Never>?
 
     var asked: [String] { lock.withLock { paths } }
     func asked(since count: Int) -> [String] { Array(asked.dropFirst(count)) }
 
+    /// When the helper last saw its copies change, as the cache notes it from what the helper says.
+    var copiesChangedAt: Date {
+        lock.withLock { Date(timeIntervalSince1970: TimeInterval(changedAt) / 1000) }
+    }
+
+    /// New copies of every type, with so many programmes of each, seen to change a minute after the last.
+    func newCopies(_ programs: [String: Int]) {
+        lock.withLock {
+            self.programs = programs
+            changedAt += 60_000
+        }
+    }
+
+    /// Answers nothing from now on, as a helper that is not running.
+    func goSilent() {
+        lock.withLock { silent = true }
+    }
+
+    /// Holds the answer to `path` until `letGo`.
+    func hold(_ path: String) {
+        lock.withLock { holds = path }
+    }
+
+    var isHolding: Bool { lock.withLock { held != nil } }
+
+    func letGo() {
+        let waiting = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            holds = nil
+            defer { held = nil }
+            return held
+        }
+        waiting?.resume()
+    }
+
     func respond(to request: HTTPRequest) async throws -> HTTPResponse {
         let path = request.url.path
-        lock.withLock { paths.append(path) }
+        let (quiet, holding) = lock.withLock { () -> (Bool, Bool) in
+            paths.append(path)
+            return (silent, holds == path)
+        }
+        if holding { await withCheckedContinuation { continuation in lock.withLock { held = continuation } } }
+        guard !quiet else { throw TVHelperError.transport("no answer") }
+        let (programs, changedAt) = lock.withLock { (self.programs, self.changedAt) }
         let type = path.split(separator: "/").last.map(String.init) ?? ""
         switch path {
         case "/ping":

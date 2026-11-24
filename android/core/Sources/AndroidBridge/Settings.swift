@@ -62,8 +62,8 @@ public struct SettingsScreen: Sendable {
     public var helperProblem: String
     public var guideSourceFooter: String
     /// 保存されている番組表: each broadcasting type's stations and programmes, when the guide was last fetched, and
-    /// when the overnight run last fetched it (最終自動更新), which is not said while the television gives the guide
-    /// (`AppModel.lastOvernightRefresh`).
+    /// when the overnight run last fetched it (最終自動更新), from whichever device gives the guide, which is not said
+    /// until a run has fetched one (`AppModel.lastOvernightRefresh`).
     public var guide: [Fact]
     public var refreshHeld: Bool
     /// Whether the demo is on, and what is said under its button.

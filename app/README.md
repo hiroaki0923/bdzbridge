@@ -566,9 +566,10 @@ of the app's phase. Nor what the app hands the entries with no screen (`NoScreen
 defaults, folder, sessions, Keychain and notifications), nor the magic packet, which no test saves a MAC for: the
 entries themselves are tried with the bench's handed in (`NoScreenEntryTests`: nothing done in the demo or with no
 recorder saved, the night's order and the time the settings show, what is posted before what is kept, and the
-television's part taken away or out of time), and the work behind each with its client and cache handed in
-(`BackgroundWork.refresh`, `sendWaiting(client:store:mac:told:nextRun:now:)`, and in RecorderKit
-`RecorderDriver.refreshWithNoScreen` and `sendWithNoScreen`). The task's registration, its handler and its
+television's part taken away or out of time; the night's fetch of the television's guide in `GuideSourceTests`),
+and the work behind each with its client and cache handed in (`BackgroundWork.refresh`,
+`sendWaiting(client:store:mac:told:nextRun:now:)`, and in RecorderKit `RecorderDriver.refreshWithNoScreen`,
+`sendWithNoScreen` and `TVHelperGuide.refreshWithNoScreen`). The task's registration, its handler and its
 expiry are in front of those entries, and out of reach.
 
 ```
@@ -1065,15 +1066,27 @@ it has none (`GuideEmpty.notCapable`, said only where the recorder gives the gui
 for no guide by itself. Where the television gives it, a connect to the recorder reads the reservations and the
 lists and starts no refresh (`AppModel.guideIsStale`), and the night wakes the recorder, sends what waits and
 reads the slot and the free space, and asks for no guide file (`RecorderDriver.refreshWithNoScreen`, told by the
-entry, which reads the four facts from what the screens saved, `BackgroundWork.guideSource(in:)`): the
-settings' 最終自動更新 is not written, nor is the row shown while the television gives the guide (what a night wrote
-before is kept, and said again once the recorder gives it; `AppModel.lastOvernightRefresh`), and the task is
-completed as it is in a home with no recorder, as having stored no guide. A night that reads the slot a second
-time, for a USB disk known that the slot first answered as none, used to read it once after the guide, which
-gave a disk just woken its while to come up; with no guide
+entry, which reads the four facts from what the screens saved, `BackgroundWork.guideSource(in:)`). A night that
+reads the slot a second time, for a USB disk known that the slot first answered as none, used to read it once
+after the guide, which gave a disk just woken its while to come up; with no guide
 to come after, it waits for the slot as the app does before it sends something that names it
-(`RecorderDriver.settle`). The television's guide is fetched as the app starts or comes to the front, an hour
-or more after the helper was last asked, and not at night. 番組表を更新 asks whichever device gives the guide.
+(`RecorderDriver.settle`). Where the recorder gives the guide, nothing asks the helper, at night or by day.
+
+The television's guide is fetched as the app starts or comes to the front, an hour or more after the helper was
+last asked, and at night. The night's television's part sends what waits for the television first, which is the
+part with a deadline, and then asks the helper what it has and fetches what is behind by the television's rule,
+as the app's fetch at start does and by the same steps (`TVHelperGuide.refreshWithNoScreen`), with no line on
+any screen: the types behind fetched in the guide's one turn, a type the television does not have emptied
+there, each type's mark noted, so that a night after which the helper's copies have not changed asks for no
+file. The helper was measured answering through the night with the television in standby; nothing wakes it.
+Once the task's time is up the fetch stops between files and notes nothing more. Nothing is posted of it: a
+helper that is silent or refuses is said by the screens' next fetch, writes nothing, and leaves the rest of the
+night as it was. The Shortcuts action asks the helper nothing. The settings' 最終自動更新 is when a night last
+fetched a guide, from whichever device gives it (`AppModel.lastOvernightRefresh`), written when a type was
+answered for, and the task is completed as having stored a guide when either device's was. An app kept alive
+behind the night reads the cache again as it comes back to the front within the hour of the helper's last
+check, as a connect to the recorder reads it (`AppModel.refreshGuideFromTVIfBehind`); past the hour the check
+finds nothing behind. 番組表を更新 asks whichever device gives the guide.
 What the helper's last fetch had to say stays under the settings' 保存されている番組表 until the next fetch,
 as a line of its own in red, as what any device said is shown there; where there is a source to choose, it is
 under the note that says what the choice changes (`SettingsWords.guideSourceFooter`), not part of it.

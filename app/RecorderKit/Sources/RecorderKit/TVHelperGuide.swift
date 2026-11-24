@@ -8,7 +8,8 @@ import Observation
 ///
 /// The helper is asked without a link of its own: it is never woken, wants no check before a write, and what is
 /// asked of it is read only. The fetch's line goes up on the television's link's host, given with each fetch,
-/// so that the recorder's buttons are not held by it.
+/// so that the recorder's buttons are not held by it. The overnight run fetches what is behind by the same
+/// steps, with no line and no model (`refreshWithNoScreen`).
 @MainActor
 @Observable
 public final class TVHelperGuide {
@@ -138,18 +139,31 @@ public final class TVHelperGuide {
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
-    /// The fetch's steps, which have no line and keep nothing of their own: the helper is asked what it has, the
-    /// types to fetch are judged -- those it has programmes of that are behind (`behind`), or all of them
-    /// (`every`) -- and `checked` is told; then the types are fetched in the guide's one turn (`GuideRefresh.run`),
-    /// in which a type the television does not have is emptied first (`notHad`), and each type answered for has
-    /// the helper's mark of its copy noted, so that the next fetch passes over a copy it has. What the turn came
-    /// to is handed back. What the helper said in place of what it has is thrown, with nothing asked after it.
-    /// `onType` and `onStored` are handed to the turn as they are.
+    /// The fetch's steps, which have no line and keep nothing of their own, for the screens' fetch (`fetch`) and
+    /// the overnight run's (`refreshWithNoScreen`): the helper is asked what it has, the types to fetch are judged
+    /// -- those it has programmes of that are behind (`behind`), or all of them (`every`) -- and `checked` is
+    /// told; then the types are fetched in the guide's one turn (`GuideRefresh.run`), in which a type the
+    /// television does not have is emptied first (`notHad`), and each type answered for has the helper's mark of
+    /// its copy noted, so that the next fetch passes over a copy it has. What the turn came to is handed back.
+    /// What the helper said in place of what it has is thrown, with nothing asked after it. `onType` and
+    /// `onStored` are handed to the turn as they are.
+    ///
+    /// They run in the caller's task, and stop once that is cancelled, which is the overnight run's when its time
+    /// is up: the screens' fetch is a task of its own that nothing cancels. Cancelled before the helper is
+    /// asked, nothing is asked; once the turn has come, nothing is emptied and no file is asked for; between
+    /// files, nothing after the file under way (`GuideRefresh.run`, which stores a type whose guide was that
+    /// file). No mark is noted once it is cancelled, and what came before is handed back with `cancelled` set,
+    /// or `stopped` where the turn turned it away.
     nonisolated static func fetchTypes(every: Bool, from client: TVHelperClient, into store: GuideStore,
                                        checked: (@MainActor @Sendable () -> Void)? = nil,
                                        onType: (@MainActor @Sendable (String) -> Bool)? = nil,
                                        onStored: (@MainActor @Sendable (String) async -> Void)? = nil)
         async throws -> GuideRefresh.Outcome {
+        guard !Task.isCancelled else {
+            var outcome = GuideRefresh.Outcome()
+            outcome.cancelled = true
+            return outcome
+        }
         let info = try await client.info()
         var types = GuideRefresh.broadcastingTypes.filter { (info.types[$0]?.programs ?? 0) > 0 }
         if !every {
@@ -163,17 +177,44 @@ public final class TVHelperGuide {
         await checked?()
         // The turn is taken with nothing to fetch as well: what the television does not have is emptied in it.
         let outcome = await GuideRefresh.run(asked: .only(types), onTurn: {
+            // The wait for the turn can be as long as a refresh in front of it.
+            guard !Task.isCancelled else { return .turnedAway(nil) }
             let held = (try? await store.counts()) ?? [:]
             for broadcasting in notHad(by: info, held: held) {
                 try? await store.empty(broadcasting: broadcasting, notHadBy: TVHelperClient.slot)
             }
             return .fetch(client: client, store: store, from: nil)
         }, onType: onType, onStored: onStored)
+        guard !Task.isCancelled else { return outcome }
         for broadcasting in outcome.answered {
             try? await store.noteHelperChanged(broadcasting: broadcasting,
                                                at: info.types[broadcasting]?.changedAt ?? Date())
         }
         return outcome
+    }
+
+    /// The overnight run's fetch of the television's guide, with no screen and no link: what is behind, by the
+    /// television's own rule, as the app's fetch as it starts asks for it (`fetch` with `every` false), by the
+    /// same steps (`fetchTypes`) -- the helper asked what it has, the types behind fetched in the guide's one
+    /// turn, a type the television does not have emptied there, and the marks noted -- so that a night after
+    /// which the helper's copies have not changed asks for no file. Nothing wakes the television for it: the
+    /// helper was measured answering through the night with the television in standby. Whether a programme was
+    /// stored.
+    ///
+    /// `fetched` is told the time once a type has been answered for, as the recorder's night tells
+    /// (`NightFound.fetched`): not where nothing was behind, not where the helper was silent or answered with
+    /// something other than what it has, and not once the caller's task is cancelled, which is what the system
+    /// does when the run's time is up. The fetch stops there between files, and nothing is noted or told
+    /// from then on; it hands back that nothing was stored, as the recorder's night does once a telling is kept
+    /// back (`RecorderDriver.refreshWithNoScreen`). Silence over a type's file ends the fetch with what came
+    /// before it, as on the screens, and a type answered before it is told. Nothing is said of the helper:
+    /// what the screens' next fetch finds is theirs to say.
+    public nonisolated static func refreshWithNoScreen(_ client: TVHelperClient, store: GuideStore,
+                                                       fetched: @Sendable (Date) -> Void) async -> Bool {
+        guard let outcome = try? await fetchTypes(every: false, from: client, into: store), !Task.isCancelled
+        else { return false }
+        if !outcome.answered.isEmpty { fetched(Date()) }
+        return outcome.stored > 0
     }
 
     /// The types of `types` that are behind what the helper has, and are fetched with nobody having pressed:
