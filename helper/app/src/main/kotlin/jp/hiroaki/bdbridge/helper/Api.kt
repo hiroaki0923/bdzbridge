@@ -1,7 +1,6 @@
 package jp.hiroaki.bdbridge.helper
 
 import android.content.Context
-import android.os.PowerManager
 import android.os.SystemClock
 import org.json.JSONArray
 import org.json.JSONObject
@@ -58,7 +57,6 @@ class Api(private val context: Context) {
     }
 
     private fun info(): Response {
-        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         val types = JSONObject()
         for ((bt, s) in snapshots.typeStates()) types.put(bt, s.toJson())
         val o = JSONObject()
@@ -67,7 +65,6 @@ class Api(private val context: Context) {
             .put("features", JSONArray())
             .put("listingsPermission", Helper.hasListingsPermission(context))
             .put("tunerInstalled", Helper.tunerInstalled(context))
-            .put("interactive", pm.isInteractive)
             .put("now", System.currentTimeMillis())
             .put("timeZone", TimeZone.getDefault().id)
             .put("bootedAt", System.currentTimeMillis() - SystemClock.elapsedRealtime())

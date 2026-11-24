@@ -62,7 +62,7 @@ Mac か Windows のパソコンが、テレビと同じネットワークにあ�
 |---|---|
 | `GET /ping` | `{app, api, version}`。トークン不要 |
 | `POST /v1/pair` `{code, label}` | 画面の番号でトークンを 1 つ発行。5 回間違えると 10 分受け付けない（その間は 429 `locked`、`Retry-After` 付き） |
-| `GET /v1/info` | 版、許可の状態、チューナーの有無、画面の状態、時計、起動した時刻、空き容量、写しの状態（種別ごとの `etag / snapshotAt / changedAt / programs / channels`）、`tunerLastWrite` |
+| `GET /v1/info` | 版、許可の状態、チューナーの有無、時計、起動した時刻、空き容量、写しの状態（種別ごとの `etag / snapshotAt / changedAt / programs / channels`）、`tunerLastWrite` |
 | `GET /v1/channels` | チューナーの局。`bt, sid, onid, tsid, number, name, serviceType, browsable, hasPrograms, siblings, data`（ETag） |
 | `GET /v1/guide/{bt}` | 種別（`td / bs / cs / bs4k / cs4k`）の番組すべて。ETag と `If-None-Match` → 304、gzip |
 | `GET /v1/logos/{bt}` | 種別の局ロゴ（PNG、base64）とハッシュ |
