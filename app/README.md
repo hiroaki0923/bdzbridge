@@ -1353,7 +1353,9 @@ has ended, as the grid does, redrawn each minute.
 Which channels the guide shows, and in what order, is set for each broadcasting type on
 チャンネルの表示と並び順, reached from the settings and from the guide's channel menu: a switch for each
 channel and a handle to drag, saved in the cache's own `channel_prefs` table as each changes, and put
-back to the recorder's order with everything shown by a reset that asks first. The list, the grid's
+back to the order of the device that gives the guide, with everything shown, by a reset that asks first
+and names that device (レコーダーの順に戻す, or テレビの順に戻す where the television gives the guide;
+`AppModel.guideDeviceName`), as an empty guide's and an empty list's sentences do. The list, the grid's
 columns and the guide's search follow it; the reservations and the recordings do not, and the recorder
 is not told. A list narrowed to a channel lets go of it when it is hidden, and when the broadcasting type
 changes, rather than staying empty with no way back in the menu.

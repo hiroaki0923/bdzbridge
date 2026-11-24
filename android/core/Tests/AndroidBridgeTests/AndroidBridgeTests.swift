@@ -842,10 +842,8 @@ extension AndroidBridgeTests {
                        [GuideWords.nowLabel, GuideWords.previousDayLabel, GuideWords.nextDayLabel,
                         GuideWords.allStationsLabel, GuideWords.showAllStationsLabel, GuideWords.onAirLabel,
                         GuideWords.detailsPrefix, GuideWords.channelsLabel])
-        XCTAssertEqual([words.channelsTitle, words.channelsResetLabel, words.channelsConfirmResetLabel,
-                        words.channelsFailureTitle],
-                       [ChannelsState.title, ChannelsState.resetLabel, ChannelsState.confirmResetLabel,
-                        ChannelsState.failureTitle])
+        XCTAssertEqual([words.channelsTitle, words.channelsFailureTitle],
+                       [ChannelsState.title, ChannelsState.failureTitle])
     }
 
     /// The lists' words that never change, as Kotlin keeps them, are the model's (`ListWords`, `ReservationsState`,
@@ -1517,6 +1515,10 @@ extension AndroidBridgeTests {
         XCTAssertEqual(listed.broadcasting, "td")
         XCTAssertFalse(listed.customised)
         XCTAssertEqual(listed.footer, ChannelsState.footer)
+        // The reset's words come with the screen, naming the device that gives the guide: the demo's recorder.
+        XCTAssertEqual([listed.resetLabel, listed.resetQuestion, listed.confirmResetLabel],
+                       ["レコーダーの順に戻して、すべて表示", "地上デジタルの局をすべて表示して、レコーダーの順に戻しますか？",
+                        "レコーダーの順に戻す"])
         XCTAssertTrue(listed.types.contains { $0.code == "bs" })
         let first = listed.stations[0], third = listed.stations[2]
 

@@ -103,7 +103,7 @@ fun ChannelsPage(close: () -> Unit) {
                         TextButton(onClick = {
                             resetting = false
                             scope.launch { handle.reset() }
-                        }) { Text(RecBridge.guideWords.channelsConfirmResetLabel) }
+                        }) { Text(shown.confirmResetLabel) }
                     },
                     dismissButton = { TextButton(onClick = { resetting = false }) { Text(RecBridge.sheetWords.cancelLabel) } })
     }
@@ -182,7 +182,7 @@ private fun Stations(shown: Channels, handle: RecBridge.ChannelsHandle, reset: (
             Column(Modifier.padding(16.dp)) {
                 Footnote(shown.footer)
                 OutlinedButton(onClick = reset, enabled = shown.customised, modifier = Modifier.padding(top = 16.dp)) {
-                    Text(RecBridge.guideWords.channelsResetLabel)
+                    Text(shown.resetLabel)
                 }
             }
         }

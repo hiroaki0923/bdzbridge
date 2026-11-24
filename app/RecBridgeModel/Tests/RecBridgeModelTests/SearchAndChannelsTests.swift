@@ -175,12 +175,16 @@ final class SearchAndChannelsTests: XCTestCase {
     }
 
     /// The words of the stations screen as it has always said them, byte for byte: its title, the button at the foot
-    /// and the one of the question it asks, and the title of the alert that says a change was not saved. The button
-    /// that closes that alert is the sheets' (`SheetWords.okLabel`).
-    func testTheStationsScreenSaysWhatItSaid() {
+    /// and the one of the question it asks, which name the recorder in a home whose guide the recorder gives (where
+    /// the television gives it, `GuideSourceTests`), and the title of the alert that says a change was not saved.
+    /// The button that closes that alert is the sheets' (`SheetWords.okLabel`).
+    func testTheStationsScreenSaysWhatItSaid() async throws {
+        let (_, model) = try await offline()
+        let channels = ChannelsState(broadcasting: model.broadcasting, model: model)
         XCTAssertEqual(ChannelsState.title, "チャンネルの表示と並び順")
-        XCTAssertEqual(ChannelsState.resetLabel, "レコーダーの順に戻して、すべて表示")
-        XCTAssertEqual(ChannelsState.confirmResetLabel, "レコーダーの順に戻す")
+        XCTAssertEqual(channels.resetLabel, "レコーダーの順に戻して、すべて表示")
+        XCTAssertEqual(channels.confirmResetLabel, "レコーダーの順に戻す")
+        XCTAssertEqual(channels.empty.detail, "局の一覧は、番組表と一緒にレコーダーから取得します")
         XCTAssertEqual(ChannelsState.failureTitle, "保存できませんでした")
         XCTAssertEqual(SheetWords.okLabel, "OK")
     }

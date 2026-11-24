@@ -1184,14 +1184,12 @@ data class Fact(val label: String, val value: String)
 data class GuideWords(
     val nowLabel: String, val previousDayLabel: String, val nextDayLabel: String, val allStationsLabel: String,
     val showAllStationsLabel: String, val onAirLabel: String, val detailsPrefix: String, val channelsLabel: String,
-    val channelsTitle: String, val channelsResetLabel: String, val channelsConfirmResetLabel: String,
-    val channelsFailureTitle: String,
+    val channelsTitle: String, val channelsFailureTitle: String,
 )
 
 private fun GuideWords(it: jp.hiroaki.bdbridge.bridge.GuideWordsText) = GuideWords(
     it.nowLabel, it.previousDayLabel, it.nextDayLabel, it.allStationsLabel, it.showAllStationsLabel, it.onAirLabel,
-    it.detailsPrefix, it.channelsLabel, it.channelsTitle, it.channelsResetLabel, it.channelsConfirmResetLabel,
-    it.channelsFailureTitle,
+    it.detailsPrefix, it.channelsLabel, it.channelsTitle, it.channelsFailureTitle,
 )
 
 /** The names of the five tabs, as the model words them (`TabWordsText`). Kept from the model's start (`RecBridge.tabWords`). */
@@ -1387,7 +1385,7 @@ data class Disclaimer(val title: String, val opening: String, val sections: List
 data class Channels(
     val types: List<Labelled>, val broadcasting: String, val stations: List<ArrangedStation>, val loaded: Boolean,
     val emptyTitle: String, val emptyDetail: String, val customised: Boolean, val footer: String,
-    val resetQuestion: String, val failure: String,
+    val resetLabel: String, val resetQuestion: String, val confirmResetLabel: String, val failure: String,
 )
 
 /** A station of the list, with the logo the recorder sent for it as an image file (empty when it never had one). */
@@ -1397,6 +1395,7 @@ private fun Channels(it: jp.hiroaki.bdbridge.bridge.ChannelsScreen) = it.getEmpt
     Channels(
         labelled(it.getTypes(arena)), it.broadcasting,
         it.getStations(arena).map { station -> ArrangedStation(station.id, station.name, station.logo, station.isShown) },
-        it.isLoaded, empty.title, empty.detail, it.isCustomised, it.footer, it.resetQuestion, it.failure,
+        it.isLoaded, empty.title, empty.detail, it.isCustomised, it.footer, it.resetLabel, it.resetQuestion,
+        it.confirmResetLabel, it.failure,
     )
 }

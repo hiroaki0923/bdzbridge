@@ -119,7 +119,7 @@ extension AppModel {
         /// What went wrong, in the words of whoever knows.
         case cannotShow(String)
         /// The other types came in and this one did not: the recorder had no file for it, which is what a model
-        /// without that kind of tuner answers.
+        /// without that kind of tuner answers, or the television's helper had no guide of it.
         case typeNotAnswered
         /// Nothing fetched yet.
         case notFetched
@@ -140,10 +140,11 @@ extension AppModel {
         return .nothingThatDay
     }
 
-    /// The words of each, for the broadcasting type on screen.
+    /// The words of each, for the broadcasting type on screen. Where a sentence says which device the guide comes
+    /// from, it names the one that gives this home's guide (`guideDeviceName`).
     public func says(_ empty: GuideEmpty) -> ScreenSays {
         let type = Codes.broadcastingInSentence(broadcasting)
-        let refresh = "右上の更新ボタンでレコーダーから取得できます"
+        let refresh = "右上の更新ボタンで\(guideDeviceName)から取得できます"
         switch empty {
         case .everyChannelHidden:
             return ScreenSays("\(type)の局をすべて非表示にしています", "表示する局を選ぶと、番組表に出てきます")
@@ -158,7 +159,9 @@ extension AppModel {
         case .cannotShow(let problem):
             return ScreenSays("番組表を表示できません", problem)
         case .typeNotAnswered:
-            return ScreenSays("\(type)の番組表はありません", "レコーダーが対応していない放送は空のままです。右上の更新ボタンで取得し直せます")
+            // A television that shows a type may only hold no guide of it yet, so it is not said to lack the type.
+            let why = guideSource == .tv ? "テレビに番組表が無い放送は空のままです" : "レコーダーが対応していない放送は空のままです"
+            return ScreenSays("\(type)の番組表はありません", why + "。右上の更新ボタンで取得し直せます")
         case .notFetched:
             return ScreenSays("番組表をまだ取得していません", refresh)
         case .nothingThatDay:
