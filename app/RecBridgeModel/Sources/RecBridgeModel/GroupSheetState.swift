@@ -60,9 +60,11 @@ public final class GroupSheetState {
         return confirmingDelete ? .bulk : nil
     }
 
+    /// The question's title: for the bulk delete, with how many, its digits grouped as the button under it groups
+    /// them (`actionLabel`).
     public func askTitle(_ asked: Ask?, chosen: [RecordedTitle]) -> String {
         switch asked {
-        case .bulk: "選択した \(chosen.count) 件を削除しますか？"
+        case .bulk: "選択した \(Format.count(chosen.count)) 件を削除しますか？"
         case .failed: "エラー"
         case .told: "録画"
         case .one, nil: "この録画を削除しますか？"

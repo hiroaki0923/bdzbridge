@@ -171,8 +171,9 @@ public final class HelperRegisterState {
 
     // MARK: - the sheet's words
 
-    /// The sheet's title, and what the code field shows while empty.
-    public static let sheetTitle = "テレビの番組表に登録"
+    /// The sheet's title, which is the name of the button that opens it (ヘルパーに登録), and what the code field
+    /// shows while empty.
+    public static let sheetTitle = TVSettingsState.registerHelperLabel
     public static let codePlaceholder = "6 桁の番号"
 
     /// What is said under the field: where the code is shown, and how long it lasts; then where the way to put the

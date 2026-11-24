@@ -104,8 +104,16 @@ final class GroupSheetTests: XCTestCase {
         sheet.deleteChosen()
         XCTAssertEqual(shown(sheet), "bulk")
         let asked = try XCTUnwrap(sheet.ask(among: sheet.members))
-        XCTAssertEqual(sheet.askTitle(asked, chosen: chosen), "選択した \(chosen.count) 件を削除しますか？")
-        XCTAssertEqual(sheet.actionLabel(for: asked, chosen: chosen)?.label, "\(chosen.count) 件を削除する")
+        XCTAssertEqual(sheet.askTitle(asked, chosen: chosen), "選択した \(asATextShowsIt(chosen.count)) 件を削除しますか？")
+        XCTAssertEqual(sheet.actionLabel(for: asked, chosen: chosen)?.label,
+                       "\(asATextShowsIt(chosen.count)) 件を削除する")
+        // With four figures the title groups them as the button does, where the reader's locale puts a separator.
+        let many = Array(repeating: chosen[0], count: 1234)
+        XCTAssertEqual(sheet.askTitle(asked, chosen: many), "選択した \(asATextShowsIt(1234)) 件を削除しますか？")
+        XCTAssertEqual(sheet.actionLabel(for: asked, chosen: many)?.label, "\(asATextShowsIt(1234)) 件を削除する")
+        if let separator = Locale.current.groupingSeparator, !separator.isEmpty, asATextShowsIt(1234) != "1234" {
+            XCTAssertEqual(sheet.askTitle(asked, chosen: many), "選択した 1\(separator)234 件を削除しますか？")
+        }
         XCTAssertEqual(sheet.actionLabel(for: asked, chosen: chosen)?.destructive, true)
         XCTAssertEqual(sheet.closingLabel(for: asked), "キャンセル")
         XCTAssertTrue(sheet.message(for: asked, chosen: chosen).hasPrefix("合計 "))
