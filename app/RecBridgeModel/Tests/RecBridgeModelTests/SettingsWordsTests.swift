@@ -58,6 +58,10 @@ final class SettingsWordsTests: XCTestCase {
         XCTAssertEqual(SettingsWords.leaveDemoLabel, "サンプルデータを終了する")
         XCTAssertEqual(SettingsWords.appHeading, "このアプリ")
         XCTAssertEqual(Disclaimer.title, "ご利用上の注意")
+        // What it opens with names both kinds of device the app works, as the page the store links to does.
+        XCTAssertEqual(Disclaimer.opening,
+                       "RecBridge は、ソニー製のブルーレイディスクレコーダー（BDZ シリーズ）とテレビを家庭内ネットワーク越しに操作する、"
+                       + "個人が作った非公式のアプリです。ソニーグループとは関係がなく、同社の公式アプリではありません。")
         XCTAssertEqual(SettingsWords.versionLabel, "バージョン")
         XCTAssertEqual(SettingsWords.version(release: "0.2", build: "12"), "0.2 (12)")
     }
