@@ -6,6 +6,23 @@ import RecorderKit
 public enum GuideSourceChoice: String, Sendable {
     case recorder
     case tv
+
+    /// Where a household's guide is fetched from, by the three facts that decide it: the television where a
+    /// helper is registered and either no recorder is saved or the reader chose the television; the recorder
+    /// otherwise, the helper registered or not. One rule for the screens, which ask the model
+    /// (`AppModel.guideSource`), and for a run with no screen, which has none to ask
+    /// (`BackgroundWork.guideSource(in:)`).
+    static func of(recorderSaved: Bool, helperRegistered: Bool,
+                   preference: GuideSourceChoice) -> GuideSourceChoice {
+        guard helperRegistered else { return .recorder }
+        return recorderSaved ? preference : .tv
+    }
+
+    /// The reader's choice where both devices could give the guide, as the settings saved it
+    /// (`DefaultsKey.guideSource`): unset is the recorder.
+    static func preference(in defaults: UserDefaults) -> GuideSourceChoice {
+        GuideSourceChoice(rawValue: defaults.string(forKey: DefaultsKey.guideSource) ?? "") ?? .recorder
+    }
 }
 
 /// The television's guide, through the helper that runs on it: which device the guide is fetched from, and when.
@@ -13,15 +30,15 @@ public enum GuideSourceChoice: String, Sendable {
 /// (`TVHelperGuide`); what the last fetch said is kept here.
 extension AppModel {
     /// The reader's choice where both devices could give the guide: unset is the recorder.
-    public var guideSourcePreference: GuideSourceChoice {
-        GuideSourceChoice(rawValue: defaults.string(forKey: DefaultsKey.guideSource) ?? "") ?? .recorder
-    }
+    public var guideSourcePreference: GuideSourceChoice { .preference(in: defaults) }
 
     /// Where the guide is fetched from now: the television where a helper is registered and either there is no
-    /// recorder or the reader chose it; the recorder otherwise, the helper registered or not.
+    /// recorder or the reader chose it; the recorder otherwise, the helper registered or not
+    /// (`GuideSourceChoice.of`). The other device is asked for no guide by itself: not the recorder after a
+    /// connect (`guideIsStale`) or overnight (`BackgroundWork.guideSource(in:)`), not the helper as the app
+    /// starts or comes to the front (`refreshGuideFromTVIfBehind`).
     public var guideSource: GuideSourceChoice {
-        guard helperRegistered else { return .recorder }
-        return host.isEmpty ? .tv : guideSourcePreference
+        .of(recorderSaved: !host.isEmpty, helperRegistered: helperRegistered, preference: guideSourcePreference)
     }
 
     /// Whether the app holds a registration with the helper.
@@ -46,19 +63,22 @@ extension AppModel {
 
     // MARK: - registration
 
-    /// Registers with the helper by the code the television shows, and says what went wrong, or nil. In a
-    /// household with no recorder the television's guide is fetched at once; with one, the reader chooses in the
-    /// settings.
+    /// Registers with the helper by the code the television shows, and says what went wrong, or nil. Where the
+    /// television gives the guide once the helper is registered, the guide is taken over to it and the
+    /// television's fetched at once (`adoptGuideSource`): in a household with no recorder, and in one with a
+    /// recorder whose reader chose テレビ before, the helper registered again. Where the recorder still gives
+    /// it, nothing is fetched, and the reader chooses in the settings.
     public func registerHelper(code: String) async -> String? {
         guard let tvHelper else { return TVDriver.notConnected }
         if let why = await tvHelper.register(code: code, label: surroundings.helperLabel) { return why }
         helperProblem = nil
-        if host.isEmpty { await adoptGuideSource() }
+        if guideSource == .tv { await adoptGuideSource() }
         return nil
     }
 
     /// Forgets the registration. What the cache holds of the television's guide stays until the recorder's
-    /// replaces it.
+    /// replaces it, which is at the next connect to the recorder: every type the television gave is behind to
+    /// it (`GuideRefresh.staleTypes`).
     public func forgetHelper() {
         tvHelper?.forgetRegistration()
         helperProblem = nil
@@ -73,7 +93,10 @@ extension AppModel {
     }
 
     /// Takes the guide over to the device it is fetched from now: every type's marks are forgotten, so that
-    /// the device fetches them all, and the fetch is asked for. The programmes stay until each type's come in.
+    /// the device fetches them all, and the fetch is asked for. The programmes stay until each type's come in;
+    /// a type that device does not have is emptied by its fetch: the television's once the helper has said
+    /// what it has (`GuideStore.empty`), the recorder's as it answers that it has no file of the type
+    /// (`GuideStore.noteNoGuide`).
     func adoptGuideSource() async {
         if let store {
             for broadcasting in GuideRefresh.broadcastingTypes {

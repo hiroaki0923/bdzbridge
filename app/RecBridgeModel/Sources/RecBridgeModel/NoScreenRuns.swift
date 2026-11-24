@@ -20,6 +20,18 @@ public enum BackgroundWork {
         !(defaults.string(forKey: DefaultsKey.tvHost) ?? "").isEmpty
     }
 
+    /// Which device this home's guide is fetched from, for what runs with no screen and so has no model to
+    /// ask: the model's rule (`GuideSourceChoice.of`) by what the screens saved -- the recorder's address and
+    /// the reader's choice in the defaults, and the helper's registration where the platform keeps it
+    /// (`NoScreenSurroundings.tvHelperTokens`), which counts only with a television saved, as the model has a
+    /// helper only with a television's link.
+    static func guideSource(in surroundings: NoScreenSurroundings) -> GuideSourceChoice {
+        let defaults = surroundings.defaults
+        return .of(recorderSaved: !(defaults.string(forKey: DefaultsKey.recorderHost) ?? "").isEmpty,
+                   helperRegistered: televisionSaved(in: defaults) && surroundings.tvHelperTokens.load() != nil,
+                   preference: .preference(in: defaults))
+    }
+
     // MARK: - the entries
 
     /// The work of the overnight run, with no screen behind it -- the television's part beside the recorder's.
@@ -39,7 +51,9 @@ public enum BackgroundWork {
     /// recorder is asleep most of the time -- measured over twelve hours, it was answering for a quarter of it --
     /// so this wakes it rather than give up. Whatever is waiting in the queue goes out while the recorder is up,
     /// and the reader is told. Nothing is opened, asked, posted or written in the demo, with no recorder saved,
-    /// and with no cache.
+    /// and with no cache. The guide is fetched only where the recorder is the device this home's guide is
+    /// fetched from (`guideSource(in:)`): where the television is, the run does all else it does and asks the
+    /// recorder for no guide.
     ///
     /// What the runs with no screen told of the recorder before is handed in to be read
     /// (`DefaultsKey.recorderTold`, `KeptOnce`) with the hour of the next run, so that another recorder
@@ -60,8 +74,10 @@ public enum BackgroundWork {
             return false
         }
         return await refresh(client: RecorderClient(host: host, transport: surroundings.transport(host)), store: store,
-                             mac: defaults.string(forKey: DefaultsKey.recorderMac), telling: .through(surroundings),
-                             told: KeptOnce.recorder(in: defaults).reading, nextRun: nextNightlyRun())
+                             mac: defaults.string(forKey: DefaultsKey.recorderMac),
+                             givesTheGuide: guideSource(in: surroundings) == .recorder,
+                             telling: .through(surroundings), told: KeptOnce.recorder(in: defaults).reading,
+                             nextRun: nextNightlyRun())
     }
 
     /// The television's part of a run with no screen, from what the screens saved: its address and MAC in the
@@ -225,11 +241,14 @@ public enum BackgroundWork {
     /// it, and each thing it hands over is told here as it comes. What to tell, and what to keep back -- once
     /// the task's time is up, once the cache is another recorder's -- is the driver's as well. `told` and
     /// `nextRun` are handed on to it for what is told once; with no next run, as a test that does not look at
-    /// that hands none, nothing of it is done and nothing comes to `Telling.kept`.
-    public static func refresh(client: RecorderClient, store: GuideStore, mac: String?, telling: Telling,
-                               told: @escaping @Sendable () -> ToldOnce = { ToldOnce() }, nextRun: Date? = nil) async -> Bool {
-        await RecorderDriver.refreshWithNoScreen(client, store: store, told: told, nextRun: nextRun,
-                                                 sendPacket: packet(for: client, mac: mac)) { found in
+    /// that hands none, nothing of it is done and nothing comes to `Telling.kept`. `givesTheGuide` is handed on
+    /// as well: whether the recorder is the device this home's guide is fetched from, which the entry says
+    /// (`guideSource(in:)`), and whoever else asks says too.
+    public static func refresh(client: RecorderClient, store: GuideStore, mac: String?, givesTheGuide: Bool,
+                               telling: Telling, told: @escaping @Sendable () -> ToldOnce = { ToldOnce() },
+                               nextRun: Date? = nil) async -> Bool {
+        await RecorderDriver.refreshWithNoScreen(client, store: store, givesTheGuide: givesTheGuide, told: told,
+                                                 nextRun: nextRun, sendPacket: packet(for: client, mac: mac)) { found in
             switch found {
             case .heldBack: await telling.heldBack()
             case .queue(let outcome): await telling.flushed(outcome)
@@ -383,8 +402,8 @@ extension BackgroundWork.Telling {
 }
 
 /// What a run with no screen reaches of the platform it runs on, having no model to ask: what the screens saved,
-/// the guide's folder, the way to each device, where the television's registration is kept, and the
-/// notifications. The app hands in its own (`NoScreenSurroundings.app`), and a test its own.
+/// the guide's folder, the way to each device, where the television's registration and the helper's token are
+/// kept, and the notifications. The app hands in its own (`NoScreenSurroundings.app`), and a test its own.
 ///
 /// Handed to both parts of a run, each in a task of its own, and Sendable by hand for that: `UserDefaults` is not
 /// marked so, and Apple's page for it says that it "is thread-safe, and you can use the same object in multiple
@@ -403,18 +422,24 @@ public struct NoScreenSurroundings: @unchecked Sendable {
     let tvTransport: @Sendable (_ host: String) -> any HTTPTransport
     /// Where the television's registration is kept (`Surroundings.tvCredentials`).
     let tvCredentials: any TVCredentialStore
+    /// Where the token of the helper on the television is kept (`Surroundings.tvHelperTokens`): read for whether
+    /// a helper is registered, which is one of what says which device the guide is fetched from
+    /// (`BackgroundWork.guideSource(in:)`). The helper itself is asked nothing by a run with no screen.
+    let tvHelperTokens: any TVHelperTokenStore
     /// What a run posts and takes away for the reader to see.
     let notifications: Notifications
 
     public init(defaults: UserDefaults, folder: @escaping @Sendable () throws -> URL,
                 transport: @escaping @Sendable (_ host: String) -> any HTTPTransport,
                 tvTransport: @escaping @Sendable (_ host: String) -> any HTTPTransport,
-                tvCredentials: any TVCredentialStore, notifications: Notifications) {
+                tvCredentials: any TVCredentialStore, tvHelperTokens: any TVHelperTokenStore,
+                notifications: Notifications) {
         self.defaults = defaults
         self.folder = folder
         self.transport = transport
         self.tvTransport = tvTransport
         self.tvCredentials = tvCredentials
+        self.tvHelperTokens = tvHelperTokens
         self.notifications = notifications
     }
 

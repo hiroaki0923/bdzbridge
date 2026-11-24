@@ -70,7 +70,8 @@ the system log under the tag `RecBridgeScan` (`adb logcat -s RecBridgeScan`): co
 are, never an address or a name. What a search for devices came to, which iOS
 announces to VoiceOver, is a polite live region for TalkBack. At night, with no screen, it wakes the recorder, sends
 what waits for the recorder and the television and fetches the guide, as the iOS app's background task does, and the
-settings say when it last fetched it (最終自動更新): below, "The overnight run".
+settings say when it last fetched it (最終自動更新): below, "The overnight run". The guide is the recorder's, and is
+fetched only where the recorder gives the home's guide; the television's is not fetched at night.
 
 ## Layout
 
@@ -123,8 +124,9 @@ device, and a device the app comes to some other way registers again.
 ## The overnight run
 
 The run is the model's (`BackgroundWork.refreshNow(in:)`), handed by `NightRun` what it reaches of Android: the
-model's defaults object, the app's folder, the sessions the screens send through, the television's registration and
-notifications that do nothing, as the app posts none yet. `NightWorker` is asked for at each start of the app and
+model's defaults object, the app's folder, the sessions the screens send through, the television's registration, the
+helper's token, by which the run knows which device gives the guide, and notifications that do nothing, as the app
+posts none yet. `NightWorker` is asked for at each start of the app and
 again as it begins, as on iOS: one request waits at a time, tagged `overnight`, from the next 02:00 by the model's rule
 (`BackgroundWork.nextNightlyRun`), on an unmetered network, charging or not. A request not yet begun is replaced; a run
 under way is left alone, since replacing it would stop it.

@@ -84,6 +84,122 @@ final class GuideRefreshTests: XCTestCase {
         XCTAssertNil(counts["bs4k"]?.refreshed)
     }
 
+    /// What a refresh stores it stores as the device's its client asks (`GuideSource.slot`): the recorder's here,
+    /// over rows the cache held as the television's.
+    func testWhatARefreshStoresIsWrittenDownAsItsClientsDevice() async throws {
+        let (client, _) = try recorder(serving: ["td"]) { _ in HTTPResponse(statusCode: 416) }
+        let store = try GuideStore(path: ":memory:")
+        try await store.replace([], broadcasting: "td", givenBy: .tv)
+        try await store.replace([], broadcasting: "bs", givenBy: .tv)
+
+        _ = await GuideRefresh.run(client: client, store: store, types: ["td"])
+
+        let counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.programs, 4, "set up wrong: nothing was stored")
+        XCTAssertEqual(counts["td"]?.givenBy, .recorder)
+        XCTAssertEqual(counts["bs"]?.givenBy, .tv, "a type that was not fetched")
+    }
+
+    /// A type the recorder has no file of, which the cache holds as the television's, is emptied as the recorder
+    /// says so, and is not behind after that: the recorder gives this home's guide, and a type it does not have
+    /// is not left the television's under it. A type whose file is not built yet keeps the television's rows
+    /// until the recorder's come, and is behind until then.
+    func testATypeTheRecorderHasNoFileOfIsEmptiedOfTheTelevisionsRows() async throws {
+        let (client, _) = try recorder(serving: ["td"]) { url in
+            HTTPResponse(statusCode: url.hasSuffix(Codes.epgFiles["bs"]!) ? 500 : 416)
+        }
+        let store = try GuideStore(path: ":memory:")
+        let services = try file("epg-sample.json")
+        for type in ["td", "bs", "cs"] {
+            try await store.replace(try Epg.decode(services), broadcasting: type, givenBy: .tv)
+        }
+        let before = Date()
+        expectEqual(GuideRefresh.staleTypes(try await store.counts(), now: before), GuideRefresh.broadcastingTypes,
+                    "the television's types, fetched a moment ago, are not behind to the recorder")
+
+        let outcome = await GuideRefresh.run(client: client, store: store)
+
+        XCTAssertEqual(outcome.answered, ["td", "cs", "bs4k"])
+        XCTAssertEqual(outcome.failed.map(\.broadcasting), ["bs"])
+        let counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.givenBy, .recorder)
+        XCTAssertEqual(counts["cs"]?.channels, 0, "the television's CS was left under the recorder's guide")
+        XCTAssertEqual(counts["cs"]?.programs, 0)
+        XCTAssertEqual(counts["bs"]?.programs, 4, "a type not built yet lost the rows it had")
+        XCTAssertEqual(counts["bs"]?.givenBy, .tv)
+        XCTAssertEqual(GuideRefresh.staleTypes(counts, now: before), ["bs"])
+    }
+
+    /// A recorder that gives no guide answers that it has no file for every type. Over a cache that holds the
+    /// television's guide it empties nothing: it has given no type of its own, and the television's guide is not
+    /// taken away for a device that has shown none to put in its place. Each type is answered for, and noted.
+    /// A recorder that gives one type has given it before it is asked for the next, and what the television gave
+    /// of a type it has no file of then goes.
+    func testARecorderThatGivesNoGuideEmptiesNothingOfTheTelevisions() async throws {
+        let store = try GuideStore(path: ":memory:")
+        let services = try Epg.decode(try file("epg-sample.json"))
+        for type in ["td", "bs"] { try await store.replace(services, broadcasting: type, givenBy: .tv) }
+        let (none, _) = try recorder(serving: []) { _ in HTTPResponse(statusCode: 416) }
+
+        var outcome = await GuideRefresh.run(client: none, store: store)
+
+        XCTAssertEqual(outcome.answered, GuideRefresh.broadcastingTypes)
+        XCTAssertEqual(outcome.failed, [])
+        var counts = try await store.counts()
+        for type in ["td", "bs"] {
+            XCTAssertEqual(counts[type]?.programs, 4, "\(type): the television's rows went for a recorder with no guide")
+            XCTAssertEqual(counts[type]?.givenBy, .tv, type)
+            XCTAssertNotNil(counts[type]?.checked, "\(type): the answer was not noted")
+        }
+
+        let (one, _) = try recorder(serving: ["td"]) { _ in HTTPResponse(statusCode: 416) }
+        outcome = await GuideRefresh.run(client: one, store: store)
+        XCTAssertEqual(outcome.answered, GuideRefresh.broadcastingTypes)
+        counts = try await store.counts()
+        XCTAssertEqual(counts["td"]?.givenBy, .recorder)
+        XCTAssertEqual(counts["bs"]?.channels, 0, "set up wrong: a recorder that gave a type emptied nothing")
+    }
+
+    /// A recorder without 4K tuners, over a cache that holds the television's BS4K: the channels there are not
+    /// ones this recorder gave, so its 500 is still taken for a type it does not have, once it has given the
+    /// others. Nothing is said to have failed, the television's BS4K goes, the type is not offered, and it is not
+    /// asked for again before the rebuild. While the recorder has given nothing itself -- every file refused --
+    /// the television's channels of the other types do not make it a recorder that has given some: every type is
+    /// said, and the television's rows stay.
+    func testARecorderWithout4KEmptiesTheTelevisionsBS4KOnceItHasGivenAnotherType() async throws {
+        let store = try GuideStore(path: ":memory:")
+        let services = try Epg.decode(try file("epg-sample.json"))
+        for type in GuideRefresh.broadcastingTypes {
+            try await store.replace(services, broadcasting: type, givenBy: .tv)
+        }
+        let (nothingBuilt, _) = try recorder(serving: []) { _ in HTTPResponse(statusCode: 500) }
+        var outcome = await GuideRefresh.run(client: nothingBuilt, store: store)
+        XCTAssertEqual(outcome.failed.map(\.broadcasting), GuideRefresh.broadcastingTypes)
+        var counts = try await store.counts()
+        XCTAssertEqual(counts["bs4k"]?.programs, 4, "the television's rows went before any of the recorder's came")
+
+        let (client, transport) = try recorder(serving: ["td", "bs", "cs"]) { _ in HTTPResponse(statusCode: 500) }
+        let before = Date()
+        outcome = await GuideRefresh.run(client: client, store: store)
+
+        XCTAssertEqual(outcome.failed, [])
+        XCTAssertEqual(outcome.answered, ["td", "bs", "cs"])
+        counts = try await store.counts()
+        XCTAssertEqual(counts["bs4k"]?.channels, 0)
+        XCTAssertEqual(counts["bs4k"]?.programs, 0)
+        XCTAssertEqual(GuideRefresh.offeredTypes(counts), ["td", "bs", "cs"])
+        XCTAssertEqual(GuideRefresh.staleTypes(counts, now: before), [])
+
+        // What is behind, asked again: nothing is, and the recorder is asked for no file.
+        let asked = await transport.requests.count
+        outcome = await GuideRefresh.run(asked: .notAnsweredSince(GuideRefresh.toTheSecond(before)), onTurn: {
+            .fetch(client: client, store: store, from: nil)
+        })
+        XCTAssertEqual(outcome.failed, [])
+        let since = await transport.requests.count
+        XCTAssertEqual(since, asked, "a type the recorder does not have was asked for again")
+    }
+
     /// A recorder without 4K tuners answers 500 for BS4K for good, and what it has given is all that tells that
     /// from a file not built yet. The type is said of nowhere, not offered, and not asked for again before the
     /// rebuild. It is not among what answered: a 500 is no answer, and with every file refused nothing has.
@@ -485,7 +601,8 @@ final class GuideRefreshTests: XCTestCase {
             let store = try temporaryStore()
             try await store.claim(for: described(1))
             let night = Task {
-                await RecorderDriver.refreshWithNoScreen(client, store: store, sendPacket: { false }, found: { _ in })
+                await RecorderDriver.refreshWithNoScreen(client, store: store, givesTheGuide: true,
+                                                         sendPacket: { false }, found: { _ in })
             }
             func askedForTheFreeSpace() async -> Bool {
                 await recorder.bodies.contains { $0.contains("X_HDLnkGetRecordDestinationInfo") }
@@ -508,6 +625,36 @@ final class GuideRefreshTests: XCTestCase {
             XCTAssertFalse(stored, row)
             expectEqual(await recorder.requests.count, asked,
                         "\(row): the night asked for a file of the guide once its turn had come")
+        }
+    }
+
+    /// A night told that the recorder does not give the home's guide keeps its order and leaves the guide out:
+    /// the recorder is asked who it is, for its slot and for its free space, and for no file; what became of the
+    /// queue and the free space are handed over, no guide is said to have been fetched, and nothing is handed
+    /// back as stored. Told that it does, the same night goes on to ask for every type, and says a guide was
+    /// fetched.
+    func testANightAsksForNoGuideWhereTheRecorderDoesNotGiveTheHomesGuide() async throws {
+        for givesTheGuide in [false, true] {
+            let demo = DemoRecorder()
+            let transport = StubTransport { request, _ in try await demo.send(request) }
+            let client = RecorderClient(host: Stub.host, transport: transport, streamPort: 60151, busyRetryDelay: 0...0)
+            let found = Stored()
+
+            let stored = await RecorderDriver.refreshWithNoScreen(
+                client, store: try temporaryStore(), givesTheGuide: givesTheGuide, sendPacket: { false },
+                found: { what in
+                    switch what {
+                    case .queue: found.add("queue")
+                    case .freeSpace: found.add("free space")
+                    case .fetched: found.add("fetched")
+                    default: found.add("something else")
+                    }
+                })
+
+            XCTAssertFalse(stored, "the demo's recorder has no file to store")
+            let files = await transport.requests.map(\.url.lastPathComponent).filter { $0.hasSuffix(".dat") }
+            XCTAssertEqual(files, givesTheGuide ? GuideRefresh.broadcastingTypes.compactMap { Codes.epgFiles[$0] } : [])
+            XCTAssertEqual(found.types, ["queue", "free space"] + (givesTheGuide ? ["fetched"] : []))
         }
     }
 }

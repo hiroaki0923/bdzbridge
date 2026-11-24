@@ -11,10 +11,10 @@ import RecorderKit
 // (`NightWorker`, Night.kt), and what the run reaches of Android is handed in here.
 
 /// The overnight run, for Kotlin's worker: the model's, handed what it reaches of Android -- the model's own defaults
-/// object, the app's folder for the guide, the sessions the screens send through, the television's registration in the
-/// folder that stays on the device, and notifications that do nothing, since the Android app posts none yet. One rule
-/// is Android's own and comes first: the run goes only on the network of a recorder or a television saved, where it
-/// can tell (`mayGo`).
+/// object, the app's folder for the guide, the sessions the screens send through, the television's registration and
+/// the helper's token in the folder that stays on the device, and notifications that do nothing, since the Android app
+/// posts none yet. One rule is Android's own and comes first: the run goes only on the network of a recorder or a
+/// television saved, where it can tell (`mayGo`).
 public final class NightRun: Sendable {
     /// The app's folder, by which the rule finds the defaults object the run is handed: the process's one for the file
     /// (`WrittenDefaults.android`).
@@ -39,7 +39,8 @@ public final class NightRun: Sendable {
         self.interfaces = interfaces
         surroundings = NoScreenSurroundings(
             defaults: WrittenDefaults.android(files: files), folder: { folder }, transport: transport,
-            tvTransport: tvTransport, tvCredentials: KeptTVCredentials(folder: keptFolder), notifications: Notifications())
+            tvTransport: tvTransport, tvCredentials: KeptTVCredentials(folder: keptFolder),
+            tvHelperTokens: KeptTVHelperToken(folder: keptFolder), notifications: Notifications())
     }
 
     /// When the next run is to be asked for, in whole seconds since 1970: the next 02:00 by the model's rule

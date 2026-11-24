@@ -42,7 +42,7 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `DeviceEndpoint.swift` | What the shared rules ask of a device: to be probed, sent a waiting reservation in its own way, asked for a guide; and the recorder's way of sending one, which reads its list first and leaves a row it holds already unsent |
 | `RecorderClient.swift` | One recorder: identity, reservations, recordings, playback, free space, guide files |
 | `TVHelperClient.swift` | The helper on the television (`helper/`): its HTTP API on port 8780 -- ping, pairing, info, channels, guide and logos by broadcasting type -- and where the app keeps the token it hands out |
-| `TVHelperGuide.swift` | The television's guide through the helper: the registration, when its copies are asked about again, which types are behind, the fetch, and what is said of it |
+| `TVHelperGuide.swift` | The television's guide through the helper: the registration, when its copies are asked about again, which types are behind and which the television has no guide of, the fetch, and what is said of it |
 | `TVGuide.swift` | The helper's rows as it serves them, turned into the same `GuideService` the recorder's files decode to |
 | `Waking.swift` | Waiting for a recorder to come back after a magic packet |
 | `Reach.swift` | The order of one attempt at a device: packet, probe, permission, waking, looking elsewhere |
@@ -80,7 +80,7 @@ implementations. See [`docs/porting.md`](../../docs/porting.md) for the plan and
 | `Epg.swift` | The guide file: XOR, the zlib run, and the @SRV / @DAY / @EVT records |
 | `Guide.swift` | `GuideService`, `GuideProgram` and `Genre` |
 | `Sqlite.swift` | A thin wrapper over the system SQLite, so the package needs no dependencies |
-| `GuideStore.swift` | The guide cache: channels, programmes, logos, the user's channel order |
+| `GuideStore.swift` | The guide cache: channels, programmes, logos, the user's channel order, and which device gave each type's rows |
 | `GuideRefresh.swift` | Fetching the guide and its logos a broadcasting type at a time, one refresh at a time in the process and only into the cache of the recorder it was fetched from; which types are behind, and when the overnight run is asked for |
 | `PendingQueue.swift` | Sending the reservations that were made while their device could not be reached, a row at a time by the device's own way of sending one and only as the round read the row, and the sentences for what became of them |
 | `ByProgram.swift` | Whether a device's list holds a reservation that answers for a waiting row: the same programme, a repeat that is all the row asks for, and not one the recorder made for itself |

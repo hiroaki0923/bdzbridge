@@ -71,6 +71,19 @@ final class GuideStalenessTests: XCTestCase {
         XCTAssertEqual(GuideRefresh.staleTypes(counts, since: moment, types: ["cs", "td"]), [])
     }
 
+    /// A type whose rows the cache holds as the television's is behind however lately it was answered for: the
+    /// recorder has not given it, and where the recorder gives the guide it is fetched from the recorder, by
+    /// the last rebuild and by any other moment alike.
+    func testATypeTheTelevisionGaveIsBehindHoweverLatelyItWasAnsweredFor() throws {
+        let now = try time("2026-10-01T08:00:00+09:00")
+        var televisions = counts(checked: "2026-10-01T07:59:00+09:00")
+        televisions.givenBy = .tv
+        let all = ["td": counts(checked: "2026-10-01T07:59:00+09:00"), "bs": televisions]
+        XCTAssertEqual(GuideRefresh.staleTypes(all, now: now, types: ["td", "bs"]), ["bs"])
+        XCTAssertEqual(GuideRefresh.staleTypes(all, since: try time("2026-10-01T07:00:00+09:00"),
+                                               types: ["td", "bs"]), ["bs"])
+    }
+
     func testATypeNeverAskedForIsStale() throws {
         let now = try time("2026-10-01T08:00:00+09:00")
         XCTAssertEqual(GuideRefresh.staleTypes([:], now: now), GuideRefresh.broadcastingTypes)

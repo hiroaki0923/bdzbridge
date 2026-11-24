@@ -334,7 +334,7 @@ final class BenchRecorderTests: XCTestCase {
         let (bench, recorder, _) = try await connectedHome()
         let night = Tellings()
         _ = await BackgroundWork.refresh(client: aClient(of: recorder), store: try GuideStore(path: bench.guidePath),
-                                         mac: nil, telling: telling(night))
+                                         mac: nil, givesTheGuide: true, telling: telling(night))
         XCTAssertEqual(night.names, ["flushed", "freeSpace", "fetched"])
         XCTAssertEqual(night.rounds.map(\.slot), [.recorder])
         guard case .freeSpace(_, let total, let naming)? = night.said.dropFirst().first else {

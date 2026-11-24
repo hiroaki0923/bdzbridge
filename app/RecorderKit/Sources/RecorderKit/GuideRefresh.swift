@@ -18,7 +18,8 @@ public enum GuideRefresh {
         /// How many programmes were stored, over every type.
         public var stored = 0
         /// The types the recorder answered for: with a guide, which is now in the cache, or with none to give,
-        /// which is noted (`GuideStore.noteNoGuide`).
+        /// which is noted, what the cache held of the type as the other device's going with the note once
+        /// this device has given a type itself (`GuideStore.noteNoGuide`).
         public var answered: [String] = []
         /// The types that could not be fetched or stored, in the order they were tried. What the cache held
         /// for them is left as it was, and nothing marks them fetched, so the next refresh asks for them again.
@@ -190,11 +191,15 @@ public enum GuideRefresh {
             }
             do {
                 guard let services = try await guide(broadcasting, of: client, knownTo: store) else {
-                    try await store.noteNoGuide(broadcasting: broadcasting, from: recorder)
+                    // What the cache held of the type as the other device's goes with the note, unless this
+                    // device has given no type yet.
+                    try await store.noteNoGuide(broadcasting: broadcasting, from: recorder,
+                                                notHadBy: type(of: client).slot)
                     outcome.answered.append(broadcasting)
                     continue
                 }
-                outcome.stored += try await store.replace(services, broadcasting: broadcasting, from: recorder)
+                outcome.stored += try await store.replace(services, broadcasting: broadcasting, from: recorder,
+                                                          givenBy: type(of: client).slot)
                 outcome.answered.append(broadcasting)
                 if Task.isCancelled {
                     // The programmes are in: the type is reported as stored, with the logos it had.
@@ -224,7 +229,8 @@ public enum GuideRefresh {
                 await onStored?(broadcasting)
             } catch is TypeNotOnThisRecorder {
                 // Noted, as it would be asked for at every connect otherwise, and neither answered for nor failed.
-                try? await store.noteNoGuide(broadcasting: broadcasting, from: recorder)
+                try? await store.noteNoGuide(broadcasting: broadcasting, from: recorder,
+                                             notHadBy: type(of: client).slot)
             } catch let error as any DeviceError where error.failure == .silent {
                 outcome.stopped = .silent
                 break
@@ -248,14 +254,18 @@ public enum GuideRefresh {
     /// A type's guide, or nil where the recorder has none to give. A recorder without 4K tuners answers for those
     /// files for good as one with them does for a file it has not built yet (`docs/epg-format.md`), and no status
     /// tells the two apart. What does is what it has given: a 4K type it has never given a channel of, while it
-    /// has given others, is taken to be one it does not have, and is read at a later refresh if it does.
+    /// has given others, is taken to be one it does not have, and is read at a later refresh if it does. The
+    /// channels the cache holds as the other device's are none it gave (`GuideCounts.givenBy`): over the
+    /// television's BS4K, a recorder without 4K is still one without.
     private static func guide(_ broadcasting: String, of client: some GuideSource,
                               knownTo store: GuideStore) async throws -> [GuideService]? {
         do {
             return try await client.guide(broadcasting)
         } catch RecorderError.guideFileMissing(let name, let status) {
+            let device = type(of: client).slot
             guard fourKTypes.contains(broadcasting), let counts = try? await store.counts(),
-                  counts[broadcasting]?.channels == 0, counts.values.contains(where: { $0.channels > 0 })
+                  let held = counts[broadcasting], !held.given(by: device),
+                  counts.values.contains(where: { $0.given(by: device) })
             else { throw RecorderError.guideFileMissing(name: name, status: status) }
             throw TypeNotOnThisRecorder()
         }
@@ -286,19 +296,27 @@ public enum GuideRefresh {
     /// worth fetching again. Each type by its own time: by the newest, a type that failed while the others
     /// came in would count as fresh; by the oldest, one the recorder cannot give would have every connect
     /// fetch all four. A type it answered with no file for is marked as asked (`GuideCounts.checked`).
+    ///
+    /// A type whose rows the cache holds as the other device's is behind whatever its marks say
+    /// (`GuideCounts.givenBy`): the recorder has not given it. So where the recorder gives the home's guide,
+    /// a cache that holds the television's comes round to the recorder's by the next refresh, however the
+    /// guide's device was changed. This is the recorder's rule, and whether the recorder gives the guide is the
+    /// app's to say before it asks; the television's rule is `TVHelperGuide.behind`.
     public static func staleTypes(_ counts: [String: GuideCounts], now: Date = Date(),
                                   types: [String] = broadcastingTypes) -> [String] {
         staleTypes(counts, since: lastRebuild(before: now), types: types)
     }
 
     /// The same by any moment in place of the last rebuild: the types the recorder has not been asked for and
-    /// answered since `moment`, or never. A type whose mark is of that very moment counts as answered since.
+    /// answered since `moment`, or never, and those the other device gave. A type whose mark is of that very
+    /// moment counts as answered since.
     /// The marks are kept to the whole second (`RecorderTime.format`), so a moment that is to be told from a
     /// mark written just after it is taken to the whole second as well (`toTheSecond`).
     public static func staleTypes(_ counts: [String: GuideCounts], since moment: Date,
                                   types: [String] = broadcastingTypes) -> [String] {
         types.filter { broadcasting in
-            guard let answered = counts[broadcasting]?.lastAnswered else { return true }
+            guard let held = counts[broadcasting], held.givenBy == RecorderClient.slot,
+                  let answered = held.lastAnswered else { return true }
             return answered < moment
         }
     }

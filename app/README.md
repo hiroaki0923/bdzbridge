@@ -413,8 +413,9 @@ does the first to answer a phone that had not yet written down whose its cache i
 and wherever it was read: nothing is guessed. A recorder that stops saying which it is is still the one known,
 and one that never says is written down as nobody.
 
-Another recorder gets nothing that was the first's: its lists are read for itself, the texts go, the guide is
-fetched again, the warning can be given again, and what was waiting is held with a reason, said on the strip
+Another recorder gets nothing that was the first's: its lists are read for itself, the texts go, what the first
+gave of the guide goes and is fetched again where the recorder gives the guide (what the television gave
+stays), the warning can be given again, and what was waiting is held with a reason, said on the strip
 by whichever connect gets that far, until the reader asks for it to be sent again. That holds for a cache
 whose first owner could not be written down, since the app knows its lists were the first one's. Another
 recorder answering at the address the first one had, with nobody choosing, is found out at the next connect
@@ -1049,6 +1050,40 @@ time for it runs out, the task is completed there and then, and the work stops b
 broadcasting type's guide, or its logos -- rather than going on to the end. The night fetches every type
 whatever the cache's marks say; a connect only what is behind.
 
+All of that is where the recorder gives the home's guide. One device does, for the whole household
+(`GuideSourceChoice.of`): the television, through the helper on it, where a helper is registered and either no
+recorder is saved or the reader chose テレビ under 番組表の取得元; the recorder otherwise. The other device is asked
+for no guide by itself. Where the television gives it, a connect to the recorder reads the reservations and the
+lists and starts no refresh (`AppModel.guideIsStale`), and the night wakes the recorder, sends what waits and
+reads the slot and the free space, and asks for no guide file (`RecorderDriver.refreshWithNoScreen`, told by the
+entry, which reads the three facts from what the screens saved, `BackgroundWork.guideSource(in:)`): the
+settings' 最終自動更新 is not written, and the task is completed as it is in a home with no recorder, as having
+stored no guide. A night that reads the slot a second time, for a USB disk known that the slot first answered
+as none, used to read it once after the guide, which gave a disk just woken its while to come up; with no guide
+to come after, it waits for the slot as the app does before it sends something that names it
+(`RecorderDriver.settle`). The television's guide is fetched as the app starts or comes to the front, an hour
+or more after the helper was last asked, and not at night. 番組表を更新 asks whichever device gives the guide.
+
+When the device that gives the guide changes, what the cache holds stays until the new device's comes in, a
+type at a time: the change empties nothing by itself. The cache keeps which device gave each type's
+rows, written with them (`GuideCounts.givenBy`; the recorder, in a cache from before this was kept), and each
+device's rule of what is behind counts a type the other gave as behind, whatever its marks say: the recorder's
+at a connect (`GuideRefresh.staleTypes`), the television's when the helper is next asked what it has
+(`TVHelperGuide.behind`). So the guide comes round to the device that gives it by that device's next fetch,
+whichever way the device was changed: the choice in the settings and a helper registered where テレビ is chosen
+already, which also fetch at once (`AppModel.adoptGuideSource`), a helper's registration taken away, a recorder
+added to a home that had a television alone, テレビを外す. A type the new device does not have is emptied of
+what the other gave -- its channels, programmes and logos, with its marks -- rather than left the other's for
+good: as the recorder answers that it has no file of it (`GuideStore.noteNoGuide`), which is also what a
+recorder without 4K tuners comes to over the television's BS4K, the television's channels not being ones it
+gave; and, for the television, once the helper has said what it has (`TVHelperGuide.notHad`,
+`GuideStore.empty`) and the fetch has the guide's turn, by what the cache holds then, so that a refresh of the
+recorder's that was out before it cannot put the type back afterwards. A recorder empties nothing until it has
+given a type itself: one that gives no guide answers that it has no file for every type, and added to a home
+that had a television alone, where it gives the guide until テレビ is chosen, it leaves the television's guide
+as it is. The guide then says of an emptied type what it says in a home with that device alone. Which stations
+the reader hid, and their order, stay.
+
 Connecting fetches only the broadcasting types that are behind the recorder's last rebuild, each judged by
 when the recorder last answered for it -- with its file, or with none to give (`GuideStore.noteNoGuide`). A
 type that fails, such as the 500 the recorder answers for a file it has not built yet, is passed over, said on
@@ -1298,8 +1333,10 @@ an address the router has moved it to finds everything the phone keeps as it lef
 chosen in the settings, or found at the address the first one had -- gets nothing that was the first's: its
 lists are read for itself, the first's programme texts and guide go and the guide is fetched again, the
 low-space warning can be given again, and the MAC kept for waking is let go of unless the new recorder carries
-it. The check before an operation hears who is there too, and an operation meant for one recorder is not sent
-to another; a sheet left open on a recording or a reservation of the last one closes itself, and the strip
+it. What the television gave of the guide is not the first's, and stays as it is, type by type
+(`GuideStore.claim`); where the television gives the home's guide that is the guide, and the newcomer is asked
+for none. The check before an operation hears who is there too, and an operation meant for one recorder is not
+sent to another; a sheet left open on a recording or a reservation of the last one closes itself, and the strip
 says that another recorder answered and the lists were read again, on whichever screen is in front. A cache
 from a version before this was kept does not say whose it is, and is taken for the first answerer's as it
 stands. The queue is the reader's, and what becomes of it is under Reservations made away from home.

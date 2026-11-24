@@ -79,9 +79,18 @@ public struct GuideCounts: Sendable, Equatable {
     /// same as `refreshed` for a type it has, and the only mark on one it does not. What decides whether a
     /// type is fetched again. Nil in a cache written before this was kept, where `refreshed` stands in.
     public var checked: String?
+    /// Which of the household's devices this type's rows came from, as the write that put them in said
+    /// (`GuideStore.replace`). The recorder where nothing says: in a cache written before this was kept, which
+    /// only a recorder had filled, and for a type nothing has been written of.
+    public var givenBy: DeviceSlot = .recorder
 
     /// When this broadcasting type was last asked for and answered, as a date.
     public var lastAnswered: Date? { (checked ?? refreshed).flatMap(RecorderTime.parse) }
+
+    /// Whether this is a type `device` has given: the cache holds channels of it, as that device's. What a
+    /// device is known to give a guide by, where an answer of its own does not say: a 4K file refused
+    /// (`GuideRefresh`), a type it has none of (`GuideStore.noteNoGuide`).
+    func given(by device: DeviceSlot) -> Bool { channels > 0 && givenBy == device }
 }
 
 /// Thrown by a write of the guide that says which recorder it was fetched from (`GuideStore.replace`,
@@ -150,6 +159,7 @@ public actor GuideStore {
             DROP TABLE IF EXISTS logos;
             DELETE FROM meta WHERE key LIKE 'epg_refreshed:%';
             DELETE FROM meta WHERE key LIKE 'epg_checked:%';
+            DELETE FROM meta WHERE key LIKE 'guide_from:%';
             """)
             try db.execute(Self.schema)
             try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
@@ -209,9 +219,13 @@ public actor GuideStore {
     /// another recorder's by the time of the write takes nothing of it (`refuseAGuide`), and nothing is
     /// changed. Nil asks nothing, for a caller whose guide is no recorder's, or its own cache's by the way it
     /// was made: the demo's invented guide, a test's.
+    ///
+    /// `device` is which of the household's devices the rows came from, the recorder unless told otherwise. It
+    /// is written down with them, in the same transaction, and is what the cache then says of the type
+    /// (`GuideCounts.givenBy`).
     @discardableResult
     public func replace(_ services: [GuideService], broadcasting: String, from recorder: RecorderDescription? = nil,
-                        at now: Date = Date()) throws -> Int {
+                        givenBy device: DeviceSlot = .recorder, at now: Date = Date()) throws -> Int {
         var programs: [[SqlValue]] = []
         for service in services {
             for program in service.programs {
@@ -243,6 +257,8 @@ public actor GuideStore {
             try db.insertMany("INSERT OR REPLACE INTO programs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", programs)
             try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
                        [.text("epg_refreshed:\(broadcasting)"), .text(RecorderTime.format(now))])
+            try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                       [.text("guide_from:\(broadcasting)"), .text(device.rawValue)])
             try noteAnswered(broadcasting: broadcasting, at: now)
             return programs.count
         }
@@ -250,14 +266,48 @@ public actor GuideStore {
 
     /// Notes that the recorder was asked for one broadcasting type's guide and had none to give -- a model
     /// without that kind of tuner, or one not built yet -- so that the type is not asked for again on every
-    /// connect until the recorder next rebuilds its files. What is cached for it is left as it is. Not in a
-    /// cache that is another recorder's than the one asked (`recorder`, as for `replace`): it is not the one
-    /// that had none to give.
+    /// connect until the recorder next rebuilds its files. What is cached for it is left as it is, where it is
+    /// what that device gave; what the other device gave goes (`empty`), in the same transaction, once this
+    /// device has given a type of its own (`GuideCounts.given`). A device that has given none -- a recorder
+    /// with no guide to give at all, each type answered so -- empties nothing: it has shown no guide to put in
+    /// the other's place, and the other's rows stay under the note. Not in a cache that is another recorder's
+    /// than the one asked (`recorder`, as for `replace`): it is not the one that had none to give. `device` is
+    /// the device that had none, the recorder unless told otherwise.
     public func noteNoGuide(broadcasting: String, from recorder: RecorderDescription? = nil,
-                            at now: Date = Date()) throws {
+                            notHadBy device: DeviceSlot = .recorder, at now: Date = Date()) throws {
         try db.transaction {
             try refuseAGuide(from: recorder)
+            if try counts().values.contains(where: { $0.given(by: device) }) {
+                try emptyOfTheOthers(broadcasting: broadcasting, notHadBy: device)
+            }
             try noteAnswered(broadcasting: broadcasting, at: now)
+        }
+    }
+
+    /// Empties one broadcasting type that `device` has no guide of, where what the cache holds of it came from
+    /// the other device: its channels, programmes and logos go, with every mark of when it was fetched, and it
+    /// stands as a type never fetched. A type whose rows `device` gave itself is left as it is.
+    ///
+    /// One device gives a household's guide. When that device changes, what the other gave stays until this
+    /// one's comes in, a type at a time (`replace`), so that the guide is not empty meanwhile. A type this one
+    /// does not have would stay the other's for good, and grow old under a setting that names this one: it is
+    /// emptied, and the guide then says of it what it says in a home with this device alone. Asked for the
+    /// television, whose helper says what it has before any file is asked for; the recorder says so file by
+    /// file, and its answer is noted in the same write (`noteNoGuide`).
+    public func empty(broadcasting: String, notHadBy device: DeviceSlot) throws {
+        try db.transaction { try emptyOfTheOthers(broadcasting: broadcasting, notHadBy: device) }
+    }
+
+    /// The emptying itself, inside the caller's transaction. Which channels the reader hid, and their order,
+    /// stay: they are kept by type and service, whichever device gives the guide. So does the device written
+    /// for a type that `device` gave: only `replace` writes one, and it goes with the rows.
+    private func emptyOfTheOthers(broadcasting: String, notHadBy device: DeviceSlot) throws {
+        guard try givenBy(broadcasting) != device else { return }
+        for table in ["programs", "channels", "logos"] {
+            try db.run("DELETE FROM \(table) WHERE bt=?", [.text(broadcasting)])
+        }
+        for key in ["epg_refreshed", "epg_checked", "helper_changed", "guide_from"] {
+            try db.run("DELETE FROM meta WHERE key=?", [.text("\(key):\(broadcasting)")])
         }
     }
 
@@ -527,14 +577,20 @@ public actor GuideStore {
             let channels = try db.count("SELECT COUNT(*) FROM channels WHERE bt=?", [.text(broadcasting)])
             let refreshed = try meta("epg_refreshed:\(broadcasting)")
             let checked = try meta("epg_checked:\(broadcasting)")
+            let givenBy = try self.givenBy(broadcasting)
             out[broadcasting] = GuideCounts(channels: channels, programs: programs, refreshed: refreshed,
-                                            checked: checked)
+                                            checked: checked, givenBy: givenBy)
         }
         return out
     }
 
     private func meta(_ key: String) throws -> String? {
         try db.query("SELECT value FROM meta WHERE key=?", [.text(key)]) { $0.string("value") }.first
+    }
+
+    /// Which device one type's rows came from (`GuideCounts.givenBy`): the recorder where nothing is written.
+    private func givenBy(_ broadcasting: String) throws -> DeviceSlot {
+        try meta("guide_from:\(broadcasting)").map(DeviceSlot.init(rawValue:)) ?? .recorder
     }
 
     // MARK: - the television's guide
@@ -581,12 +637,15 @@ public actor GuideStore {
     /// The same recorder, at any address, finds everything as it left it. It is told by reading alone and
     /// nothing is written, so a connect never waits behind another writer for this. Another recorder takes
     /// the cache over, and in one transaction what the last one left goes -- the programme texts of its
-    /// recordings (kept by the recording's number, which each recorder gives out for itself), the guide with
-    /// its logos, the marks of when each type was fetched, and the USB disk it was last known to have
-    /// registered (`knownUSBDisk`) -- and every reservation waiting for a recorder
-    /// is held with `reason`, as one a recorder refused is, until the reader sends it again. What the reader
-    /// set stays: which channels are hidden, and their order. So does what waits for another device, which
-    /// one recorder taking another's place says nothing about.
+    /// recordings (kept by the recording's number, which each recorder gives out for itself), the guide it
+    /// gave with its logos, the marks of when each type of that was fetched and of which device gave it, and
+    /// the USB disk it was last known to have registered (`knownUSBDisk`) -- and every reservation waiting for
+    /// a recorder is held with `reason`, as one a recorder refused is, until the reader sends it again. What
+    /// the reader set stays: which channels are hidden, and their order. So does what waits for another device,
+    /// which one recorder taking another's place says nothing about, and so does every type of the guide that
+    /// the television gave (`GuideCounts.givenBy`), rows and marks: it is not what the last recorder left, and
+    /// where the television gives the home's guide no recorder would put it back. A cache written before the
+    /// device was kept is the recorder's in every type, and all of its guide goes.
     ///
     /// A cache from before its owner was written down does not say whose it is, and nothing is guessed: the
     /// first to answer is put down as its owner and finds it as it is. (The MAC kept for waking would tell
@@ -609,11 +668,17 @@ public actor GuideStore {
             let who = judged(try recognises(description))
             if who == .another {
                 try db.run("DELETE FROM title_summaries")
-                try db.run("DELETE FROM programs")
-                try db.run("DELETE FROM channels")
-                try db.run("DELETE FROM logos")
-                try db.run("DELETE FROM meta WHERE key LIKE 'epg_refreshed:%' OR key LIKE 'epg_checked:%' OR key=?",
-                           [.text(Self.knownUSBDiskKey)])
+                // The types the television gave stay, rows and marks; every other type's go.
+                let kept = try Codes.epgFiles.keys.filter { try givenBy($0) == .tv }
+                let holes = kept.map { _ in "?" }.joined(separator: ",")
+                for table in ["programs", "channels", "logos"] {
+                    try db.run("DELETE FROM \(table) WHERE bt NOT IN (\(holes))", kept.map { .text($0) })
+                }
+                for mark in ["epg_refreshed", "epg_checked", "guide_from"] {
+                    try db.run("DELETE FROM meta WHERE key LIKE ? AND key NOT IN (\(holes))",
+                               [.text("\(mark):%")] + kept.map { .text("\(mark):\($0)") })
+                }
+                try db.run("DELETE FROM meta WHERE key=?", [.text(Self.knownUSBDiskKey)])
                 if let reason {
                     try db.run("UPDATE pending_reservations SET problem = ? WHERE target = ?",
                                [.text(reason), .text(DeviceSlot.recorder.rawValue)])

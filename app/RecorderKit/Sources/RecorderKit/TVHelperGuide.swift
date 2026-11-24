@@ -75,11 +75,17 @@ public final class TVHelperGuide {
         lastCheck = nil
     }
 
-    /// Fetches the television's guide into `store`: the types the helper has newer copies of than the cache was
-    /// filled from, or that the cache holds no programmes of; or every type the helper has programmes of
-    /// (`every`), as 番組表を更新 asks. CS4K is left out either way (`GuideRefresh.broadcastingTypes`). Says
-    /// what went wrong, or nil. One fetch at a time: asked while one is out, it waits for that one and says what
-    /// it said.
+    /// Fetches the television's guide into `store`: the types that are behind (`behind`) -- those the helper has
+    /// newer copies of than the cache was filled from, those the cache holds no programmes of, and those it
+    /// holds as the recorder's; or every type the helper has programmes of (`every`), as 番組表を更新 asks.
+    /// CS4K is left out either way (`GuideRefresh.broadcastingTypes`). Says what went wrong, or nil. One fetch
+    /// at a time: asked while one is out, it waits for that one and says what it said.
+    ///
+    /// A type the television has no guide of, which the cache holds as the recorder's, is emptied once the
+    /// helper has said what it has (`notHad`, `GuideStore.empty`), whichever types are fetched after it and
+    /// with none to fetch as well. It is emptied with the guide's turn in hand (`GuideRefresh.run`), by what
+    /// the cache holds then: a refresh of the recorder's that was out as the television came to give the guide
+    /// has the turn first, and what it put in meanwhile is the recorder's by the time this looks.
     ///
     /// Under a line on the host of `link`, the television's, which says each type as it is fetched. The check
     /// is noted once the helper has said what it has (`lastCheck`), and not when it could not be asked. A type
@@ -124,19 +130,21 @@ public final class TVHelperGuide {
         var types = GuideRefresh.broadcastingTypes.filter { (info.types[$0]?.programs ?? 0) > 0 }
         if !every {
             let held = (try? await store.counts()) ?? [:]
-            var behind: [String] = []
+            var filledFrom: [String: Date] = [:]
             for broadcasting in types {
-                let changed = info.types[broadcasting]?.changedAt ?? Date()
-                let filledFrom = try? await store.helperChanged(broadcasting: broadcasting)
-                if filledFrom.map({ changed > $0 }) ?? true || (held[broadcasting]?.programs ?? 0) == 0 {
-                    behind.append(broadcasting)
-                }
+                filledFrom[broadcasting] = try? await store.helperChanged(broadcasting: broadcasting)
             }
-            types = behind
+            types = Self.behind(types, by: info, held: held, filledFrom: filledFrom)
         }
         lastCheck = Date()
-        guard !types.isEmpty else { return nil }
-        let outcome = await GuideRefresh.run(client: client, store: store, types: types, onType: { broadcasting in
+        // The turn is taken with nothing to fetch as well: what the television does not have is emptied in it.
+        let outcome = await GuideRefresh.run(asked: .only(types), onTurn: { [client] in
+            let held = (try? await store.counts()) ?? [:]
+            for broadcasting in Self.notHad(by: info, held: held) {
+                try? await store.empty(broadcasting: broadcasting, notHadBy: TVHelperClient.slot)
+            }
+            return .fetch(client: client, store: store, from: nil)
+        }, onType: { broadcasting in
             if let line { host?.updateActivity(line, to: Self.line(for: broadcasting)) }
             return true
         }, onStored: stored)
@@ -147,6 +155,37 @@ public final class TVHelperGuide {
         var lines = RecorderDriver.guideFailed(outcome.failed)
         if outcome.stopped == .silent { lines.append(Self.silence(televisionAnswers: televisionAnswers())) }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    /// The types of `types` that are behind what the helper has, and are fetched with nobody having pressed:
+    /// one the helper saw change since the copy the cache was filled from (`filledFrom`, by type), or that the
+    /// cache was never filled from the helper with; one the cache holds no programmes of; and one whose rows
+    /// the cache holds as the other device's (`GuideCounts.givenBy`), whatever the marks say -- the television
+    /// has not given it. So where the television gives the home's guide, a cache that holds the recorder's
+    /// comes round to the television's by the next fetch, however the guide's device was changed. This is the
+    /// television's rule; the recorder's is `GuideRefresh.staleTypes`.
+    nonisolated static func behind(_ types: [String], by info: TVHelperInfo, held: [String: GuideCounts],
+                                   filledFrom: [String: Date]) -> [String] {
+        types.filter { broadcasting in
+            let changed = info.types[broadcasting]?.changedAt ?? Date()
+            let cached = held[broadcasting]
+            return filledFrom[broadcasting].map { changed > $0 } ?? true || (cached?.programs ?? 0) == 0
+                || cached?.givenBy != TVHelperClient.slot
+        }
+    }
+
+    /// The types the cache holds as the recorder's that the television has no guide of, by what the helper says
+    /// it has: no channel of the type, or channels and no programmes, which is a type no fetch asks it for.
+    /// They are emptied (`GuideStore.empty`): the television gives this home's guide, and what the recorder gave
+    /// of a type the television does not have would stay the recorder's for good under it. None while the
+    /// helper has no copy at all, when it says nothing of what the television has; and never a type that is the
+    /// television's own, which keeps what it has until the helper's next copy.
+    nonisolated static func notHad(by info: TVHelperInfo, held: [String: GuideCounts]) -> [String] {
+        guard !info.types.isEmpty else { return [] }
+        return GuideRefresh.broadcastingTypes.filter { broadcasting in
+            guard (info.types[broadcasting]?.programs ?? 0) == 0, let cached = held[broadcasting] else { return false }
+            return cached.givenBy != TVHelperClient.slot && (cached.channels > 0 || cached.programs > 0)
+        }
     }
 
     /// The helper's silence in words: `notRunning` where the television answers, its own sentence otherwise.

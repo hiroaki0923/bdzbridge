@@ -128,7 +128,7 @@ final class USBDiskTests: XCTestCase {
             // No MAC: the run sends its packet itself, and would send it on the network this is run on.
             _ = await BackgroundWork.refresh(client: RecorderClient(host: Bench.host, transport: recorder),
                                              store: try GuideStore(path: bench.guidePath), mac: nil,
-                                             telling: telling(told))
+                                             givesTheGuide: true, telling: telling(told))
 
             expectEqual(await told.said, expected, slot ?? "nothing")
             expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 1,
@@ -147,7 +147,7 @@ final class USBDiskTests: XCTestCase {
         // No MAC, as above.
         let fetched = await BackgroundWork.refresh(client: RecorderClient(host: Bench.host, transport: recorder),
                                                    store: try GuideStore(path: bench.guidePath), mac: nil,
-                                                   telling: telling(told))
+                                                   givesTheGuide: true, telling: telling(told))
 
         XCTAssertFalse(fetched)
         expectEqual(await recorder.heard(since: before).last, "X_GetMediaInfo", "the run went on past the slot")
@@ -168,7 +168,7 @@ final class USBDiskTests: XCTestCase {
         // No MAC, as above.
         _ = await BackgroundWork.refresh(client: RecorderClient(host: Bench.host, transport: recorder),
                                          store: try GuideStore(path: bench.guidePath), mac: nil,
-                                         telling: telling(told))
+                                         givesTheGuide: true, telling: telling(told))
 
         expectEqual(await told.said, ["free space of HDD"])
         expectEqual(await recorder.asked("X_GetMediaInfo", since: before), 2)
@@ -189,7 +189,7 @@ final class USBDiskTests: XCTestCase {
         // No MAC, as above.
         _ = await BackgroundWork.refresh(client: RecorderClient(host: Bench.host, transport: recorder),
                                          store: try GuideStore(path: bench.guidePath), mac: nil,
-                                         telling: telling(told))
+                                         givesTheGuide: true, telling: telling(told))
 
         expectEqual(await told.said, ["free space of HDD", "USB space of 録画用ディスク"])
         let heard = await recorder.heard(since: before)
