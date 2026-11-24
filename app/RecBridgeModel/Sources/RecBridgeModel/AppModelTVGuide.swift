@@ -63,16 +63,16 @@ extension AppModel {
 
     // MARK: - registration
 
-    /// Registers with the helper by the code the television shows, and says what went wrong, or nil. In a
-    /// household with no recorder the television's guide is fetched at once; with one, the reader chooses in the
-    /// settings. Where the choice there is the television already, a helper registered again, the television
-    /// gives the guide from here on, and the helper's next check fetches it over the recorder's
-    /// (`TVHelperGuide.behind`).
+    /// Registers with the helper by the code the television shows, and says what went wrong, or nil. Where the
+    /// television gives the guide once the helper is registered, the guide is taken over to it and the
+    /// television's fetched at once (`adoptGuideSource`): in a household with no recorder, and in one with a
+    /// recorder whose reader chose テレビ before, the helper registered again. Where the recorder still gives
+    /// it, nothing is fetched, and the reader chooses in the settings.
     public func registerHelper(code: String) async -> String? {
         guard let tvHelper else { return TVDriver.notConnected }
         if let why = await tvHelper.register(code: code, label: surroundings.helperLabel) { return why }
         helperProblem = nil
-        if host.isEmpty { await adoptGuideSource() }
+        if guideSource == .tv { await adoptGuideSource() }
         return nil
     }
 

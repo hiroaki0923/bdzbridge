@@ -1070,18 +1070,19 @@ rows, written with them (`GuideCounts.givenBy`; the recorder, in a cache from be
 device's rule of what is behind counts a type the other gave as behind, whatever its marks say: the recorder's
 at a connect (`GuideRefresh.staleTypes`), the television's when the helper is next asked what it has
 (`TVHelperGuide.behind`). So the guide comes round to the device that gives it by that device's next fetch,
-whichever way the device was changed: the choice in the settings, which also fetches at once, a helper's
-registration taken away or made again, a recorder added to a home that had a television alone, テレビを外す. A
-type the new device does not have is emptied of what the other gave -- its channels, programmes and logos, with
-its marks -- rather than left the other's for good: as the recorder answers that it has no file of it
-(`GuideStore.noteNoGuide`), which is also what a recorder without 4K tuners comes to over the television's
-BS4K, the television's channels not being ones it gave; and, for the television, once the helper has said what
-it has (`TVHelperGuide.notHad`, `GuideStore.empty`) and the fetch has the guide's turn, by what the cache holds
-then, so that a refresh of the recorder's that was out before it cannot put the type back afterwards. A
-recorder empties nothing until it has given a type itself: one that gives no guide answers that it has no file
-for every type, and added to a home that had a television alone, where it gives the guide until テレビ is
-chosen, it leaves the television's guide as it is. The guide then says of an emptied type what it says in a
-home with that device alone. Which stations the reader hid, and their order, stay.
+whichever way the device was changed: the choice in the settings and a helper registered where テレビ is chosen
+already, which also fetch at once (`AppModel.adoptGuideSource`), a helper's registration taken away, a recorder
+added to a home that had a television alone, テレビを外す. A type the new device does not have is emptied of
+what the other gave -- its channels, programmes and logos, with its marks -- rather than left the other's for
+good: as the recorder answers that it has no file of it (`GuideStore.noteNoGuide`), which is also what a
+recorder without 4K tuners comes to over the television's BS4K, the television's channels not being ones it
+gave; and, for the television, once the helper has said what it has (`TVHelperGuide.notHad`,
+`GuideStore.empty`) and the fetch has the guide's turn, by what the cache holds then, so that a refresh of the
+recorder's that was out before it cannot put the type back afterwards. A recorder empties nothing until it has
+given a type itself: one that gives no guide answers that it has no file for every type, and added to a home
+that had a television alone, where it gives the guide until テレビ is chosen, it leaves the television's guide
+as it is. The guide then says of an emptied type what it says in a home with that device alone. Which stations
+the reader hid, and their order, stay.
 
 Connecting fetches only the broadcasting types that are behind the recorder's last rebuild, each judged by
 when the recorder last answered for it -- with its file, or with none to give (`GuideStore.noteNoGuide`). A

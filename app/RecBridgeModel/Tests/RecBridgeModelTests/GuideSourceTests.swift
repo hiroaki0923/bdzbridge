@@ -351,7 +351,8 @@ final class GuideSourceTests: XCTestCase {
     /// took the guide over. What the cache holds stays the television's until the next connect to the recorder,
     /// which fetches the recorder's over it -- the marks of the television's fetch a moment old -- and empties
     /// the type this recorder has no file of. Registered again, the choice still テレビ, the television gives the
-    /// guide again, and the helper's next check fetches it over the recorder's.
+    /// guide again, and its guide is fetched over the recorder's as the registration ends, with no wait for the
+    /// helper's next check.
     func testTheGuideComesRoundWhenTheHelperIsForgottenAndWhenItIsRegisteredAgain() async throws {
         let home = try await aHome(recorderGives: [0])
         let model = try await started(home)
@@ -369,14 +370,10 @@ final class GuideSourceTests: XCTestCase {
         let said = await model.registerHelper(code: "123456")
         XCTAssertNil(said)
         XCTAssertEqual(model.guideSource, .tv, "the choice was not kept")
-        model.tvHelper?.forgetTheCheck()
-        model.wentToBackground()
-        await model.returnedToForeground()
-        try await until("the return never came to rest") {
-            model.tvHelper?.isFetching == false && !isConnecting(model) && model.busy == nil
-        }
-        try await expect("td", .televisions, in: home, "the recorder's guide stayed under the television's setting")
+        try await expect("td", .televisions, in: home,
+                         "the television's guide was not fetched as its helper was registered again")
         try await expect("bs", .televisions, in: home)
+        XCTAssertEqual(model.channels.map(\.name), [HelperOnTheTelevision.station("td")])
     }
 
     /// A recorder added to a home that had a television alone: the recorder gives the guide from then on, nothing
