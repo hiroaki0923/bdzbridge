@@ -22,7 +22,9 @@ struct RecorderRulesScreen: View {
                 ForEach(model.recorderRules) { rule in
                     RecorderRuleRow(rule: rule, details: state.details(of: rule))
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button("削除") { state.delete(rule) }.tint(.red).disabled(state.holdsDeleting)
+                            Button(RecorderRulesState.deleteLabel) { state.delete(rule) }
+                                .tint(.red)
+                                .disabled(state.holdsDeleting)
                         }
                 }
             } footer: {
@@ -36,7 +38,7 @@ struct RecorderRulesScreen: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { adding = true } label: { Image(systemName: "plus") }
-                    .accessibilityLabel("条件を追加")
+                    .accessibilityLabel(RecorderRulesState.addLabel)
                     .disabled(state.holdsAdding)
             }
         }

@@ -23,6 +23,15 @@ public final class RecorderRulesState {
 
     public static let title = "おまかせ・まる録"
 
+    /// The + button's name for a screen reader: the title of the form it opens (`RecorderRuleSheetState.title`).
+    public static let addLabel = RecorderRuleSheetState.title
+
+    /// A row's swipe: the lists' word (`ListWords.deleteLabel`).
+    public static let deleteLabel = ListWords.deleteLabel
+
+    /// The title of the alert that says why a delete, or a registration from the form, was turned down.
+    public static let failureTitle = "エラー"
+
     /// Under the conditions.
     public static let footer = "レコーダー本体が番組を自動で探して録画する条件です。アプリを閉じていても動作します。"
         + "対象チャンネルの指定はレコーダー本体でのみ設定でき、ここには表示されません。"
@@ -74,7 +83,7 @@ public final class RecorderRulesState {
     }
 
     public var askTitle: String {
-        if case .failed = ask { return "エラー" }
+        if case .failed = ask { return Self.failureTitle }
         return "この条件を削除しますか？"
     }
 
@@ -87,15 +96,15 @@ public final class RecorderRulesState {
 
     public func actionLabel(for asked: Ask) -> (label: String, destructive: Bool)? {
         switch asked {
-        case .confirm: ("削除する", true)
+        case .confirm: (SheetWords.confirmDeleteLabel, true)
         case .failed: nil
         }
     }
 
     public func closingLabel(for asked: Ask) -> String {
         switch asked {
-        case .confirm: "キャンセル"
-        case .failed: "OK"
+        case .confirm: SheetWords.cancelLabel
+        case .failed: SheetWords.okLabel
         }
     }
 
@@ -165,6 +174,9 @@ public final class RecorderRuleSheetState {
     }
 
     // MARK: - the words
+
+    /// The form's title, and the name of the button that opens it (`RecorderRulesState.addLabel`).
+    public static let title = "条件を追加"
 
     public func addKeyword() {
         if draft.mayAddKeyword { draft.keywords.append(.init()) }
