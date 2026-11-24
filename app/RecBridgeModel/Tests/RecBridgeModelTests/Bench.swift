@@ -538,8 +538,9 @@ actor NotARecorder: HTTPTransport {
 /// `answer` has it say something of the test's own in place of the demo's answer to the next requests of one
 /// kind -- a fault with a code, a bare status, a `Result`, a whole body, or nothing at all -- `beBusy` is that
 /// for one whole call that fails as busy, and `beAMomentBehind` has the list after its next delete or change be
-/// the one from before it. `haveACopy` puts one broadcast on its disk twice. `heard` is everything it was asked,
-/// in the order it arrived, and `elements(of:)` what the last of one kind carried.
+/// the one from before it. `haveACopy` puts one broadcast on its disk twice. `describeItself(givingAGuide:)` has
+/// its description say whether it gives a guide. `heard` is everything it was asked, in the order it arrived, and
+/// `elements(of:)` what the last of one kind carried.
 actor NamedRecorder: HTTPTransport {
     /// Sony's OUI and the rest zeroed, as everywhere in this repository, with a last digit of its own.
     static func udn(_ last: Int) -> String { "uuid:00000000-0000-0000-0000-f84e1700000\(last)" }
@@ -571,6 +572,8 @@ actor NamedRecorder: HTTPTransport {
     private var lastElements: [String: String] = [:]
     /// Whether its list of recordings gives one broadcast twice (`haveACopy`).
     private var hasACopy = false
+    /// Whether its description says it gives a guide (`describeItself(givingAGuide:)`), as the demo's does.
+    private var givesAGuide = true
 
     /// With `usbDisk` it answers the slot, and lists that disk's recordings, as the demo's recorder does with one.
     init(_ last: Int, usbDisk: Bool = false) {
@@ -601,6 +604,13 @@ actor NamedRecorder: HTTPTransport {
     /// The same recorder, no longer saying which it is.
     func stopSayingWhich() {
         udn = ""
+    }
+
+    /// From now on its description says that it gives a guide, or that it gives none (`EPG_CAP` 00), as a model
+    /// with no guide to give says: what it becomes (`become`) says the same. Its files are as they were, and a
+    /// client that has read the description asks it for none of them (`RecorderClient.guide`).
+    func describeItself(givingAGuide gives: Bool) {
+        givesAGuide = gives
     }
 
     func hold(only what: String? = nil) {
@@ -777,7 +787,11 @@ actor NamedRecorder: HTTPTransport {
             return HTTPResponse(statusCode: response.statusCode, body: Data(twice.utf8))
         }
         guard request.url.path == "/description.xml" else { return response }
-        let described = response.text.replacingOccurrences(of: "uuid:00000000-0000-0000-0000-000000000000", with: udn)
+        var described = response.text.replacingOccurrences(of: "uuid:00000000-0000-0000-0000-000000000000", with: udn)
+        if !givesAGuide {
+            described = described.replacingOccurrences(of: "<av:EPG_CAP>03</av:EPG_CAP>",
+                                                       with: "<av:EPG_CAP>00</av:EPG_CAP>")
+        }
         return HTTPResponse(statusCode: 200, body: Data(described.utf8))
     }
 }

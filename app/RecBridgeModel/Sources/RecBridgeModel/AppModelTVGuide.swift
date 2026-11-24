@@ -7,21 +7,28 @@ public enum GuideSourceChoice: String, Sendable {
     case recorder
     case tv
 
-    /// Where a household's guide is fetched from, by the three facts that decide it: the television where a
-    /// helper is registered and either no recorder is saved or the reader chose the television; the recorder
-    /// otherwise, the helper registered or not. One rule for the screens, which ask the model
-    /// (`AppModel.guideSource`), and for a run with no screen, which has none to ask
-    /// (`BackgroundWork.guideSource(in:)`).
-    static func of(recorderSaved: Bool, helperRegistered: Bool,
+    /// Where a household's guide is fetched from, by the four facts that decide it: the television where a
+    /// helper is registered and either no recorder is saved, or the one saved is known to give no guide, or the
+    /// reader chose the television; the recorder otherwise, the helper registered or not, and with no helper
+    /// whether or not it gives a guide. One rule for the screens, which ask the model (`AppModel.guideSource`),
+    /// and for a run with no screen, which has none to ask (`BackgroundWork.guideSource(in:)`).
+    static func of(recorderSaved: Bool, recorderGivesAGuide: Bool, helperRegistered: Bool,
                    preference: GuideSourceChoice) -> GuideSourceChoice {
         guard helperRegistered else { return .recorder }
-        return recorderSaved ? preference : .tv
+        return recorderSaved && recorderGivesAGuide ? preference : .tv
     }
 
     /// The reader's choice where both devices could give the guide, as the settings saved it
     /// (`DefaultsKey.guideSource`): unset is the recorder.
     static func preference(in defaults: UserDefaults) -> GuideSourceChoice {
         GuideSourceChoice(rawValue: defaults.string(forKey: DefaultsKey.guideSource) ?? "") ?? .recorder
+    }
+
+    /// Whether the saved recorder gives a guide, as the screens kept what it last said of itself
+    /// (`DefaultsKey.recorderGivesAGuide`): unset, a recorder never heard, is one that gives a guide.
+    static func recorderGivesAGuide(in defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: DefaultsKey.recorderGivesAGuide) == nil
+            || defaults.bool(forKey: DefaultsKey.recorderGivesAGuide)
     }
 }
 
@@ -33,12 +40,34 @@ extension AppModel {
     public var guideSourcePreference: GuideSourceChoice { .preference(in: defaults) }
 
     /// Where the guide is fetched from now: the television where a helper is registered and either there is no
-    /// recorder or the reader chose it; the recorder otherwise, the helper registered or not
-    /// (`GuideSourceChoice.of`). The other device is asked for no guide by itself: not the recorder after a
-    /// connect (`guideIsStale`) or overnight (`BackgroundWork.guideSource(in:)`), not the helper as the app
-    /// starts or comes to the front (`refreshGuideFromTVIfBehind`).
+    /// recorder, or the recorder gives no guide, or the reader chose it; the recorder otherwise, the helper
+    /// registered or not (`GuideSourceChoice.of`). The other device is asked for no guide by itself: not the
+    /// recorder after a connect (`guideIsStale`) or overnight (`BackgroundWork.guideSource(in:)`), not the helper
+    /// as the app starts or comes to the front (`refreshGuideFromTVIfBehind`).
     public var guideSource: GuideSourceChoice {
-        .of(recorderSaved: !host.isEmpty, helperRegistered: helperRegistered, preference: guideSourcePreference)
+        .of(recorderSaved: !host.isEmpty, recorderGivesAGuide: recorderGivesAGuide, helperRegistered: helperRegistered,
+            preference: guideSourcePreference)
+    }
+
+    /// Whether the recorder in play gives a guide, as far as the app knows before a connect: what the real one
+    /// said of itself when it was last taken up (`savedRecorderGivesAGuide`), true while it never has; and in the
+    /// demo the invented recorder's, which gives one.
+    var recorderGivesAGuide: Bool { demo || savedRecorderGivesAGuide }
+
+    /// What the real recorder said of its guide as an attach took it up, which its host has written down
+    /// (`RecorderHost.keepWhetherItGivesAGuide`). Where that has made the television the device the guide is
+    /// fetched from -- the first connect to a recorder that gives no guide, in a home whose helper is registered
+    /// and whose guide the recorder gave until then -- the television's guide is fetched, what is behind of it, in
+    /// a task the attach does not wait for, as a helper registered there fetches it at once. Said again as it was,
+    /// nothing is fetched: the television's guide is fetched as the app starts and comes to the front
+    /// (`refreshGuideFromTVIfBehind`). Where it has made the recorder the source again, the connect it is part of
+    /// fetches the recorder's guide over the television's, every type the television gave being behind to the
+    /// recorder (`guideIsStale`).
+    func recorderSaid(givesAGuide: Bool) {
+        let before = guideSource
+        savedRecorderGivesAGuide = givesAGuide
+        guard before == .recorder, guideSource == .tv else { return }
+        Task { await self.refreshGuideFromTV() }
     }
 
     /// The device the guide is fetched from now, as a sentence about the guide names it: by the name 番組表の取得元
@@ -49,11 +78,13 @@ extension AppModel {
     /// Whether the app holds a registration with the helper.
     public var helperRegistered: Bool { tvHelper?.isRegistered ?? false }
 
-    /// Whether the reader has a choice to make: both a recorder and a registered helper.
-    public var guideSourceIsChoosable: Bool { !host.isEmpty && helperRegistered }
+    /// Whether the reader has a choice to make: both a recorder that gives a guide and a registered helper. Beside
+    /// a recorder that gives none there is no choice, and the choice saved is left as it was.
+    public var guideSourceIsChoosable: Bool { !host.isEmpty && recorderGivesAGuide && helperRegistered }
 
-    /// 番組表の取得元 as one line with no choice to make, where the television gives the guide (テレビ); nil where there
-    /// is a choice, and where the recorder gives it with none, when nothing is said of where it comes from.
+    /// 番組表の取得元 as one line with no choice to make, where the television gives the guide (テレビ): with no
+    /// recorder, or beside one that gives no guide. Nil where there is a choice, and where the recorder gives it
+    /// with none, when nothing is said of where it comes from.
     public var guideSourceAlone: String? {
         !guideSourceIsChoosable && guideSource == .tv ? SettingsWords.guideSourceName(.tv) : nil
     }
@@ -70,9 +101,9 @@ extension AppModel {
 
     /// Registers with the helper by the code the television shows, and says what went wrong, or nil. Where the
     /// television gives the guide once the helper is registered, the guide is taken over to it and the
-    /// television's fetched at once (`adoptGuideSource`): in a household with no recorder, and in one with a
-    /// recorder whose reader chose テレビ before, the helper registered again. Where the recorder still gives
-    /// it, nothing is fetched, and the reader chooses in the settings.
+    /// television's fetched at once (`adoptGuideSource`): in a household with no recorder, in one whose recorder
+    /// gives no guide, and in one with a recorder whose reader chose テレビ before, the helper registered again.
+    /// Where the recorder still gives it, nothing is fetched, and the reader chooses in the settings.
     public func registerHelper(code: String) async -> String? {
         guard let tvHelper else { return TVDriver.notConnected }
         if let why = await tvHelper.register(code: code, label: surroundings.helperLabel) { return why }

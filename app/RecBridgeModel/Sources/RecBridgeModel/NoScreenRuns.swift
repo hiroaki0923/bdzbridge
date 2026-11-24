@@ -21,13 +21,14 @@ public enum BackgroundWork {
     }
 
     /// Which device this home's guide is fetched from, for what runs with no screen and so has no model to
-    /// ask: the model's rule (`GuideSourceChoice.of`) by what the screens saved -- the recorder's address and
-    /// the reader's choice in the defaults, and the helper's registration where the platform keeps it
-    /// (`NoScreenSurroundings.tvHelperTokens`), which counts only with a television saved, as the model has a
-    /// helper only with a television's link.
+    /// ask: the model's rule (`GuideSourceChoice.of`) by what the screens saved -- the recorder's address,
+    /// whether it gives a guide and the reader's choice in the defaults, and the helper's registration where the
+    /// platform keeps it (`NoScreenSurroundings.tvHelperTokens`), which counts only with a television saved, as
+    /// the model has a helper only with a television's link.
     static func guideSource(in surroundings: NoScreenSurroundings) -> GuideSourceChoice {
         let defaults = surroundings.defaults
         return .of(recorderSaved: !(defaults.string(forKey: DefaultsKey.recorderHost) ?? "").isEmpty,
+                   recorderGivesAGuide: GuideSourceChoice.recorderGivesAGuide(in: defaults),
                    helperRegistered: televisionSaved(in: defaults) && surroundings.tvHelperTokens.load() != nil,
                    preference: .preference(in: defaults))
     }

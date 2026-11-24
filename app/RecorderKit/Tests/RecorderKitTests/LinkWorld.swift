@@ -124,6 +124,10 @@ final class LinkWorld: RecorderLinkHost {
         events.append("MAC read at \(host)")
     }
     func forgetMac() { events.append("MAC forgotten") }
+    /// What the last attach that took a recorder up said of whether it gives a guide; nil before any. Beside
+    /// `events` and not among them, which tests compare whole.
+    private(set) var givesAGuide: Bool?
+    func keepWhetherItGivesAGuide(_ givesAGuide: Bool) { self.givesAGuide = givesAGuide }
     func anotherDeviceDescribedItself(wasConnected: Bool) { events.append("another device") }
     func cacheMadeOver() async {}
     func cacheCouldNotBeMadeOver() {}

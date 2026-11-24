@@ -172,8 +172,10 @@ public final class RecorderDriver: LinkDriver {
                 owner?.problem = Self.cacheNotMadeOver
                 return false
             }
-            // The runs with no screen read the address from what the phone keeps.
+            // The runs with no screen read the address from what the phone keeps, and so whether it gives a guide,
+            // which also says before the next connect which device the home's guide is fetched from.
             owner?.keepAddress(link.host)
+            recorderHost(owner)?.keepWhetherItGivesAGuide(answered.epgCapable)
             link.session.learned(firmware: try await RecorderError.silenceOnly { try await client.firmwareVersion() }
                 ?? "")
             // Kept for waking it later, and read every time: on iOS the recorder is the only place it comes from.

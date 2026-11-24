@@ -181,9 +181,9 @@ final class SettingsWordsTests: XCTestCase {
         XCTAssertFalse(model.holdsTheSearchButton)
     }
 
-    /// Where the guide comes from is said alone, テレビ, where a helper gives it and there is no recorder to choose;
-    /// nothing where there is a choice, whichever of the two is chosen, and nothing where the recorder gives it
-    /// with no helper.
+    /// Where the guide comes from is said alone, テレビ, where a helper gives it and there is no recorder to choose,
+    /// none being saved or the one saved giving no guide; nothing where there is a choice, whichever of the two is
+    /// chosen, and nothing where the recorder gives it with no helper.
     func testWhereTheGuideComesFromIsSaidAloneOnlyForTheTelevision() async throws {
         let bench = try aBench()
         let alone = bench.modelWithNoRecorder()
@@ -200,6 +200,14 @@ final class SettingsWordsTests: XCTestCase {
         both.defaults.set(GuideSourceChoice.tv.rawValue, forKey: DefaultsKey.guideSource)
         XCTAssertEqual(both.guideSource, .tv)
         XCTAssertNil(both.guideSourceAlone, "the television chosen was said alone where there is a choice")
+
+        let third = try aBench()
+        third.defaults.set(false, forKey: DefaultsKey.recorderGivesAGuide)
+        let noGuide = third.model(recorders: [:])
+        XCTAssertNil(noGuide.guideSourceAlone, "a source was said with no helper")
+        noGuide.tvHelper = registeredHelper()
+        XCTAssertFalse(noGuide.guideSourceIsChoosable, "a choice was offered beside a recorder that gives no guide")
+        XCTAssertEqual(noGuide.guideSourceAlone, "テレビ")
     }
 
     /// A helper the app is registered with, at an address reserved for documentation, which nothing here asks.
