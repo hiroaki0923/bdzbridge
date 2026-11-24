@@ -883,6 +883,36 @@ extension AndroidBridgeTests {
                         GroupSheetState.unprotectAllLabel, GroupSheetState.protectAllMenuLabel])
     }
 
+    /// The words of the keyword conditions' page and of its form that never change, as Kotlin keeps them, are the
+    /// model's, field by field in the same order as the model names them (`RecorderRulesState`,
+    /// `RecorderRuleSheetState`), so that a swapped pair fails -- but for a field's placeholder and its heading,
+    /// which are one word.
+    @MainActor
+    func testTheConditionsWordsAreTheModels() {
+        let app = RecBridgeApp.made(files: folder.path, kept: folder.appendingPathComponent("kept").path, version: "0.1 (1)")
+        let words = app.conditionsWords()
+        XCTAssertEqual([words.title, words.addLabel, words.failureTitle],
+                       [RecorderRulesState.title, RecorderRulesState.addLabel, RecorderRulesState.failureTitle])
+        XCTAssertEqual([words.title, words.addLabel, words.failureTitle], ["おまかせ・まる録", "条件を追加", "エラー"])
+        XCTAssertEqual([words.registerLabel, words.keywordHeading, words.keywordPlaceholder, words.addKeywordLabel,
+                        words.excludedHeading, words.excludedPlaceholder, words.addExclusionLabel, words.logicLabel,
+                        words.narrowingHeading, words.subGenreLabel, words.scopeLabel, words.timeLabel,
+                        words.removeRowLabel],
+                       [RecorderRuleSheetState.registerLabel, RecorderRuleSheetState.keywordHeading,
+                        RecorderRuleSheetState.keywordPlaceholder, RecorderRuleSheetState.addKeywordLabel,
+                        RecorderRuleSheetState.excludedHeading, RecorderRuleSheetState.excludedPlaceholder,
+                        RecorderRuleSheetState.addExclusionLabel, RecorderRuleSheetState.logicLabel,
+                        RecorderRuleSheetState.narrowingHeading, RecorderRuleSheetState.subGenreLabel,
+                        RecorderRuleSheetState.scopeLabel, RecorderRuleSheetState.timeLabel,
+                        RecorderRuleSheetState.removeRowLabel])
+        XCTAssertEqual([words.registerLabel, words.keywordHeading, words.keywordPlaceholder, words.addKeywordLabel,
+                        words.excludedHeading, words.excludedPlaceholder, words.addExclusionLabel, words.logicLabel,
+                        words.narrowingHeading, words.subGenreLabel, words.scopeLabel, words.timeLabel,
+                        words.removeRowLabel],
+                       ["レコーダーに登録", "キーワード", "キーワード", "キーワードを追加", "除外ワード", "除外ワード",
+                        "除外ワードを追加", "検索方法", "絞り込み", "サブジャンル", "放送", "時間帯", "この行を削除"])
+    }
+
     /// What the recordings' read says of its menu is the model's: the button's name by whether there is a disk to tell
     /// apart, and the first choice of each filter.
     @MainActor

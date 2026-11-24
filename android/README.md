@@ -61,7 +61,7 @@ words too (`TVCapabilitiesWords`); the television's words that never change -- t
 are handed over once, at the model's start (`TelevisionWordsText`), as are the guide's and the stations' screen's
 words (`GuideWordsText`), the names of the tabs (`TabWordsText`), the words of the reservations' list and the
 recordings' (`ListWordsText`) and those of the job bar, a programme's page and the duplicates
-(`RecordingsWordsText`). As on iOS, a
+(`RecordingsWordsText`) and of the keyword conditions' page and form (`ConditionsWordsText`). As on iOS, a
 connect wakes a recorder that does not answer with a magic packet when its MAC is known. The stations' logos are on the
 guide's rows, on the reservations' and the recordings' and on the search's; the demo's stations have tiles that Kotlin
 draws (`Tiles.kt`) and hands to the model as files (`TileDrawer`). The model is told when the network changes, by a

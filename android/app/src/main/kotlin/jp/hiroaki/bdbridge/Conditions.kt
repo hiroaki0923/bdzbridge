@@ -64,6 +64,7 @@ import kotlinx.coroutines.launch
 fun ConditionsPage(close: () -> Unit) {
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
+    val words = RecBridge.conditionsWords
     val handle = rememberOpened(Unit) { RecBridge.openConditions() }.handle
     val shown = handle?.let { it.shown.collectAsState().value }
     val act = { work: suspend RecBridge.ConditionsHandle.() -> Unit -> handle?.let { scope.launch { it.work() } }; Unit }
@@ -79,11 +80,11 @@ fun ConditionsPage(close: () -> Unit) {
         Scaffold(modifier = if (adding) Modifier.clearAndSetSemantics {} else Modifier, topBar = {
             Column {
                 TopAppBar(
-                    title = { Text(shown?.title ?: "おまかせ・まる録") },
+                    title = { Text(shown?.title ?: words.title) },
                     navigationIcon = { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る") } },
                     actions = {
                         IconButton(onClick = { adding = true }, enabled = shown != null && !shown.addHeld) {
-                            Icon(Icons.Default.Add, contentDescription = "条件を追加")
+                            Icon(Icons.Default.Add, contentDescription = words.addLabel)
                         }
                     },
                 )
@@ -117,7 +118,7 @@ fun ConditionsPage(close: () -> Unit) {
                             }
                         }
                         items(shown.rows, key = { it.id }) { row ->
-                            val delete = SwipeAction("削除", colors.errorContainer, colors.onErrorContainer, !shown.deleteHeld) {
+                            val delete = SwipeAction(RecBridge.listWords.deleteLabel, colors.errorContainer, colors.onErrorContainer, !shown.deleteHeld) {
                                 act { delete(row.id) }
                             }
                             SwipeActions(toTheRight = null, toTheLeft = delete) {
@@ -143,6 +144,8 @@ fun ConditionsPage(close: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConditionFormPage(page: RecBridge.ConditionsHandle, close: () -> Unit) {
+    val words = RecBridge.conditionsWords
+    val sheetWords = RecBridge.sheetWords
     val handle = rememberOpened(Unit) { page.newCondition() }.handle
     val form = handle?.let { it.shown.collectAsState().value }
     val held = form?.asking ?: false
@@ -156,19 +159,19 @@ private fun ConditionFormPage(page: RecBridge.ConditionsHandle, close: () -> Uni
     LaunchedEffect(held) { if (!held) typed.clear() }
     form?.failure?.takeIf { it.isNotEmpty() }?.let { said ->
         AlertDialog(onDismissRequest = { handle.failureClosed() },
-                    confirmButton = { TextButton(onClick = { handle.failureClosed() }) { Text("OK") } },
-                    title = { Text("エラー") }, text = { Text(said) })
+                    confirmButton = { TextButton(onClick = { handle.failureClosed() }) { Text(sheetWords.okLabel) } },
+                    title = { Text(words.failureTitle) }, text = { Text(said) })
     }
     Scaffold(topBar = {
         Column {
             TopAppBar(
-                title = { Text("条件を追加") },
+                title = { Text(words.addLabel) },
                 navigationIcon = {
-                    IconButton(onClick = close, enabled = !held) { Icon(Icons.Default.Close, contentDescription = "キャンセル") }
+                    IconButton(onClick = close, enabled = !held) { Icon(Icons.Default.Close, contentDescription = sheetWords.cancelLabel) }
                 },
                 actions = {
                     TextButton(onClick = { handle?.register() }, enabled = form != null && !form.registerHeld) {
-                        Text("レコーダーに登録")
+                        Text(words.registerLabel)
                     }
                 },
             )
@@ -181,41 +184,41 @@ private fun ConditionFormPage(page: RecBridge.ConditionsHandle, close: () -> Uni
         }
         Column(Modifier.padding(padding).imePadding().fillMaxSize().verticalScroll(rememberScrollState())
                    .padding(vertical = 8.dp)) {
-            Heading("キーワード")
+            Heading(words.keywordHeading)
             // Keyed by the row, so that a field, its focus and what is being composed in it go with its row when
             // another row is taken away.
             for (word in form.keywords) key(word.id) {
-                WordField(text = typed[word.id] ?: word.text, placeholder = "キーワード", enabled = !held,
+                WordField(text = typed[word.id] ?: word.text, placeholder = words.keywordPlaceholder, enabled = !held,
                           remove = if (form.mayRemoveKeyword) ({ handle.removeKeyword(word.id) }) else null) {
                     typed[word.id] = it
                     handle.typeKeyword(word.id, it)
                 }
             }
-            if (form.mayAddKeyword) AddButton("キーワードを追加", !held) { handle.addKeyword() }
+            if (form.mayAddKeyword) AddButton(words.addKeywordLabel, !held) { handle.addKeyword() }
             Footnote(form.keywordFooter, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
 
-            Heading("除外ワード")
+            Heading(words.excludedHeading)
             for (word in form.excluded) key(word.id) {
-                WordField(text = typed[word.id] ?: word.text, placeholder = "除外ワード", enabled = !held,
+                WordField(text = typed[word.id] ?: word.text, placeholder = words.excludedPlaceholder, enabled = !held,
                           remove = { handle.removeExclusion(word.id) }) {
                     typed[word.id] = it
                     handle.typeExclusion(word.id, it)
                 }
             }
-            if (form.mayAddExclusion) AddButton("除外ワードを追加", !held) { handle.addExclusion() }
-            if (form.asksHowToCombine) Pick("検索方法", form.logics, form.logic, !held) { handle.chooseLogic(it) }
+            if (form.mayAddExclusion) AddButton(words.addExclusionLabel, !held) { handle.addExclusion() }
+            if (form.asksHowToCombine) Pick(words.logicLabel, form.logics, form.logic, !held) { handle.chooseLogic(it) }
             Footnote(form.excludedFooter, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
 
-            Heading("絞り込み")
-            Pick("ジャンル", form.genres, form.genre, !held) { handle.chooseGenre(it) }
-            if (form.subGenres.isNotEmpty()) Pick("サブジャンル", form.subGenres, form.subGenre, !held) { handle.chooseSubGenre(it) }
-            Pick("放送", form.scopes, form.scope, !held) { handle.chooseScope(it) }
-            Pick("時間帯", form.times, form.time, !held) { handle.chooseTime(it) }
-            Pick("録画モード", form.qualities, form.quality, !held) { handle.chooseQuality(it) }
+            Heading(words.narrowingHeading)
+            Pick(sheetWords.genre, form.genres, form.genre, !held) { handle.chooseGenre(it) }
+            if (form.subGenres.isNotEmpty()) Pick(words.subGenreLabel, form.subGenres, form.subGenre, !held) { handle.chooseSubGenre(it) }
+            Pick(words.scopeLabel, form.scopes, form.scope, !held) { handle.chooseScope(it) }
+            Pick(words.timeLabel, form.times, form.time, !held) { handle.chooseTime(it) }
+            Pick(sheetWords.quality, form.qualities, form.quality, !held) { handle.chooseQuality(it) }
             if (form.disks.isNotEmpty()) {
-                Pick("録画先", form.disks, form.disk, !held) { handle.chooseDisk(it) }
+                Pick(sheetWords.disk, form.disks, form.disk, !held) { handle.chooseDisk(it) }
             } else if (form.diskAlone.isNotEmpty()) {
-                ListItem(headlineContent = { Text("録画先") }, trailingContent = { Text(form.diskAlone) })
+                ListItem(headlineContent = { Text(sheetWords.disk) }, trailingContent = { Text(form.diskAlone) })
             }
             Footnote(form.narrowingFooter, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         }
@@ -231,13 +234,14 @@ private fun Heading(text: String) {
 /** One word of the condition, with the button that takes its row away where there is one. */
 @Composable
 private fun WordField(text: String, placeholder: String, enabled: Boolean, remove: (() -> Unit)?, type: (String) -> Unit) {
+    val removeLabel = RecBridge.conditionsWords.removeRowLabel
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         OutlinedTextField(value = text, onValueChange = type, placeholder = { Text(placeholder) }, singleLine = true,
                           enabled = enabled, keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
                           modifier = Modifier.weight(1f))
         if (remove != null) {
             IconButton(onClick = remove, enabled = enabled) {
-                Icon(Icons.Default.RemoveCircleOutline, contentDescription = "この行を削除", tint = MaterialTheme.colorScheme.error)
+                Icon(Icons.Default.RemoveCircleOutline, contentDescription = removeLabel, tint = MaterialTheme.colorScheme.error)
             }
         }
     }
