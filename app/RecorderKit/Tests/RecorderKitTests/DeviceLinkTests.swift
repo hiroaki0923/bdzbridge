@@ -19,7 +19,8 @@ final class DeviceLinkTests: XCTestCase {
     static let noAnswer = "レコーダーが応答しません。電源とネットワーク接続を確かめてください。"
 
     /// A recorder at one address: it says who it is as the recorder of the vectors does, under the UDN it is
-    /// given, and refuses the rest, which an attach does without. Each ask is put down in the world.
+    /// given -- with `givesAGuide` false, as a model that gives no guide says it, `EPG_CAP` 00 -- and refuses the
+    /// rest, which an attach does without. Each ask is put down in the world.
     actor Recorder: HTTPTransport {
         private let host: String
         private let description: String
@@ -27,12 +28,14 @@ final class DeviceLinkTests: XCTestCase {
         private var busy = false
         private weak var world: LinkWorld?
 
-        init(at host: String, udn: String, silent: Bool = false, world: LinkWorld? = nil) {
+        init(at host: String, udn: String, givesAGuide: Bool = true, silent: Bool = false, world: LinkWorld? = nil) {
             self.host = host
             self.silent = silent
             self.world = world
             let xml = (try? Vectors.load("description.json"))?.string("description_xml") ?? ""
-            description = xml.replacingOccurrences(of: "uuid:00000000-0000-0000-0000-000000000000", with: udn)
+            let named = xml.replacingOccurrences(of: "uuid:00000000-0000-0000-0000-000000000000", with: udn)
+            description = givesAGuide ? named : named.replacingOccurrences(of: ">01</s-bras:EPG_CAP>",
+                                                                           with: ">00</s-bras:EPG_CAP>")
         }
 
         func goSilent(_ value: Bool = true) { silent = value }
@@ -120,6 +123,24 @@ final class DeviceLinkTests: XCTestCase {
 
         XCTAssertTrue(link.session.connected)
         XCTAssertEqual(world.count("packet"), 0)
+    }
+
+    // MARK: - what the recorder says of itself
+
+    /// An attach tells the host whether the recorder it took up gives a guide, as its description says, either
+    /// way.
+    func testAnAttachTellsTheHostWhetherTheRecorderGivesAGuide() async {
+        for gives in [false, true] {
+            let world = LinkWorld()
+            world.devices[Stub.host] = Recorder(at: Stub.host, udn: Self.udn, givesAGuide: gives, world: world)
+            let link = makeLink(world)
+
+            await link.connect()
+
+            XCTAssertTrue(link.session.connected)
+            XCTAssertEqual(link.session.info?.epgCapable, gives, "set up wrong")
+            XCTAssertEqual(world.givesAGuide, gives)
+        }
     }
 
     // MARK: - the local network permission

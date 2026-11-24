@@ -127,8 +127,9 @@ device, and a device the app comes to some other way registers again.
 
 The run is the model's (`BackgroundWork.refreshNow(in:)`), handed by `NightRun` what it reaches of Android: the
 model's defaults object, the app's folder, the sessions the screens send through, the television's registration, the
-helper's token, by which the run knows which device gives the guide, and notifications that do nothing, as the app
-posts none yet. `NightWorker` is asked for at each start of the app and
+helper's token, which with what the defaults keep -- the recorder's address, whether it gives a guide, the reader's
+choice -- tells the run which device gives the guide (`BackgroundWork.guideSource(in:)`), and notifications that do
+nothing, as the app posts none yet. `NightWorker` is asked for at each start of the app and
 again as it begins, as on iOS: one request waits at a time, tagged `overnight`, from the next 02:00 by the model's rule
 (`BackgroundWork.nextNightlyRun`), on an unmetered network, charging or not. A request not yet begun is replaced; a run
 under way is left alone, since replacing it would stop it.

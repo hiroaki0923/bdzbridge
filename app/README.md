@@ -1052,11 +1052,20 @@ whatever the cache's marks say; a connect only what is behind.
 
 All of that is where the recorder gives the home's guide. One device does, for the whole household
 (`GuideSourceChoice.of`): the television, through the helper on it, where a helper is registered and either no
-recorder is saved or the reader chose テレビ under 番組表の取得元; the recorder otherwise. The other device is asked
+recorder is saved, or the recorder is known to give no guide, or the reader chose テレビ under 番組表の取得元; the
+recorder otherwise. Whether the recorder gives a guide is what it said of itself (`EPG_CAP` in its description)
+as an attach last took it up, written down either way (`DefaultsKey.recorderGivesAGuide`) so that it is known
+before a connect and to the night: a recorder never heard counts as giving one, and the demo's invented
+recorder writes nothing there. Beside a recorder that gives none there is nothing to choose, and 番組表の取得元
+is the one line テレビ, as in a home with a television alone, the choice saved left as it was. The first connect
+that hears such a recorder, where that makes the television the source, fetches what is behind of the
+television's guide (`AppModel.recorderSaid(givesAGuide:)`), and a helper registered there fetches all of it at
+once. With no helper registered such a recorder gives the guide, as it always has, and an empty guide says that
+it has none (`GuideEmpty.notCapable`, said only where the recorder gives the guide). The other device is asked
 for no guide by itself. Where the television gives it, a connect to the recorder reads the reservations and the
 lists and starts no refresh (`AppModel.guideIsStale`), and the night wakes the recorder, sends what waits and
 reads the slot and the free space, and asks for no guide file (`RecorderDriver.refreshWithNoScreen`, told by the
-entry, which reads the three facts from what the screens saved, `BackgroundWork.guideSource(in:)`): the
+entry, which reads the four facts from what the screens saved, `BackgroundWork.guideSource(in:)`): the
 settings' 最終自動更新 is not written, nor is the row shown while the television gives the guide (what a night wrote
 before is kept, and said again once the recorder gives it; `AppModel.lastOvernightRefresh`), and the task is
 completed as it is in a home with no recorder, as having stored no guide. A night that reads the slot a second
@@ -1084,10 +1093,11 @@ recorder without 4K tuners comes to over the television's BS4K, the television's
 gave; and, for the television, once the helper has said what it has (`TVHelperGuide.notHad`,
 `GuideStore.empty`) and the fetch has the guide's turn, by what the cache holds then, so that a refresh of the
 recorder's that was out before it cannot put the type back afterwards. A recorder empties nothing until it has
-given a type itself: one that gives no guide answers that it has no file for every type, and added to a home
-that had a television alone, where it gives the guide until テレビ is chosen, it leaves the television's guide
-as it is. The guide then says of an emptied type what it says in a home with that device alone. Which stations
-the reader hid, and their order, stay.
+given a type itself: one that says it gives a guide and has no file of any type answers so for every type, and
+added to a home that had a television alone, where it gives the guide until テレビ is chosen, it leaves the
+television's guide as it is; one that says it gives none, added there, leaves the guide to the television. The
+guide then says of an emptied type what it says in a home with that device alone. Which stations the reader
+hid, and their order, stay.
 
 Connecting fetches only the broadcasting types that are behind the recorder's last rebuild, each judged by
 when the recorder last answered for it -- with its file, or with none to give (`GuideStore.noteNoGuide`). A

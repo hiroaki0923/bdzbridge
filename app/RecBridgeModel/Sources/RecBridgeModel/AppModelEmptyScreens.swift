@@ -114,7 +114,8 @@ extension AppModel {
         case narrowedToNothing
         /// The demo's guide is what the line-up invented, and a refresh would fetch the same again.
         case demo
-        /// A recorder that gives no guide.
+        /// A recorder that gives no guide, where it is the device the guide is fetched from: in a home with no
+        /// helper registered. Beside a helper the television gives the guide, and this is not said.
         case notCapable
         /// What went wrong, in the words of whoever knows.
         case cannotShow(String)
@@ -133,7 +134,7 @@ extension AppModel {
         if everyChannelHidden { return .everyChannelHidden }
         if narrowed, !programs.isEmpty { return .narrowedToNothing }
         if demo { return .demo }
-        if info?.epgCapable == false { return .notCapable }
+        if guideSource == .recorder, info?.epgCapable == false { return .notCapable }
         if let problem = whyNothingToShow { return .cannotShow(problem) }
         if cached == 0, counts.values.contains(where: { $0.programs > 0 }) { return .typeNotAnswered }
         if cached == 0 { return .notFetched }

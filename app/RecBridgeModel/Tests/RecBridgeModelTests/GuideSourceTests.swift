@@ -25,28 +25,35 @@ import XCTest
 final class GuideSourceTests: XCTestCase {
     // MARK: - the rule
 
-    /// One rule, of three facts: the television where a helper is registered and either no recorder is saved or
-    /// the reader chose the television; the recorder otherwise, a helper registered or not.
-    func testTheSourceIsTheTelevisionWithAHelperRegisteredAndNoRecorderOrTheReadersChoice() {
-        func source(_ recorderSaved: Bool, _ helperRegistered: Bool, _ preference: GuideSourceChoice)
-            -> GuideSourceChoice {
-            .of(recorderSaved: recorderSaved, helperRegistered: helperRegistered, preference: preference)
+    /// One rule, of four facts: the television where a helper is registered and either no recorder is saved, or
+    /// the one saved is known to give no guide, or the reader chose the television; the recorder otherwise, a
+    /// helper registered or not, and whether or not it gives a guide.
+    func testTheSourceIsTheTelevisionWithAHelperRegisteredAndNoRecorderOneWithNoGuideOrTheReadersChoice() {
+        func source(_ recorderSaved: Bool, _ givesAGuide: Bool, _ helperRegistered: Bool,
+                    _ preference: GuideSourceChoice) -> GuideSourceChoice {
+            .of(recorderSaved: recorderSaved, recorderGivesAGuide: givesAGuide, helperRegistered: helperRegistered,
+                preference: preference)
         }
-        XCTAssertEqual(source(true, true, .tv), .tv)
-        XCTAssertEqual(source(true, true, .recorder), .recorder)
-        XCTAssertEqual(source(false, true, .recorder), .tv, "a television alone gives the guide whatever was chosen")
-        XCTAssertEqual(source(false, true, .tv), .tv)
-        for recorderSaved in [true, false] {
-            for preference in [GuideSourceChoice.recorder, .tv] {
-                XCTAssertEqual(source(recorderSaved, false, preference), .recorder, "with no helper registered")
+        XCTAssertEqual(source(true, true, true, .tv), .tv)
+        XCTAssertEqual(source(true, true, true, .recorder), .recorder)
+        for preference in [GuideSourceChoice.recorder, .tv] {
+            XCTAssertEqual(source(true, false, true, preference), .tv,
+                           "a recorder that gives no guide leaves it to the television whatever was chosen")
+            for givesAGuide in [true, false] {
+                XCTAssertEqual(source(false, givesAGuide, true, preference), .tv,
+                               "a television alone gives the guide whatever was chosen")
+                for recorderSaved in [true, false] {
+                    XCTAssertEqual(source(recorderSaved, givesAGuide, false, preference), .recorder,
+                                   "with no helper registered")
+                }
             }
         }
     }
 
-    /// A run with no screen has no model to ask, and reads the same three facts from what the screens saved: the
-    /// recorder's address and the reader's choice in the defaults, the helper's registration in the store it is
-    /// handed -- which counts only with a television saved, as the model has a helper only with a television. In
-    /// each home it comes to what a model made in that home says.
+    /// A run with no screen has no model to ask, and reads the same four facts from what the screens saved: the
+    /// recorder's address, whether it gives a guide and the reader's choice in the defaults, the helper's
+    /// registration in the store it is handed -- which counts only with a television saved, as the model has a
+    /// helper only with a television. In each home it comes to what a model made in that home says.
     func testARunWithNoScreenComesToTheSourceTheModelSays() async throws {
         let home = try await aHome(recorderGives: [0])
         let defaults = home.bench.defaults
@@ -70,6 +77,15 @@ final class GuideSourceTests: XCTestCase {
         XCTAssertEqual(both("a television alone, the recorder chosen before"), .tv)
         defaults.set("", forKey: DefaultsKey.recorderHost)
         XCTAssertEqual(both("an address saved empty is none saved"), .tv)
+
+        defaults.set(Bench.host, forKey: DefaultsKey.recorderHost)
+        defaults.set(false, forKey: DefaultsKey.recorderGivesAGuide)
+        XCTAssertEqual(both("a recorder that gives no guide, the recorder chosen"), .tv)
+        home.tokens.remove()
+        XCTAssertEqual(both("a recorder that gives no guide and the helper's registration gone"), .recorder)
+        home.tokens.save("token")
+        defaults.set(true, forKey: DefaultsKey.recorderGivesAGuide)
+        XCTAssertEqual(both("a recorder that gives a guide, the recorder chosen"), .recorder)
     }
 
     // MARK: - a connect, with the television chosen
@@ -245,11 +261,12 @@ final class GuideSourceTests: XCTestCase {
 
     // MARK: - a type the chosen device does not have
 
-    /// A recorder that gives no guide, added to a home that had a television alone: the recorder gives the guide
-    /// from then on by the rule, nothing having been chosen, and has none to give. Its connect asks it for every
-    /// type -- the cache a morning old -- and is answered each time that it has no file; nothing of the
-    /// television's guide is emptied for it, since it has given no type itself, and the screen shows the
-    /// television's stations as it did.
+    /// A recorder that says it gives a guide and has no file of any type, added to a home that had a television
+    /// alone: the recorder gives the guide from then on by the rule, nothing having been chosen, and has none to
+    /// give. Its connect asks it for every type -- the cache a morning old -- and is answered each time that it has
+    /// no file; nothing of the television's guide is emptied for it, since it has given no type itself, and the
+    /// screen shows the television's stations as it did. One that says it gives none leaves the guide to the
+    /// television (`testARecorderThatSaysItGivesNoGuideAddedToAHomeWithATelevisionAloneLeavesItTheGuide`).
     func testARecorderWithNoGuideAddedToAHomeWithATelevisionAloneTakesNothingAway() async throws {
         let home = try await aHome(recorderGives: [])
         home.bench.defaults.removeObject(forKey: DefaultsKey.recorderHost)
@@ -415,6 +432,196 @@ final class GuideSourceTests: XCTestCase {
         try await expect("bs", .recorders, in: home)
     }
 
+    // MARK: - a recorder that gives no guide
+
+    /// What the recorder says of its guide (`RecorderDescription.epgCapable`) is kept as it says it at a connect,
+    /// either way, where a launch knows it before its own connect; never heard, it counts as giving one. The demo's
+    /// invented recorder, which gives one, leaves what is kept of the real one as it was, and so does leaving the
+    /// demo. Another recorder in its place that gives one puts it right.
+    func testWhatTheRecorderSaysOfItsGuideIsKeptAndPutRightAndTheDemoLeavesIt() async throws {
+        let home = try await aHome(registered: false, recorderGives: [0])
+        let defaults = home.bench.defaults
+        func kept() -> Bool? {
+            defaults.object(forKey: DefaultsKey.recorderGivesAGuide) == nil
+                ? nil : GuideSourceChoice.recorderGivesAGuide(in: defaults)
+        }
+        XCTAssertNil(kept())
+        XCTAssertTrue(self.model(in: home).recorderGivesAGuide, "a recorder never heard was taken to give no guide")
+
+        await home.recorder.describeItself(givingAGuide: false)
+        let model = try await started(home)
+        XCTAssertEqual(model.info?.epgCapable, false, "set up wrong: the recorder said it gives a guide")
+        XCTAssertEqual(kept(), false, "what the recorder said was not kept")
+        XCTAssertFalse(model.recorderGivesAGuide)
+        XCTAssertFalse(self.model(in: home).recorderGivesAGuide, "a launch did not know it before its connect")
+
+        await model.enterDemo()
+        try await untilConnected(model, "the demo's recorder was never connected")
+        XCTAssertTrue(model.demo, "set up wrong: the demo did not begin")
+        XCTAssertEqual(model.info?.epgCapable, true, "set up wrong: the demo's recorder said it gives no guide")
+        XCTAssertTrue(model.recorderGivesAGuide, "the demo's recorder was taken to give no guide")
+        XCTAssertEqual(kept(), false, "the demo's recorder wrote over what was kept of the real one")
+        await model.leaveDemo()
+        try await untilConnected(model, "the real recorder was never connected again")
+        XCTAssertEqual(kept(), false)
+        XCTAssertFalse(model.recorderGivesAGuide)
+
+        await home.recorder.become(2)
+        await home.recorder.describeItself(givingAGuide: true)
+        await reconnect(model)
+        try await until("the connect never came to rest") { !isConnecting(model) && model.busy == nil }
+        XCTAssertEqual(kept(), true, "another recorder in its place that gives a guide did not put it right")
+        XCTAssertTrue(model.recorderGivesAGuide)
+    }
+
+    /// A recorder that says it gives no guide, in a home whose helper is registered: the television gives the guide
+    /// from the first connect that hears it, nothing having been chosen, and there is nothing to choose --
+    /// 番組表の取得元 is the one line テレビ, as in a home with a television alone -- while the choice saved is left
+    /// as it was. That connect starts no refresh of the recorder's guide, and the television's is fetched as the
+    /// recorder is heard, once: the next connect fetches it again no more than it refreshes the recorder's. A type
+    /// the television has no guide of is said as in a home with a television alone, not as the guide of a recorder
+    /// that gives none. A launch after it knows all this before its connect.
+    func testARecorderThatGivesNoGuideLeavesTheGuideToTheTelevisionWithNothingToChoose() async throws {
+        let home = try await aHome(recorderGives: [])
+        await home.recorder.describeItself(givingAGuide: false)
+        let model = self.model(in: home)
+        XCTAssertEqual(model.guideSource, .recorder,
+                       "set up wrong: something was known of the recorder before a connect")
+        let refreshes = refreshesAfterAConnect(of: model)
+
+        await model.start()
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        try await until("the television's guide was never fetched") {
+            model.tvHelper?.lastCheck != nil && model.tvHelper?.isFetching == false
+        }
+        try await until("the launch never came to rest") { !isConnecting(model) && model.busy == nil }
+
+        XCTAssertEqual(model.info?.epgCapable, false, "set up wrong: the recorder said it gives a guide")
+        XCTAssertEqual(model.guideSource, .tv)
+        XCTAssertFalse(model.guideSourceIsChoosable)
+        XCTAssertEqual(model.guideSourceAlone, "テレビ")
+        XCTAssertNil(home.bench.defaults.object(forKey: DefaultsKey.guideSource), "the choice saved was written")
+        XCTAssertEqual(refreshes.all, [], "the connect started a refresh of the recorder's guide")
+        XCTAssertEqual(home.helper.asked.filter { $0.hasPrefix("/v1/guide/") }, ["/v1/guide/td", "/v1/guide/bs"],
+                       "the television's guide was not fetched once as the recorder was heard")
+        try await expect("td", .televisions, in: home)
+        try await expect("bs", .televisions, in: home)
+
+        let asked = home.helper.asked.count
+        let again = refreshesAfterAConnect(of: model)
+        await reconnect(model)
+        try await until("the connect never came to rest") { !isConnecting(model) && model.busy == nil }
+        XCTAssertEqual(home.helper.asked(since: asked), [], "the next connect asked the helper")
+        XCTAssertEqual(again.all, [], "the next connect started a refresh of the recorder's guide")
+
+        model.broadcasting = "cs"
+        await model.reloadFromCache()
+        XCTAssertEqual(model.guideShows(grid: false), .empty)
+        XCTAssertEqual(model.guideEmpty(narrowed: false), .typeNotAnswered,
+                       "a type the television has no guide of was said as the guide of a recorder that gives none")
+
+        let later = self.model(in: home)
+        XCTAssertEqual(later.guideSource, .tv, "a launch did not know before its connect that the recorder gives none")
+        XCTAssertFalse(later.guideSourceIsChoosable)
+        XCTAssertEqual(later.guideSourceAlone, "テレビ")
+    }
+
+    /// With no helper registered nothing changes for a recorder that says it gives no guide: it gives the guide,
+    /// its connect starts the refresh it always has, 番組表の取得元 is not said, and an empty day says that the
+    /// recorder gives no guide. What it said is kept all the same, so that a helper registered there takes the guide
+    /// over to the television at once (`registerHelper`), the choice saved left as it was.
+    func testWithNoHelperARecorderThatGivesNoGuideGivesTheGuideAsBefore() async throws {
+        let home = try await aHome(registered: false, recorderGives: [])
+        await home.recorder.describeItself(givingAGuide: false)
+        let model = self.model(in: home)
+        let refreshes = refreshesAfterAConnect(of: model)
+
+        await model.start()
+        try await untilConnected(model)
+        try await untilTheTelevisionIsConnected(model)
+        try await until("the launch never came to rest") { !isConnecting(model) && model.busy == nil }
+
+        XCTAssertEqual(model.info?.epgCapable, false, "set up wrong: the recorder said it gives a guide")
+        XCTAssertEqual(model.guideSource, .recorder)
+        XCTAssertFalse(model.guideSourceIsChoosable)
+        XCTAssertNil(model.guideSourceAlone)
+        XCTAssertEqual(refreshes.all, ["started"], "the connect did not start the refresh it always has")
+        XCTAssertEqual(model.guideEmpty(narrowed: false), .notCapable)
+        XCTAssertEqual(home.helper.asked, [])
+        XCTAssertFalse(GuideSourceChoice.recorderGivesAGuide(in: home.bench.defaults), "what it said was not kept")
+
+        let said = await model.registerHelper(code: "123456")
+        XCTAssertNil(said)
+        XCTAssertEqual(model.guideSource, .tv)
+        XCTAssertEqual(model.guideSourceAlone, "テレビ")
+        try await expect("td", .televisions, in: home,
+                         "the television's guide was not fetched as its helper was registered")
+        try await expect("bs", .televisions, in: home)
+        XCTAssertNil(home.bench.defaults.object(forKey: DefaultsKey.guideSource), "the choice saved was written")
+        model.broadcasting = "cs"
+        await model.reloadFromCache()
+        XCTAssertEqual(model.guideEmpty(narrowed: false), .typeNotAnswered)
+    }
+
+    /// A recorder that says it gives no guide, added to a home that had a television alone: the television goes on
+    /// giving the guide. The connect that hears the recorder starts no refresh of the recorder's guide, and the
+    /// television's guide stays as it was.
+    func testARecorderThatSaysItGivesNoGuideAddedToAHomeWithATelevisionAloneLeavesItTheGuide() async throws {
+        let home = try await aHome(recorderGives: [])
+        await home.recorder.describeItself(givingAGuide: false)
+        home.bench.defaults.removeObject(forKey: DefaultsKey.recorderHost)
+        let model = try await started(home, theHelperIsAsked: true)
+        try await expect("td", .televisions, in: home)
+        let refreshes = refreshesAfterAConnect(of: model)
+
+        await model.adopt(host: Bench.host)
+        try await untilConnected(model)
+        try await until("the connect never came to rest") {
+            !isConnecting(model) && model.busy == nil && model.tvHelper?.isFetching == false
+        }
+
+        XCTAssertEqual(model.guideSource, .tv)
+        XCTAssertEqual(model.guideSourceAlone, "テレビ")
+        XCTAssertEqual(refreshes.all, [], "the connect started a refresh of the recorder's guide")
+        try await expect("td", .televisions, in: home)
+        try await expect("bs", .televisions, in: home)
+        XCTAssertEqual(model.channels.map(\.name), [HelperOnTheTelevision.station("td")])
+    }
+
+    /// The overnight run reads what the screens kept of the recorder's guide (`BackgroundWork.guideSource(in:)`): in
+    /// a home whose recorder said it gives none and whose helper is registered, the television gives the guide, and
+    /// the night keeps its order, asks the helper nothing, and asks the recorder for no guide -- no type is marked as
+    /// answered for, 最終自動更新 is not written -- handing back that no guide was stored. With the helper's
+    /// registration gone, the recorder gives the guide again, and the night asks it for every type, which a
+    /// recorder that gives none answers by having none, each type marked as answered for.
+    func testTheNightReadsThatTheRecorderGivesNoGuide() async throws {
+        let home = try await aHome(recorderGives: [])
+        await home.recorder.describeItself(givingAGuide: false)
+        _ = try await started(home, theHelperIsAsked: true)
+        XCTAssertEqual(BackgroundWork.guideSource(in: noScreen(home)), .tv)
+
+        let heard = await home.recorder.heard.count
+        let asked = home.helper.asked.count
+        let stored = await BackgroundWork.refreshNow(in: noScreen(home))
+
+        XCTAssertFalse(stored, "the night said it stored a guide")
+        let since = await home.recorder.heard(since: heard)
+        XCTAssertEqual(since, [Ask.description, Ask.slot, Ask.freeSpace], "the night's order with the guide left out")
+        XCTAssertEqual(home.helper.asked(since: asked), [], "the night asked the helper")
+        let after = try await home.cache.counts()
+        XCTAssertNil(after["cs"]?.checked, "the night asked the recorder for a guide")
+        XCTAssertNil(home.bench.defaults.object(forKey: DefaultsKey.lastBackgroundRefresh),
+                     "最終自動更新 was written by a night that fetched no guide")
+
+        home.tokens.remove()
+        XCTAssertEqual(BackgroundWork.guideSource(in: noScreen(home)), .recorder)
+        _ = await BackgroundWork.refreshNow(in: noScreen(home))
+        let asTheSource = try await home.cache.counts()
+        XCTAssertNotNil(asTheSource["cs"]?.checked,
+                        "set up wrong: the night with the recorder the source asked it for no guide")
+    }
+
     // MARK: - what the screens say of the device
 
     /// The sentences that say which device the guide comes from name the one that gives this home's guide, by
@@ -556,6 +763,16 @@ final class GuideSourceTests: XCTestCase {
         return NoScreenSurroundings(defaults: home.bench.defaults, folder: { folder }, transport: { _ in recorder },
                                     tvTransport: { _ in way }, tvCredentials: home.credentials,
                                     tvHelperTokens: home.tokens, notifications: Notifications())
+    }
+
+    /// Notes `started` once the refresh a connect starts on finding the recorder's guide behind is started, as
+    /// Observation tells of the host's hold for it (`RecorderHost.refreshesTheGuideAfterAConnect`), from now on.
+    /// Told once, which is all a look at whether one was started needs.
+    private func refreshesAfterAConnect(of model: AppModel) -> Notices {
+        let started = Notices()
+        withObservationTracking({ _ = model.recorderHost.refreshesTheGuideAfterAConnect },
+                                onChange: { started.note("started") })
+        return started
     }
 
     /// Two days go by, as far as the cache's marks of when each type was fetched and answered for can tell.

@@ -309,6 +309,15 @@ final class RecorderHost: RecorderLinkHost {
         if remember(mac: text), !demo { defaults.set(host, forKey: DefaultsKey.recorderMacHost) }
     }
 
+    /// Written down either way, for the overnight run and the next launch to read, and told to the model, for
+    /// which device the guide is fetched from (`AppModel.recorderSaid(givesAGuide:)`). Not the demo's, whose
+    /// invented recorder is nobody's: what is kept of the real one stays as it was through the demo.
+    func keepWhetherItGivesAGuide(_ givesAGuide: Bool) {
+        guard let model, !demo else { return }
+        model.defaults.set(givesAGuide, forKey: DefaultsKey.recorderGivesAGuide)
+        model.recorderSaid(givesAGuide: givesAGuide)
+    }
+
     var macReadAt: String? { model?.defaults.string(forKey: DefaultsKey.recorderMacHost) }
 
     func macWasReadAt(_ host: String) {

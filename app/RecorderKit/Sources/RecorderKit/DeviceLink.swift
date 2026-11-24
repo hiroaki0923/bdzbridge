@@ -127,8 +127,8 @@ public protocol LinkHost: AnyObject, Sendable {
 }
 
 /// What only a recorder's link asks of its host (`RecorderDriver`): where the MAC it wakes the recorder by was
-/// read, another recorder describing itself where the last one was, and the cache made over to it or not. A
-/// television's link asks none of it, and its host is a `LinkHost` alone.
+/// read, whether the recorder gives a guide, another recorder describing itself where the last one was, and the
+/// cache made over to it or not. A television's link asks none of it, and its host is a `LinkHost` alone.
 @MainActor
 public protocol RecorderLinkHost: LinkHost {
     /// Where the MAC kept was read, or nil when nobody knows.
@@ -136,6 +136,10 @@ public protocol RecorderLinkHost: LinkHost {
     /// The MAC kept was read from the device now at `host`.
     func macWasReadAt(_ host: String)
     func forgetMac()
+    /// Whether the recorder an attach has taken up gives a guide, as it said of itself
+    /// (`RecorderDescription.epgCapable`), told at every such attach, either way: kept for what decides which
+    /// device the home's guide is fetched from, before a connect and in a run with no screen.
+    func keepWhetherItGivesAGuide(_ givesAGuide: Bool)
     /// Another device has described itself where the last one was: what the app holds of the last one goes, in
     /// this turn. `wasConnected` says whether it was connected to the last one when this one answered.
     func anotherDeviceDescribedItself(wasConnected: Bool)

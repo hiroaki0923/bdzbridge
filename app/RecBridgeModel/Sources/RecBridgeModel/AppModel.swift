@@ -303,6 +303,7 @@ public final class AppModel {
         let defaults = surroundings.defaults
         let demo = DemoData.on(in: defaults)
         self.demo = demo
+        savedRecorderGivesAGuide = GuideSourceChoice.recorderGivesAGuide(in: defaults)
         let days = GuideStore.broadcastDays()
         self.days = days
         // The address as saved, or the demo's, and nothing written while the model is made: the unit-test host
@@ -344,6 +345,12 @@ public final class AppModel {
     /// the demo writes its guide to a database of its own, so nothing of it is left behind afterwards. A copy
     /// of `DemoData.on(in:)` rather than a read of it: that lives in UserDefaults, where no screen sees it change.
     public var demo: Bool
+
+    /// Whether the real recorder gives a guide, as it said of itself when it was last taken up, and true while it
+    /// never has: a copy of what the defaults keep (`DefaultsKey.recorderGivesAGuide`), for the reason `demo` is
+    /// one, written with it (`recorderSaid(givesAGuide:)`). The demo's invented recorder writes nothing here. What
+    /// decides where the guide comes from reads it through `recorderGivesAGuide`.
+    var savedRecorderGivesAGuide: Bool
 
     /// True while something is going on that a second request would only get in the way of. Waking is not
     /// one of them, on purpose -- see `waking`.
