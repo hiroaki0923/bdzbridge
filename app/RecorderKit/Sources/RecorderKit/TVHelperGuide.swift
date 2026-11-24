@@ -120,14 +120,37 @@ public final class TVHelperGuide {
     private func fetchTypes(every: Bool, into store: GuideStore, host: (any LinkHost)?, line: Activities.Token?,
                             televisionAnswers: @MainActor () -> Bool,
                             stored: @escaping @MainActor @Sendable (String) async -> Void) async -> String? {
-        let info: TVHelperInfo
+        let outcome: GuideRefresh.Outcome
         do {
-            info = try await client.info()
+            outcome = try await Self.fetchTypes(every: every, from: client, into: store, checked: {
+                self.lastCheck = Date()
+            }, onType: { broadcasting in
+                if let line { host?.updateActivity(line, to: Self.line(for: broadcasting)) }
+                return true
+            }, onStored: stored)
         } catch TVHelperError.transport {
             return Self.silence(televisionAnswers: televisionAnswers())
         } catch {
             return Self.said(error)
         }
+        var lines = RecorderDriver.guideFailed(outcome.failed)
+        if outcome.stopped == .silent { lines.append(Self.silence(televisionAnswers: televisionAnswers())) }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    /// The fetch's steps, which have no line and keep nothing of their own: the helper is asked what it has, the
+    /// types to fetch are judged -- those it has programmes of that are behind (`behind`), or all of them
+    /// (`every`) -- and `checked` is told; then the types are fetched in the guide's one turn (`GuideRefresh.run`),
+    /// in which a type the television does not have is emptied first (`notHad`), and each type answered for has
+    /// the helper's mark of its copy noted, so that the next fetch passes over a copy it has. What the turn came
+    /// to is handed back. What the helper said in place of what it has is thrown, with nothing asked after it.
+    /// `onType` and `onStored` are handed to the turn as they are.
+    nonisolated static func fetchTypes(every: Bool, from client: TVHelperClient, into store: GuideStore,
+                                       checked: (@MainActor @Sendable () -> Void)? = nil,
+                                       onType: (@MainActor @Sendable (String) -> Bool)? = nil,
+                                       onStored: (@MainActor @Sendable (String) async -> Void)? = nil)
+        async throws -> GuideRefresh.Outcome {
+        let info = try await client.info()
         var types = GuideRefresh.broadcastingTypes.filter { (info.types[$0]?.programs ?? 0) > 0 }
         if !every {
             let held = (try? await store.counts()) ?? [:]
@@ -135,27 +158,22 @@ public final class TVHelperGuide {
             for broadcasting in types {
                 filledFrom[broadcasting] = try? await store.helperChanged(broadcasting: broadcasting)
             }
-            types = Self.behind(types, by: info, held: held, filledFrom: filledFrom)
+            types = behind(types, by: info, held: held, filledFrom: filledFrom)
         }
-        lastCheck = Date()
+        await checked?()
         // The turn is taken with nothing to fetch as well: what the television does not have is emptied in it.
-        let outcome = await GuideRefresh.run(asked: .only(types), onTurn: { [client] in
+        let outcome = await GuideRefresh.run(asked: .only(types), onTurn: {
             let held = (try? await store.counts()) ?? [:]
-            for broadcasting in Self.notHad(by: info, held: held) {
+            for broadcasting in notHad(by: info, held: held) {
                 try? await store.empty(broadcasting: broadcasting, notHadBy: TVHelperClient.slot)
             }
             return .fetch(client: client, store: store, from: nil)
-        }, onType: { broadcasting in
-            if let line { host?.updateActivity(line, to: Self.line(for: broadcasting)) }
-            return true
-        }, onStored: stored)
+        }, onType: onType, onStored: onStored)
         for broadcasting in outcome.answered {
             try? await store.noteHelperChanged(broadcasting: broadcasting,
                                                at: info.types[broadcasting]?.changedAt ?? Date())
         }
-        var lines = RecorderDriver.guideFailed(outcome.failed)
-        if outcome.stopped == .silent { lines.append(Self.silence(televisionAnswers: televisionAnswers())) }
-        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+        return outcome
     }
 
     /// The types of `types` that are behind what the helper has, and are fetched with nobody having pressed:
