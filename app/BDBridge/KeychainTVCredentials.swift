@@ -5,7 +5,8 @@ import RecorderKit
 /// The television's registration in the Keychain: one item, readable after the first unlock and on this device
 /// only, holding the credentials' JSON sealed with a key kept in a file of the app's own (`SealedKeychainItem`,
 /// which says how the item is kept and read). The file goes when the app is deleted, and with it the only way to
-/// open what the Keychain may keep.
+/// open what the Keychain may keep. The helper's token is kept apart from it, with a key of its own
+/// (`KeychainTVHelperToken`).
 ///
 /// Readable after the first unlock, so that the overnight run and the Shortcuts action can send with it while the
 /// phone is locked, and kept on this device only: the client id lets anything on the LAN get a cookie from the

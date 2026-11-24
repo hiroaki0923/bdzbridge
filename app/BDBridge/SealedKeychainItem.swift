@@ -6,8 +6,8 @@ import Security
 /// CryptoKit) with a key kept in a file of the app's own. The file goes when the app is deleted, and with it the
 /// only way to open what the Keychain may keep. What becomes of a Keychain item when its app is deleted Apple
 /// documents neither way; the key file is the app's data, which goes with it, so an item left behind opens for
-/// nobody, the next install of the app included. The television's registration is kept in one
-/// (`KeychainTVCredentials`).
+/// nobody, the next install of the app included. The television's registration and the helper's token are each
+/// kept in one, with a key file of its own (`KeychainTVCredentials`, `KeychainTVHelperToken`).
 ///
 /// Reading never writes and never deletes. Before the first unlock neither the item nor the key can be read, and
 /// that reads as nothing with nothing touched. An item that does not open with the key -- one sealed with a key

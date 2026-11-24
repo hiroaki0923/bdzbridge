@@ -547,13 +547,15 @@ hosted by the app would have to find a row by its words, and SwiftUI tells UIKit
 accessibility is on, for which the system has no public switch there; a UI test finds them in the supported
 way.
 
-`TVCredentialStoreTests` is the one place a test reaches the simulator's own: its Keychain, under a service of
-the test's own, and a key file in a folder of the test's own, both removed when it ends; the app's own item and
-key file are never touched. It holds where and how the registration is kept (below, under what works): sealed,
-the key gone as a deleted app leaves it, the plain item of earlier builds, a key file that cannot be read, one of
-another length, and one that cannot be written. Not the key file's protection: the simulator enforces none, and
-reports the default whatever the file was written with. That, a read before the first unlock, a deleted app and
-a restore are a phone's to show.
+`TVCredentialStoreTests` and `TVHelperTokenStoreTests` are the only tests that reach the simulator's own: its
+Keychain, under a service of the test's own, and key files in a folder of the test's own, all removed when the
+test ends; the app's own items and key files are never touched. The first holds where and how the registration is kept
+(below, under what works): sealed, the key gone as a deleted app leaves it, the plain item of earlier builds, a
+key file that cannot be read, one of another length, and one that cannot be written. The second holds the same of
+the helper's token as far as it is the token's own -- sealed, the key gone, the plain token of earlier builds --
+and that the token and the registration are removed apart. Not the key file's protection: the simulator enforces
+none, and reports the default whatever the file was written with. That, a read before the first unlock, a deleted
+app and a restore are a phone's to show.
 
 What they cannot reach is what the model keeps off the network in a test: the magic packet itself -- the
 wait for an answer after one is tried, by the tests that save a MAC --, the look at the local network
@@ -767,6 +769,12 @@ is, so a phone with a television registered says 登録が必要です once: 登
 broadcast, asks for the number on its panel once, and the registration made then is sealed over the old item.
 The television then lists a second 「RecBridge」 beside the first. An earlier build put back reads the sealed item
 as no registration in its turn, and asks for the number again.
+
+The helper's token was kept plain until a later build sealed it as well, and goes the same way: a phone registered
+with the helper reads that token as none after the update and is registered again under ヘルパーに登録, with the
+number the helper shows. Until then nothing asks the helper, so where the television gave the guide beside a
+recorder that gives one, the guide is the recorder's again. The helper lists a second 「RecBridge (iPhone)」 beside
+the first until that one is taken off there with 取り消す.
 
 ## TestFlight
 
@@ -1181,6 +1189,19 @@ the number is asked. Reading changes nothing: before the first unlock neither ca
 registration with both left as they are; an item that does not open with the key reads as none and is left for the
 next registration to write over. A save with no key writes the key first and the item only once the key is on disk,
 and a key file that cannot be read holds both as they are. テレビを外す deletes the item and the key.
+
+The helper's token -- which lets anything on the LAN read the television's guide and what the helper tells of the
+television and of itself, and nothing else -- is kept the same way and by the same code (`SealedKeychainItem`): a Keychain item of its own under the same service, readable
+once the phone has been unlocked after a restart, so that the overnight run can fetch the television's guide with
+the phone locked, and kept on this device only (`KeychainTVHelperToken`). It is sealed with a key of its own, in
+`Application Support/television-helper.key`, because the two are removed apart: ヘルパーの登録を解除 deletes the
+token's item and its key and leaves the registration as it is, and テレビを外す deletes both items and both keys.
+An item that stays after the app is deleted opens for nobody here too, so the app installed again has no token,
+and is registered with the helper again by the number the helper shows on the television; the helper goes on listing the
+earlier registration until it is cancelled there with 取り消す. A restore to the same phone brings back the item and
+the key; on another phone there is no item. What is said above of reading and saving holds for the token as well,
+and a plain token, as builds before the seal wrote it, reads as none and is left for the next registration to write
+over.
 
 Searching, over any of three lists: programmes still to come, whose title, description or details contain the
 words, across every broadcasting type and all eight days; the reservations the recorder holds; and the
