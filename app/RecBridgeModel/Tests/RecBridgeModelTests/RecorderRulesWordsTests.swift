@@ -38,4 +38,32 @@ final class RecorderRulesWordsTests: XCTestCase {
         XCTAssertEqual(state.closingLabel(for: answer), "OK")
         XCTAssertEqual(state.closingLabel(for: answer), SheetWords.okLabel)
     }
+
+    func testTheFormSaysWhatItAlwaysSaid() {
+        XCTAssertEqual(RecorderRuleSheetState.failureTitle, "エラー")
+        XCTAssertEqual(RecorderRuleSheetState.registerLabel, "レコーダーに登録")
+        XCTAssertEqual(RecorderRuleSheetState.keywordHeading, "キーワード")
+        XCTAssertEqual(RecorderRuleSheetState.keywordPlaceholder, "キーワード")
+        XCTAssertEqual(RecorderRuleSheetState.addKeywordLabel, "キーワードを追加")
+        XCTAssertEqual(RecorderRuleSheetState.excludedHeading, "除外ワード")
+        XCTAssertEqual(RecorderRuleSheetState.excludedPlaceholder, "除外ワード")
+        XCTAssertEqual(RecorderRuleSheetState.addExclusionLabel, "除外ワードを追加")
+        XCTAssertEqual(RecorderRuleSheetState.logicLabel, "検索方法")
+        XCTAssertEqual(RecorderRuleSheetState.narrowingHeading, "絞り込み")
+        XCTAssertEqual(RecorderRuleSheetState.subGenreLabel, "サブジャンル")
+        XCTAssertEqual(RecorderRuleSheetState.scopeLabel, "放送")
+        XCTAssertEqual(RecorderRuleSheetState.timeLabel, "時間帯")
+        XCTAssertEqual(RecorderRuleSheetState.removeRowLabel, "この行を削除")
+        XCTAssertEqual(RecorderRuleSheetState.anyGenreLabel, "指定しない")
+        XCTAssertEqual(RecorderRuleSheetState.allSubGenresLabel, "すべて")
+    }
+
+    /// The form's labels that the sheets say too are the sheets' words, and the form's alert is the list's.
+    func testTheFormSaysTheWordsOfTheScreensItSharesThemWith() {
+        XCTAssertEqual([SheetWords.genre, SheetWords.quality, SheetWords.disk, SheetWords.cancelLabel, SheetWords.okLabel],
+                       ["ジャンル", "録画モード", "録画先", "キャンセル", "OK"])
+        XCTAssertEqual(RecorderRuleSheetState.failureTitle, RecorderRulesState.failureTitle)
+        XCTAssertEqual(RecorderRuleSheetState.keywordPlaceholder, RecorderRuleSheetState.keywordHeading)
+        XCTAssertEqual(RecorderRuleSheetState.excludedPlaceholder, RecorderRuleSheetState.excludedHeading)
+    }
 }

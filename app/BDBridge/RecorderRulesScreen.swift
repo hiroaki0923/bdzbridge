@@ -117,70 +117,70 @@ struct RecorderRuleSheet: View {
             Form {
                 Section {
                     ForEach($sheet.draft.keywords) { $word in
-                        WordRow(placeholder: "キーワード", text: $word.text,
+                        WordRow(placeholder: RecorderRuleSheetState.keywordPlaceholder, text: $word.text,
                                 remove: sheet.draft.mayRemoveKeyword ? { sheet.removeKeyword(word.id) } : nil)
                     }
                     .onDelete { sheet.draft.keywords.remove(atOffsets: $0) }
                     if sheet.draft.mayAddKeyword {
-                        Button("キーワードを追加", systemImage: "plus") { sheet.addKeyword() }
+                        Button(RecorderRuleSheetState.addKeywordLabel, systemImage: "plus") { sheet.addKeyword() }
                     }
                 } header: {
-                    Text("キーワード")
+                    Text(RecorderRuleSheetState.keywordHeading)
                 } footer: {
                     Text(sheet.keywordFooter)
                 }
 
                 Section {
                     ForEach($sheet.draft.excluded) { $word in
-                        WordRow(placeholder: "除外ワード", text: $word.text,
+                        WordRow(placeholder: RecorderRuleSheetState.excludedPlaceholder, text: $word.text,
                                 remove: { sheet.removeExclusion(word.id) })
                     }
                     .onDelete { sheet.draft.excluded.remove(atOffsets: $0) }
                     if sheet.draft.mayAddExclusion {
-                        Button("除外ワードを追加", systemImage: "plus") { sheet.addExclusion() }
+                        Button(RecorderRuleSheetState.addExclusionLabel, systemImage: "plus") { sheet.addExclusion() }
                     }
                     if sheet.draft.asksHowToCombine {
-                        Picker("検索方法", selection: $sheet.draft.logic) {
+                        Picker(RecorderRuleSheetState.logicLabel, selection: $sheet.draft.logic) {
                             ForEach(RecorderRuleDraft.logics, id: \.self) { Text($0.label).tag($0.code) }
                         }
                     }
                 } header: {
-                    Text("除外ワード")
+                    Text(RecorderRuleSheetState.excludedHeading)
                 } footer: {
                     Text(RecorderRuleSheetState.excludedFooter)
                 }
 
                 Section {
-                    Picker("ジャンル", selection: $sheet.draft.genre) {
-                        Text("指定しない").tag(Int?.none)
+                    Picker(SheetWords.genre, selection: $sheet.draft.genre) {
+                        Text(RecorderRuleSheetState.anyGenreLabel).tag(Int?.none)
                         ForEach(RecorderRuleDraft.genres, id: \.self) { level in
                             Text(Codes.genreLabel[level] ?? "").tag(Int?.some(level))
                         }
                     }
                     if !sheet.subGenres.isEmpty {
-                        Picker("サブジャンル", selection: $sheet.draft.subGenre) {
-                            Text("すべて").tag(Int?.none)
+                        Picker(RecorderRuleSheetState.subGenreLabel, selection: $sheet.draft.subGenre) {
+                            Text(RecorderRuleSheetState.allSubGenresLabel).tag(Int?.none)
                             ForEach(sheet.subGenres, id: \.self) { level2 in
                                 Text(Codes.subGenre(level1: sheet.draft.genre, level2: level2) ?? "").tag(Int?.some(level2))
                             }
                         }
                     }
-                    Picker("放送", selection: $sheet.draft.broadcastingScope) {
+                    Picker(RecorderRuleSheetState.scopeLabel, selection: $sheet.draft.broadcastingScope) {
                         ForEach(sheet.broadcastingScopes, id: \.self) {
                             Text($0.label).tag($0.code)
                         }
                     }
-                    Picker("時間帯", selection: $sheet.draft.timeScope) {
+                    Picker(RecorderRuleSheetState.timeLabel, selection: $sheet.draft.timeScope) {
                         ForEach(RecorderRuleDraft.timeScopes, id: \.self) { Text($0.label).tag($0.code) }
                     }
-                    Picker("録画モード", selection: $sheet.draft.quality) {
+                    Picker(SheetWords.quality, selection: $sheet.draft.quality) {
                         ForEach(RecorderDriver.recordsIn, id: \.self) { code in
                             Text(Codes.qualityLabel[code] ?? code).tag(code)
                         }
                     }
                     NewDiskRow(chosen: $sheet.chosenDisk)
                 } header: {
-                    Text("絞り込み")
+                    Text(RecorderRuleSheetState.narrowingHeading)
                 } footer: {
                     Text(RecorderRuleSheetState.narrowingFooter)
                 }
@@ -189,22 +189,22 @@ struct RecorderRuleSheet: View {
             // The strip, as on a recording's sheet: the registration's line from the press, the waking and the
             // wait for the USB slot, which the screen's strip under the sheet cannot be seen to say.
             .recorderActivity(inSheet: true)
-            .navigationTitle("条件を追加")
+            .navigationTitle(RecorderRuleSheetState.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("キャンセル") { dismiss() }.disabled(sheet.asking)
+                    Button(SheetWords.cancelLabel) { dismiss() }.disabled(sheet.asking)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("レコーダーに登録") { sheet.register() }
+                    Button(RecorderRuleSheetState.registerLabel) { sheet.register() }
                         .disabled(sheet.holdsRegistering)
                 }
             }
             .interactiveDismissDisabled(sheet.asking)
             .onChange(of: sheet.done) { if sheet.done { dismiss() } }
-            .alert("エラー",
+            .alert(RecorderRuleSheetState.failureTitle,
                    isPresented: Binding(get: { sheet.failureMessage != nil }, set: { if !$0 { sheet.failureClosed() } })) {
-                Button("OK", role: .cancel) {}
+                Button(SheetWords.okLabel, role: .cancel) {}
             } message: {
                 Text(sheet.failureMessage ?? "")
             }
@@ -230,7 +230,7 @@ struct WordRow: View {
                     Image(systemName: "minus.circle.fill")
                 }
                 .buttonStyle(.borderless)
-                .accessibilityLabel("この行を削除")
+                .accessibilityLabel(RecorderRuleSheetState.removeRowLabel)
             }
         }
     }

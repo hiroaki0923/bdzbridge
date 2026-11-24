@@ -173,10 +173,46 @@ public final class RecorderRuleSheetState {
         draft = RecorderRuleDraft(quality: DefaultQuality.current(in: model.defaults))
     }
 
-    // MARK: - the words
+    // MARK: - the sheet's words
 
     /// The form's title, and the name of the button that opens it (`RecorderRulesState.addLabel`).
     public static let title = "条件を追加"
+
+    /// The title of the alert that says why a registration was turned down: the list's (`RecorderRulesState`).
+    public static let failureTitle = RecorderRulesState.failureTitle
+
+    /// The button that sends the condition.
+    public static let registerLabel = "レコーダーに登録"
+
+    /// Over the keyword rows, and what an empty one says in its field.
+    public static let keywordHeading = "キーワード"
+    public static let keywordPlaceholder = keywordHeading
+    public static let addKeywordLabel = "キーワードを追加"
+
+    /// Over the rows of the words left out, and what an empty one says in its field.
+    public static let excludedHeading = "除外ワード"
+    public static let excludedPlaceholder = excludedHeading
+    public static let addExclusionLabel = "除外ワードを追加"
+
+    /// 検索方法, which asks how the keywords are combined once there is more than one.
+    public static let logicLabel = "検索方法"
+
+    /// Over the narrowing, and the labels of its pickers that no other sheet says: the sub-genre, the broadcast and the
+    /// time of day. 放送 is said of a programme's station on the sheets (`SheetWords.station`), by another word that
+    /// happens to be spelt the same. The genre, the mode and the disk are the sheets' (`SheetWords`).
+    public static let narrowingHeading = "絞り込み"
+    public static let subGenreLabel = "サブジャンル"
+    public static let scopeLabel = "放送"
+    public static let timeLabel = "時間帯"
+
+    /// The first choice of the genre's picker and of the sub-genre's.
+    public static let anyGenreLabel = "指定しない"
+    public static let allSubGenresLabel = "すべて"
+
+    /// What a row's button that takes it away is called for a screen reader.
+    public static let removeRowLabel = "この行を削除"
+
+    // MARK: - the words
 
     public func addKeyword() {
         if draft.mayAddKeyword { draft.keywords.append(.init()) }
