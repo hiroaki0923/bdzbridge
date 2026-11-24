@@ -31,10 +31,12 @@ struct WelcomeView: View {
                         Text("RecBridge").font(.largeTitle.bold())
                         // Which recorders first: somebody with another maker's would otherwise go through the
                         // steps below and learn it only from a scan that found nothing. The television is
-                        // somewhere to send a reservation, not a guide.
+                        // somewhere to send a reservation, and gives a guide of its own once its helper is
+                        // installed on it.
                         Text("ソニーのブルーレイディスクレコーダー（BDZ シリーズ）用のアプリです。"
                              + "レコーダーの番組表を iPhone で見て、録画予約や録画した番組の整理ができます。"
                              + "USB ハードディスクに録画できるソニーのテレビにも、録画予約を送れます。"
+                             + "テレビにアプリ「RecBridge ヘルパー」を入れると、レコーダーがなくても、テレビの番組表から録画予約ができます。"
                              + "まず、お使いのレコーダーとテレビを追加しましょう。")
                             .foregroundStyle(.secondary)
                     }
