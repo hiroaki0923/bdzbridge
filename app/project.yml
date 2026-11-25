@@ -80,6 +80,13 @@ targets:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # On an iPad every orientation: iPadOS 26 letterboxes an app that lists portrait alone, and 27 turns it
+        # whatever is listed.
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         # The recorder and the television are reached over plain HTTP on the LAN, and nowhere else.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
