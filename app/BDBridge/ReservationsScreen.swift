@@ -9,8 +9,9 @@ struct ReservationsScreen: View {
     @Environment(AppModel.self) private var model
     /// What is swiped and asked on this screen, and what it says over its list: the model's (`ReservationsState`).
     @State private var state: ReservationsState
-    /// The reservation open, made here as its row is tapped and handed to its sheet, rather than made by the sheet.
-    @State private var opened: ReservationSheetState?
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// The reservation open, made here as its row is tapped and handed to the sheet or the column (`OpenRow`).
+    @State private var row = OpenRow<ReservationSheetState>()
     @State private var welcoming = false
 
     init(model: AppModel) {
@@ -35,6 +36,13 @@ struct ReservationsScreen: View {
                     }
                 }
             }
+            // Pulling down is the reader asking, which is the one thing that gets another go at a recorder
+            // the app is not connected to, and at a television: both devices, side by side. Put on the list's side
+            // of the column, which would take it from anywhere further out and reload the list from a pull inside
+            // a reservation.
+            .refreshable { await model.pullDownReservations() }
+            // On a regular width a reservation opens beside the list, under the bar, rather than over it.
+            .inspectorColumn(row, inColumn: inColumn) { ReservationColumn(sheet: $0, close: row.close) }
             .recorderActivity()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -76,9 +84,6 @@ struct ReservationsScreen: View {
                     .disabled(!model.connected)
                 }
             }
-            // Pulling down is the reader asking, which is the one thing that gets another go at a recorder
-            // the app is not connected to, and at a television: both devices, side by side.
-            .refreshable { await model.pullDownReservations() }
             // Keyed as the recordings are, on `connected` and on what the load itself checks. A connect reads
             // this list by itself, but the waking that a check before an operation does reads it only when it
             // has sent something from the queue, and the screen would go on showing what was read before the
@@ -94,7 +99,8 @@ struct ReservationsScreen: View {
             // state moved. A television that cannot be asked is sent nothing by this; a connect that reaches
             // one reads its list itself (`TVHost.reached`).
             .task { await model.loadReservations(of: .tv) }
-            .sheet(item: $opened) { ReservationSheet(sheet: $0) }
+            .sheet(item: row.sheetShown(inColumn: inColumn)) { ReservationSheet(sheet: $0) }
+            .onChange(of: openedIsListed) { if !$1 { closeOffTheList() } }
             // The reservation picked for deletion is the last recorder's when its lists are let go of: see
             // `timesForgotten`. The sheet closes itself. Not a waiting reservation picked for deletion, which
             // is the reader's and no recorder's. A television's row goes the same way with the television's
@@ -133,6 +139,27 @@ struct ReservationsScreen: View {
             }
         }
         .welcomesHere($welcoming, model: model)
+    }
+
+    /// Whether a reservation opens beside the list, in the system's inspector, rather than in a sheet over it: on a
+    /// regular width, an iPad's. Never on an iPhone, which keeps the sheet it has always had.
+    private var inColumn: Bool { sizeClass == .regular }
+
+    /// The reservation the list marks as the one in the column, by what tells its rows apart. None in a sheet, which
+    /// covers the list.
+    private var marked: String? { inColumn ? row.opened?.reservation.listKey : nil }
+
+    /// Whether the reservation open is still one of either device's rows, whichever kind is shown: one deleted by a
+    /// swipe on its own row beside the column, or gone from the list read again, is not.
+    private var openedIsListed: Bool {
+        guard let opened = row.opened else { return true }
+        return model.reservation(listKey: opened.reservation.listKey) != nil
+    }
+
+    /// A reservation gone from the list beside the column takes the column with it, unless a request of its own is
+    /// out. A sheet covers the list and stays, as it always has.
+    private func closeOffTheList() {
+        if inColumn { row.closeUnlessAsking() }
     }
 
     private var list: some View {
@@ -175,7 +202,9 @@ struct ReservationsScreen: View {
             ForEach(model.reservationSections) { section in
                 Section(section.title) {
                     ForEach(section.items, id: \.listKey) { reservation in
-                        Button { opened = ReservationSheetState(reservation: reservation, model: model) } label: {
+                        Button {
+                            row.open { ReservationSheetState(reservation: reservation, model: model) }
+                        } label: {
                             ReservationRowView(reservation: reservation,
                                                channel: model.channelName(for: reservation),
                                                logo: model.logo(for: reservation),
@@ -184,6 +213,7 @@ struct ReservationsScreen: View {
                                 .rowHitArea()
                         }
                         .buttonStyle(.plain)
+                        .markedOpen(marked == reservation.listKey)
                         // Red without `role: .destructive`, which would animate the row away before there
                         // is an answer (see `titleSwipe`). A full swipe is off as well: this one asks first.
                         .swipeActions(allowsFullSwipe: false) {

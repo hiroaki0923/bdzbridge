@@ -5,7 +5,7 @@ import SwiftUI
 /// One programme: what it is, whether the recorder is already set to record it -- or will be, once a
 /// reservation waiting on this phone reaches it -- and the two choices that go with a new reservation. What the
 /// sheet holds, offers, holds back and says, and what each press does, are the model's (`ProgramSheetState`):
-/// this lays it out, in a sheet over the screen or, from the guide on an iPad, in a column beside it
+/// this lays it out, in a sheet over the screen or, from the guide or the search on an iPad, in a column beside it
 /// (`ProgramColumn`), the same rows over the same state either way (`ProgramDetails`).
 struct ProgramSheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -28,9 +28,9 @@ struct ProgramSheet: View {
     }
 }
 
-/// The programme in the guide's inspector, the column beside the guide on a regular width, an iPad's, under a row
-/// with its title and its close (`columnTitle`). A request that is done leaves it open, where the sheet closes
-/// itself: the column holds nothing of the guide up, and shows what became of the programme.
+/// The programme in the inspector beside the guide or the search's results, on a regular width, an iPad's, under a
+/// row with its title and its close (`columnTitle`). A request that is done leaves it open, where the sheet closes
+/// itself: the column holds nothing beside it up, and shows what became of the programme.
 struct ProgramColumn: View {
     let sheet: ProgramSheetState
     /// What the close does: an inspector is closed by its binding, not by the system's dismiss.

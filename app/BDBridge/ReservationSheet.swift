@@ -4,9 +4,10 @@ import SwiftUI
 
 /// One reservation as the device that holds it has it -- the recorder, or the television -- with the way to
 /// change it and to undo it. What the sheet holds, offers, holds back and says, and what each press does, are
-/// the model's (`ReservationSheetState`): this lays it out.
+/// the model's (`ReservationSheetState`): this lays it out, in a sheet over the screen or, on an iPad, in a column
+/// beside the list it was opened from (`ReservationColumn`), the same rows over the same state either way
+/// (`ReservationDetails`).
 struct ReservationSheet: View {
-    @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var sheet: ReservationSheetState
 
@@ -22,91 +23,124 @@ struct ReservationSheet: View {
         self.init(sheet: ReservationSheetState(reservation: reservation, model: model))
     }
 
+    var body: some View {
+        NavigationStack {
+            ReservationDetails(sheet: sheet)
+                .navigationTitle(ReservationSheetState.sheetTitle)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { SheetCloseButton().disabled(sheet.asking != nil) }
+                .onChange(of: sheet.done) { if $1 { dismiss() } }
+                .closesWithItsDevice(sheet.reservation.device)
+        }
+    }
+}
+
+/// The reservation in the inspector beside the list it was opened from, on a regular width, an iPad's, under a row
+/// with its title and its close (`columnTitle`). It closes wherever the sheet closes itself (`done`): after a delete
+/// or a change, and after the report of one that failed. And with the lists of the device that holds it.
+struct ReservationColumn: View {
+    let sheet: ReservationSheetState
+    /// What the close does: an inspector is closed by its binding, not by the system's dismiss.
+    let close: () -> Void
+
+    var body: some View {
+        ReservationDetails(sheet: sheet)
+            .columnTitle(ReservationSheetState.sheetTitle, held: sheet.asking != nil, close: close)
+            .onChange(of: sheet.done) { if $1 { close() } }
+            .closesWithItsDevice(sheet.reservation.device, close: close)
+    }
+}
+
+/// What the screen that keeps a reservation open reads of it (`OpenRow`): the change or the delete it sent, and its
+/// one question or report.
+extension ReservationSheetState: RowSheetState {
+    var requestOut: Bool { asking != nil }
+    var hasSomethingToSay: Bool { isAsking }
+}
+
+/// The reservation's rows and what they do, in the sheet and in the column alike.
+private struct ReservationDetails: View {
+    @Environment(AppModel.self) private var model
+    let sheet: ReservationSheetState
+
     private var reservation: Reservation { sheet.reservation }
 
     var body: some View {
-        NavigationStack {
-            List {
-                // A television is never woken, so the recorder's waking is nothing to a row of its own.
-                if !sheet.onTelevision { WakingSection() }
-                Section {
-                    Text(reservation.title).font(.headline)
-                    LabeledContent(SheetWords.station, value: model.channelName(for: reservation))
-                    LabeledContent(SheetWords.starts, value: Format.dateTime.string(from: reservation.start))
-                    LabeledContent(SheetWords.length, value: Format.duration(reservation.durationSec))
-                    if sheet.onTelevision {
-                        televisionsValues
-                    } else {
-                        recordersValues
-                    }
-                }
-
-                if reservation.recording || reservation.conflict || reservation.createdByRecorder {
-                    Section {
-                        if reservation.recording { Text(SheetWords.recordingLine).foregroundStyle(.red) }
-                        if reservation.conflict { conflictRow }
-                        if reservation.createdByRecorder {
-                            Text(RecorderDriver.madeByItself)
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                if let program = sheet.program, !program.summary.isEmpty {
-                    Section(SheetWords.summaryHeading) { Text(program.summary) }
-                }
-                if let program = sheet.program, !program.extended.isEmpty {
-                    Section(SheetWords.detailsHeading) { Text(program.extended) }
-                }
-
-                if let asking = sheet.asking {
-                    Section {
-                        HStack(spacing: 8) {
-                            ProgressView().controlSize(.small)
-                            Text(asking).font(.callout)
-                        }
-                    }
-                }
-
-                if sheet.changed {
-                    Section {
-                        Button(sheet.changeLabel) { sheet.sendTheChange() }
-                            .disabled(sheet.holdsItsButtons)
-                    } footer: {
-                        Text(sheet.changeFooter)
-                    }
-                }
-
-                Section {
-                    Button(SheetWords.deleteReservationLabel, role: .destructive) { sheet.delete() }
-                        .disabled(sheet.holdsItsButtons)
-                }
-
-                if let problem = model.problem(for: reservation.device) {
-                    Section { Text(problem.asABody).foregroundStyle(.red).font(.callout) }
-                }
-            }
-            .disabled(sheet.asking != nil)
-            .navigationTitle(ReservationSheetState.sheetTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { SheetCloseButton().disabled(sheet.asking != nil) }
-            .interactiveDismissDisabled(sheet.asking != nil)
-            .task { await sheet.opened() }
-            // One alert, because two on the same view is not something SwiftUI promises to honour, and asking and
-            // reporting never happen at once. The red line further up the sheet was missed.
-            .alert(sheet.askTitle, isPresented: Binding(get: { sheet.isAsking }, set: { if !$0 { sheet.askClosed() } })) {
-                if sheet.asksBeforeDeleting {
-                    Button(SheetWords.confirmDeleteLabel, role: .destructive) { sheet.confirmDelete() }
-                    Button(SheetWords.cancelLabel, role: .cancel) {}
+        List {
+            // A television is never woken, so the recorder's waking is nothing to a row of its own.
+            if !sheet.onTelevision { WakingSection() }
+            Section {
+                Text(reservation.title).font(.headline)
+                LabeledContent(SheetWords.station, value: model.channelName(for: reservation))
+                LabeledContent(SheetWords.starts, value: Format.dateTime.string(from: reservation.start))
+                LabeledContent(SheetWords.length, value: Format.duration(reservation.durationSec))
+                if sheet.onTelevision {
+                    televisionsValues
                 } else {
-                    Button(SheetWords.okLabel, role: .cancel) {}
+                    recordersValues
                 }
-            } message: {
-                Text(sheet.askMessage)
             }
-            .onChange(of: sheet.done) { if $1 { dismiss() } }
-            .closesWithItsDevice(reservation.device)
+
+            if reservation.recording || reservation.conflict || reservation.createdByRecorder {
+                Section {
+                    if reservation.recording { Text(SheetWords.recordingLine).foregroundStyle(.red) }
+                    if reservation.conflict { conflictRow }
+                    if reservation.createdByRecorder {
+                        Text(RecorderDriver.madeByItself)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if let program = sheet.program, !program.summary.isEmpty {
+                Section(SheetWords.summaryHeading) { Text(program.summary) }
+            }
+            if let program = sheet.program, !program.extended.isEmpty {
+                Section(SheetWords.detailsHeading) { Text(program.extended) }
+            }
+
+            if let asking = sheet.asking {
+                Section {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(asking).font(.callout)
+                    }
+                }
+            }
+
+            if sheet.changed {
+                Section {
+                    Button(sheet.changeLabel) { sheet.sendTheChange() }
+                        .disabled(sheet.holdsItsButtons)
+                } footer: {
+                    Text(sheet.changeFooter)
+                }
+            }
+
+            Section {
+                Button(SheetWords.deleteReservationLabel, role: .destructive) { sheet.delete() }
+                    .disabled(sheet.holdsItsButtons)
+            }
+
+            if let problem = model.problem(for: reservation.device) {
+                Section { Text(problem.asABody).foregroundStyle(.red).font(.callout) }
+            }
+        }
+        .disabled(sheet.asking != nil)
+        .interactiveDismissDisabled(sheet.asking != nil)
+        .task { await sheet.opened() }
+        // One alert, because two on the same view is not something SwiftUI promises to honour, and asking and
+        // reporting never happen at once. The red line further up the sheet was missed.
+        .alert(sheet.askTitle, isPresented: Binding(get: { sheet.isAsking }, set: { if !$0 { sheet.askClosed() } })) {
+            if sheet.asksBeforeDeleting {
+                Button(SheetWords.confirmDeleteLabel, role: .destructive) { sheet.confirmDelete() }
+                Button(SheetWords.cancelLabel, role: .cancel) {}
+            } else {
+                Button(SheetWords.okLabel, role: .cancel) {}
+            }
+        } message: {
+            Text(sheet.askMessage)
         }
     }
 
