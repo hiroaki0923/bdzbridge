@@ -1154,7 +1154,7 @@ private struct TheTelevisionChosen: @unchecked Sendable {
 
 /// The television's address as the app reaches it: the helper at the helper's port, the television itself at
 /// every other.
-private struct TelevisionWithAHelper: HTTPTransport {
+struct TelevisionWithAHelper: HTTPTransport {
     let television: DemoTV
     let helper: HelperOnTheTelevision
 
@@ -1168,7 +1168,7 @@ private struct TelevisionWithAHelper: HTTPTransport {
 /// titled テレビの番組, the first three hours from now and one an hour after it; any token is taken. Its copies
 /// do not change unless a test makes new ones (`newCopies`). `asked` is every path it was asked for, in order,
 /// silence and a held answer among them.
-private final class HelperOnTheTelevision: @unchecked Sendable {
+final class HelperOnTheTelevision: @unchecked Sendable {
     static let titlePrefix = "テレビの番組"
     /// The name of its one station of a type.
     static func station(_ type: String) -> String { "テレビの局 \(type)" }

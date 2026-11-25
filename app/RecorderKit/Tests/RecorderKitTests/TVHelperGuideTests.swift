@@ -588,6 +588,22 @@ final class TVHelperGuideTests: XCTestCase {
         XCTAssertEqual(sent, ["/ping"])
         XCTAssertFalse(guide.isRegistered)
     }
+
+    /// A registration the helper made and this device could not keep the token of says so, in the letters the
+    /// sheet shows, with the way to a new number, and is not held: the settings go on saying it is not registered.
+    func testARegistrationWhoseTokenTheDeviceCouldNotKeepIsSaidAndNotHeld() async throws {
+        let keepsNone = KeepsNoToken()
+        guide = TVHelperGuide(client: TVHelperClient(host: Stub.host, transport: transport, tokens: keepsNone))
+
+        let said = await guide.register(code: "123456", label: "RecBridge")
+
+        XCTAssertEqual(said, "テレビのヘルパーへの登録をこの端末に保存できませんでした。テレビで「登録の番号を出す」をもう一度選び、"
+                           + "新しい番号で登録してください")
+        XCTAssertFalse(guide.isRegistered)
+        XCTAssertNil(keepsNone.load())
+        let sent = await transport.requests.map(\.url.path)
+        XCTAssertEqual(sent, ["/ping", "/v1/pair"], "set up wrong: the helper was not asked to register")
+    }
 }
 
 /// The times a night told that it fetched a guide, in order.

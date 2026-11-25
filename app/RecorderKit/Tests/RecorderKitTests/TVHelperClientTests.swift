@@ -65,6 +65,28 @@ final class TVHelperClientTests: XCTestCase {
         XCTAssertFalse(client.isRegistered)
     }
 
+    /// A token the helper gave that the device could not keep -- a store whose save keeps nothing and says
+    /// nothing -- is not answered as a registration: what the store holds is read back once the token is saved.
+    /// So with nothing kept before, and with an older token kept before, which is left as it was.
+    func testAPairingWhoseTokenTheDeviceCouldNotKeepIsNotAnsweredAsMade() async throws {
+        let helper = StubTransport(always: json(200, ["token": "secret", "deviceId": "d1", "api": [1], "version": "0.1.0"]))
+        let before: [(String, String?)] = [("nothing kept before", nil), ("an older token kept before", "older")]
+        for (name, kept) in before {
+            let tokens = KeepsNoToken(kept)
+            let client = TVHelperClient(host: Stub.host, transport: helper, tokens: tokens)
+            do {
+                try await client.pair(code: "123456", label: "iPhone")
+                XCTFail("\(name): answered as registered")
+            } catch is TVHelperClient.NotKept {
+            } catch {
+                XCTFail("\(name): \(error)")
+            }
+            XCTAssertEqual(tokens.load(), kept, "\(name): what was kept before changed")
+        }
+        let sent = await helper.requests.map(\.url.path)
+        XCTAssertEqual(sent, ["/v1/pair", "/v1/pair"], "set up wrong: the helper was not asked to register")
+    }
+
     func testReadsCarryTheTokenAndReadTheAnswersForWhatTheySay() async throws {
         let channelsAnswer = json(200, ["channels": [["bt": "td", "sid": 1024, "number": "011", "name": "一", "hasPrograms": true]]])
         let guideAnswer = json(200, ["bt": "td", "programs": [

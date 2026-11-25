@@ -27,6 +27,13 @@ public final class TVHelperGuide {
     public nonisolated static let notRunning =
         "テレビは応答していますが、ヘルパーが応答しません。テレビで「RecBridge ヘルパー」を一度開いてください"
 
+    /// Said when the helper registered the app and the device could not keep the token it gave
+    /// (`TVHelperClient.NotKept`). The helper ends its code with a registration, so the next one wants a new
+    /// number from the television.
+    public nonisolated static let registrationNotKept =
+        "テレビのヘルパーへの登録をこの端末に保存できませんでした。テレビで「登録の番号を出す」をもう一度選び、"
+            + "新しい番号で登録してください"
+
     public nonisolated static func line(for broadcasting: String) -> String {
         "\(line) (\(Codes.broadcastingLabel[broadcasting] ?? broadcasting))"
     }
@@ -47,11 +54,14 @@ public final class TVHelperGuide {
     }
 
     /// Registers with the helper by the code the television shows, under `label`, what the helper lists this
-    /// device as; first making sure that what answers is the helper. Says what went wrong, or nil.
+    /// device as; first making sure that what answers is the helper. Says what went wrong, or nil. A
+    /// registration whose token the device could not keep is not held, and is said as `registrationNotKept`.
     public func register(code: String, label: String) async -> String? {
         do {
             try await client.probe(timeout: 5)
             try await client.pair(code: code, label: label)
+        } catch is TVHelperClient.NotKept {
+            return Self.registrationNotKept
         } catch {
             return Self.said(error)
         }
