@@ -149,9 +149,11 @@ final class Bench {
 
     /// A model as the app makes one in a home with a television and no recorder: no recorder saved and nothing
     /// answering as one anywhere, and the television at `tvHost` answering through `television`, saved with its
-    /// registration in `credentials` unless `saved` is false, as at a first launch.
+    /// registration in `credentials` unless `saved` is false, as at a first launch. The helper's token is kept in
+    /// `helperTokens`.
     func modelWithNoRecorder(television: any HTTPTransport, credentials: any TVCredentialStore,
-                             saved: Bool = true) -> AppModel {
+                             saved: Bool = true,
+                             helperTokens: any TVHelperTokenStore = MemoryTVHelperToken()) -> AppModel {
         if saved {
             defaults.set(Bench.tvHost, forKey: DefaultsKey.tvHost)
         } else {
@@ -159,7 +161,8 @@ final class Bench {
         }
         let nobody = SilentRecorder()
         return model(saved: nil, transport: { _ in nobody },
-                     tvTransport: { $0 == Bench.tvHost ? television : NoTelevision() }, tvCredentials: credentials)
+                     tvTransport: { $0 == Bench.tvHost ? television : NoTelevision() }, tvCredentials: credentials,
+                     tvHelperTokens: helperTokens)
     }
 
     /// The phone's own address on a Wi-Fi a test puts it on, reserved for documentation like the others.
@@ -282,7 +285,8 @@ final class Bench {
     private func model(saved: String? = Bench.host,
                        transport: @escaping (String) -> any HTTPTransport,
                        tvTransport: @escaping (String) -> any HTTPTransport = { _ in NoTelevision() },
-                       tvCredentials: any TVCredentialStore = MemoryTVCredentials()) -> AppModel {
+                       tvCredentials: any TVCredentialStore = MemoryTVCredentials(),
+                       tvHelperTokens: any TVHelperTokenStore = MemoryTVHelperToken()) -> AppModel {
         if let saved {
             defaults.set(saved, forKey: DefaultsKey.recorderHost)
         } else {
@@ -311,6 +315,7 @@ final class Bench {
                 return tvTransport(host)
             },
             tvCredentials: tvCredentials,
+            tvHelperTokens: tvHelperTokens,
             tvTitlesWait: tvTitlesWait,
             localNetworkAccess: { [weak self] host in
                 guard let self else { return .allowed }

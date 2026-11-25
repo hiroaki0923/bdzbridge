@@ -137,6 +137,32 @@ final class TVSettingsTests: XCTestCase {
         XCTAssertFalse(model.helperRegistered)
     }
 
+    /// A registration the helper made and the phone could not keep the token of is said under the field, and the
+    /// sheet stays: the settings go on saying 未登録, as the next fetch would find it.
+    func testARegistrationThePhoneCouldNotKeepIsSaidAndTheSettingsSayNotRegistered() async throws {
+        let bench = try aBench()
+        let television = DemoTV(power: "active")
+        let credentials = await registered(with: television)
+        let helper = HelperOnTheTelevision()
+        let model = bench.modelWithNoRecorder(television: TelevisionWithAHelper(television: television, helper: helper),
+                                              credentials: credentials, helperTokens: KeepsNoToken())
+        await model.start()
+        try await untilTheTelevisionIsConnected(model)
+        let settings = TVSettingsState(model: model)
+        XCTAssertEqual(settings.helperShown, "未登録")
+
+        let sheet = HelperRegisterState(model: model)
+        sheet.code = "123456"
+        sheet.press()
+        try await until("the registration never ended") { !sheet.working }
+
+        XCTAssertEqual(helper.asked, ["/ping", "/v1/pair"], "set up wrong: the helper never registered the app")
+        XCTAssertEqual(sheet.message, TVHelperGuide.registrationNotKept)
+        XCTAssertFalse(sheet.done, "the sheet closed on a registration the phone did not keep")
+        XCTAssertFalse(settings.helperRegistered)
+        XCTAssertEqual(settings.helperShown, "未登録")
+    }
+
     /// With the television connected, its part offers neither 登録する nor 再接続; once it falls silent, 再接続, which
     /// brings it back. A television that wants the app registered again offers 登録する in its place.
     func testTheTelevisionsPartOffersWhatBringsItBack() async throws {
@@ -218,4 +244,14 @@ final class TVSettingsTests: XCTestCase {
         XCTAssertNil(settings.standing)
         expectEqual(await model.waitingForTheTelevision(), 0, "what waited for it stayed")
     }
+}
+
+/// The helper's token kept through a save that keeps nothing: as a store that cannot write keeps nothing and says
+/// nothing.
+private struct KeepsNoToken: TVHelperTokenStore {
+    let kept = MemoryTVHelperToken()
+
+    func load() -> String? { kept.load() }
+    func save(_ token: String) {}
+    func remove() { kept.remove() }
 }

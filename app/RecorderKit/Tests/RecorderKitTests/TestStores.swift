@@ -22,6 +22,20 @@ extension XCTestCase {
     }
 }
 
+/// The helper's token kept in memory, through a save that keeps nothing: as a store that cannot write keeps nothing
+/// and says nothing. What it held from the first is read as it is.
+struct KeepsNoToken: TVHelperTokenStore {
+    let kept: MemoryTVHelperToken
+
+    init(_ token: String? = nil) {
+        kept = MemoryTVHelperToken(token)
+    }
+
+    func load() -> String? { kept.load() }
+    func save(_ token: String) {}
+    func remove() { kept.remove() }
+}
+
 /// A reservation of the sample programme as the queue keeps it, with whatever a test changes. It was queued at
 /// a whole second, as the cache keeps the moment, so that one read back is equal to the one that went in.
 func pending(_ title: String = "サンプル番組", eventID: Int? = 0x311f,

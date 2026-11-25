@@ -1,7 +1,8 @@
 import Foundation
 
 /// Where the app keeps the token the helper on the television handed it at registration. The app's is in the
-/// Keychain beside the television's cookie; the demo's and the tests' are in memory.
+/// Keychain beside the television's cookie; the demo's and the tests' are in memory. A save says nothing of how
+/// it went: `TVHelperClient.pair` reads the token back.
 public protocol TVHelperTokenStore: Sendable {
     func load() -> String?
     func save(_ token: String)
@@ -163,7 +164,9 @@ public actor TVHelperClient: GuideSource {
     // MARK: - registration
 
     /// `POST /v1/pair` with the six-digit code the television shows: the token is kept, and every request after
-    /// this carries it. `label` is what the helper lists this phone as.
+    /// this carries it. `label` is what the helper lists this phone as. The token is read back once it is saved,
+    /// and a store that does not hold it then throws `NotKept`. Reading it back is enough: the helper gives a
+    /// new token at each registration, so a store that holds this one holds what the helper will take.
     public func pair(code: String, label: String, timeout: TimeInterval = 10) async throws {
         let body = try JSONSerialization.data(withJSONObject: ["code": code, "label": label])
         let answer = try await send(path: "/v1/pair", method: "POST", body: body, timeout: timeout, withToken: false)
@@ -173,12 +176,19 @@ public actor TVHelperClient: GuideSource {
                 throw TVHelperError.unexpected("pair")
             }
             tokens.save(token)
+            guard tokens.load() == token else { throw NotKept() }
         case 403, 429:
             throw TVHelperError.pairingRefused(errorCode(answer) ?? "badCode")
         default:
             throw TVHelperError.unexpected("HTTP \(answer.statusCode)")
         }
     }
+
+    /// The helper registered the app, and the device could not keep the token it gave: the store kept nothing,
+    /// as one that cannot write keeps nothing and says nothing (`TVHelperTokenStore.save`). Not a
+    /// `TVHelperError`, which is what asking the helper came to: the helper answered, and what failed is the
+    /// device's own, as with the television's registration (`ScalarClient.NotKept`).
+    public struct NotKept: Error, Equatable {}
 
     // MARK: - reads
 
