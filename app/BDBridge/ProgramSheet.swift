@@ -28,9 +28,8 @@ struct ProgramSheet: View {
     }
 }
 
-/// The programme in the guide's inspector, the column beside the guide on a regular width, an iPad's. The column
-/// has no bar of its own -- what is put in a toolbar here goes up into the window's -- so its title and its close
-/// are a row at its top, which the rows scroll under. A request that is done leaves it open, where the sheet closes
+/// The programme in the guide's inspector, the column beside the guide on a regular width, an iPad's, under a row
+/// with its title and its close (`columnTitle`). A request that is done leaves it open, where the sheet closes
 /// itself: the column holds nothing of the guide up, and shows what became of the programme.
 struct ProgramColumn: View {
     let sheet: ProgramSheetState
@@ -38,27 +37,16 @@ struct ProgramColumn: View {
     let close: () -> Void
 
     var body: some View {
-        if #available(iOS 26, *) {
-            // The system blurs what scrolls under a bar put here, as it does under a navigation bar.
-            ProgramDetails(sheet: sheet).safeAreaBar(edge: .top, spacing: 0) { titleRow }
-        } else {
-            // Nothing of the system's is drawn behind an inset, and the rows scrolled under it would print over
-            // the title.
-            ProgramDetails(sheet: sheet).safeAreaInset(edge: .top, spacing: 0) { titleRow.background(.bar) }
-        }
+        ProgramDetails(sheet: sheet)
+            .columnTitle(ProgramSheetState.sheetTitle, held: sheet.holdsTheSheet, close: close)
     }
+}
 
-    private var titleRow: some View {
-        HStack {
-            Text(ProgramSheetState.sheetTitle)
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
-            Spacer()
-            SheetCloseButton(close: close).disabled(sheet.holdsTheSheet)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
-    }
+/// What the screen that keeps a programme open reads of it (`OpenRow`): its request holds the sheet, and what it put
+/// up is its one question or answer.
+extension ProgramSheetState: RowSheetState {
+    var requestOut: Bool { holdsTheSheet }
+    var hasSomethingToSay: Bool { ask != nil }
 }
 
 /// The programme's rows and what they do, in the sheet and in the column alike.

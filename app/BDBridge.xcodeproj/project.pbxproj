@@ -25,6 +25,7 @@
 		7ECF6FE8456B7117AA41221B /* BackgroundWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 386A018603072D6E7B4D2AB0 /* BackgroundWork.swift */; };
 		7FFB8984293E15F7475D6AB6 /* TVHelperTokenStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8713E24A962DD2218B7F41A /* TVHelperTokenStoreTests.swift */; };
 		8578F28AE633B4D22AAB1600 /* BDBridgeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4384383B5509BF7DA6D360 /* BDBridgeApp.swift */; };
+		86BE73432C4FCF25DB9691E7 /* OpenRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17DD90845EB4AEE09C5AC42 /* OpenRow.swift */; };
 		91C31A6252CFB13FD075FF63 /* SealedKeychainItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB445B0514CC4F3C6F6EAA8C /* SealedKeychainItem.swift */; };
 		96FE704BC029B04CBCC1DB68 /* TheAppsOwnTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46DA8FBD5CD0194B22078786 /* TheAppsOwnTests.swift */; };
 		9D285EC3CAB8B0E9FA779BA2 /* SearchScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1011B4AEC5B9E782E3A521EE /* SearchScreen.swift */; };
@@ -94,6 +95,7 @@
 		C8713E24A962DD2218B7F41A /* TVHelperTokenStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVHelperTokenStoreTests.swift; sourceTree = "<group>"; };
 		CA7ECF4C1A153A99F6259F45 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		D01E57E04F32F67E91D01B85 /* DisclaimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisclaimerView.swift; sourceTree = "<group>"; };
+		D17DD90845EB4AEE09C5AC42 /* OpenRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenRow.swift; sourceTree = "<group>"; };
 		D86F6D78C94327F25C742A7A /* JobBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobBarView.swift; sourceTree = "<group>"; };
 		DCE17E7D5D88F5B7797F639F /* RecorderKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RecorderKit; path = RecorderKit; sourceTree = SOURCE_ROOT; };
 		E69E6BE470039076D6A3C271 /* TitleSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitleSheet.swift; sourceTree = "<group>"; };
@@ -145,6 +147,7 @@
 				4733264672C0A733226AA131 /* KeychainTVCredentials.swift */,
 				3E2B3A524A5DCB6F5D6D7972 /* KeychainTVHelperToken.swift */,
 				5B8C2E3D4DA26B4C5EF296B4 /* Notify.swift */,
+				D17DD90845EB4AEE09C5AC42 /* OpenRow.swift */,
 				B57FEE346AAB3BF701F1D01C /* PrivacyInfo.xcprivacy */,
 				EF83C652BA3DFE6ED3A6A17A /* ProgramSheet.swift */,
 				18D1A2BAF39645C71E580656 /* RecorderRulesScreen.swift */,
@@ -354,6 +357,7 @@
 				467EA934EB54A71683BFA00F /* KeychainTVCredentials.swift in Sources */,
 				2CCC4B77D03480BDFB0A3094 /* KeychainTVHelperToken.swift in Sources */,
 				2904A37BEBE714A804395726 /* Notify.swift in Sources */,
+				86BE73432C4FCF25DB9691E7 /* OpenRow.swift in Sources */,
 				F093A045622CAE09A8460F71 /* ProgramSheet.swift in Sources */,
 				A894B26BCF13D0365B5BDA82 /* RecorderRulesScreen.swift in Sources */,
 				4E614A1444FEAA3509D42906 /* RecordingsScreen.swift in Sources */,
