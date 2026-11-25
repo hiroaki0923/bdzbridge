@@ -567,6 +567,10 @@ public final class ProgramSheetState {
     }
 }
 
+/// Each state is one opening of one programme, so the object itself is what tells one from another: what a
+/// screen that presents a state keys the presentation by.
+extension ProgramSheetState: Identifiable {}
+
 /// The recording mode a new reservation and a new keyword condition start at: the one chosen in the settings, while
 /// the recorder records in it, and LSR otherwise. Chosen there and only there: the sheets start their own picker
 /// from it and leave it alone, where they used to be bound to it, so that trying a mode on one programme quietly

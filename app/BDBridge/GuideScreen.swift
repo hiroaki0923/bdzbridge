@@ -8,7 +8,17 @@ struct GuideScreen: View {
     /// The time of day the guide should open at instead of now, as `HH:mm`. Nothing in the app writes it;
     /// the store screenshots pass it on the command line. See `GuideStore.minuteOfTheBroadcastDay`.
     @AppStorage(DefaultsKey.guideOpenAt) private var openAt = ""
-    @State private var tapped: GuideProgramRow?
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// The programme open, with what the reader has picked and asked for on it. Made here as it is tapped and
+    /// handed to the sheet or the column, rather than made by either, because it outlives the form it is shown in:
+    /// a window turned between a compact width and a regular one moves it from one to the other as it stands, and
+    /// a column closed while a request of its own is out leaves it to `closedWhileAsking`.
+    @State private var opened: ProgramSheetState?
+    /// A programme whose column was closed while a request of its own was out, kept until that request ends. The
+    /// close cannot be refused: on a narrow iPad the column is the system's overlay, which a tap outside closes
+    /// and nothing public holds open. While it waits a tap on any programme brings it back (`open`), and what the
+    /// request comes to is shown by opening the column on it again (`requestEnded`).
+    @State private var closedWhileAsking: ProgramSheetState?
     @State private var welcoming = false
     @State private var arranging = false
     /// What the last press of 番組表を更新 had to say (`AppModel.refreshGuideByHand`), until it is dismissed.
@@ -40,11 +50,24 @@ struct GuideScreen: View {
                     GuideGridView(channels: model.channels, programs: model.programs, day: model.day,
                                   nowRequests: model.nowRequests,
                                   reservationFor: { model.reservation(for: $0) },
-                                  pendingFor: { model.pending(for: $0) }) { tapped = $0 }
+                                  pendingFor: { model.pending(for: $0) }, opened: marked) { open($0) }
                     .frame(maxHeight: .infinity)
                 case .programmes:
                     list
                 }
+            }
+            // On a regular width a programme opens beside the guide, under the bar, rather than over it.
+            .inspector(isPresented: columnShown) {
+                // Empty while the column slides away after a close.
+                ZStack {
+                    if let opened {
+                        ProgramColumn(sheet: opened, close: close)
+                            // A view of its own for each programme, as each sheet is: where the last one was
+                            // scrolled to, and anything it had up, are not the next one's.
+                            .id(ObjectIdentifier(opened))
+                    }
+                }
+                .inspectorColumnWidth(min: 340, ideal: 400, max: 440)
             }
             .recorderActivity()
             .navigationBarTitleDisplayMode(.inline)
@@ -124,7 +147,10 @@ struct GuideScreen: View {
                     .disabled(!model.canRefreshGuideByHand)
                 }
             }
-            .sheet(item: $tapped) { ProgramSheet(program: $0, model: model) }
+            .sheet(item: sheetShown) { ProgramSheet(sheet: $0) }
+            .onChange(of: model.day) { closeOffTheGuide() }
+            .onChange(of: model.broadcasting) { closeOffTheGuide() }
+            .onChange(of: closedWhileAsking?.holdsTheSheet) { requestEnded() }
             .sheet(isPresented: $arranging) { ChannelsSheet(broadcasting: model.broadcasting) }
             // Said here, where it was asked for: the line of what went wrong is not shown over a guide.
             .alert(AppModel.refreshFailedTitle,
@@ -142,6 +168,61 @@ struct GuideScreen: View {
     /// right. Nor past the arrow, as the strip's buttons do: the bar answers only to taps inside its items.
     private func dayArrow(_ symbol: String) -> some View {
         Image(systemName: symbol).frame(minHeight: 44).contentShape(Rectangle())
+    }
+
+    /// Whether a programme opens beside the guide, in the system's inspector, rather than in a sheet over it: on a
+    /// regular width, an iPad's. Never on an iPhone, which keeps the sheet it has always had.
+    private var inColumn: Bool { sizeClass == .regular }
+
+    /// The programme the guide marks as the one in the column. None in a sheet, which covers the guide.
+    private var marked: GuideProgramRow.ID? { inColumn ? opened?.program.id : nil }
+
+    /// The sheet, on a compact width. What the system writes as it takes the sheet down for the window turning
+    /// regular is not a close: the programme stays open, in the column.
+    private var sheetShown: Binding<ProgramSheetState?> {
+        Binding(get: { inColumn ? nil : opened }, set: { if !inColumn { opened = $0 } })
+    }
+
+    /// The column, on a regular width, the same the other way round.
+    private var columnShown: Binding<Bool> {
+        Binding(get: { inColumn && opened != nil }, set: { if !$0, inColumn { close() } })
+    }
+
+    /// Opens a programme, in place of the one open -- unless that one has a request of its own out, which holds it
+    /// as it holds a sheet: what the request comes to is said there. While a programme closed under its request is
+    /// still waiting for it, a tap brings that programme back instead of opening another: one request at a time,
+    /// as under a sheet.
+    private func open(_ program: GuideProgramRow) {
+        guard opened?.holdsTheSheet != true else { return }
+        if let kept = closedWhileAsking, kept.holdsTheSheet {
+            opened = kept
+            closedWhileAsking = nil
+        } else {
+            opened = ProgramSheetState(program: program, model: model)
+        }
+    }
+
+    /// The column's close, by its button or by the system. Always taken, the button being held back while a
+    /// request is out; a programme closed under one by the system is kept until the request ends.
+    private func close() {
+        if let opened, opened.holdsTheSheet { closedWhileAsking = opened }
+        opened = nil
+    }
+
+    /// The request of a programme closed under it has ended. A plain success needs nothing more: the guide marks
+    /// the reservation. Anything else the sheet would have put up -- a question, a refusal, a failure -- is on the
+    /// programme, which opens again to say it.
+    private func requestEnded() {
+        guard let kept = closedWhileAsking, !kept.holdsTheSheet else { return }
+        closedWhileAsking = nil
+        if kept.ask != nil { opened = kept }
+    }
+
+    /// Another day or another broadcasting type takes the programme in the column off the guide beside it, and the
+    /// column goes too, unless a request of its own is out. A sheet covers the guide and stays.
+    private func closeOffTheGuide() {
+        guard inColumn, opened?.holdsTheSheet == false else { return }
+        opened = nil
     }
 
     private var dayIndex: Int {
@@ -187,13 +268,16 @@ struct GuideScreen: View {
         TimelineView(.everyMinute) { timeline in
             ScrollViewReader { scroller in
                 List(shown) { program in
-                    Button { tapped = program } label: {
+                    Button { open(program) } label: {
                         ProgramRowView(program: program, logo: logo(for: program.serviceID),
                                        reservation: model.reservation(for: program),
                                        pending: model.pending(for: program), now: timeline.date)
                             .rowHitArea()
                     }
                     .buttonStyle(.plain)
+                    // The row the column beside the list shows. Nil is the list's own background.
+                    .listRowBackground(marked == program.id ? Color(.systemFill) : nil)
+                    .accessibilityAddTraits(marked == program.id ? .isSelected : [])
                 }
                 .listStyle(.plain)
                 // Open where the grid opens: at what is on now. A list of a whole broadcast day starts at

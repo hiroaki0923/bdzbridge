@@ -93,10 +93,13 @@ struct RootView: View {
 /// sheet is open and cannot go by the word: the system's own button beside an open search field says it too.
 struct SheetCloseButton: View {
     @Environment(\.dismiss) private var dismiss
+    /// What the button does where the system's dismiss closes nothing: the guide's inspector column, which is
+    /// closed by its binding.
+    var close: (() -> Void)? = nil
 
     var body: some View {
         Button {
-            dismiss()
+            if let close { close() } else { dismiss() }
         } label: {
             Image(systemName: "xmark")
                 .font(.system(size: 12, weight: .bold))
