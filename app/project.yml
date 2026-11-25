@@ -51,6 +51,11 @@ targets:
         # answer is written in both places; the category a shopper sees is the one set in App Store Connect.
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.entertainment
         CODE_SIGN_STYLE: Automatic
+      # The iPad is being built: Debug runs as an iPad app so that its layout can be developed and tested. A
+      # release that supports the iPad cannot go back to iPhone only, so Release stays "1" until the layout is done.
+      configs:
+        Debug:
+          TARGETED_DEVICE_FAMILY: "1,2"
     # DEVELOPMENT_TEAM lives here and not above, because a build setting outranks an xcconfig:
     # Signing.xcconfig reads the gitignored Signing.local.xcconfig, which holds the team identifier.
     configFiles:
@@ -70,6 +75,9 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
+        # One window on the iPad, as on the iPhone.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         # The recorder and the television are reached over plain HTTP on the LAN, and nowhere else.
@@ -110,6 +118,9 @@ targets:
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
+      configs:
+        Debug:
+          TARGETED_DEVICE_FAMILY: "1,2"
     configFiles:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig
@@ -129,6 +140,9 @@ targets:
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
+      configs:
+        Debug:
+          TARGETED_DEVICE_FAMILY: "1,2"
     configFiles:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig
