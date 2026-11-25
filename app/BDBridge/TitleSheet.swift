@@ -9,8 +9,16 @@ struct TitleSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var sheet: TitleSheetState
 
+    /// The sheet of a state the screen that opened it made and keeps: the recordings' and the search's. A presented
+    /// sheet is made afresh for each state it is handed, so the one kept here is always the one handed in.
+    init(sheet: TitleSheetState) {
+        _sheet = State(initialValue: sheet)
+    }
+
+    /// A sheet that makes its own state as it opens and lets it go as it closes, for one opened over another sheet
+    /// that keeps nothing of it once it has gone: a programme's page, for one of its recordings.
     init(title: RecordedTitle, model: AppModel) {
-        _sheet = State(initialValue: TitleSheetState(title: title, model: model))
+        self.init(sheet: TitleSheetState(title: title, model: model))
     }
 
     private var current: RecordedTitle { sheet.current }

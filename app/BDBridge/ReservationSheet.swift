@@ -10,8 +10,16 @@ struct ReservationSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var sheet: ReservationSheetState
 
+    /// The sheet of a state the screen that opened it made and keeps: the reservations' and the search's. A
+    /// presented sheet is made afresh for each state it is handed, so the one kept here is always the one handed in.
+    init(sheet: ReservationSheetState) {
+        _sheet = State(initialValue: sheet)
+    }
+
+    /// A sheet that makes its own state as it opens and lets it go as it closes, for one opened over another sheet
+    /// that keeps nothing of it once it has gone: a programme's, to change its reservation.
     init(reservation: Reservation, model: AppModel) {
-        _sheet = State(initialValue: ReservationSheetState(reservation: reservation, model: model))
+        self.init(sheet: ReservationSheetState(reservation: reservation, model: model))
     }
 
     private var reservation: Reservation { sheet.reservation }

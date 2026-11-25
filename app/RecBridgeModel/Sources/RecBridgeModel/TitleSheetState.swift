@@ -193,3 +193,7 @@ public final class TitleSheetState {
         }
     }
 }
+
+/// Each state is one opening of one recording, so the object itself is what tells one from another: what a
+/// screen that presents a state keys the presentation by.
+extension TitleSheetState: Identifiable {}

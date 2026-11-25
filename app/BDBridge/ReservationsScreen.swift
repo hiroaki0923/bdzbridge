@@ -9,7 +9,8 @@ struct ReservationsScreen: View {
     @Environment(AppModel.self) private var model
     /// What is swiped and asked on this screen, and what it says over its list: the model's (`ReservationsState`).
     @State private var state: ReservationsState
-    @State private var opened: Reservation?
+    /// The reservation open, made here as its row is tapped and handed to its sheet, rather than made by the sheet.
+    @State private var opened: ReservationSheetState?
     @State private var welcoming = false
 
     init(model: AppModel) {
@@ -93,7 +94,7 @@ struct ReservationsScreen: View {
             // state moved. A television that cannot be asked is sent nothing by this; a connect that reaches
             // one reads its list itself (`TVHost.reached`).
             .task { await model.loadReservations(of: .tv) }
-            .sheet(item: $opened) { ReservationSheet(reservation: $0, model: model) }
+            .sheet(item: $opened) { ReservationSheet(sheet: $0) }
             // The reservation picked for deletion is the last recorder's when its lists are let go of: see
             // `timesForgotten`. The sheet closes itself. Not a waiting reservation picked for deletion, which
             // is the reader's and no recorder's. A television's row goes the same way with the television's
@@ -174,7 +175,7 @@ struct ReservationsScreen: View {
             ForEach(model.reservationSections) { section in
                 Section(section.title) {
                     ForEach(section.items, id: \.listKey) { reservation in
-                        Button { opened = reservation } label: {
+                        Button { opened = ReservationSheetState(reservation: reservation, model: model) } label: {
                             ReservationRowView(reservation: reservation,
                                                channel: model.channelName(for: reservation),
                                                logo: model.logo(for: reservation),

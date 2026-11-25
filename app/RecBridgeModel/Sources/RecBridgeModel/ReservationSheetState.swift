@@ -245,3 +245,7 @@ public final class ReservationSheetState {
         onTelevision ? television : RecorderDriver.line(recorder, withATelevisionSaved: model.tv != nil)
     }
 }
+
+/// Each state is one opening of one reservation, so the object itself is what tells one from another: what a
+/// screen that presents a state keys the presentation by.
+extension ReservationSheetState: Identifiable {}

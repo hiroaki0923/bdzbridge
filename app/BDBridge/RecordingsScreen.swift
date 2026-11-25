@@ -9,7 +9,9 @@ struct RecordingsScreen: View {
     // A launch argument for this key pins it for the whole run: the argument domain outranks what is
     // written here, so a pick would appear to do nothing. See app/README.md.
     @AppStorage(DefaultsKey.recordingsMode) private var mode = "list"
-    @State private var opened: RecordedTitle?
+    /// The recording open, from the list or from the duplicates, made here as its row is tapped and handed to its
+    /// sheet, rather than made by the sheet.
+    @State private var opened: TitleSheetState?
     @State private var welcoming = false
     @State private var openedGroup: TitleGroup?
     /// What is swiped and asked on this screen, and what it says under its title: the model's (`RecordingsState`).
@@ -116,7 +118,7 @@ struct RecordingsScreen: View {
             // With nothing that can be written to a device, it is the reader asking for another go, as the
             // strip's 再接続 is.
             .refreshable { await model.pullDownTitles() }
-            .sheet(item: $opened) { TitleSheet(title: $0, model: model) }
+            .sheet(item: $opened) { TitleSheet(sheet: $0) }
             .sheet(item: $openedGroup) { GroupSheet(group: $0, model: model) }
             // The recording picked for deletion is the last recorder's when its lists are let go of: see
             // `timesForgotten`. The sheets close themselves. A television's rows go with its host, and a row of
@@ -149,7 +151,7 @@ struct RecordingsScreen: View {
                 Text(AppModel.loadingRecordings.detail ?? "")
             }
         } else if duplicating {
-            DuplicatesView(model: model) { opened = $0 }
+            DuplicatesView(model: model) { opened = TitleSheetState(title: $0, model: model) }
         } else if grouped {
             // Once for the list and its overlay: each read filters, sorts and groups every recording.
             let groups = model.titleGroups
@@ -163,7 +165,7 @@ struct RecordingsScreen: View {
         } else {
             let listed = model.shownTitles
             List(listed) { title in
-                Button { opened = title } label: {
+                Button { opened = TitleSheetState(title: title, model: model) } label: {
                     TitleRowView(title: title, channel: model.channelName(for: title),
                                  logo: model.logo(for: title), disk: model.diskShown(title)).rowHitArea()
                 }

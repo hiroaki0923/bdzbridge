@@ -11,16 +11,10 @@ struct ProgramSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var sheet: ProgramSheetState
 
-    /// The sheet of a state the screen that opened it made and keeps: the guide's. A presented sheet is made
-    /// afresh for each state it is handed, so the one kept here is always the one handed in.
+    /// The sheet of a state the screen that opened it made and keeps: the guide's and the search's. A presented
+    /// sheet is made afresh for each state it is handed, so the one kept here is always the one handed in.
     init(sheet: ProgramSheetState) {
         _sheet = State(initialValue: sheet)
-    }
-
-    /// A sheet that makes its own state as it opens and lets it go as it closes, for a screen that keeps nothing
-    /// of the programme once its sheet has gone: the search's.
-    init(program: GuideProgramRow, model: AppModel) {
-        self.init(sheet: ProgramSheetState(program: program, model: model))
     }
 
     var body: some View {

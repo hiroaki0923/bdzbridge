@@ -9,9 +9,11 @@ import SwiftUI
 struct SearchScreen: View {
     @Environment(AppModel.self) private var model
     @State private var search: SearchState
-    @State private var openedProgram: GuideProgramRow?
-    @State private var openedReservation: Reservation?
-    @State private var openedTitle: RecordedTitle?
+    /// The programme, the reservation or the recording open, each made here as its row is tapped and handed to its
+    /// sheet, rather than made by the sheet.
+    @State private var openedProgram: ProgramSheetState?
+    @State private var openedReservation: ReservationSheetState?
+    @State private var openedTitle: TitleSheetState?
 
     init(model: AppModel) {
         _search = State(initialValue: SearchState(model: model))
@@ -64,9 +66,9 @@ struct SearchScreen: View {
             .task(id: search.guideRequest) { await search.searchTheGuide() }
             .task(id: search.listsWanted) { await search.readTheRecordersList() }
             .task(id: search.scope) { await search.readTheTelevisionsList() }
-            .sheet(item: $openedProgram) { ProgramSheet(program: $0, model: model) }
-            .sheet(item: $openedReservation) { ReservationSheet(reservation: $0, model: model) }
-            .sheet(item: $openedTitle) { TitleSheet(title: $0, model: model) }
+            .sheet(item: $openedProgram) { ProgramSheet(sheet: $0) }
+            .sheet(item: $openedReservation) { ReservationSheet(sheet: $0) }
+            .sheet(item: $openedTitle) { TitleSheet(sheet: $0) }
         }
     }
 
@@ -80,7 +82,7 @@ struct SearchScreen: View {
                 }
                 ForEach(search.guide.hits) { hit in
                     let program = hit.program
-                    Button { openedProgram = program } label: {
+                    Button { openedProgram = ProgramSheetState(program: program, model: model) } label: {
                         ProgramRowView(program: program, logo: model.logo(for: program),
                                        reservation: model.reservation(for: program),
                                        pending: model.pending(for: program), snippet: hit.snippet)
@@ -92,7 +94,7 @@ struct SearchScreen: View {
             .listStyle(.plain)
         case .reservations:
             List(search.reservations, id: \.listKey) { reservation in
-                Button { openedReservation = reservation } label: {
+                Button { openedReservation = ReservationSheetState(reservation: reservation, model: model) } label: {
                     ReservationRowView(reservation: reservation,
                                        channel: model.channelName(for: reservation),
                                        logo: model.logo(for: reservation),
@@ -105,7 +107,7 @@ struct SearchScreen: View {
             .listStyle(.plain)
         case .recordings:
             List(search.recordings) { title in
-                Button { openedTitle = title } label: {
+                Button { openedTitle = TitleSheetState(title: title, model: model) } label: {
                     TitleRowView(title: title, channel: model.channelName(for: title),
                                  logo: model.logo(for: title), disk: model.diskShown(title))
                         .rowHitArea()
