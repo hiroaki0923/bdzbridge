@@ -15,6 +15,9 @@ struct GuideGridView: View {
     let reservationFor: (GuideProgramRow) -> Reservation?
     /// A reservation waiting on this phone for the recorder, marked beside the ones the recorder holds.
     let pendingFor: (GuideProgramRow) -> PendingReservation?
+    /// The programme open in the column beside the grid, ringed so that the eye finds it again. Nil with none
+    /// open, and under a sheet, which covers the grid.
+    let opened: GuideProgramRow.ID?
     let onSelect: (GuideProgramRow) -> Void
 
     @AppStorage(DefaultsKey.gridPointsPerMinute) private var pointsPerMinute = GuideGridScale.standard
@@ -40,6 +43,7 @@ struct GuideGridView: View {
     init(channels: [Channel], programs: [GuideProgramRow], day: Date, nowRequests: Int,
          reservationFor: @escaping (GuideProgramRow) -> Reservation?,
          pendingFor: @escaping (GuideProgramRow) -> PendingReservation?,
+         opened: GuideProgramRow.ID?,
          onSelect: @escaping (GuideProgramRow) -> Void) {
         let gridDay = GuideGridDay(channels: channels, programs: programs, day: day)
         self.day = gridDay
@@ -52,6 +56,7 @@ struct GuideGridView: View {
         self.nowRequests = nowRequests
         self.reservationFor = reservationFor
         self.pendingFor = pendingFor
+        self.opened = opened
         self.onSelect = onSelect
     }
 
@@ -209,7 +214,7 @@ struct GuideGridView: View {
         ForEach(programs.filter { visibleMinutes.overlaps(day.span(of: $0)) }) { program in
             ProgramBlock(program: program, height: height(of: program), width: Self.column - 2,
                          labelOffset: labelOffset(for: program), reservation: reservationFor(program),
-                         pending: pendingFor(program), onSelect: onSelect)
+                         pending: pendingFor(program), ringed: program.id == opened, onSelect: onSelect)
                 .offset(x: Self.gutter + Double(index) * Self.column + 1, y: header + top(of: program))
         }
     }
@@ -349,6 +354,8 @@ private struct ProgramBlock: View {
     let labelOffset: Double
     let reservation: Reservation?
     let pending: PendingReservation?
+    /// The block of the programme open in the column beside the grid.
+    let ringed: Bool
     let onSelect: (GuideProgramRow) -> Void
 
     private var ended: Bool { program.hasEnded(at: Date()) }
@@ -384,6 +391,7 @@ private struct ProgramBlock: View {
         .buttonStyle(.plain)
         // With the channel, which is at the top of the column, where VoiceOver reaches it once and not again.
         .accessibilityLabel(spoken)
+        .accessibilityAddTraits(ringed ? .isSelected : [])
         .background(alignment: .top) {
             if onAir {
                 genreColor.opacity(0.16).frame(height: height * elapsed)
@@ -393,6 +401,12 @@ private struct ProgramBlock: View {
         .overlay(alignment: .leading) { Rectangle().fill(genreColor).frame(width: onAir ? 4 : 3) }
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .opacity(ended ? 0.5 : 1)
+        // At full strength over a block that has ended as well: it says which programme is open, not what it is.
+        .overlay {
+            if ringed {
+                RoundedRectangle(cornerRadius: 4).strokeBorder(Color.accentColor, lineWidth: 2)
+            }
+        }
     }
 
     /// Reservations are marked in the text, because the block is too small for anything else. One waiting on
