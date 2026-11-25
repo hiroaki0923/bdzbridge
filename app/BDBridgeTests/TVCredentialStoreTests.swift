@@ -7,9 +7,11 @@ import XCTest
 
 /// Where the app keeps the television's registration (`KeychainTVCredentials`): sealed in the Keychain with a key
 /// kept in a file of the app's own, so that deleting the app, which deletes the file, leaves nothing anybody can
-/// use. These are the one place a test reaches the simulator's own: its Keychain, under a service of the test's
-/// own, and a key file in a folder of the test's own, both removed when the test ends. Deleting that file is what
-/// deleting the app does to the key. The app's own item and key file are never read or written.
+/// use. These and `TVHelperTokenStoreTests` are the only tests that reach the simulator's own: its Keychain, under
+/// a service of the test's own, and a key file in a folder of the test's own, both removed when the test ends.
+/// Deleting that file is what deleting the app does to the key. The app's own item and key file are never read or
+/// written. How the seal reads and writes its key (`SealedKeychainItem`) -- a key file that cannot be read, one of
+/// another length, one that cannot be written -- is held here for the helper's token as well.
 ///
 /// What a simulator cannot show is left to a phone: the key file's protection, and a read before the first unlock
 /// after a restart, which it and the Keychain both refuse there; the app deleted and installed again; a restore.
