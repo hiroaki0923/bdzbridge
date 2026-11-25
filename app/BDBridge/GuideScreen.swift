@@ -8,7 +8,9 @@ struct GuideScreen: View {
     /// The time of day the guide should open at instead of now, as `HH:mm`. Nothing in the app writes it;
     /// the store screenshots pass it on the command line. See `GuideStore.minuteOfTheBroadcastDay`.
     @AppStorage(DefaultsKey.guideOpenAt) private var openAt = ""
-    @State private var tapped: GuideProgramRow?
+    /// The programme open, with what the reader has picked and asked for on it. Made here as it is tapped and
+    /// handed to the sheet, rather than made by the sheet: it is the screen's, which decides how it is shown.
+    @State private var opened: ProgramSheetState?
     @State private var welcoming = false
     @State private var arranging = false
     /// What the last press of 番組表を更新 had to say (`AppModel.refreshGuideByHand`), until it is dismissed.
@@ -40,7 +42,7 @@ struct GuideScreen: View {
                     GuideGridView(channels: model.channels, programs: model.programs, day: model.day,
                                   nowRequests: model.nowRequests,
                                   reservationFor: { model.reservation(for: $0) },
-                                  pendingFor: { model.pending(for: $0) }) { tapped = $0 }
+                                  pendingFor: { model.pending(for: $0) }) { open($0) }
                     .frame(maxHeight: .infinity)
                 case .programmes:
                     list
@@ -124,7 +126,7 @@ struct GuideScreen: View {
                     .disabled(!model.canRefreshGuideByHand)
                 }
             }
-            .sheet(item: $tapped) { ProgramSheet(program: $0, model: model) }
+            .sheet(item: $opened) { ProgramSheet(sheet: $0) }
             .sheet(isPresented: $arranging) { ChannelsSheet(broadcasting: model.broadcasting) }
             // Said here, where it was asked for: the line of what went wrong is not shown over a guide.
             .alert(AppModel.refreshFailedTitle,
@@ -142,6 +144,10 @@ struct GuideScreen: View {
     /// right. Nor past the arrow, as the strip's buttons do: the bar answers only to taps inside its items.
     private func dayArrow(_ symbol: String) -> some View {
         Image(systemName: symbol).frame(minHeight: 44).contentShape(Rectangle())
+    }
+
+    private func open(_ program: GuideProgramRow) {
+        opened = ProgramSheetState(program: program, model: model)
     }
 
     private var dayIndex: Int {
@@ -187,7 +193,7 @@ struct GuideScreen: View {
         TimelineView(.everyMinute) { timeline in
             ScrollViewReader { scroller in
                 List(shown) { program in
-                    Button { tapped = program } label: {
+                    Button { open(program) } label: {
                         ProgramRowView(program: program, logo: logo(for: program.serviceID),
                                        reservation: model.reservation(for: program),
                                        pending: model.pending(for: program), now: timeline.date)
