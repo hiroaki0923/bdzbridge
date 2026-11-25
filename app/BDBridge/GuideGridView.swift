@@ -116,6 +116,10 @@ struct GuideGridView: View {
                 }
                 .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
             }
+            // A grid narrower than the screen stays against the hour ruler. iPadOS 26.5 centred it, which left
+            // the channels apart from their times and moved them by half of whatever the programme's column took
+            // as it opened.
+            .keptAtTheRuler()
             .coordinateSpace(.named(space))
             .simultaneousGesture(
                 MagnifyGesture(minimumScaleDelta: 0.02)
@@ -344,6 +348,19 @@ struct GuideGridView: View {
         let first = min(count, max(0, Int((-offsetX - gutter) / column) - 1))
         let shown = Int(max(viewportWidth, 1) / column) + 3
         return first..<min(count, first + shown)
+    }
+}
+
+private extension View {
+    /// Content narrower than a scroll view at its top leading corner rather than wherever the system puts it. The
+    /// anchor that says so is iOS 18's; on iOS 17 there is none to set.
+    @ViewBuilder
+    func keptAtTheRuler() -> some View {
+        if #available(iOS 18, *) {
+            defaultScrollAnchor(.topLeading, for: .alignment)
+        } else {
+            self
+        }
     }
 }
 
