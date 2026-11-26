@@ -5,7 +5,9 @@ import SwiftUI
 import UIKit
 
 extension Surroundings {
-    /// The app's own: what the model reaches on an iPhone.
+    /// The app's own: what the model reaches on an iPhone. On the main actor, as the model it is made for is, for
+    /// the name of the device.
+    @MainActor
     static var app: Surroundings {
         var app = Surroundings(defaults: .standard, folder: Storage.directory, transport: { _ in URLSessionTransport() },
                                networkSignature: LocalNetwork.signature, reachesTheLAN: true,
@@ -37,7 +39,14 @@ extension Surroundings {
         }
         app.demoLogo = DemoData.logo
         app.appVersion = { SettingsScreen.version }
-        app.helperLabel = "RecBridge (iPhone)"
+        app.helperLabel = "RecBridge (\(ThisDevice.name))"
         return app
     }
+}
+
+/// The device in the reader's hand, as the app's own words name it: in the tutorial, and to the helper on the
+/// television, which lists it among those registered with it. iPad on an iPad; iPhone on an iPhone, as before.
+@MainActor
+enum ThisDevice {
+    static let name = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
 }

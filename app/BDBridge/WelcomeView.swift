@@ -17,6 +17,8 @@ struct WelcomeView: View {
     @State private var welcome: WelcomeState
     /// The television's sheet, for a television the search found, tapped.
     @State private var tvSheet: TVSheetRequest?
+    /// As wide as the tutorial goes: `Readable.width`, growing with the reader's text size.
+    @ScaledMetric private var readableWidth: CGFloat = Readable.width
 
     init(model: AppModel) {
         _welcome = State(initialValue: WelcomeState(model: model))
@@ -34,7 +36,7 @@ struct WelcomeView: View {
                         // somewhere to send a reservation, and gives a guide of its own once its helper is
                         // installed on it.
                         Text("ソニーのブルーレイディスクレコーダー（BDZ シリーズ）用のアプリです。"
-                             + "レコーダーの番組表を iPhone で見て、録画予約や録画した番組の整理ができます。"
+                             + "レコーダーの番組表を \(ThisDevice.name) で見て、録画予約や録画した番組の整理ができます。"
                              + "USB ハードディスクに録画できるソニーのテレビにも、録画予約を送れます。"
                              + "テレビにアプリ「RecBridge ヘルパー」を入れると、レコーダーがなくても、テレビの番組表から録画予約ができます。"
                              + "まず、お使いのレコーダーとテレビを追加しましょう。")
@@ -45,7 +47,7 @@ struct WelcomeView: View {
                 }
                 Section(Tutorial.heading) {
                     step(1, Tutorial.step1Title, Tutorial.step1Detail)
-                    step(2, "iPhone をレコーダーやテレビと同じ Wi-Fi につなぐ", Tutorial.step2Detail)
+                    step(2, "\(ThisDevice.name) をレコーダーやテレビと同じ Wi-Fi につなぐ", Tutorial.step2Detail)
                     step(3, Tutorial.step3Title,
                          "「ローカルネットワークへのアクセス」の確認が表示されたら「許可」を選んでください。"
                          + "そのまま検索が始まります。")
@@ -130,6 +132,11 @@ struct WelcomeView: View {
                     Text(Tutorial.demoFooter)
                 }
             }
+            // On an iPad's full screen, in the middle at the width of a comfortable line rather than across the
+            // whole of it, on the list's own grey from edge to edge.
+            .frame(maxWidth: readableWidth)
+            .frame(maxWidth: .infinity)
+            .background(Color(.systemGroupedBackground))
             .navigationBarTitleDisplayMode(.inline)
             // A scan waiting on the system's question must not outlive the screen that asked it. A sheet over
             // this one is not its going: the search goes on behind the television's.

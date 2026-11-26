@@ -95,7 +95,10 @@ struct DuplicatesView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(state.holdsDeleting)
+                // In the middle of a bar still as wide as the window.
+                .frame(maxWidth: Readable.width)
                 .padding(12)
+                .frame(maxWidth: .infinity)
                 .background(.regularMaterial)
             }
         }

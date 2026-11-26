@@ -70,20 +70,22 @@ struct TVSection: View {
                     }
                     Button(TVSettingsState.removeLabel, role: .destructive) { Task { await television.remove() } }
                         .disabled(television.holdsRemoving)
+                        // On the button, which is where the question then points from on an iPad. Hung on the
+                        // section it went to each of the section's rows (see `sheet`), and could point at another.
+                        .confirmationDialog(TVSettingsState.removalQuestion,
+                                            isPresented: Binding(get: { television.asksToRemove },
+                                                                 set: { if !$0 { television.removalClosed() } }),
+                                            titleVisibility: .visible) {
+                            Button(TVSettingsState.confirmRemovingLabel, role: .destructive) {
+                                Task { await television.confirmRemoving() }
+                            }
+                        } message: {
+                            Text(television.removalMessage)
+                        }
                 } header: {
                     Text(TVSettingsState.heading)
                 } footer: {
                     if let footer = television.footer { Text(footer).foregroundStyle(.red).font(.callout) }
-                }
-                .confirmationDialog(TVSettingsState.removalQuestion,
-                                    isPresented: Binding(get: { television.asksToRemove },
-                                                         set: { if !$0 { television.removalClosed() } }),
-                                    titleVisibility: .visible) {
-                    Button(TVSettingsState.confirmRemovingLabel, role: .destructive) {
-                        Task { await television.confirmRemoving() }
-                    }
-                } message: {
-                    Text(television.removalMessage)
                 }
             } else {
                 Section {
@@ -114,7 +116,8 @@ struct HelperRegisterSheet: View {
             Form {
                 Section {
                     TextField(HelperRegisterState.codePlaceholder, text: $helper.code)
-                        .keyboardType(.numberPad)
+                        // Not `.numberPad`, as for the television's number below.
+                        .keyboardType(.asciiCapableNumberPad)
                 } footer: {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(HelperRegisterState.codeNote)
@@ -174,7 +177,10 @@ struct TVRegisterSheet: View {
                 if register.askingForPIN {
                     Section {
                         TextField(TVRegisterState.pinPlaceholder, text: $register.pin)
-                            .keyboardType(.numberPad)
+                            // Not `.numberPad`: with that keyboard up in a sheet on an iPad, the first tap on
+                            // the button below only put the keyboard away (seen on iPadOS 27). An iPhone shows
+                            // the same pad for either.
+                            .keyboardType(.asciiCapableNumberPad)
                     } footer: {
                         Text(register.pinNote)
                     }

@@ -97,7 +97,8 @@ struct SearchScreen: View {
                     }
                 }
             }
-            .searchable(text: $search.query, isPresented: $search.searching, prompt: search.scope.prompt)
+            .searchable(text: $search.query, isPresented: $search.searching, placement: fieldPlacement,
+                        prompt: search.scope.prompt)
             // Offered as soon as the field is tapped, before anything is typed, which is what the screen says
             // until then; left to the system, they would wait for the first letter.
             .searchScopes($search.scope, activation: .onSearchPresentation) {
@@ -117,6 +118,16 @@ struct SearchScreen: View {
             .onChange(of: search.query) { closeOffTheResults() }
             .onChange(of: search.scope) { closeOffTheResults() }
         }
+    }
+
+    /// Where the field goes: where the system puts it, except on an iPad's regular width under iPadOS 26. There the
+    /// system puts it at the end of the bar, where the scopes asked for on the field's tap never show, nor after the
+    /// first letter; in a row of its own under the bar they show on the tap. iPadOS 27 shows them at the end of the
+    /// bar.
+    private var fieldPlacement: SearchFieldPlacement {
+        if #available(iOS 27, *) { return .automatic }
+        if #available(iOS 26, *), sizeClass == .regular { return .navigationBarDrawer }
+        return .automatic
     }
 
     /// Whether a result opens beside the results, in the system's inspector, rather than in a sheet over them: on a

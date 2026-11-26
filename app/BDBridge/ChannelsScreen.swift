@@ -68,8 +68,11 @@ struct ChannelsScreen: View {
             }
         }
         .pickerStyle(.segmented)
+        // In the middle of a bar still as wide as the window.
+        .frame(maxWidth: Readable.width)
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
         .background(.bar)
         .overlay(alignment: .bottom) { Divider() }
     }

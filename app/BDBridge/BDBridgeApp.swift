@@ -88,6 +88,12 @@ struct RootView: View {
     }
 }
 
+/// As wide as a page of prose, or a bar's one control, goes where the window is wider than this: about a
+/// comfortable line of text at the default text size. Nothing narrower is touched: an iPhone, a sheet.
+enum Readable {
+    static let width: CGFloat = 672
+}
+
 /// The grey circle a sheet is closed with. A word there would be one the system never uses; the word stays
 /// for anything reading the screen aloud. The identifier is for the screenshot tests, which check that no
 /// sheet is open and cannot go by the word: the system's own button beside an open search field says it too.
