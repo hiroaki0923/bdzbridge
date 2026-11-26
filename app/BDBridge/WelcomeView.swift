@@ -17,6 +17,9 @@ struct WelcomeView: View {
     @State private var welcome: WelcomeState
     /// The television's sheet, for a television the search found, tapped.
     @State private var tvSheet: TVSheetRequest?
+    /// As wide as the tutorial goes: a comfortable line of text at the default text size, growing with the
+    /// reader's. Nothing narrower is touched: an iPhone, or a sheet.
+    @ScaledMetric private var readableWidth: CGFloat = 672
 
     init(model: AppModel) {
         _welcome = State(initialValue: WelcomeState(model: model))
@@ -130,6 +133,11 @@ struct WelcomeView: View {
                     Text(Tutorial.demoFooter)
                 }
             }
+            // On an iPad's full screen, in the middle at the width of a comfortable line rather than across the
+            // whole of it, on the list's own grey from edge to edge.
+            .frame(maxWidth: readableWidth)
+            .frame(maxWidth: .infinity)
+            .background(Color(.systemGroupedBackground))
             .navigationBarTitleDisplayMode(.inline)
             // A scan waiting on the system's question must not outlive the screen that asked it. A sheet over
             // this one is not its going: the search goes on behind the television's.
