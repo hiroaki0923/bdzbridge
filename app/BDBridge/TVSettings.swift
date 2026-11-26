@@ -70,20 +70,22 @@ struct TVSection: View {
                     }
                     Button(TVSettingsState.removeLabel, role: .destructive) { Task { await television.remove() } }
                         .disabled(television.holdsRemoving)
+                        // On the button, which is where the question then points from on an iPad. Hung on the
+                        // section it went to each of the section's rows (see `sheet`), and could point at another.
+                        .confirmationDialog(TVSettingsState.removalQuestion,
+                                            isPresented: Binding(get: { television.asksToRemove },
+                                                                 set: { if !$0 { television.removalClosed() } }),
+                                            titleVisibility: .visible) {
+                            Button(TVSettingsState.confirmRemovingLabel, role: .destructive) {
+                                Task { await television.confirmRemoving() }
+                            }
+                        } message: {
+                            Text(television.removalMessage)
+                        }
                 } header: {
                     Text(TVSettingsState.heading)
                 } footer: {
                     if let footer = television.footer { Text(footer).foregroundStyle(.red).font(.callout) }
-                }
-                .confirmationDialog(TVSettingsState.removalQuestion,
-                                    isPresented: Binding(get: { television.asksToRemove },
-                                                         set: { if !$0 { television.removalClosed() } }),
-                                    titleVisibility: .visible) {
-                    Button(TVSettingsState.confirmRemovingLabel, role: .destructive) {
-                        Task { await television.confirmRemoving() }
-                    }
-                } message: {
-                    Text(television.removalMessage)
                 }
             } else {
                 Section {
