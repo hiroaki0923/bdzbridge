@@ -52,19 +52,19 @@ struct RootView: View {
     var body: some View {
         TabView(selection: selection) {
             GuideScreen()
-                .tabItem { Label(TabWords.guide, systemImage: "squareshape.split.3x3") }
+                .tabItem { tabLabel(TabWords.guide, "squareshape.split.3x3", "guide") }
                 .tag("guide")
             SearchScreen(model: model)
-                .tabItem { Label(TabWords.search, systemImage: "magnifyingglass") }
+                .tabItem { tabLabel(TabWords.search, "magnifyingglass", "search") }
                 .tag("search")
             ReservationsScreen(model: model)
-                .tabItem { Label(TabWords.reservations, systemImage: "clock") }
+                .tabItem { tabLabel(TabWords.reservations, "clock", "reservations") }
                 .tag("reservations")
             RecordingsScreen(model: model)
-                .tabItem { Label(TabWords.recordings, systemImage: "play.rectangle") }
+                .tabItem { tabLabel(TabWords.recordings, "play.rectangle", "recordings") }
                 .tag("recordings")
             SettingsScreen(model: model)
-                .tabItem { Label(TabWords.settings, systemImage: "slider.horizontal.3") }
+                .tabItem { tabLabel(TabWords.settings, "slider.horizontal.3", "settings") }
                 .tag("settings")
         }
         .task {
@@ -85,6 +85,13 @@ struct RootView: View {
             }
         }
         .fullScreenCover(isPresented: $welcoming) { WelcomeView(model: model) }
+    }
+
+    /// A tab's name and symbol. The identifier is for the UI tests, and nothing reads it aloud: an iPad's tabs, which
+    /// from iPadOS 26 are buttons in the window's bar rather than a tab bar's, take it as theirs in place of their
+    /// symbol's name; an iPhone's tab bar leaves it out.
+    private func tabLabel(_ name: String, _ symbol: String, _ tag: String) -> some View {
+        Label(name, systemImage: symbol).accessibilityIdentifier("tab-" + tag)
     }
 }
 
