@@ -116,7 +116,8 @@ struct HelperRegisterSheet: View {
             Form {
                 Section {
                     TextField(HelperRegisterState.codePlaceholder, text: $helper.code)
-                        .keyboardType(.numberPad)
+                        // Not `.numberPad`, as for the television's number below.
+                        .keyboardType(.asciiCapableNumberPad)
                 } footer: {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(HelperRegisterState.codeNote)
@@ -176,7 +177,10 @@ struct TVRegisterSheet: View {
                 if register.askingForPIN {
                     Section {
                         TextField(TVRegisterState.pinPlaceholder, text: $register.pin)
-                            .keyboardType(.numberPad)
+                            // Not `.numberPad`: with that keyboard up in a sheet on an iPad, the first tap on
+                            // the button below only put the keyboard away (seen on iPadOS 27). An iPhone shows
+                            // the same pad for either.
+                            .keyboardType(.asciiCapableNumberPad)
                     } footer: {
                         Text(register.pinNote)
                     }
