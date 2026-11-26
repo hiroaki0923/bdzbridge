@@ -34,7 +34,7 @@ struct WelcomeView: View {
                         // somewhere to send a reservation, and gives a guide of its own once its helper is
                         // installed on it.
                         Text("ソニーのブルーレイディスクレコーダー（BDZ シリーズ）用のアプリです。"
-                             + "レコーダーの番組表を iPhone で見て、録画予約や録画した番組の整理ができます。"
+                             + "レコーダーの番組表を \(ThisDevice.name) で見て、録画予約や録画した番組の整理ができます。"
                              + "USB ハードディスクに録画できるソニーのテレビにも、録画予約を送れます。"
                              + "テレビにアプリ「RecBridge ヘルパー」を入れると、レコーダーがなくても、テレビの番組表から録画予約ができます。"
                              + "まず、お使いのレコーダーとテレビを追加しましょう。")
@@ -45,7 +45,7 @@ struct WelcomeView: View {
                 }
                 Section(Tutorial.heading) {
                     step(1, Tutorial.step1Title, Tutorial.step1Detail)
-                    step(2, "iPhone をレコーダーやテレビと同じ Wi-Fi につなぐ", Tutorial.step2Detail)
+                    step(2, "\(ThisDevice.name) をレコーダーやテレビと同じ Wi-Fi につなぐ", Tutorial.step2Detail)
                     step(3, Tutorial.step3Title,
                          "「ローカルネットワークへのアクセス」の確認が表示されたら「許可」を選んでください。"
                          + "そのまま検索が始まります。")
