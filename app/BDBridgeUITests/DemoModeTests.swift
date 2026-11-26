@@ -108,6 +108,37 @@ final class DemoModeTests: XCTestCase {
         endTheDemo(app)
     }
 
+    /// What the search finds is of every day, where the guide's list is of one day and the reservations' list is under
+    /// the days' headings, so a row found says its day: a programme's above its time, in the column beside its title,
+    /// and a reservation's before its time. The demo's weekly drama is in the guide on more than one day, and reserved.
+    func testWhatTheSearchFindsSaysItsDay() {
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        app.tab(.search).tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
+        field.tap()
+        // The return key puts the keyboard away, which otherwise covers the results.
+        field.typeText("ひかりの街\n")
+
+        let title = app.staticTexts.matching(labelContains("ひかりの街")).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 20), "the search found no programme")
+        let day = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "\\d{1,2}/\\d{1,2}\\(.\\)")).firstMatch
+        XCTAssertTrue(day.waitForExistence(timeout: 10), "a programme found did not say its day")
+        XCTAssertLessThanOrEqual(day.frame.maxX, title.frame.minX, "the day was not in the column beside the title")
+
+        let reservations = app.segmentedControls.buttons["予約"]
+        XCTAssertTrue(reservations.waitForExistence(timeout: 10), "the search offered no 予約")
+        reservations.tap()
+        let when = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@",
+                                                        "\\d{1,2}/\\d{1,2}\\(.\\) \\d{2}:\\d{2}\\s.*")).firstMatch
+        XCTAssertTrue(when.waitForExistence(timeout: 20), "a reservation found did not say its day")
+
+        clearTheSearchOnAnIPad(app)
+        endTheDemo(app)
+    }
+
     /// Channels are hidden from the settings, and the guide follows at once. A list narrowed to the channel
     /// hidden goes back to every channel rather than staying empty with nothing to say why, and a switch of
     /// broadcasting type lets go of the channel as well. The demo has no CS guide, and the guide says so

@@ -239,6 +239,9 @@ struct ReservationRowView: View {
     /// The disk it records to, said after the device: only for a recorder's row off the internal disk
     /// (`AppModel.diskShown`), so that nothing changes in a home with no USB disk.
     var disk: String? = nil
+    /// In the search's results, the day is said before the time: the reservations' own list puts its rows under the
+    /// days' headings, and the search does not.
+    var dated = false
 
     @ScaledMetric(relativeTo: .caption2) private var logoHeight = 14.0
 
@@ -264,7 +267,8 @@ struct ReservationRowView: View {
     /// When, and the marks, as one line of text: as views side by side, a large text size squeezed each
     /// into a narrow column of its own.
     private var head: Text {
-        var line = Text(Format.time.string(from: reservation.start)).font(.callout.monospacedDigit())
+        var line = Text((dated ? Format.dateTime : Format.time).string(from: reservation.start))
+            .font(.callout.monospacedDigit())
             + Text.rowGap
             + Text(Format.duration(reservation.durationSec)).foregroundStyle(.secondary)
         if reservation.recording {
