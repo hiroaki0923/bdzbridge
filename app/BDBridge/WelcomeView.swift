@@ -17,9 +17,8 @@ struct WelcomeView: View {
     @State private var welcome: WelcomeState
     /// The television's sheet, for a television the search found, tapped.
     @State private var tvSheet: TVSheetRequest?
-    /// As wide as the tutorial goes: a comfortable line of text at the default text size, growing with the
-    /// reader's. Nothing narrower is touched: an iPhone, or a sheet.
-    @ScaledMetric private var readableWidth: CGFloat = 672
+    /// As wide as the tutorial goes: `Readable.width`, growing with the reader's text size.
+    @ScaledMetric private var readableWidth: CGFloat = Readable.width
 
     init(model: AppModel) {
         _welcome = State(initialValue: WelcomeState(model: model))

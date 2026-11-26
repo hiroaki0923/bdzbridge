@@ -95,9 +95,8 @@ struct DuplicatesView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(state.holdsDeleting)
-                // Across an iPhone; on an iPad's wider window no wider than a line of text, in the middle of a bar
-                // still as wide as the window.
-                .frame(maxWidth: 672)
+                // In the middle of a bar still as wide as the window.
+                .frame(maxWidth: Readable.width)
                 .padding(12)
                 .frame(maxWidth: .infinity)
                 .background(.regularMaterial)

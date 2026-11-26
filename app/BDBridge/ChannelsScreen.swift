@@ -68,9 +68,8 @@ struct ChannelsScreen: View {
             }
         }
         .pickerStyle(.segmented)
-        // Across an iPhone and a sheet; on an iPad's wider window no wider than a line of text, in the middle of a
-        // bar still as wide as the window.
-        .frame(maxWidth: 672)
+        // In the middle of a bar still as wide as the window.
+        .frame(maxWidth: Readable.width)
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
