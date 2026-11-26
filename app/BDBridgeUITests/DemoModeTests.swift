@@ -546,7 +546,184 @@ final class DemoModeTests: XCTestCase {
         endTheDemo(app)
     }
 
+    // MARK: - an iPad's column
+
+    /// On an iPad a programme of the guide opens in the column beside it, where an iPhone has a sheet over it. Another
+    /// programme tapped takes its place there, and its close closes it, leaving the guide as it was.
+    func testOnAnIPadAProgrammeOpensBesideTheGuide() throws {
+        try XCTSkipUnless(onAnIPad, "an iPhone opens a programme in a sheet")
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        inView(app, "サンプルテレビ").tap()
+        let close = columnsClose(app)
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "the programme did not open")
+        XCTAssertTrue(isBesideTheList(app, close), "the programme was not beside the guide: \(close.frame)")
+        XCTAssertTrue(app.staticTexts["放送、サンプルテレビ"].waitForExistence(timeout: 10), "the column was not the programme's")
+
+        let another = inView(app, "テレビみほん")
+        another.tap()
+        XCTAssertTrue(app.staticTexts["放送、テレビみほん"].waitForExistence(timeout: 10),
+                      "the programme tapped next did not take the column")
+        XCTAssertFalse(app.staticTexts["放送、サンプルテレビ"].exists, "the first programme stayed in the column")
+
+        close.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 10), "the column did not close")
+        XCTAssertTrue(another.isHittable, "the guide did not stay as it was")
+
+        endTheDemo(app)
+    }
+
+    /// On an iPad a reservation made in a programme's column is said there, where an iPhone's sheet closes: the column
+    /// stays, and shows the programme reserved.
+    func testOnAnIPadAReservationMadeInTheColumnIsShownThere() throws {
+        try XCTSkipUnless(onAnIPad, "an iPhone's sheet closes once the reservation is made")
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        app.tab(.search).tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
+        field.tap()
+        field.typeText("みほん自然紀行\n")
+        let ahead = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND NOT label CONTAINS %@",
+                                                         "サンプル教育", "放送中")).firstMatch
+        XCTAssertTrue(ahead.waitForExistence(timeout: 20), "the search found nothing ahead")
+        ahead.tap()
+        let close = columnsClose(app)
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "the programme did not open")
+        let reserve = app.buttons["録画予約する"]
+        XCTAssertTrue(reserve.waitForExistence(timeout: 20), "the column offered no reservation")
+        reserve.tap()
+        let confirm = app.alerts.buttons["予約する"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "録画予約する asked nothing")
+        confirm.tap()
+
+        XCTAssertTrue(app.staticTexts["この番組は予約済みです"].waitForExistence(timeout: 20),
+                      "the column did not say the programme was reserved")
+        XCTAssertTrue(app.buttons["予約を削除"].exists, "the column did not offer the reservation's delete")
+        XCTAssertFalse(reserve.exists, "the column still offered to reserve it")
+        XCTAssertTrue(close.exists, "the column closed")
+
+        clearTheSearchOnAnIPad(app)
+        endTheDemo(app)
+    }
+
+    /// On an iPad a reservation opens in the column beside the list, and its delete closes the column and takes the row
+    /// off the list.
+    func testOnAnIPadAReservationOpensBesideTheListAndItsDeleteClosesIt() throws {
+        try XCTSkipUnless(onAnIPad, "an iPhone opens a reservation in a sheet")
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        app.tab(.reservations).tap()
+        let row = app.staticTexts.matching(labelContains("みほんスポーツ中継")).firstMatch
+        find(app, row)
+        row.tap()
+        let close = columnsClose(app)
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "the reservation did not open")
+        XCTAssertTrue(isBesideTheList(app, close), "the reservation was not beside the list: \(close.frame)")
+
+        let delete = app.buttons["予約を削除"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 10), "the column offered no delete")
+        delete.tap()
+        let confirm = app.alerts.buttons["削除する"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "予約を削除 asked nothing")
+        confirm.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 20), "the column did not close once deleted")
+        XCTAssertTrue(row.waitForNonExistence(timeout: 20), "the reservation was still listed")
+
+        endTheDemo(app)
+    }
+
+    /// On an iPad a recording opens in the column beside the list, and its delete closes the column and takes the row
+    /// off the list.
+    func testOnAnIPadARecordingOpensBesideTheListAndItsDeleteClosesIt() throws {
+        try XCTSkipUnless(onAnIPad, "an iPhone opens a recording in a sheet")
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        app.tab(.recordings).tap()
+        let mode = app.buttons["表示を変える"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 20), "the recordings screen had no display menu")
+        mode.tap()
+        let flat = app.buttons["一覧"]
+        XCTAssertTrue(flat.waitForExistence(timeout: 10), "the menu did not offer 一覧")
+        flat.tap()
+        let row = app.staticTexts.matching(labelContains("みほんクラシック館")).firstMatch
+        find(app, row)
+        row.tap()
+        let close = columnsClose(app)
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "the recording did not open")
+        XCTAssertTrue(isBesideTheList(app, close), "the recording was not beside the list: \(close.frame)")
+
+        let delete = app.buttons["この録画を削除"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 10), "the column offered no delete")
+        delete.tap()
+        let confirm = app.alerts.buttons["削除する"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "この録画を削除 asked nothing")
+        confirm.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 20), "the column did not close once deleted")
+        XCTAssertTrue(row.waitForNonExistence(timeout: 20), "the recording was still listed")
+
+        endTheDemo(app)
+    }
+
+    /// On an iPad the search's results open in one column, whichever of the three kinds they are: a programme, a
+    /// reservation and a recording, each in its scope. Another scope closes it, and so do other words.
+    func testOnAnIPadTheSearchOpensEachKindInTheOneColumn() throws {
+        try XCTSkipUnless(onAnIPad, "an iPhone opens a result in a sheet")
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        app.tab(.search).tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
+        field.tap()
+        field.typeText("ひかりの街\n")
+        let close = columnsClose(app)
+        for (scope, title) in [("番組表", "番組"), ("予約", "予約"), ("録画", "録画")] {
+            let chosen = app.segmentedControls.buttons[scope]
+            XCTAssertTrue(chosen.waitForExistence(timeout: 10), "the search offered no \(scope)")
+            chosen.tap()
+            XCTAssertTrue(close.waitForNonExistence(timeout: 10), "\(scope): the scope left the column open")
+            let result = app.staticTexts.matching(labelContains("ひかりの街")).firstMatch
+            XCTAssertTrue(result.waitForExistence(timeout: 20), "\(scope): the search found nothing")
+            result.tap()
+            XCTAssertTrue(close.waitForExistence(timeout: 10), "\(scope): the result did not open")
+            XCTAssertTrue(isBesideTheList(app, close), "\(scope): the result was not beside the list: \(close.frame)")
+            XCTAssertTrue(app.staticTexts[title].exists, "\(scope): the column was not titled \(title)")
+            XCTAssertEqual(app.buttons.matching(identifier: "sheet-close").count, 1, "\(scope): more than one column")
+        }
+
+        field.tap()
+        field.typeText("　第")
+        XCTAssertTrue(close.waitForNonExistence(timeout: 10), "other words left the column open")
+
+        clearTheSearchOnAnIPad(app)
+        endTheDemo(app)
+    }
+
     // MARK: - steps
+
+    /// The close of the column beside a list on an iPad, which is the one close on the screen while the column is open.
+    private func columnsClose(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(identifier: "sheet-close").firstMatch
+    }
+
+    /// Whether a close is the column's at the window's right edge, beside the list, and not a sheet's over it.
+    private func isBesideTheList(_ app: XCUIApplication, _ close: XCUIElement) -> Bool {
+        close.frame.maxX > app.windows.firstMatch.frame.maxX - 60
+    }
+
+    /// The first row of the guide's list on the screen whose line under the title names this channel.
+    private func inView(_ app: XCUIApplication, _ channel: String) -> XCUIElement {
+        let lines = app.staticTexts.matching(labelContains(channel))
+        XCTAssertTrue(lines.firstMatch.waitForExistence(timeout: 20), "the guide had no programme on \(channel)")
+        let shown = lines.allElementsBoundByIndex.first { $0.isHittable }
+        XCTAssertNotNil(shown, "no programme on \(channel) was on the screen")
+        return shown ?? lines.firstMatch
+    }
 
     /// What says that the sheet a row opened is up, by its title: on an iPhone its bar. On an iPad's regular width the
     /// row opens in the column beside its list instead, which has no bar of its own: its close, the one on the screen
