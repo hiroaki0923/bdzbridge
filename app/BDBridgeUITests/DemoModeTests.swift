@@ -27,11 +27,11 @@ final class DemoModeTests: XCTestCase {
         startTheDemo(app)
 
         // The settings, once seen in the demo, show its address and its MAC, which have to go with it.
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         let address = addressField(app)
         XCTAssertTrue(address.waitForExistence(timeout: 10), "the settings had no address field")
         XCTAssertEqual(address.value as? String, Self.demoHost)
-        app.tabBars.buttons["番組表"].tap()
+        app.tab(.guide).tap()
 
         endTheDemo(app)
 
@@ -40,7 +40,7 @@ final class DemoModeTests: XCTestCase {
                       "ending the demo did not put the app back")
         XCTAssertFalse(demoStrip(app).exists, "the demo strip stayed after the demo ended")
 
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         XCTAssertTrue(address.waitForExistence(timeout: 10), "the settings had no address field")
         XCTAssertNotEqual(address.value as? String, Self.demoHost, "the settings kept the demo's address")
         XCTAssertNotEqual(macField(app).value as? String, Self.demoMac, "the settings kept the demo's MAC")
@@ -57,7 +57,7 @@ final class DemoModeTests: XCTestCase {
         let app = launchWithoutARecorder()
         startTheDemo(app)
 
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         let address = addressField(app)
         XCTAssertTrue(address.waitForExistence(timeout: 10), "the settings had no address field")
         // At the far end, where a right-aligned field puts the cursor after the text.
@@ -80,7 +80,7 @@ final class DemoModeTests: XCTestCase {
         XCTAssertEqual(address.value as? String, "127.0.0.1", "the address chosen was not kept")
 
         // Nothing answers there, and the app says so rather than showing the demo as connected.
-        app.tabBars.buttons["番組表"].tap()
+        app.tab(.guide).tap()
         XCTAssertTrue(app.staticTexts["レコーダーの応答がありません"].waitForExistence(timeout: 30),
                       "the app did not say it could not reach the recorder chosen")
         XCTAssertFalse(demoStrip(app).exists, "the demo strip stayed after a recorder was chosen")
@@ -95,7 +95,7 @@ final class DemoModeTests: XCTestCase {
         let app = launchWithoutARecorder()
         startTheDemo(app)
 
-        app.tabBars.buttons["検索"].tap()
+        app.tab(.search).tap()
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
         field.tap()
@@ -123,7 +123,7 @@ final class DemoModeTests: XCTestCase {
         narrowTo.tap()
         XCTAssertTrue(guideMenu(app, "サンプル教育").waitForExistence(timeout: 10), "the list was not narrowed")
 
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         let arrange = app.buttons["チャンネルの表示と並び順"]
         scroll(app, to: arrange)
         XCTAssertTrue(arrange.exists, "the settings did not offer the channels")
@@ -136,14 +136,14 @@ final class DemoModeTests: XCTestCase {
         wait(for: [hidden], timeout: 10)
 
         // Gone from the guide, and the list is no longer narrowed to it.
-        app.tabBars.buttons["番組表"].tap()
+        app.tab(.guide).tap()
         XCTAssertTrue(guideMenu(app, "地デジ").waitForExistence(timeout: 10),
                       "the list stayed narrowed to a hidden channel")
         XCTAssertTrue(channelLine(app, "サンプルテレビ").waitForExistence(timeout: 10), "the guide went empty")
         XCTAssertFalse(channelLine(app, "サンプル教育").exists, "the hidden channel was still in the guide")
 
         // Back, and the reset brings it back.
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         let reset = app.buttons["レコーダーの順に戻して、すべて表示"]
         XCTAssertTrue(reset.waitForExistence(timeout: 10), "the channels screen had no reset")
         reset.tap()
@@ -154,7 +154,7 @@ final class DemoModeTests: XCTestCase {
         wait(for: [shown], timeout: 10)
 
         // A channel chosen on one broadcasting type is let go on another, and the demo's missing CS is said.
-        app.tabBars.buttons["番組表"].tap()
+        app.tab(.guide).tap()
         guideMenu(app, "地デジ").tap()
         XCTAssertTrue(narrowTo.waitForExistence(timeout: 10), "the channel menu did not list the channel again")
         narrowTo.tap()
@@ -182,8 +182,14 @@ final class DemoModeTests: XCTestCase {
             .firstMatch
         XCTAssertTrue(time.exists, "the time and the length were not one line of their own")
         XCTAssertEqual(time.frame.minX, line.frame.minX, accuracy: 2, "the time was still in a column beside the title")
-        XCTAssertGreaterThan(line.frame.width, app.windows.firstMatch.frame.width * 0.4,
-                             "the channel's line was squeezed into a column")
+        if onAnIPad {
+            // An iPad's row is wide enough for the whole line, which is then one line, as the time's is, and only as
+            // wide as its words.
+            XCTAssertLessThan(line.frame.height, time.frame.height * 1.5, "the channel's line was squeezed into a column")
+        } else {
+            XCTAssertGreaterThan(line.frame.width, app.windows.firstMatch.frame.width * 0.4,
+                                 "the channel's line was squeezed into a column")
+        }
 
         endTheDemo(app)
     }
@@ -195,7 +201,7 @@ final class DemoModeTests: XCTestCase {
         let app = launchWithoutARecorder()
         startTheDemo(app)
 
-        app.tabBars.buttons["予約"].tap()
+        app.tab(.reservations).tap()
         XCTAssertTrue(app.staticTexts["おまかせ"].waitForExistence(timeout: 20),
                       "the recorder's own reservations were not marked おまかせ")
         let clashing = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "ひなたスポーツ特集"))
@@ -222,7 +228,7 @@ final class DemoModeTests: XCTestCase {
         let app = launchWithoutARecorder()
         startTheDemo(app)
 
-        app.tabBars.buttons["録画"].tap()
+        app.tab(.recordings).tap()
         let mode = app.buttons["表示を変える"]
         XCTAssertTrue(mode.waitForExistence(timeout: 20), "the recordings screen had no display menu")
         mode.tap()
@@ -257,7 +263,7 @@ final class DemoModeTests: XCTestCase {
         let app = launchWithoutARecorder()
         startTheDemo(app)
 
-        app.tabBars.buttons["録画"].tap()
+        app.tab(.recordings).tap()
         // The flat list, whichever way the last test left this kept choice.
         let mode = app.buttons["表示を変える"]
         XCTAssertTrue(mode.waitForExistence(timeout: 20), "the recordings screen had no display menu")
@@ -283,10 +289,10 @@ final class DemoModeTests: XCTestCase {
         let row = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "BS名画サンプル")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 10), "the list did not hold the disk's recording")
         row.tap()
-        let sheet = app.navigationBars["録画"]
+        let sheet = opened(app, "録画")
         XCTAssertTrue(sheet.waitForExistence(timeout: 10), "the recording did not open")
         XCTAssertTrue(app.staticTexts["録画先"].waitForExistence(timeout: 10), "the sheet did not name the disk")
-        sheet.buttons["閉じる"].tap()
+        closeOf(app, "録画").tap()
 
         filter.tap()
         let all = app.buttons["すべて"].firstMatch
@@ -306,7 +312,7 @@ final class DemoModeTests: XCTestCase {
         let app = launchWithoutARecorder()
         startTheDemo(app)
 
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         searchForTheDemosTelevision(app).tap()
         let number = app.textFields["4 桁の番号"]
         XCTAssertTrue(number.waitForExistence(timeout: 20), "the sheet did not go straight to the number")
@@ -315,7 +321,7 @@ final class DemoModeTests: XCTestCase {
         app.buttons["登録する"].tap()
         XCTAssertTrue(app.navigationBars["テレビを追加"].waitForNonExistence(timeout: 20), "the sheet did not close")
 
-        app.tabBars.buttons["録画"].tap()
+        app.tab(.recordings).tap()
         let mode = app.buttons["表示を変える"]
         XCTAssertTrue(mode.waitForExistence(timeout: 20), "the recordings screen had no display menu")
         mode.tap()
@@ -341,7 +347,7 @@ final class DemoModeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(labelContains("  テレビ  ")).firstMatch.exists,
                       "no row named テレビ: \(app.debugDescription)")
         row.tap()
-        let sheet = app.navigationBars["録画"]
+        let sheet = opened(app, "録画")
         XCTAssertTrue(sheet.waitForExistence(timeout: 10), "the recording did not open")
         XCTAssertTrue(app.staticTexts["全国のサンプル名人が集まる大会。"].waitForExistence(timeout: 10),
                       "the sheet did not say the row's text")
@@ -375,7 +381,7 @@ final class DemoModeTests: XCTestCase {
         let app = launchWithoutARecorder()
         startTheDemo(app)
 
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         let setting = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "既定の録画モード")).firstMatch
         scroll(app, to: setting)
         XCTAssertTrue(setting.exists, "the settings had no default recording mode")
@@ -386,7 +392,7 @@ final class DemoModeTests: XCTestCase {
         XCTAssertTrue(says(setting, "DR(高画質)"), "the default was \(setting.debugDescription)")
 
         // A programme's sheet starts at it, and another mode chosen there stays there.
-        app.tabBars.buttons["検索"].tap()
+        app.tab(.search).tap()
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
         field.tap()
@@ -402,7 +408,7 @@ final class DemoModeTests: XCTestCase {
         XCTAssertTrue(eer.waitForExistence(timeout: 10), "the sheet's mode offered no EER")
         eer.tap()
         XCTAssertTrue(says(picker, "EER(長時間)"), "the sheet's mode was \(picker.debugDescription)")
-        app.navigationBars["番組"].buttons["閉じる"].tap()
+        closeOf(app, "番組").tap()
 
         // Opened again, it starts from the default, which the choice above has not touched. Asked here rather
         // than on the settings screen: the tab bar is under the search's keyboard.
@@ -410,7 +416,7 @@ final class DemoModeTests: XCTestCase {
         XCTAssertTrue(picker.waitForExistence(timeout: 20), "the programme's sheet did not open again")
         XCTAssertTrue(says(picker, "DR(高画質)"), "choosing on the programme changed the default: "
                       + picker.debugDescription)
-        app.navigationBars["番組"].buttons["閉じる"].tap()
+        closeOf(app, "番組").tap()
 
         endTheDemo(app)
     }
@@ -427,7 +433,7 @@ final class DemoModeTests: XCTestCase {
         startTheDemo(app)
 
         // The television's section is there in the demo, saying that a television can be tried there.
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         let add = app.buttons["アドレスを入力して追加"]
         scroll(app, to: add)
         XCTAssertTrue(add.exists, "the demo had no television's section")
@@ -454,13 +460,13 @@ final class DemoModeTests: XCTestCase {
         XCTAssertFalse(app.buttons["アドレスを入力して追加"].exists, "the section still offered to add one")
 
         // What it holds from the start, as the television's.
-        app.tabBars.buttons["予約"].tap()
+        app.tab(.reservations).tap()
         let held = app.staticTexts.matching(labelContains("テレビ", "みほんBS")).firstMatch
         scroll(app, to: held)
         XCTAssertTrue(held.exists, "the television's own recording was not listed as the television's")
 
         // A programme of the guide reserved on it, ahead of now: one under way could not have its repeat changed.
-        app.tabBars.buttons["検索"].tap()
+        app.tab(.search).tap()
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
         field.tap()
@@ -481,13 +487,19 @@ final class DemoModeTests: XCTestCase {
         let reserve = app.alerts.buttons["予約する"]
         XCTAssertTrue(reserve.waitForExistence(timeout: 10), "録画予約する asked nothing")
         reserve.tap()
-        XCTAssertTrue(app.navigationBars["番組"].waitForNonExistence(timeout: 20), "the sheet did not close once made")
+        if onAnIPad {
+            // An iPad's column stays, and shows what became of the programme: the television's reservation of it.
+            XCTAssertTrue(app.buttons["予約を削除"].waitForExistence(timeout: 20), "the column did not show what was made")
+        } else {
+            XCTAssertTrue(app.navigationBars["番組"].waitForNonExistence(timeout: 20), "the sheet did not close once made")
+        }
         XCTAssertTrue(app.staticTexts.matching(labelContains("サンプル教育", "予約")).firstMatch.waitForExistence(timeout: 10),
                       "the search did not mark the programme reserved")
         if app.keyboards.firstMatch.exists { field.typeText("\n") }
+        clearTheSearchOnAnIPad(app)
 
         // On the reservations tab as the television's: its repeat changed, and then deleted.
-        app.tabBars.buttons["予約"].tap()
+        app.tab(.reservations).tap()
         let row = app.staticTexts.matching(labelContains("テレビ", "サンプル教育")).firstMatch
         find(app, row)
         XCTAssertTrue(row.exists, "the reservation was not listed as the television's")
@@ -499,7 +511,7 @@ final class DemoModeTests: XCTestCase {
         XCTAssertTrue(daily.waitForExistence(timeout: 10), "the repeat offered no 毎日")
         daily.tap()
         app.buttons["変更をテレビに送る"].tap()
-        XCTAssertTrue(app.navigationBars["予約"].waitForNonExistence(timeout: 20), "the sheet did not close once changed")
+        XCTAssertTrue(opened(app, "予約").waitForNonExistence(timeout: 20), "the sheet did not close once changed")
         find(app, row)
         row.tap()
         XCTAssertTrue(repeating.waitForExistence(timeout: 20), "the reservation's sheet did not open again")
@@ -508,12 +520,12 @@ final class DemoModeTests: XCTestCase {
         let delete = app.alerts.buttons["削除する"]
         XCTAssertTrue(delete.waitForExistence(timeout: 10), "予約を削除 asked nothing")
         delete.tap()
-        XCTAssertTrue(app.navigationBars["予約"].waitForNonExistence(timeout: 20), "the sheet did not close once deleted")
+        XCTAssertTrue(opened(app, "予約").waitForNonExistence(timeout: 20), "the sheet did not close once deleted")
         XCTAssertTrue(row.waitForNonExistence(timeout: 20), "the reservation was still listed")
 
         // Gone with the demo, and not there when it starts again.
         endTheDemo(app)
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         find(app, add)
         XCTAssertTrue(add.exists, "the television's section did not go back to adding one")
         XCTAssertFalse(app.staticTexts["機種、KJ-SAMPLE"].exists, "the demo's television stayed after the demo")
@@ -523,16 +535,216 @@ final class DemoModeTests: XCTestCase {
         let enabled = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: tryAgain)
         wait(for: [enabled], timeout: 30)
         tryAgain.tap()
-        // The settings have no strip of their own: the button says the demo is on.
-        XCTAssertTrue(app.buttons["サンプルデータを終了する"].waitForExistence(timeout: 30),
-                      "the demo did not start again: \(tryAgain.debugDescription)")
+        // The settings have no strip of their own: the button says the demo is on. An iPad's form reaches it without
+        // a scroll, and the demo's recorder's rows coming in above it then push it out of view.
+        let endDemo = app.buttons["サンプルデータを終了する"]
+        if onAnIPad { scroll(app, to: endDemo) }
+        XCTAssertTrue(endDemo.waitForExistence(timeout: 30), "the demo did not start again: \(tryAgain.debugDescription)")
         let again = searchForTheDemosTelevision(app)
         XCTAssertFalse(again.label.contains("使用中"), "the demo's television was kept for the next demo")
-        app.tabBars.buttons["番組表"].tap()
+        app.tab(.guide).tap()
+        endTheDemo(app)
+    }
+
+    // MARK: - an iPad's column
+
+    /// On an iPad a programme of the guide opens in the column beside it, where an iPhone has a sheet over it. Another
+    /// programme tapped takes its place there, and its close closes it, leaving the guide as it was.
+    func testOnAnIPadAProgrammeOpensBesideTheGuide() throws {
+        try XCTSkipUnless(onAnIPad, "an iPhone opens a programme in a sheet")
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        inView(app, "サンプルテレビ").tap()
+        let close = columnsClose(app)
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "the programme did not open")
+        XCTAssertTrue(isBesideTheList(app, close), "the programme was not beside the guide: \(close.frame)")
+        XCTAssertTrue(app.staticTexts["放送、サンプルテレビ"].waitForExistence(timeout: 10), "the column was not the programme's")
+
+        let another = inView(app, "テレビみほん")
+        another.tap()
+        XCTAssertTrue(app.staticTexts["放送、テレビみほん"].waitForExistence(timeout: 10),
+                      "the programme tapped next did not take the column")
+        XCTAssertFalse(app.staticTexts["放送、サンプルテレビ"].exists, "the first programme stayed in the column")
+
+        close.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 10), "the column did not close")
+        XCTAssertTrue(another.isHittable, "the guide did not stay as it was")
+
+        endTheDemo(app)
+    }
+
+    /// On an iPad a reservation made in a programme's column is said there, where an iPhone's sheet closes: the column
+    /// stays, and shows the programme reserved.
+    func testOnAnIPadAReservationMadeInTheColumnIsShownThere() throws {
+        try XCTSkipUnless(onAnIPad, "an iPhone's sheet closes once the reservation is made")
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        app.tab(.search).tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
+        field.tap()
+        field.typeText("みほん自然紀行\n")
+        let ahead = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND NOT label CONTAINS %@",
+                                                         "サンプル教育", "放送中")).firstMatch
+        XCTAssertTrue(ahead.waitForExistence(timeout: 20), "the search found nothing ahead")
+        ahead.tap()
+        let close = columnsClose(app)
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "the programme did not open")
+        let reserve = app.buttons["録画予約する"]
+        XCTAssertTrue(reserve.waitForExistence(timeout: 20), "the column offered no reservation")
+        reserve.tap()
+        let confirm = app.alerts.buttons["予約する"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "録画予約する asked nothing")
+        confirm.tap()
+
+        XCTAssertTrue(app.staticTexts["この番組は予約済みです"].waitForExistence(timeout: 20),
+                      "the column did not say the programme was reserved")
+        XCTAssertTrue(app.buttons["予約を削除"].exists, "the column did not offer the reservation's delete")
+        XCTAssertFalse(reserve.exists, "the column still offered to reserve it")
+        XCTAssertTrue(close.exists, "the column closed")
+
+        clearTheSearchOnAnIPad(app)
+        endTheDemo(app)
+    }
+
+    /// On an iPad a reservation opens in the column beside the list, and its delete closes the column and takes the row
+    /// off the list.
+    func testOnAnIPadAReservationOpensBesideTheListAndItsDeleteClosesIt() throws {
+        try XCTSkipUnless(onAnIPad, "an iPhone opens a reservation in a sheet")
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        app.tab(.reservations).tap()
+        let row = app.staticTexts.matching(labelContains("みほんスポーツ中継")).firstMatch
+        find(app, row)
+        row.tap()
+        let close = columnsClose(app)
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "the reservation did not open")
+        XCTAssertTrue(isBesideTheList(app, close), "the reservation was not beside the list: \(close.frame)")
+
+        let delete = app.buttons["予約を削除"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 10), "the column offered no delete")
+        delete.tap()
+        let confirm = app.alerts.buttons["削除する"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "予約を削除 asked nothing")
+        confirm.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 20), "the column did not close once deleted")
+        XCTAssertTrue(row.waitForNonExistence(timeout: 20), "the reservation was still listed")
+
+        endTheDemo(app)
+    }
+
+    /// On an iPad a recording opens in the column beside the list, and its delete closes the column and takes the row
+    /// off the list.
+    func testOnAnIPadARecordingOpensBesideTheListAndItsDeleteClosesIt() throws {
+        try XCTSkipUnless(onAnIPad, "an iPhone opens a recording in a sheet")
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        app.tab(.recordings).tap()
+        let mode = app.buttons["表示を変える"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 20), "the recordings screen had no display menu")
+        mode.tap()
+        let flat = app.buttons["一覧"]
+        XCTAssertTrue(flat.waitForExistence(timeout: 10), "the menu did not offer 一覧")
+        flat.tap()
+        let row = app.staticTexts.matching(labelContains("みほんクラシック館")).firstMatch
+        find(app, row)
+        row.tap()
+        let close = columnsClose(app)
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "the recording did not open")
+        XCTAssertTrue(isBesideTheList(app, close), "the recording was not beside the list: \(close.frame)")
+
+        let delete = app.buttons["この録画を削除"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 10), "the column offered no delete")
+        delete.tap()
+        let confirm = app.alerts.buttons["削除する"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "この録画を削除 asked nothing")
+        confirm.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 20), "the column did not close once deleted")
+        XCTAssertTrue(row.waitForNonExistence(timeout: 20), "the recording was still listed")
+
+        endTheDemo(app)
+    }
+
+    /// On an iPad the search's results open in one column, whichever of the three kinds they are: a programme, a
+    /// reservation and a recording, each in its scope. Another scope closes it, and so do other words.
+    func testOnAnIPadTheSearchOpensEachKindInTheOneColumn() throws {
+        try XCTSkipUnless(onAnIPad, "an iPhone opens a result in a sheet")
+        let app = launchWithoutARecorder()
+        startTheDemo(app)
+
+        app.tab(.search).tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
+        field.tap()
+        field.typeText("ひかりの街\n")
+        let close = columnsClose(app)
+        for (scope, title) in [("番組表", "番組"), ("予約", "予約"), ("録画", "録画")] {
+            let chosen = app.segmentedControls.buttons[scope]
+            XCTAssertTrue(chosen.waitForExistence(timeout: 10), "the search offered no \(scope)")
+            chosen.tap()
+            XCTAssertTrue(close.waitForNonExistence(timeout: 10), "\(scope): the scope left the column open")
+            let result = app.staticTexts.matching(labelContains("ひかりの街")).firstMatch
+            XCTAssertTrue(result.waitForExistence(timeout: 20), "\(scope): the search found nothing")
+            result.tap()
+            XCTAssertTrue(close.waitForExistence(timeout: 10), "\(scope): the result did not open")
+            XCTAssertTrue(isBesideTheList(app, close), "\(scope): the result was not beside the list: \(close.frame)")
+            XCTAssertTrue(app.staticTexts[title].exists, "\(scope): the column was not titled \(title)")
+            XCTAssertEqual(app.buttons.matching(identifier: "sheet-close").count, 1, "\(scope): more than one column")
+        }
+
+        field.tap()
+        field.typeText("　第")
+        XCTAssertTrue(close.waitForNonExistence(timeout: 10), "other words left the column open")
+
+        clearTheSearchOnAnIPad(app)
         endTheDemo(app)
     }
 
     // MARK: - steps
+
+    /// The close of the column beside a list on an iPad, which is the one close on the screen while the column is open.
+    private func columnsClose(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(identifier: "sheet-close").firstMatch
+    }
+
+    /// Whether a close is the column's at the window's right edge, beside the list, and not a sheet's over it.
+    private func isBesideTheList(_ app: XCUIApplication, _ close: XCUIElement) -> Bool {
+        close.frame.maxX > app.windows.firstMatch.frame.maxX - 60
+    }
+
+    /// The first row of the guide's list on the screen whose line under the title names this channel.
+    private func inView(_ app: XCUIApplication, _ channel: String) -> XCUIElement {
+        let lines = app.staticTexts.matching(labelContains(channel))
+        XCTAssertTrue(lines.firstMatch.waitForExistence(timeout: 20), "the guide had no programme on \(channel)")
+        let shown = lines.allElementsBoundByIndex.first { $0.isHittable }
+        XCTAssertNotNil(shown, "no programme on \(channel) was on the screen")
+        return shown ?? lines.firstMatch
+    }
+
+    /// What says that the sheet a row opened is up, by its title: on an iPhone its bar. On an iPad's regular width the
+    /// row opens in the column beside its list instead, which has no bar of its own: its close, the one on the screen
+    /// (`columnTitle`).
+    private func opened(_ app: XCUIApplication, _ title: String) -> XCUIElement {
+        onAnIPad ? closeOf(app, title) : app.navigationBars[title]
+    }
+
+    /// The close of that sheet, or of that column.
+    private func closeOf(_ app: XCUIApplication, _ title: String) -> XCUIElement {
+        onAnIPad ? app.buttons.matching(identifier: "sheet-close").firstMatch : app.navigationBars[title].buttons["閉じる"]
+    }
+
+    /// On an iPad the search field, while it holds words, stands in the window's bar where the tabs were (iPadOS 27),
+    /// and clearing it with its own button brings them back. An iPhone's tab bar stays under it.
+    private func clearTheSearchOnAnIPad(_ app: XCUIApplication) {
+        guard onAnIPad else { return }
+        let clear = app.searchFields.firstMatch.buttons.firstMatch
+        XCTAssertTrue(clear.waitForExistence(timeout: 10), "the search field had nothing to clear it with")
+        clear.tap()
+    }
 
     /// Whether a picker's row shows this choice, which it gives as its label or as its value.
     private func says(_ picker: XCUIElement, _ choice: String) -> Bool {

@@ -20,6 +20,7 @@
 		48CC5BE81C5376EC2CD46B43 /* TVSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE2F789A1A76C5D308752261 /* TVSettings.swift */; };
 		494934848327D87696DFD86F /* RecorderKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0B5AB2BB705A18FEF4855A1E /* RecorderKit */; };
 		4E614A1444FEAA3509D42906 /* RecordingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6AFD9E18DB27397EB168352 /* RecordingsScreen.swift */; };
+		519E62AAF83E2A348C704518 /* Tabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0963E5D6C5981F023F1F74E /* Tabs.swift */; };
 		7794FA73C101700EBFF77ABE /* StorageFolder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A63DFEA68297F0402382A9D /* StorageFolder.swift */; };
 		792EE2D96B041FC466A0A178 /* ReservationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 707BB81A9C87370E84230350 /* ReservationSheet.swift */; };
 		7ECF6FE8456B7117AA41221B /* BackgroundWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 386A018603072D6E7B4D2AB0 /* BackgroundWork.swift */; };
@@ -95,6 +96,7 @@
 		C8713E24A962DD2218B7F41A /* TVHelperTokenStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVHelperTokenStoreTests.swift; sourceTree = "<group>"; };
 		CA7ECF4C1A153A99F6259F45 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		D01E57E04F32F67E91D01B85 /* DisclaimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisclaimerView.swift; sourceTree = "<group>"; };
+		D0963E5D6C5981F023F1F74E /* Tabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tabs.swift; sourceTree = "<group>"; };
 		D17DD90845EB4AEE09C5AC42 /* OpenRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenRow.swift; sourceTree = "<group>"; };
 		D86F6D78C94327F25C742A7A /* JobBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobBarView.swift; sourceTree = "<group>"; };
 		DCE17E7D5D88F5B7797F639F /* RecorderKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RecorderKit; path = RecorderKit; sourceTree = SOURCE_ROOT; };
@@ -126,6 +128,7 @@
 			children = (
 				F5943E199C95C53A2502F0A9 /* DemoModeTests.swift */,
 				48FFEE48446D96BAAA07AEEB /* ScreenshotTests.swift */,
+				D0963E5D6C5981F023F1F74E /* Tabs.swift */,
 			);
 			path = BDBridgeUITests;
 			sourceTree = "<group>";
@@ -338,6 +341,7 @@
 			files = (
 				9D4B2B7D2175AE991FC5DDF8 /* DemoModeTests.swift in Sources */,
 				D215463557C8F257EF86EA36 /* ScreenshotTests.swift in Sources */,
+				519E62AAF83E2A348C704518 /* Tabs.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

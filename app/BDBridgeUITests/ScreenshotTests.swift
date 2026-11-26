@@ -12,15 +12,23 @@ private func labelContains(_ text: String) -> NSPredicate {
 ///
 /// The shots are attachments on the test result; `app/scripts/screenshots/capture.sh` runs this and lifts
 /// them out. Without `BDBRIDGE_SHOTS` in the environment the whole thing is skipped, so an ordinary test run
-/// does not stop to take pictures.
+/// does not stop to take pictures. An iPhone takes its set (`testAppStoreScreenshots`), an iPad its own, in
+/// landscape (`testIPadScreenshots`).
 final class ScreenshotTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
     }
 
+    /// An iPad's set is taken in landscape, and the simulator is left as the other tests expect it.
+    override func tearDown() {
+        if onAnIPad { XCUIDevice.shared.orientation = .portrait }
+        super.tearDown()
+    }
+
     func testAppStoreScreenshots() throws {
         try XCTSkipIf(ProcessInfo.processInfo.environment["BDBRIDGE_SHOTS"] == nil,
                       "set BDBRIDGE_SHOTS to take the App Store screenshots")
+        try XCTSkipIf(onAnIPad, "an iPad takes its own set, testIPadScreenshots")
 
         // 1. The guide as a grid: time down, channels across, genres in colour, reservations marked.
         //    Opened in the evening (`evening`), at the scale the app offers when zoomed right out, which
@@ -100,7 +108,98 @@ final class ScreenshotTests: XCTestCase {
         //    memory only, so it is added here, in the launch that is photographed, as a reader adds it.
         try shot("09_television", arguments: ["-startTab", "settings", "-recordingsMode", "list"]) { app in
             self.addTheDemosTelevision(app)
-            app.tabBars.buttons["録画"].tap()
+            app.tab(.recordings).tap()
+            self.waitFor(app.staticTexts.matching(labelContains("  テレビ  ")).firstMatch, "09_television")
+        }
+    }
+
+    /// The 13-inch iPad's set, in landscape: the iPhone's scenes that still mean something on a wide screen, and
+    /// what an iPad adds, a row open in the column beside its list -- a programme beside the guide and beside the
+    /// search's results, a reservation beside the reservations, a recording beside the recordings. The names are
+    /// the iPhone's for the same scenes. The simulator is to be set to full-screen apps first
+    /// (`checkTheAppFillsTheScreen`).
+    func testIPadScreenshots() throws {
+        try XCTSkipIf(ProcessInfo.processInfo.environment["BDBRIDGE_SHOTS"] == nil,
+                      "set BDBRIDGE_SHOTS to take the App Store screenshots")
+        try XCTSkipUnless(onAnIPad, "an iPhone takes its own set, testAppStoreScreenshots")
+
+        // 1. The guide as a grid, with the evening's drama at eight open beside it -- or, once the evening is under
+        //    way and the guide opens at now (`evening`), what is on that channel now. The scale is the iPhone's.
+        try shot("01_guide_grid",
+                 arguments: ["-startTab", "guide", "-guideMode", "grid",
+                             "-gridPointsPerMinute", "<real>1.5</real>"] + Self.evening, column: true) { app in
+            self.waitFor(app.staticTexts["サンプルテレビ"], "01_guide_grid")
+            // A block of the grid says its channel first, then when it starts (`GuideProgramRow.spoken`).
+            let block = Self.evening.isEmpty
+                ? NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "サンプルテレビ、", "放送中")
+                : NSPredicate(format: "label BEGINSWITH %@", "サンプルテレビ、20:00から")
+            let programme = app.buttons.matching(block).firstMatch
+            XCTAssertTrue(programme.waitForExistence(timeout: 20), "01_guide_grid: the programme was not on the grid")
+            programme.tap()
+            self.waitFor(app.staticTexts["放送、サンプルテレビ"], "01_guide_grid's column")
+        }
+
+        // 2. The same guide as a list, as the iPhone's.
+        try shot("02_guide_list",
+                 arguments: ["-startTab", "guide", "-guideMode", "list"] + Self.evening) { app in
+            self.waitFor(app.staticTexts.matching(labelContains("サンプル")).firstMatch, "02_guide_list")
+        }
+
+        // 3. One programme, and what a reservation of it would be, beside the search's results. The return key
+        //    puts the keyboard away, which would otherwise cover the lower part of the screen.
+        try shot("03_program", arguments: ["-startTab", "search"], column: true) { app in
+            let field = app.searchFields.firstMatch
+            XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
+            field.tap()
+            field.typeText("遠い灯台\n")
+            let result = app.staticTexts.matching(labelContains("遠い灯台")).firstMatch
+            XCTAssertTrue(result.waitForExistence(timeout: 20), "the search found nothing")
+            result.tap()
+            let reserve = app.buttons["録画予約する"]
+            XCTAssertTrue(reserve.waitForExistence(timeout: 20), "the programme's column never opened")
+            _ = app.staticTexts["時間が重なる予約はありません"].waitForExistence(timeout: 20)
+        }
+
+        // 4. What the recorder is going to record, with the weekly drama open beside it.
+        try shot("04_reservations", arguments: ["-startTab", "reservations"], column: true) { app in
+            let row = app.staticTexts.matching(labelContains("ひかりの街")).firstMatch
+            self.waitFor(row, "04_reservations")
+            row.tap()
+            // Its first rows: in landscape its buttons are below the column's fold.
+            self.waitFor(app.staticTexts["放送、サンプルテレビ"], "04_reservations' column")
+        }
+
+        // 5. What is on the disk, with the free space in the title bar and the newest episode of the drama open.
+        try shot("05_recordings", arguments: ["-startTab", "recordings", "-recordingsMode", "list"],
+                 column: true) { app in
+            let row = app.staticTexts.matching(labelContains("ひかりの街」第４話")).firstMatch
+            self.waitFor(row, "05_recordings")
+            row.tap()
+            self.waitFor(app.staticTexts["放送、サンプルテレビ"], "05_recordings' column")
+        }
+
+        // 6. to 9. As the iPhone's.
+        try shot("06_groups", arguments: ["-startTab", "recordings", "-recordingsMode", "groups"]) { app in
+            self.waitFor(app.staticTexts.matching(labelContains("ひかりの街")).firstMatch, "06_groups")
+        }
+        try shot("07_rules", arguments: ["-startTab", "reservations"]) { app in
+            let rules = app.buttons["おまかせ・まる録"]
+            XCTAssertTrue(rules.waitForExistence(timeout: 20), "the toolbar button never appeared")
+            rules.tap()
+            let condition = app.staticTexts.matching(labelContains("サンプル劇場")).firstMatch
+            XCTAssertTrue(condition.waitForExistence(timeout: 20), "the conditions never loaded")
+        }
+        try shot("08_search", arguments: ["-startTab", "search"]) { app in
+            let field = app.searchFields.firstMatch
+            XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
+            field.tap()
+            field.typeText("みほん花子\n")
+            let found = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "詳細：")).firstMatch
+            XCTAssertTrue(found.waitForExistence(timeout: 20), "no result said it was found in the details")
+        }
+        try shot("09_television", arguments: ["-startTab", "settings", "-recordingsMode", "list"]) { app in
+            self.addTheDemosTelevision(app)
+            app.tab(.recordings).tap()
             self.waitFor(app.staticTexts.matching(labelContains("  テレビ  ")).firstMatch, "09_television")
         }
     }
@@ -138,6 +237,13 @@ final class ScreenshotTests: XCTestCase {
         wait(for: [enabled], timeout: 30)
         search.tap()
         let found = app.buttons.matching(labelContains("KJ-SAMPLE")).firstMatch
+        // On an iPad's landscape screen the rows found are below the form's end, and not there to find until they
+        // have been scrolled to.
+        if onAnIPad {
+            for _ in 0..<8 where !found.waitForExistence(timeout: 2) || !found.isHittable {
+                app.swipeUp()
+            }
+        }
         XCTAssertTrue(found.waitForExistence(timeout: 20), "the demo's search did not list its television")
         found.tap()
         let number = app.textFields["4 桁の番号"]
@@ -149,7 +255,9 @@ final class ScreenshotTests: XCTestCase {
     }
 
     /// Launches the app on the demo recorder, lets the caller get the screen ready, and attaches the picture.
-    private func shot(_ name: String, arguments: [String], sheet: Bool = false,
+    /// `sheet` is for a sheet that is to be open over the screen, and `column`, on an iPad, for the column that is
+    /// to be open beside its list.
+    private func shot(_ name: String, arguments: [String], sheet: Bool = false, column: Bool = false,
                       prepare: (XCUIApplication) throws -> Void) throws {
         let app = XCUIApplication()
         // The demo's own strip is off here: these are pictures of the app as it looks with a recorder. The
@@ -157,21 +265,67 @@ final class ScreenshotTests: XCTestCase {
         // so they are pinned too. The mode only here: the demo's tests change it, which a pin would stop.
         app.launchArguments = ["-demoData", "1", "-demoBanner", "0", "-defaultQuality", "LSR"] + Self.pinned
             + arguments
+        if onAnIPad { XCUIDevice.shared.orientation = .landscapeLeft }
         app.launch()
+        if onAnIPad { checkTheAppFillsTheScreen(app, name) }
         try prepare(app)
         // The lists animate in, and a shot taken on the first frame catches them half drawn.
         Thread.sleep(forTimeInterval: 1.2)
         // A stray tap can leave a sheet over the screen that was meant to be photographed, and the shot
         // still gets filed under the name of the screen it was supposed to be. Every sheet here closes with
         // the same round button, so its absence is the check -- by its identifier, since the button the
-        // system puts beside an open search field is called 閉じる as well.
-        XCTAssertEqual(app.buttons.matching(identifier: "sheet-close").firstMatch.exists, sheet,
-                       sheet ? "\(name): the sheet was not open" : "\(name): a sheet was over the screen")
+        // system puts beside an open search field is called 閉じる as well. An iPad's column closes with it
+        // too, at the window's right edge, where a sheet's would be nearer the middle.
+        let close = app.buttons.matching(identifier: "sheet-close").firstMatch
+        XCTAssertEqual(close.exists, sheet || column,
+                       sheet || column ? "\(name): the sheet was not open" : "\(name): a sheet was over the screen")
+        if column {
+            XCTAssertGreaterThan(close.frame.maxX, app.windows.firstMatch.frame.maxX - 60,
+                                 "\(name): what was open was not the column beside the list")
+        }
 
-        let attachment = XCTAttachment(screenshot: app.screenshot())
+        // An iPad's picture is of the whole screen, drawn the right way up (`upright`); an iPhone's is the app's.
+        let attachment: XCTAttachment
+        if onAnIPad {
+            checkTheAppFillsTheScreen(app, name)
+            attachment = XCTAttachment(data: Self.upright(XCUIScreen.main.screenshot()),
+                                       uniformTypeIdentifier: "public.png")
+        } else {
+            attachment = XCTAttachment(screenshot: app.screenshot())
+        }
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
         app.terminate()
+    }
+
+    /// An iPad's pictures are taken with the simulator set to full-screen apps (see the README beside capture.sh).
+    /// In the windowed apps of iPadOS 26 and later every picture has the window's handle in its corner and the
+    /// app's name in the status bar, and the app can come up as a window narrower than the screen. A window
+    /// smaller than the screen stops the shot here; a window as large as the screen is not told apart from full
+    /// screen, which is why the setting comes first.
+    private func checkTheAppFillsTheScreen(_ app: XCUIApplication, _ name: String) {
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 20), "\(name): the app had no window")
+        XCTAssertEqual(window.frame.size, XCUIScreen.main.screenshot().image.size,
+                       "\(name): the app's window is smaller than the screen. Set the simulator to full-screen apps"
+                           + " (設定 > マルチタスクとジェスチャ > フルスクリーンアプリ; see app/scripts/screenshots/README.md)")
+    }
+
+    /// An iPad's picture of the screen, as wide as the screen is seen. XCTest's picture of the whole screen in
+    /// landscape is right but kept on its side, its pixels as the panel's in portrait with a note to turn them,
+    /// which nothing promises that App Store Connect reads; drawn again the right way up it is, pixel for pixel,
+    /// the picture the simulator itself takes (`xcrun simctl io <udid> screenshot`). The app's own picture
+    /// (`XCUIApplication.screenshot()`) is no use there: the landscape window put into a portrait frame and cut
+    /// off on the right.
+    private static func upright(_ screenshot: XCUIScreenshot) -> Data {
+        let image = screenshot.image
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        format.opaque = true
+        format.preferredRange = .standard
+        return UIGraphicsImageRenderer(size: image.size, format: format).pngData { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
     }
 }

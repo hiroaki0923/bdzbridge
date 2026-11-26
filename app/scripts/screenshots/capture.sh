@@ -4,6 +4,10 @@
 #
 #   使い方: app/scripts/screenshots/capture.sh <デバイスUDID> [ラベル]
 #   例:     app/scripts/screenshots/capture.sh CDE5C2E2-... iphone-6.7
+#           app/scripts/screenshots/capture.sh 4B03871A-... ipad-13
+#
+# iPhone なら iPhone の組（縦）を、iPad なら iPad の組（横）を撮る。どちらを撮るかはテストが機種で決める。
+# iPad はシミュレータを「フルスクリーンアプリ」にしてから撮る（README.md の「iPad の組」）。
 #
 # 中身は架空。RecorderKit の偽レコーダー（DemoRecorder）と架空の局と番組（DemoLineUp）で、
 # RecBridgeModel/Sources/RecBridgeModel/DemoData.swift が入れるサンプルデータで起動するので、実機もレコーダーも要らず、
@@ -25,14 +29,20 @@ rm -rf "$BUNDLE"
 
 # ステータスバーを整える。時刻はいまの時刻にする: 番組表には現在時刻の赤い線が引かれるので、
 # 9:41 に固定すると画面のなかで時計と番組表が食い違う。アプリは放送の時刻を日本時間で描くので、
-# 時計も日本時間にする（Mac が別のタイムゾーンにあると、そのままでは線と時計がずれる）
+# 時計も日本時間にする（Mac が別のタイムゾーンにあると、そのままでは線と時計がずれる）。
+# 毎正時（13:00 など）と 0 時台の時刻を、simctl は Invalid, non-ISO date/time string で受け付けない
+# （13:01 は通る）。毎正時なら次の分を待ってもう一度だけ試す（0 時台はもともと撮らない）。ISO の日時は
+# 通るが、iPad のステータスバーの日付が英語の、曜日の違うものになる
 xcrun simctl boot "$UDID" 2>/dev/null || true
 xcrun simctl bootstatus "$UDID" -b >/dev/null 2>&1 || true
-xcrun simctl status_bar "$UDID" override \
-    --time "$(TZ=Asia/Tokyo date +%-H:%M)" \
-    --batteryState discharging --batteryLevel 100 \
-    --cellularMode active --cellularBars 4 \
-    --wifiMode active --wifiBars 3
+status_bar() {
+    xcrun simctl status_bar "$UDID" override \
+        --time "$(TZ=Asia/Tokyo date +%-H:%M)" \
+        --batteryState discharging --batteryLevel 100 \
+        --cellularMode active --cellularBars 4 \
+        --wifiMode active --wifiBars 3
+}
+status_bar 2>/dev/null || { sleep $((61 - $(date +%-S))); status_bar; }
 
 cd "$APP_DIR"
 BDBRIDGE_SHOTS=1 TEST_RUNNER_BDBRIDGE_SHOTS=1 \
@@ -40,6 +50,7 @@ xcodebuild test \
     -project BDBridge.xcodeproj -scheme BDBridge \
     -destination "platform=iOS Simulator,id=$UDID" \
     -only-testing:BDBridgeUITests/ScreenshotTests \
+    -collect-test-diagnostics never \
     -derivedDataPath "$WORK/DerivedData" \
     -resultBundlePath "$BUNDLE" \
     > "$WORK/log_${LABEL}.txt" 2>&1
@@ -49,7 +60,7 @@ rm -rf "$EXPORT"
 xcrun xcresulttool export attachments --path "$BUNDLE" --output-path "$EXPORT" >/dev/null
 
 python3 - "$EXPORT" "$DEST" <<'PY'
-import json, pathlib, re, shutil, sys
+import json, pathlib, re, shutil, struct, sys
 export, dest = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 manifest = json.loads((export / "manifest.json").read_text())
 for test in manifest:
@@ -60,7 +71,9 @@ for test in manifest:
         # 「01_guide_grid_1_<UUID>.png」から連番の接尾辞を落とす
         base = re.sub(r"_\d+_[0-9A-F-]+\.png$", ".png", name)
         shutil.copy(export / a["exportedFileName"], dest / base)
-        print(dest / base)
+        # 寸法も出す。App Store Connect は決まった寸法の画像しか受け付けない
+        width, height = struct.unpack(">II", (dest / base).read_bytes()[16:24])
+        print(dest / base, f"{width}x{height}")
 PY
 
 # 開発中のシミュレータに設定を残さない
