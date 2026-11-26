@@ -100,7 +100,7 @@ final class ScreenshotTests: XCTestCase {
         //    memory only, so it is added here, in the launch that is photographed, as a reader adds it.
         try shot("09_television", arguments: ["-startTab", "settings", "-recordingsMode", "list"]) { app in
             self.addTheDemosTelevision(app)
-            app.tabBars.buttons["録画"].tap()
+            app.tab(.recordings).tap()
             self.waitFor(app.staticTexts.matching(labelContains("  テレビ  ")).firstMatch, "09_television")
         }
     }

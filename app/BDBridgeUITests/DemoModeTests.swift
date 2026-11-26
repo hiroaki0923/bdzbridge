@@ -27,11 +27,11 @@ final class DemoModeTests: XCTestCase {
         startTheDemo(app)
 
         // The settings, once seen in the demo, show its address and its MAC, which have to go with it.
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         let address = addressField(app)
         XCTAssertTrue(address.waitForExistence(timeout: 10), "the settings had no address field")
         XCTAssertEqual(address.value as? String, Self.demoHost)
-        app.tabBars.buttons["番組表"].tap()
+        app.tab(.guide).tap()
 
         endTheDemo(app)
 
@@ -40,7 +40,7 @@ final class DemoModeTests: XCTestCase {
                       "ending the demo did not put the app back")
         XCTAssertFalse(demoStrip(app).exists, "the demo strip stayed after the demo ended")
 
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         XCTAssertTrue(address.waitForExistence(timeout: 10), "the settings had no address field")
         XCTAssertNotEqual(address.value as? String, Self.demoHost, "the settings kept the demo's address")
         XCTAssertNotEqual(macField(app).value as? String, Self.demoMac, "the settings kept the demo's MAC")
@@ -57,7 +57,7 @@ final class DemoModeTests: XCTestCase {
         let app = launchWithoutARecorder()
         startTheDemo(app)
 
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         let address = addressField(app)
         XCTAssertTrue(address.waitForExistence(timeout: 10), "the settings had no address field")
         // At the far end, where a right-aligned field puts the cursor after the text.
@@ -80,7 +80,7 @@ final class DemoModeTests: XCTestCase {
         XCTAssertEqual(address.value as? String, "127.0.0.1", "the address chosen was not kept")
 
         // Nothing answers there, and the app says so rather than showing the demo as connected.
-        app.tabBars.buttons["番組表"].tap()
+        app.tab(.guide).tap()
         XCTAssertTrue(app.staticTexts["レコーダーの応答がありません"].waitForExistence(timeout: 30),
                       "the app did not say it could not reach the recorder chosen")
         XCTAssertFalse(demoStrip(app).exists, "the demo strip stayed after a recorder was chosen")
@@ -95,7 +95,7 @@ final class DemoModeTests: XCTestCase {
         let app = launchWithoutARecorder()
         startTheDemo(app)
 
-        app.tabBars.buttons["検索"].tap()
+        app.tab(.search).tap()
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
         field.tap()
@@ -123,7 +123,7 @@ final class DemoModeTests: XCTestCase {
         narrowTo.tap()
         XCTAssertTrue(guideMenu(app, "サンプル教育").waitForExistence(timeout: 10), "the list was not narrowed")
 
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         let arrange = app.buttons["チャンネルの表示と並び順"]
         scroll(app, to: arrange)
         XCTAssertTrue(arrange.exists, "the settings did not offer the channels")
@@ -136,14 +136,14 @@ final class DemoModeTests: XCTestCase {
         wait(for: [hidden], timeout: 10)
 
         // Gone from the guide, and the list is no longer narrowed to it.
-        app.tabBars.buttons["番組表"].tap()
+        app.tab(.guide).tap()
         XCTAssertTrue(guideMenu(app, "地デジ").waitForExistence(timeout: 10),
                       "the list stayed narrowed to a hidden channel")
         XCTAssertTrue(channelLine(app, "サンプルテレビ").waitForExistence(timeout: 10), "the guide went empty")
         XCTAssertFalse(channelLine(app, "サンプル教育").exists, "the hidden channel was still in the guide")
 
         // Back, and the reset brings it back.
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         let reset = app.buttons["レコーダーの順に戻して、すべて表示"]
         XCTAssertTrue(reset.waitForExistence(timeout: 10), "the channels screen had no reset")
         reset.tap()
@@ -154,7 +154,7 @@ final class DemoModeTests: XCTestCase {
         wait(for: [shown], timeout: 10)
 
         // A channel chosen on one broadcasting type is let go on another, and the demo's missing CS is said.
-        app.tabBars.buttons["番組表"].tap()
+        app.tab(.guide).tap()
         guideMenu(app, "地デジ").tap()
         XCTAssertTrue(narrowTo.waitForExistence(timeout: 10), "the channel menu did not list the channel again")
         narrowTo.tap()
@@ -195,7 +195,7 @@ final class DemoModeTests: XCTestCase {
         let app = launchWithoutARecorder()
         startTheDemo(app)
 
-        app.tabBars.buttons["予約"].tap()
+        app.tab(.reservations).tap()
         XCTAssertTrue(app.staticTexts["おまかせ"].waitForExistence(timeout: 20),
                       "the recorder's own reservations were not marked おまかせ")
         let clashing = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "ひなたスポーツ特集"))
@@ -222,7 +222,7 @@ final class DemoModeTests: XCTestCase {
         let app = launchWithoutARecorder()
         startTheDemo(app)
 
-        app.tabBars.buttons["録画"].tap()
+        app.tab(.recordings).tap()
         let mode = app.buttons["表示を変える"]
         XCTAssertTrue(mode.waitForExistence(timeout: 20), "the recordings screen had no display menu")
         mode.tap()
@@ -257,7 +257,7 @@ final class DemoModeTests: XCTestCase {
         let app = launchWithoutARecorder()
         startTheDemo(app)
 
-        app.tabBars.buttons["録画"].tap()
+        app.tab(.recordings).tap()
         // The flat list, whichever way the last test left this kept choice.
         let mode = app.buttons["表示を変える"]
         XCTAssertTrue(mode.waitForExistence(timeout: 20), "the recordings screen had no display menu")
@@ -306,7 +306,7 @@ final class DemoModeTests: XCTestCase {
         let app = launchWithoutARecorder()
         startTheDemo(app)
 
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         searchForTheDemosTelevision(app).tap()
         let number = app.textFields["4 桁の番号"]
         XCTAssertTrue(number.waitForExistence(timeout: 20), "the sheet did not go straight to the number")
@@ -315,7 +315,7 @@ final class DemoModeTests: XCTestCase {
         app.buttons["登録する"].tap()
         XCTAssertTrue(app.navigationBars["テレビを追加"].waitForNonExistence(timeout: 20), "the sheet did not close")
 
-        app.tabBars.buttons["録画"].tap()
+        app.tab(.recordings).tap()
         let mode = app.buttons["表示を変える"]
         XCTAssertTrue(mode.waitForExistence(timeout: 20), "the recordings screen had no display menu")
         mode.tap()
@@ -375,7 +375,7 @@ final class DemoModeTests: XCTestCase {
         let app = launchWithoutARecorder()
         startTheDemo(app)
 
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         let setting = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "既定の録画モード")).firstMatch
         scroll(app, to: setting)
         XCTAssertTrue(setting.exists, "the settings had no default recording mode")
@@ -386,7 +386,7 @@ final class DemoModeTests: XCTestCase {
         XCTAssertTrue(says(setting, "DR(高画質)"), "the default was \(setting.debugDescription)")
 
         // A programme's sheet starts at it, and another mode chosen there stays there.
-        app.tabBars.buttons["検索"].tap()
+        app.tab(.search).tap()
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
         field.tap()
@@ -427,7 +427,7 @@ final class DemoModeTests: XCTestCase {
         startTheDemo(app)
 
         // The television's section is there in the demo, saying that a television can be tried there.
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         let add = app.buttons["アドレスを入力して追加"]
         scroll(app, to: add)
         XCTAssertTrue(add.exists, "the demo had no television's section")
@@ -454,13 +454,13 @@ final class DemoModeTests: XCTestCase {
         XCTAssertFalse(app.buttons["アドレスを入力して追加"].exists, "the section still offered to add one")
 
         // What it holds from the start, as the television's.
-        app.tabBars.buttons["予約"].tap()
+        app.tab(.reservations).tap()
         let held = app.staticTexts.matching(labelContains("テレビ", "みほんBS")).firstMatch
         scroll(app, to: held)
         XCTAssertTrue(held.exists, "the television's own recording was not listed as the television's")
 
         // A programme of the guide reserved on it, ahead of now: one under way could not have its repeat changed.
-        app.tabBars.buttons["検索"].tap()
+        app.tab(.search).tap()
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
         field.tap()
@@ -487,7 +487,7 @@ final class DemoModeTests: XCTestCase {
         if app.keyboards.firstMatch.exists { field.typeText("\n") }
 
         // On the reservations tab as the television's: its repeat changed, and then deleted.
-        app.tabBars.buttons["予約"].tap()
+        app.tab(.reservations).tap()
         let row = app.staticTexts.matching(labelContains("テレビ", "サンプル教育")).firstMatch
         find(app, row)
         XCTAssertTrue(row.exists, "the reservation was not listed as the television's")
@@ -513,7 +513,7 @@ final class DemoModeTests: XCTestCase {
 
         // Gone with the demo, and not there when it starts again.
         endTheDemo(app)
-        app.tabBars.buttons["設定"].tap()
+        app.tab(.settings).tap()
         find(app, add)
         XCTAssertTrue(add.exists, "the television's section did not go back to adding one")
         XCTAssertFalse(app.staticTexts["機種、KJ-SAMPLE"].exists, "the demo's television stayed after the demo")
@@ -528,7 +528,7 @@ final class DemoModeTests: XCTestCase {
                       "the demo did not start again: \(tryAgain.debugDescription)")
         let again = searchForTheDemosTelevision(app)
         XCTAssertFalse(again.label.contains("使用中"), "the demo's television was kept for the next demo")
-        app.tabBars.buttons["番組表"].tap()
+        app.tab(.guide).tap()
         endTheDemo(app)
     }
 
