@@ -8,10 +8,44 @@ import SwiftUI
 /// what the television has said as well.
 struct SearchScreen: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var search: SearchState
-    @State private var openedProgram: GuideProgramRow?
-    @State private var openedReservation: Reservation?
-    @State private var openedTitle: RecordedTitle?
+    /// The programme, the reservation or the recording open, made here as its row is tapped and handed to its sheet
+    /// or to the one column (`OpenRow`).
+    @State private var row = OpenRow<Opened>()
+
+    /// What a result opens: the state of a programme's, a reservation's or a recording's sheet.
+    enum Opened: RowSheetState {
+        case program(ProgramSheetState)
+        case reservation(ReservationSheetState)
+        case title(TitleSheetState)
+
+        /// The state's own, each being one opening of one row. Nonisolated, as `Identifiable` asks of it: it reads
+        /// nothing that changes.
+        nonisolated var id: ObjectIdentifier {
+            switch self {
+            case .program(let sheet): sheet.id
+            case .reservation(let sheet): sheet.id
+            case .title(let sheet): sheet.id
+            }
+        }
+
+        var requestOut: Bool {
+            switch self {
+            case .program(let sheet): sheet.requestOut
+            case .reservation(let sheet): sheet.requestOut
+            case .title(let sheet): sheet.requestOut
+            }
+        }
+
+        var hasSomethingToSay: Bool {
+            switch self {
+            case .program(let sheet): sheet.hasSomethingToSay
+            case .reservation(let sheet): sheet.hasSomethingToSay
+            case .title(let sheet): sheet.hasSomethingToSay
+            }
+        }
+    }
 
     init(model: AppModel) {
         _search = State(initialValue: SearchState(model: model))
@@ -42,6 +76,15 @@ struct SearchScreen: View {
                     results
                 }
             }
+            // On a regular width a result opens beside the results, under the bar, rather than over them: in the
+            // one column, whichever kind it is.
+            .inspectorColumn(row, inColumn: inColumn) { opened in
+                switch opened {
+                case .program(let sheet): ProgramColumn(sheet: sheet, close: row.close)
+                case .reservation(let sheet): ReservationColumn(sheet: sheet, close: row.close)
+                case .title(let sheet): TitleColumn(sheet: sheet, close: row.close)
+                }
+            }
             .recorderActivity()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -64,10 +107,43 @@ struct SearchScreen: View {
             .task(id: search.guideRequest) { await search.searchTheGuide() }
             .task(id: search.listsWanted) { await search.readTheRecordersList() }
             .task(id: search.scope) { await search.readTheTelevisionsList() }
-            .sheet(item: $openedProgram) { ProgramSheet(program: $0, model: model) }
-            .sheet(item: $openedReservation) { ReservationSheet(reservation: $0, model: model) }
-            .sheet(item: $openedTitle) { TitleSheet(title: $0, model: model) }
+            .sheet(item: row.sheetShown(inColumn: inColumn)) { opened in
+                switch opened {
+                case .program(let sheet): ProgramSheet(sheet: sheet)
+                case .reservation(let sheet): ReservationSheet(sheet: sheet)
+                case .title(let sheet): TitleSheet(sheet: sheet)
+                }
+            }
+            .onChange(of: search.query) { closeOffTheResults() }
+            .onChange(of: search.scope) { closeOffTheResults() }
         }
+    }
+
+    /// Whether a result opens beside the results, in the system's inspector, rather than in a sheet over them: on a
+    /// regular width, an iPad's. Never on an iPhone, which keeps the sheets it has always had.
+    private var inColumn: Bool { sizeClass == .regular }
+
+    /// The result each list marks as the one in the column, by what tells that list's rows apart. None in a sheet,
+    /// which covers the results.
+    private var markedProgram: GuideProgramRow.ID? {
+        guard inColumn, case .program(let sheet)? = row.opened else { return nil }
+        return sheet.program.id
+    }
+
+    private var markedReservation: String? {
+        guard inColumn, case .reservation(let sheet)? = row.opened else { return nil }
+        return sheet.reservation.listKey
+    }
+
+    private var markedTitle: String? {
+        guard inColumn, case .title(let sheet)? = row.opened else { return nil }
+        return sheet.title.listKey
+    }
+
+    /// Other words or another scope take what the column shows off the results beside it, and the column goes too,
+    /// unless a request of its own is out. A sheet covers the results and stays.
+    private func closeOffTheResults() {
+        if inColumn { row.closeUnlessAsking() }
     }
 
     @ViewBuilder
@@ -80,19 +156,22 @@ struct SearchScreen: View {
                 }
                 ForEach(search.guide.hits) { hit in
                     let program = hit.program
-                    Button { openedProgram = program } label: {
+                    Button { row.open { .program(ProgramSheetState(program: program, model: model)) } } label: {
                         ProgramRowView(program: program, logo: model.logo(for: program),
                                        reservation: model.reservation(for: program),
                                        pending: model.pending(for: program), snippet: hit.snippet)
                             .rowHitArea()
                     }
                     .buttonStyle(.plain)
+                    .markedOpen(markedProgram == program.id)
                 }
             }
             .listStyle(.plain)
         case .reservations:
             List(search.reservations, id: \.listKey) { reservation in
-                Button { openedReservation = reservation } label: {
+                Button {
+                    row.open { .reservation(ReservationSheetState(reservation: reservation, model: model)) }
+                } label: {
                     ReservationRowView(reservation: reservation,
                                        channel: model.channelName(for: reservation),
                                        logo: model.logo(for: reservation),
@@ -101,16 +180,18 @@ struct SearchScreen: View {
                         .rowHitArea()
                 }
                 .buttonStyle(.plain)
+                .markedOpen(markedReservation == reservation.listKey)
             }
             .listStyle(.plain)
         case .recordings:
             List(search.recordings) { title in
-                Button { openedTitle = title } label: {
+                Button { row.open { .title(TitleSheetState(title: title, model: model)) } } label: {
                     TitleRowView(title: title, channel: model.channelName(for: title),
                                  logo: model.logo(for: title), disk: model.diskShown(title))
                         .rowHitArea()
                 }
                 .buttonStyle(.plain)
+                .markedOpen(markedTitle == title.listKey)
             }
             .listStyle(.plain)
         }

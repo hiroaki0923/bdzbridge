@@ -6,12 +6,16 @@ import SwiftUI
 /// as kept: the mark follows the ticks rather than the suggestion, so that it can never name a copy that is
 /// about to go.
 struct DuplicatesView: View {
+    /// The copy open in the column beside the list, by `RecordedTitle.listKey`: filled while it is open. Nil with
+    /// none open, and under a sheet, which covers the list.
+    let marked: String?
     let onOpen: (RecordedTitle) -> Void
     @Environment(AppModel.self) private var model
     /// What is ticked, asked and said here: the model's (`DuplicatesState`).
     @State private var state: DuplicatesState
 
-    init(model: AppModel, onOpen: @escaping (RecordedTitle) -> Void) {
+    init(model: AppModel, marked: String?, onOpen: @escaping (RecordedTitle) -> Void) {
+        self.marked = marked
         self.onOpen = onOpen
         _state = State(initialValue: DuplicatesState(model: model))
     }
@@ -67,6 +71,7 @@ struct DuplicatesView: View {
                 Section {
                     ForEach(set.items) { title in
                         row(title, in: set)
+                            .listRowBackground(marked == title.listKey ? Color(.systemFill) : nil)
                     }
                 } header: {
                     VStack(alignment: .leading, spacing: 2) {
@@ -134,6 +139,8 @@ struct DuplicatesView: View {
                 .rowHitArea()
             }
             .buttonStyle(.plain)
+            // Said of this button and not of the row, whose tick says whether the copy is ticked by the same trait.
+            .accessibilityAddTraits(marked == title.listKey ? .isSelected : [])
         }
     }
 

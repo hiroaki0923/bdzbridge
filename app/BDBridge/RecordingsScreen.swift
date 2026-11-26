@@ -9,7 +9,11 @@ struct RecordingsScreen: View {
     // A launch argument for this key pins it for the whole run: the argument domain outranks what is
     // written here, so a pick would appear to do nothing. See app/README.md.
     @AppStorage(DefaultsKey.recordingsMode) private var mode = "list"
-    @State private var opened: RecordedTitle?
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// The recording open, from the list or from the duplicates, made here as its row is tapped and handed to the
+    /// sheet or the column (`OpenRow`). A programme's page is a sheet on every width, and so is a recording opened
+    /// from it, over it (`GroupSheet`).
+    @State private var row = OpenRow<TitleSheetState>()
     @State private var welcoming = false
     @State private var openedGroup: TitleGroup?
     /// What is swiped and asked on this screen, and what it says under its title: the model's (`RecordingsState`).
@@ -30,6 +34,13 @@ struct RecordingsScreen: View {
                 JobBarView()
                 content
             }
+            // Pulling down reads the list again from both devices, though not while a bulk job is walking it.
+            // With nothing that can be written to a device, it is the reader asking for another go, as the
+            // strip's 再接続 is. Put on the list's side of the column, which would take it from anywhere further
+            // out and read the list again from a pull inside a recording.
+            .refreshable { await model.pullDownTitles() }
+            // On a regular width a recording opens beside the list, under the bar, rather than over it.
+            .inspectorColumn(row, inColumn: inColumn) { TitleColumn(sheet: $0, close: row.close) }
             .recorderActivity()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -112,12 +123,11 @@ struct RecordingsScreen: View {
             // The disk in the slot has changed since the list was read, or could not be read into it: the
             // recordings of a disk that has gone leave the list, and an open sheet of one closes with its row.
             .task(id: model.titlesOutOfStep) { await model.loadOutdatedTitles() }
-            // Pulling down reads the list again from both devices, though not while a bulk job is walking it.
-            // With nothing that can be written to a device, it is the reader asking for another go, as the
-            // strip's 再接続 is.
-            .refreshable { await model.pullDownTitles() }
-            .sheet(item: $opened) { TitleSheet(title: $0, model: model) }
+            .sheet(item: row.sheetShown(inColumn: inColumn)) { TitleSheet(sheet: $0) }
             .sheet(item: $openedGroup) { GroupSheet(group: $0, model: model) }
+            // Another view takes the recording in the column off the list beside it, and the column goes too, unless
+            // a request of its own is out. A sheet covers the list and stays.
+            .onChange(of: mode) { if inColumn { row.closeUnlessAsking() } }
             // The recording picked for deletion is the last recorder's when its lists are let go of: see
             // `timesForgotten`. The sheets close themselves. A television's rows go with its host, and a row of
             // the other device's stays picked.
@@ -149,7 +159,7 @@ struct RecordingsScreen: View {
                 Text(AppModel.loadingRecordings.detail ?? "")
             }
         } else if duplicating {
-            DuplicatesView(model: model) { opened = $0 }
+            DuplicatesView(model: model, marked: marked) { open($0) }
         } else if grouped {
             // Once for the list and its overlay: each read filters, sorts and groups every recording.
             let groups = model.titleGroups
@@ -163,11 +173,12 @@ struct RecordingsScreen: View {
         } else {
             let listed = model.shownTitles
             List(listed) { title in
-                Button { opened = title } label: {
+                Button { open(title) } label: {
                     TitleRowView(title: title, channel: model.channelName(for: title),
                                  logo: model.logo(for: title), disk: model.diskShown(title)).rowHitArea()
                 }
                 .buttonStyle(.plain)
+                .markedOpen(marked == title.listKey)
                 .titleSwipe(model.swipe(for: title), held: state.holds(title),
                             ask: { state.delete(title) }, unprotect: { state.unprotect(title) })
             }
@@ -175,6 +186,19 @@ struct RecordingsScreen: View {
             .overlay { if listed.isEmpty { noTitles } }
             .safeAreaInset(edge: .bottom) { noteOfTheTelevision }
         }
+    }
+
+    /// Whether a recording opens beside the list, in the system's inspector, rather than in a sheet over it: on a
+    /// regular width, an iPad's. Never on an iPhone, which keeps the sheet it has always had.
+    private var inColumn: Bool { sizeClass == .regular }
+
+    /// The recording the list or the duplicates mark as the one in the column, by what tells their rows apart. None
+    /// in a sheet, which covers the list.
+    private var marked: String? { inColumn ? row.opened?.title.listKey : nil }
+
+    /// Opens a recording, in place of the one open unless that one holds it (`OpenRow.open`).
+    private func open(_ title: RecordedTitle) {
+        row.open { TitleSheetState(title: title, model: model) }
     }
 
     /// What an empty list says: that there is nothing, or, while a television's list may still be coming, that it

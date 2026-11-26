@@ -320,19 +320,23 @@ extension View {
     /// The same for a sheet whose row is either device's -- a reservation: closes it when the lists of the
     /// device that holds the row are let go of, the recorder's as above or the television's
     /// (`AppModel.tvTimesForgotten`). What becomes of the other device is nothing to the row, and leaves the
-    /// sheet up.
-    func closesWithItsDevice(_ device: DeviceSlot) -> some View {
-        modifier(ClosesWithItsDevice(device: device))
+    /// sheet up. `close` is what closes it where the system's dismiss closes nothing: an iPad's inspector column,
+    /// which is closed by its binding.
+    func closesWithItsDevice(_ device: DeviceSlot, close: (() -> Void)? = nil) -> some View {
+        modifier(ClosesWithItsDevice(device: device, close: close))
     }
 }
 
 private struct ClosesWithItsDevice: ViewModifier {
     let device: DeviceSlot
+    let close: (() -> Void)?
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
     func body(content: Content) -> some View {
-        content.onChange(of: device == .tv ? model.tvTimesForgotten : model.timesForgotten) { dismiss() }
+        content.onChange(of: device == .tv ? model.tvTimesForgotten : model.timesForgotten) {
+            if let close { close() } else { dismiss() }
+        }
     }
 }
 

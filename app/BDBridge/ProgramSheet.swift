@@ -5,22 +5,16 @@ import SwiftUI
 /// One programme: what it is, whether the recorder is already set to record it -- or will be, once a
 /// reservation waiting on this phone reaches it -- and the two choices that go with a new reservation. What the
 /// sheet holds, offers, holds back and says, and what each press does, are the model's (`ProgramSheetState`):
-/// this lays it out, in a sheet over the screen or, from the guide on an iPad, in a column beside it
+/// this lays it out, in a sheet over the screen or, from the guide or the search on an iPad, in a column beside it
 /// (`ProgramColumn`), the same rows over the same state either way (`ProgramDetails`).
 struct ProgramSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var sheet: ProgramSheetState
 
-    /// The sheet of a state the screen that opened it made and keeps: the guide's. A presented sheet is made
-    /// afresh for each state it is handed, so the one kept here is always the one handed in.
+    /// The sheet of a state the screen that opened it made and keeps: the guide's and the search's. A presented
+    /// sheet is made afresh for each state it is handed, so the one kept here is always the one handed in.
     init(sheet: ProgramSheetState) {
         _sheet = State(initialValue: sheet)
-    }
-
-    /// A sheet that makes its own state as it opens and lets it go as it closes, for a screen that keeps nothing
-    /// of the programme once its sheet has gone: the search's.
-    init(program: GuideProgramRow, model: AppModel) {
-        self.init(sheet: ProgramSheetState(program: program, model: model))
     }
 
     var body: some View {
@@ -34,37 +28,25 @@ struct ProgramSheet: View {
     }
 }
 
-/// The programme in the guide's inspector, the column beside the guide on a regular width, an iPad's. The column
-/// has no bar of its own -- what is put in a toolbar here goes up into the window's -- so its title and its close
-/// are a row at its top, which the rows scroll under. A request that is done leaves it open, where the sheet closes
-/// itself: the column holds nothing of the guide up, and shows what became of the programme.
+/// The programme in the inspector beside the guide or the search's results, on a regular width, an iPad's, under a
+/// row with its title and its close (`columnTitle`). A request that is done leaves it open, where the sheet closes
+/// itself: the column holds nothing beside it up, and shows what became of the programme.
 struct ProgramColumn: View {
     let sheet: ProgramSheetState
     /// What the close does: an inspector is closed by its binding, not by the system's dismiss.
     let close: () -> Void
 
     var body: some View {
-        if #available(iOS 26, *) {
-            // The system blurs what scrolls under a bar put here, as it does under a navigation bar.
-            ProgramDetails(sheet: sheet).safeAreaBar(edge: .top, spacing: 0) { titleRow }
-        } else {
-            // Nothing of the system's is drawn behind an inset, and the rows scrolled under it would print over
-            // the title.
-            ProgramDetails(sheet: sheet).safeAreaInset(edge: .top, spacing: 0) { titleRow.background(.bar) }
-        }
+        ProgramDetails(sheet: sheet)
+            .columnTitle(ProgramSheetState.sheetTitle, held: sheet.holdsTheSheet, close: close)
     }
+}
 
-    private var titleRow: some View {
-        HStack {
-            Text(ProgramSheetState.sheetTitle)
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
-            Spacer()
-            SheetCloseButton(close: close).disabled(sheet.holdsTheSheet)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
-    }
+/// What the screen that keeps a programme open reads of it (`OpenRow`): its request holds the sheet, and what it put
+/// up is its one question or answer.
+extension ProgramSheetState: RowSheetState {
+    var requestOut: Bool { holdsTheSheet }
+    var hasSomethingToSay: Bool { ask != nil }
 }
 
 /// The programme's rows and what they do, in the sheet and in the column alike.
