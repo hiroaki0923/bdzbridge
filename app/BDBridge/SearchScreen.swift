@@ -170,7 +170,7 @@ struct SearchScreen: View {
                     Button { row.open { .program(ProgramSheetState(program: program, model: model)) } } label: {
                         ProgramRowView(program: program, logo: model.logo(for: program),
                                        reservation: model.reservation(for: program),
-                                       pending: model.pending(for: program), snippet: hit.snippet)
+                                       pending: model.pending(for: program), snippet: hit.snippet, dated: true)
                             .rowHitArea()
                     }
                     .buttonStyle(.plain)

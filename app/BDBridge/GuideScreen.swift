@@ -346,9 +346,18 @@ struct ProgramRowView: View {
     var snippet: Search.Snippet? = nil
     /// The time the marks are worked out for. The guide's list passes the minute it was last drawn at.
     var now = Date()
+    /// In the search's results, the day is said with the time: what is found is of every day of the guide, and a
+    /// programme on every day or every week comes back as rows that say the same. The guide's list is of one day, which
+    /// its bar says, so it leaves it out.
+    var dated = false
 
     /// The time column, as wide as the time needs at the reader's text size.
     @ScaledMetric(relativeTo: .callout) private var timeWidth = 52.0
+    /// The same with the day above the time, as wide as the widest day, 12/31(水), needs at the reader's text size:
+    /// measured at 50.3 points up to the default size, and 74 at the largest short of the accessibility sizes (52.3
+    /// and 77 with Bold Text). The small print's metric grows faster than the day does, so the larger sizes have room
+    /// to spare.
+    @ScaledMetric(relativeTo: .caption2) private var datedWidth = 54.0
     @ScaledMetric(relativeTo: .caption2) private var logoHeight = 12.0
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -363,7 +372,8 @@ struct ProgramRowView: View {
                 // At the accessibility sizes a time column wide enough for the time leaves the title a few
                 // characters a line, so the time goes above it instead.
                 VStack(alignment: .leading, spacing: 3) {
-                    (Text(Format.time.string(from: program.start)).font(.callout.monospacedDigit())
+                    (Text((dated ? Format.dateTime : Format.time).string(from: program.start))
+                        .font(.callout.monospacedDigit())
                         + Text.rowGap
                         + Text(Format.duration(program.durationSec)).foregroundStyle(.secondary))
                         .font(.caption2)
@@ -372,10 +382,15 @@ struct ProgramRowView: View {
             } else {
                 HStack(alignment: .top, spacing: 10) {
                     VStack(alignment: .trailing, spacing: 2) {
+                        if dated {
+                            Text(Format.day.string(from: program.start))
+                                .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        }
                         Text(Format.time.string(from: program.start)).font(.callout.monospacedDigit())
                         Text(Format.duration(program.durationSec)).font(.caption2).foregroundStyle(.secondary)
                     }
-                    .frame(width: timeWidth, alignment: .trailing)
+                    // One width down the list, so that the titles line up whatever the day.
+                    .frame(width: dated ? max(timeWidth, datedWidth) : timeWidth, alignment: .trailing)
                     details
                 }
             }
