@@ -187,7 +187,7 @@ struct SearchScreen: View {
                                        channel: model.channelName(for: reservation),
                                        logo: model.logo(for: reservation),
                                        device: model.tv != nil ? reservation.device.label : nil,
-                                       disk: model.diskShown(reservation))
+                                       disk: model.diskShown(reservation), dated: true)
                         .rowHitArea()
                 }
                 .buttonStyle(.plain)

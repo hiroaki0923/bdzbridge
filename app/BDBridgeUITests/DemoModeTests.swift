@@ -108,8 +108,9 @@ final class DemoModeTests: XCTestCase {
         endTheDemo(app)
     }
 
-    /// What the search finds is of every day, where the guide's list is of one day, so a programme found says its day:
-    /// above its time, in the column beside its title. The demo's weekly drama is in the guide on more than one day.
+    /// What the search finds is of every day, where the guide's list is of one day and the reservations' list is under
+    /// the days' headings, so a row found says its day: a programme's above its time, in the column beside its title,
+    /// and a reservation's before its time. The demo's weekly drama is in the guide on more than one day, and reserved.
     func testWhatTheSearchFindsSaysItsDay() {
         let app = launchWithoutARecorder()
         startTheDemo(app)
@@ -126,6 +127,13 @@ final class DemoModeTests: XCTestCase {
         let day = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "\\d{1,2}/\\d{1,2}\\(.\\)")).firstMatch
         XCTAssertTrue(day.waitForExistence(timeout: 10), "a programme found did not say its day")
         XCTAssertLessThanOrEqual(day.frame.maxX, title.frame.minX, "the day was not in the column beside the title")
+
+        let reservations = app.segmentedControls.buttons["予約"]
+        XCTAssertTrue(reservations.waitForExistence(timeout: 10), "the search offered no 予約")
+        reservations.tap()
+        let when = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@",
+                                                        "\\d{1,2}/\\d{1,2}\\(.\\) \\d{2}:\\d{2}\\s.*")).firstMatch
+        XCTAssertTrue(when.waitForExistence(timeout: 20), "a reservation found did not say its day")
 
         clearTheSearchOnAnIPad(app)
         endTheDemo(app)
