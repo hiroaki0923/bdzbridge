@@ -16,9 +16,9 @@ enum AppTab: String {
     }
 }
 
-/// Whether the tests run on an iPad, where some of them go another way or do not apply.
-@MainActor
-var onAnIPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+/// Whether the tests run on an iPad, where some of them go another way or do not apply. Read on the main thread,
+/// where XCTest runs the UI tests.
+var onAnIPad: Bool { MainActor.assumeIsolated { UIDevice.current.userInterfaceIdiom == .pad } }
 
 extension XCUIApplication {
     /// A tab's button, to tap. An iPhone's tabs are a tab bar's buttons, found by their names. An iPad's, from
