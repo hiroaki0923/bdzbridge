@@ -1,0 +1,214 @@
+# The television's helper (helper/) built and signed with the release key, so that a release's APK comes from
+# the tagged source by steps anyone can read, and is never attached unless it is signed with the release
+# certificate. A helper-v* tag makes a draft Release with recbridge-helper.apk and SHA256SUMS, which the owner
+# tries on a television and publishes by hand; this workflow never publishes. Run by hand, it builds, signs
+# and checks the same and attaches nothing, neither a Release nor an artifact: the repository is public, and
+# a run's artifact could be downloaded by anyone signed in. What the check found is in the run's log.
+#
+# A release: raise versionCode and versionName in helper/app/build.gradle.kts on main, push the tag
+# helper-v<versionName> on that commit, and approve the run. Try the draft's APK on a television, then publish
+# the draft by hand, as the latest release. A tag pushed again needs its old draft deleted first.
+#
+# The key: the two secrets of the environment helper-release, HELPER_KEYSTORE_BASE64 (the PKCS12 keystore, in
+# base64) and HELPER_KEYSTORE_PASSWORD (its password; the alias is helper). The environment is to have the
+# owner as its required reviewer and be limited to main and helper-v* tags, and is to be made before this
+# workflow first runs: GitHub makes a missing one by itself, with no protection. A secret cannot be read back,
+# so the key's own copies are kept elsewhere.
+name: Helper release
+
+on:
+  push:
+    tags: ['helper-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helper-release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # The SHA-256 of the release certificate (CN=RecBridge Helper), as apksigner prints it. It is public: every
+  # released APK carries the certificate. An APK signed with any other is refused below.
+  HELPER_CERT_SHA256: f5f4f8f426d0ca4a968241c31f9aa677862cba5181ea2f3fb1753a3ea1a34cd4
+  # The build-tools the Android Gradle plugin of helper/build.gradle.kts builds with; its apksigner and aapt2
+  # check the APK.
+  BUILD_TOOLS: 34.0.0
+  APK_FOLDER: helper/app/build/outputs/apk/release
+
+jobs:
+  release:
+    name: Build, sign and check the helper
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # The release key is this environment's two secrets, and the environment asks the owner before each run.
+    environment: helper-release
+    permissions:
+      # Only to make the draft Release.
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The whole history, to see that a tag's commit is on main.
+          fetch-depth: 0
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # The runner's image has both; this installs one only if a later image has dropped it.
+      - name: See that the SDK has platform 34 and the build-tools
+        run: |
+          missing=()
+          [ -d "$ANDROID_HOME/platforms/android-34" ] || missing+=("platforms;android-34")
+          [ -x "$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner" ] || missing+=("build-tools;$BUILD_TOOLS")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "${missing[@]}"
+          fi
+
+      - name: Read the version, and see that a tag is this version's and on main
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)"[[:space:]]*$/\1/p' helper/app/build.gradle.kts)
+          if ! [[ "$version" =~ ^[0-9]+(\.[0-9]+)+$ ]]; then
+            echo "::error::helper/app/build.gradle.kts does not give one versionName of the form 1.2.3"
+            exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$TAG" != "helper-v$version" ]; then
+            echo "::error::the tag is $TAG, but versionName in helper/app/build.gradle.kts is $version, whose tag is helper-v$version"
+            exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = push ] && ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::the commit $TAG names is not on main"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # helper/app/build.gradle.kts reads the file RECBRIDGE_HELPER_KEYS names, and the keystore beside it.
+      # Nothing here prints either secret: they come in through the environment and go to the two files only.
+      - name: Put the release key where the build reads it
+        env:
+          KEYSTORE_BASE64: ${{ secrets.HELPER_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.HELPER_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::the environment helper-release gives no HELPER_KEYSTORE_BASE64 or no HELPER_KEYSTORE_PASSWORD (see this file's head)"
+            exit 1
+          fi
+          umask 077
+          keys="$RUNNER_TEMP/helper-keys"
+          mkdir "$keys"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keys/recbridge-helper.jks"
+          if [ ! -s "$keys/recbridge-helper.jks" ]; then
+            echo "::error::HELPER_KEYSTORE_BASE64 decodes to nothing"
+            exit 1
+          fi
+          # A properties file reads a backslash as an escape and drops the blanks a value begins with.
+          password=${KEYSTORE_PASSWORD//\\/\\\\}
+          case "$password" in
+            [[:blank:]]*) password="\\$password" ;;
+          esac
+          printf 'storeFile=recbridge-helper.jks\nstorePassword=%s\nkeyAlias=helper\nkeyPassword=%s\n' \
+              "$password" "$password" > "$keys/key.properties"
+          echo "RECBRIDGE_HELPER_KEYS=$keys/key.properties" >> "$GITHUB_ENV"
+
+      - name: Build the release
+        working-directory: helper
+        run: ./gradlew --no-daemon assembleRelease
+
+      # Before anything is checked or uploaded, and whatever became of the build.
+      - name: Remove the release key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/helper-keys"
+
+      # An APK that is unsigned, or signed with any certificate but the release's, stops the run here, before
+      # anything is attached anywhere. What is printed is all public.
+      - name: Check the APK's signature and version, and write SHA256SUMS
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tools="$ANDROID_HOME/build-tools/$BUILD_TOOLS"
+          cd "$APK_FOLDER"
+          if [ ! -f recbridge-helper.apk ]; then
+            echo "::error::the build left no recbridge-helper.apk"
+            exit 1
+          fi
+          if ! said=$("$tools/apksigner" verify --verbose --print-certs recbridge-helper.apk); then
+            echo "::error::apksigner does not verify the APK: it is unsigned, or its signature does not hold"
+            exit 1
+          fi
+          if ! grep -qx 'Verifies' <<< "$said"; then
+            echo "::error::apksigner did not say that the APK verifies"
+            exit 1
+          fi
+          certificate=$(sed -n 's/^Signer .*certificate SHA-256 digest: //p' <<< "$said")
+          if [ "$certificate" != "$HELPER_CERT_SHA256" ]; then
+            echo "::error::the APK is not signed with the release certificate alone: its signers' certificates are [$certificate], the release's is $HELPER_CERT_SHA256"
+            exit 1
+          fi
+          badging=$("$tools/aapt2" dump badging recbridge-helper.apk | sed -n '/^package: /p')
+          package=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$badging")
+          code=$(sed -n "s/.* versionCode='\([^']*\)'.*/\1/p" <<< "$badging")
+          name=$(sed -n "s/.* versionName='\([^']*\)'.*/\1/p" <<< "$badging")
+          if [ "$name" != "$VERSION" ]; then
+            echo "::error::the APK's versionName is [$name], and helper/app/build.gradle.kts says $VERSION"
+            exit 1
+          fi
+          sha256sum recbridge-helper.apk > SHA256SUMS
+          echo "package: $package"
+          echo "versionCode: $code"
+          echo "versionName: $name"
+          echo "certificate SHA-256: $certificate"
+          echo "SHA256SUMS: $(cat SHA256SUMS)"
+
+      # A run by hand ends here, with nothing attached. A draft is not public and is not the latest release.
+      # Several drafts can carry one tag, so the releases are listed first, drafts among them, and one for
+      # this tag already there stops the run.
+      - name: Make the draft Release (a tag)
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tags=$(gh api --paginate "repos/$GH_REPO/releases" --jq '.[].tag_name')
+          if grep -Fqx -- "$TAG" <<< "$tags"; then
+            echo "::error::there is a Release for $TAG already, a draft or a published one; it is left as it is"
+            exit 1
+          fi
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            printf 'テレビ（Android TV の BRAVIA）に入れる RecBridge ヘルパー %s です。\n\n' "$VERSION"
+            printf 'ビルド元のコミット: %s\n\n' "$GITHUB_SHA"
+            printf '%s\n' \
+              '- `recbridge-helper.apk`: テレビに入れるアプリです' \
+              '- `SHA256SUMS`: そのファイルの SHA-256 です' \
+              '' \
+              '入れ方は [helper/README.md](https://github.com/hiroaki0923/bdzbridge/blob/main/helper/README.md) にあります。' \
+              '' \
+              '## 確かめ方' \
+              '' \
+              '2 つのファイルを同じフォルダーに落として、次のように照合できます:' \
+              '' \
+              '```' \
+              'shasum -a 256 -c SHA256SUMS' \
+              '```' \
+              '' \
+              '署名の証明書（CN=RecBridge Helper）の SHA-256 は次のとおりです。`apksigner verify --print-certs recbridge-helper.apk` で出るものと同じであることを見てください:' \
+              '' \
+              '```' \
+              "$HELPER_CERT_SHA256" \
+              '```'
+          } > "$notes"
+          gh release create "$TAG" --draft --verify-tag --title "RecBridge ヘルパー $VERSION" --notes-file "$notes" \
+              "$APK_FOLDER/recbridge-helper.apk" "$APK_FOLDER/SHA256SUMS"
