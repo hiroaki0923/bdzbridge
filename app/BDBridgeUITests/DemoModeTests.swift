@@ -350,8 +350,7 @@ final class DemoModeTests: XCTestCase {
         let number = app.textFields["4 桁の番号"]
         XCTAssertTrue(number.waitForExistence(timeout: 20), "the sheet did not go straight to the number")
         number.tap()
-        number.typeText("1234")
-        app.buttons["登録する"].tap()
+        type(app, "1234", into: number, thenPress: app.buttons["登録する"])
         XCTAssertTrue(app.navigationBars["テレビを追加"].waitForNonExistence(timeout: 20), "the sheet did not close")
 
         app.tab(.recordings).tap()
@@ -480,8 +479,7 @@ final class DemoModeTests: XCTestCase {
                       "the sheet did not say the demo's number")
         XCTAssertFalse(app.navigationBars["テレビを追加"].waitForNonExistence(timeout: 2), "the sheet went by itself")
         number.tap()
-        number.typeText("1234")
-        app.buttons["登録する"].tap()
+        type(app, "1234", into: number, thenPress: app.buttons["登録する"])
         XCTAssertTrue(app.navigationBars["テレビを追加"].waitForNonExistence(timeout: 20), "the sheet did not close")
         let connected = formRow(app, "状態", "接続済み")
         scroll(app, to: connected)
@@ -785,6 +783,23 @@ final class DemoModeTests: XCTestCase {
         let uncovered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND hittable == true"),
                                                   object: element)
         return XCTWaiter().wait(for: [uncovered], timeout: seconds) == .completed
+    }
+
+    /// Types into a field and presses a button once the screen is back as it was before the typing. Right after
+    /// `typeText` an iPad's software keyboard can go down to its small bar, as for a hardware keyboard's keys, and come
+    /// back half a second or so later, a form sheet above it dropping to the middle of the screen and rising again with
+    /// it; a press sent before then is lost (seen on an iPadOS 27 simulator with the kana keyboard). After digits
+    /// pressed on the keyboard's own keys, a press at once was taken. Back: the button where it was before the typing,
+    /// and a keyboard that was up with its keys up with them again.
+    private func type(_ app: XCUIApplication, _ text: String, into field: XCUIElement, thenPress button: XCUIElement) {
+        let keyboard = app.keyboards.firstMatch
+        let before = button.frame
+        let keyboardWasUp = keyboard.exists && keyboard.keys.count > 0
+        field.typeText(text)
+        for _ in 0..<40 {
+            if button.frame == before, !keyboardWasUp || keyboard.exists && keyboard.keys.count > 0 { break }
+        }
+        button.tap()
     }
 
     /// A row of a form, which reads as its name and its value joined: by "、" from iOS 18, by ", " on iOS 17.
