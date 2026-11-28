@@ -88,20 +88,6 @@ keyPassword=…
 
 `storeFile` は設定ファイルと同じフォルダーからの相対パスです。鍵はリポジトリに入れません（`.gitignore`）。
 
-## リリース（作者向け）
-
-1. 鍵は一度だけ作り、控えを 2 か所に置きます。失くすと上書き更新ができなくなり、利用者は入れ直しになって許可と登録を失います。証明書の名前は APK に入って誰でも読めるので、アプリの名前だけにします。keytool は JDK 17 以降のものを使います（PKCS12 になり、鍵のパスワードは鍵束のものと同じになります）:
-
-   ```
-   mkdir -p ~/.config/recbridge-helper && cd ~/.config/recbridge-helper
-   keytool -genkeypair -v -keystore recbridge-helper.jks -alias helper -keyalg RSA -keysize 4096 -validity 36500 -dname "CN=RecBridge Helper"
-   ```
-
-2. `app/build.gradle.kts` の `versionCode` を 1 上げ、`versionName` を変えます
-3. `./gradlew assembleRelease` → `apksigner verify --print-certs app/build/outputs/apk/release/recbridge-helper.apk` で署名を確かめます
-4. `shasum -a 256 recbridge-helper.apk > SHA256SUMS`
-5. タグ `helper-v<版>` を打ち、Releases に `recbridge-helper.apk` と `SHA256SUMS` を付け、説明に証明書の SHA-256 を書きます
-
 ## 対応
 
 確かめたのは BRAVIA XRJ-65X95K（Android 12）だけです。入れ方 A（Downloader）、画面の「番組表の読み取りを許可する」のダイアログ、左右 2 列の画面は、まだこのテレビで確かめていません（画面はエミュレーターを 1080p のテレビの大きさにして見ただけです）。
