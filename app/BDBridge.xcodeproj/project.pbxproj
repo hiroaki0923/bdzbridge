@@ -212,7 +212,7 @@
 			);
 			sourceTree = "<group>";
 		};
-		"TEMP_1170DAD4-0139-4F45-B586-F3162AAAF76F" /* app */ = {
+		"TEMP_B05D29CD-00D0-4AFC-AD3B-221777C254A0" /* app */ = {
 			isa = PBXGroup;
 			children = (
 				2D4AEFAFFC54143AC68C842F /* Signing.xcconfig */,
@@ -420,7 +420,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = jp.hiroaki.bdbridge.uitests;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = BDBridge;
 			};
 			name = Release;
@@ -443,7 +443,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = jp.hiroaki.bdbridge;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -621,7 +621,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = jp.hiroaki.bdbridge.tests;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BDBridge.app/BDBridge";
 			};
 			name = Release;
