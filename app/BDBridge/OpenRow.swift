@@ -116,6 +116,7 @@ private struct ColumnTitle: ViewModifier {
     let title: String
     let held: Bool
     let close: () -> Void
+    @Environment(\.screenStripHeight) private var stripHeight
 
     func body(content: Content) -> some View {
         if #available(iOS 26, *) {
@@ -123,8 +124,9 @@ private struct ColumnTitle: ViewModifier {
             content.safeAreaBar(edge: .top, spacing: 0) { row }
         } else {
             // Nothing of the system's is drawn behind an inset, and the rows scrolled under it would print over
-            // the title.
-            content.safeAreaInset(edge: .top, spacing: 0) { row.background(.bar) }
+            // the title. The column starts at the window's bar, under the screen's strip, which runs across it:
+            // the row goes below the strip (`screenStripHeight`).
+            content.safeAreaInset(edge: .top, spacing: 0) { row.background(.bar).padding(.top, stripHeight) }
         }
     }
 

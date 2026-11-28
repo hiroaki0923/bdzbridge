@@ -588,6 +588,7 @@ final class DemoModeTests: XCTestCase {
         let close = columnsClose(app)
         XCTAssertTrue(close.waitForExistence(timeout: 10), "the programme did not open")
         XCTAssertTrue(isBesideTheList(app, close), "the programme was not beside the guide: \(close.frame)")
+        XCTAssertTrue(isBelowTheStrip(app, close), "the column's close was under the strip: \(close.frame)")
         XCTAssertTrue(formRow(app, "放送", "サンプルテレビ").waitForExistence(timeout: 10), "the column was not the programme's")
 
         let another = inView(app, "テレビみほん")
@@ -650,6 +651,7 @@ final class DemoModeTests: XCTestCase {
         let close = columnsClose(app)
         XCTAssertTrue(close.waitForExistence(timeout: 10), "the reservation did not open")
         XCTAssertTrue(isBesideTheList(app, close), "the reservation was not beside the list: \(close.frame)")
+        XCTAssertTrue(isBelowTheStrip(app, close), "the column's close was under the strip: \(close.frame)")
 
         let delete = app.buttons["予約を削除"]
         XCTAssertTrue(delete.waitForExistence(timeout: 10), "the column offered no delete")
@@ -683,6 +685,7 @@ final class DemoModeTests: XCTestCase {
         let close = columnsClose(app)
         XCTAssertTrue(close.waitForExistence(timeout: 10), "the recording did not open")
         XCTAssertTrue(isBesideTheList(app, close), "the recording was not beside the list: \(close.frame)")
+        XCTAssertTrue(isBelowTheStrip(app, close), "the column's close was under the strip: \(close.frame)")
 
         let delete = app.buttons["この録画を削除"]
         XCTAssertTrue(delete.waitForExistence(timeout: 10), "the column offered no delete")
@@ -717,6 +720,7 @@ final class DemoModeTests: XCTestCase {
             result.tap()
             XCTAssertTrue(close.waitForExistence(timeout: 10), "\(scope): the result did not open")
             XCTAssertTrue(isBesideTheList(app, close), "\(scope): the result was not beside the list: \(close.frame)")
+            XCTAssertTrue(isBelowTheStrip(app, close), "\(scope): the column's close was under the strip: \(close.frame)")
             XCTAssertTrue(app.staticTexts[title].exists, "\(scope): the column was not titled \(title)")
             XCTAssertEqual(app.buttons.matching(identifier: "sheet-close").count, 1, "\(scope): more than one column")
         }
@@ -739,6 +743,13 @@ final class DemoModeTests: XCTestCase {
     /// Whether a close is the column's at the window's right edge, beside the list, and not a sheet's over it.
     private func isBesideTheList(_ app: XCUIApplication, _ close: XCUIElement) -> Bool {
         close.frame.maxX > app.windows.firstMatch.frame.maxX - 60
+    }
+
+    /// Whether a column's close is below the demo's strip, which runs across the window above the list and the column,
+    /// rather than under it, where the strip's 終了 took its place (iPadOS 17 and 18). The 終了's frame reaches the
+    /// strip's bottom.
+    private func isBelowTheStrip(_ app: XCUIApplication, _ close: XCUIElement) -> Bool {
+        close.frame.minY >= app.buttons["終了"].frame.maxY
     }
 
     /// The first row of the guide's list on the screen whose line under the title names this channel. A row the list has

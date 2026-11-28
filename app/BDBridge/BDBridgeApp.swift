@@ -269,6 +269,41 @@ struct RecorderActivityBar: View {
     }
 }
 
+/// The strip above a screen's content (`recorderActivity(inSheet:)`). The screen's own says how tall it is to the
+/// content it is put above, the column beside a list among it (`ScreenStripHeight`); a sheet's own leaves that as
+/// it was given.
+private struct RecorderActivity: ViewModifier {
+    let inSheet: Bool
+    @State private var height: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        if inSheet {
+            content.safeAreaInset(edge: .top, spacing: 0) { RecorderActivityBar(inSheet: true) }
+        } else {
+            content
+                .environment(\.screenStripHeight, height)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    RecorderActivityBar()
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+                }
+        }
+    }
+}
+
+/// How tall the strip at the top of the screen is, 0 while none is up. Before iPadOS 26 the column beside a list
+/// starts at the window's bar, and the strip, put above the list and the column together, runs across it: the
+/// column's title row keeps clear of it by this (`columnTitle`). From iPadOS 26 the column starts under the strip.
+private struct ScreenStripHeight: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    var screenStripHeight: CGFloat {
+        get { self[ScreenStripHeight.self] }
+        set { self[ScreenStripHeight.self] = newValue }
+    }
+}
+
 /// The waking, said inside a sheet, which covers the strip that says it on the screens and is where much of
 /// what wakes the recorder is asked for; and the wait for the USB slot to answer before something that names it
 /// is sent (`AppModel.settlingTheSlot`), which holds a sheet's request up for some seconds as a waking does: the
@@ -317,9 +352,7 @@ extension View {
     /// Puts the activity strip above a screen's content, inside its navigation stack. `inSheet` for a sheet's
     /// own, which leaves out the demo's strip (see `RecorderActivityBar.inSheet`).
     func recorderActivity(inSheet: Bool = false) -> some View {
-        safeAreaInset(edge: .top, spacing: 0) {
-            RecorderActivityBar(inSheet: inSheet)
-        }
+        modifier(RecorderActivity(inSheet: inSheet))
     }
 
     /// For a sheet that holds one of a recorder's rows -- a recording, a programme's recordings: closes it
