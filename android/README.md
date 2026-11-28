@@ -38,7 +38,7 @@ says how far it is with 中止, over the model's states of them (`RecordingsStat
 programmes still to come, the reservations and the recordings, with the three as chips under it, over the model's
 state of it (`SearchState`): what is found opens the same sheets. On a window 840 dp wide or more -- a tablet in
 landscape -- the guide, the search, the reservations and the recordings' list and duplicates show what is opened from
-them in a pane beside the list rather than on a sheet, a form of Android's own, since the iOS app is an iPhone's alone:
+them in a pane beside the list rather than on a sheet, as the iOS app does on an iPad, where a row opens in a column beside its list:
 the same content, and while it has a request of its own out, by the rule that keeps a sheet from being put away,
 nothing that would replace it is taken. A turn or a resize does not make the activity again (`configChanges` in the
 manifest), and changes the form, not what is shown: the lists stay where they were scrolled, the top app bars keep

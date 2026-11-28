@@ -122,7 +122,8 @@ public struct Surroundings {
     /// (`AppModel.tvCapabilities`): the settings' in the app (`SettingsScreen.version`).
     public var appVersion: () -> String = { "?" }
     /// What the helper on the television lists this device as among those registered with it, for the reader to
-    /// tell them apart there (`AppModel.registerHelper`): `RecBridge (iPhone)` in the app.
+    /// tell them apart there (`AppModel.registerHelper`): in the app, `RecBridge (iPhone)` on an iPhone and
+    /// `RecBridge (iPad)` on an iPad.
     public var helperLabel = "RecBridge"
 }
 

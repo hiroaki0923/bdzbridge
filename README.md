@@ -8,7 +8,7 @@ Sony 非公式のソフトウェアです。レコーダーやテレビが LAN �
 
 ## 入手
 
-RecBridge は iPhone（iOS 17 以降）向けに、[App Store](https://apps.apple.com/jp/app/recbridge/id6812831646) で配布しています。App Store にあるのは 0.4 です。「0.5 から」と書いたものは、次の版から使えます。
+RecBridge は iPhone（iOS 17 以降）向けに、[App Store](https://apps.apple.com/jp/app/recbridge/id6812831646) で配布しています。App Store にあるのは 0.4 で、iPhone 専用です。「0.5 から」と書いたものは、次の版から使えます。0.5 からは iPad（iPadOS 17 以降）でも動きます。
 
 ### 自分でビルドする
 
@@ -34,7 +34,7 @@ cd app && xcodegen generate && open BDBridge.xcodeproj
 |---|---|---|
 | <img src="docs/screenshots/ios-guide-list.png" alt="iOS アプリの番組表（リストモード）" width="240"> | <img src="docs/screenshots/ios-guide-grid.png" alt="iOS アプリの番組表（表モード）" width="240"> | <img src="docs/screenshots/ios-reservations.png" alt="iOS アプリの予約一覧" width="240"> |
 
-画像はアプリのサンプルデータで撮ったもので、局も番組も架空です。表モードは横にチャンネル、縦に時間で、ピンチで時間軸を伸縮できます。番組表のデータと局ロゴはレコーダー（ヘルパーを使う家ではテレビ）が受信したもので、このリポジトリには含まれていません。ロゴを持たない局は名前だけで表示します（レコーダー自身の画面もそうなります）。
+iPad では（0.5 から）、番組表・検索・予約・録画の行を開くと、一覧の横の列に開きます。iPhone では、これまでどおりシートです。画像はアプリのサンプルデータで撮ったもので、局も番組も架空です。表モードは横にチャンネル、縦に時間で、ピンチで時間軸を伸縮できます。番組表のデータと局ロゴはレコーダー（ヘルパーを使う家ではテレビ）が受信したもので、このリポジトリには含まれていません。ロゴを持たない局は名前だけで表示します（レコーダー自身の画面もそうなります）。
 
 ## 使い方
 

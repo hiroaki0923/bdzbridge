@@ -123,6 +123,13 @@ identifiers that move when they are regenerated. Run `xcodegen generate` after e
 commit what it writes. `scripts/icon.swift` draws the icon into the asset catalogue and
 is the only place the artwork exists, so run it after changing the drawing.
 
+The app is universal: `TARGETED_DEVICE_FAMILY` is `"1,2"` in every configuration, and a version released with the
+iPad cannot go back to iPhone only. On a regular width, which is an iPad's, a row of the guide, the search, the
+reservations or the recordings opens in a column beside its list (`.inspector`, put inside the tab's
+`NavigationStack`, laid out by `inspectorColumn` and kept by `OpenRow`, in `BDBridge/OpenRow.swift`); on a compact
+width, which every iPhone has, it opens in a sheet as before. The row's state is made by the screen and handed to
+either form, so a window that turns between the two widths moves it from one to the other as it stands.
+
 ## Build and run
 
 ```
@@ -719,6 +726,8 @@ others, and has not been held yet.
 
 ## On a real iPhone
 
+The steps below hold for an iPad as well.
+
 **Only ever done here with a paid membership.** Everything below was carried out with an Apple Developer
 Program team, so read the free-account paragraph as an expectation rather than a report.
 
@@ -773,7 +782,7 @@ as no registration in its turn, and asks for the number again.
 The helper's token was kept plain until a later build sealed it as well, and goes the same way: a phone registered
 with the helper reads that token as none after the update and is registered again under ヘルパーに登録, with the
 number the helper shows. Until then nothing asks the helper, so where the television gave the guide beside a
-recorder that gives one, the guide is the recorder's again. The helper lists a second 「RecBridge (iPhone)」 beside
+recorder that gives one, the guide is the recorder's again. The helper lists a second 「RecBridge (iPhone)」 (「RecBridge (iPad)」 from an iPad) beside
 the first until that one is taken off there with 取り消す.
 
 ## TestFlight
