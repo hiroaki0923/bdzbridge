@@ -52,18 +52,23 @@ struct RootView: View {
     var body: some View {
         TabView(selection: selection) {
             GuideScreen()
+                .modifier(TabBarBackground())
                 .tabItem { tabLabel(TabWords.guide, "squareshape.split.3x3", "guide") }
                 .tag("guide")
             SearchScreen(model: model)
+                .modifier(TabBarBackground())
                 .tabItem { tabLabel(TabWords.search, "magnifyingglass", "search") }
                 .tag("search")
             ReservationsScreen(model: model)
+                .modifier(TabBarBackground())
                 .tabItem { tabLabel(TabWords.reservations, "clock", "reservations") }
                 .tag("reservations")
             RecordingsScreen(model: model)
+                .modifier(TabBarBackground())
                 .tabItem { tabLabel(TabWords.recordings, "play.rectangle", "recordings") }
                 .tag("recordings")
             SettingsScreen(model: model)
+                .modifier(TabBarBackground())
                 .tabItem { tabLabel(TabWords.settings, "slider.horizontal.3", "settings") }
                 .tag("settings")
         }
@@ -92,6 +97,27 @@ struct RootView: View {
     /// symbol's name; an iPhone's tab bar leaves it out.
     private func tabLabel(_ name: String, _ symbol: String, _ tag: String) -> some View {
         Label(name, systemImage: symbol).accessibilityIdentifier("tab-" + tag)
+    }
+}
+
+/// The tab bar's background, kept shown on an iPad before iPadOS 18, where the tabs are a bar at the bottom. Left to
+/// itself the system shows that bar clear while the list above it is scrolled to its end, and once a column beside the
+/// list has been opened it keeps it clear over a list that is not, the rows printing through the tabs (seen on
+/// iPadOS 17.5). From iPadOS 18 an iPad's tabs are in the window's bar at the top; an iPhone's bar, beside which no
+/// column ever opens, is left to the system, clear at the scroll's end. Said on each tab, as the system reads it from
+/// the tab shown. Kept shown this way, the tabs not chosen are drawn a shade lighter grey than the system's own bar
+/// draws them.
+private struct TabBarBackground: ViewModifier {
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    func body(content: Content) -> some View {
+        content.toolbarBackground(keptShown ? .visible : .automatic, for: .tabBar)
+    }
+
+    /// A regular width is an iPad's: an iPhone's window, upright only, is compact.
+    private var keptShown: Bool {
+        if #available(iOS 18, *) { return false }
+        return sizeClass == .regular
     }
 }
 
@@ -269,6 +295,41 @@ struct RecorderActivityBar: View {
     }
 }
 
+/// The strip above a screen's content (`recorderActivity(inSheet:)`). The screen's own says how tall it is to the
+/// content it is put above, the column beside a list among it (`ScreenStripHeight`); a sheet's own leaves that as
+/// it was given.
+private struct RecorderActivity: ViewModifier {
+    let inSheet: Bool
+    @State private var height: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        if inSheet {
+            content.safeAreaInset(edge: .top, spacing: 0) { RecorderActivityBar(inSheet: true) }
+        } else {
+            content
+                .environment(\.screenStripHeight, height)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    RecorderActivityBar()
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+                }
+        }
+    }
+}
+
+/// How tall the strip at the top of the screen is, 0 while none is up. Before iPadOS 26 the column beside a list
+/// starts at the window's bar, and the strip, put above the list and the column together, runs across it: the
+/// column's title row keeps clear of it by this (`columnTitle`). From iPadOS 26 the column starts under the strip.
+private struct ScreenStripHeight: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    var screenStripHeight: CGFloat {
+        get { self[ScreenStripHeight.self] }
+        set { self[ScreenStripHeight.self] = newValue }
+    }
+}
+
 /// The waking, said inside a sheet, which covers the strip that says it on the screens and is where much of
 /// what wakes the recorder is asked for; and the wait for the USB slot to answer before something that names it
 /// is sent (`AppModel.settlingTheSlot`), which holds a sheet's request up for some seconds as a waking does: the
@@ -317,9 +378,7 @@ extension View {
     /// Puts the activity strip above a screen's content, inside its navigation stack. `inSheet` for a sheet's
     /// own, which leaves out the demo's strip (see `RecorderActivityBar.inSheet`).
     func recorderActivity(inSheet: Bool = false) -> some View {
-        safeAreaInset(edge: .top, spacing: 0) {
-            RecorderActivityBar(inSheet: inSheet)
-        }
+        modifier(RecorderActivity(inSheet: inSheet))
     }
 
     /// For a sheet that holds one of a recorder's rows -- a recording, a programme's recordings: closes it
