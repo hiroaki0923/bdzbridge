@@ -43,7 +43,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: jp.hiroaki.bdbridge
         MARKETING_VERSION: "0.5"
         SWIFT_VERSION: "6.0"
-        TARGETED_DEVICE_FAMILY: "1"
+        # The app is built for iPhone and iPad ("1,2") in every configuration, the tests' too. A version released
+        # with the iPad cannot go back to iPhone only (an App Store rule), so this is not to be narrowed again.
+        TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Xcode's General tab reads the category from this build setting rather than from the Info.plist, and
@@ -51,11 +53,6 @@ targets:
         # answer is written in both places; the category a shopper sees is the one set in App Store Connect.
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.entertainment
         CODE_SIGN_STYLE: Automatic
-      # The iPad is being built: Debug runs as an iPad app so that its layout can be developed and tested. A
-      # release that supports the iPad cannot go back to iPhone only, so Release stays "1" until the layout is done.
-      configs:
-        Debug:
-          TARGETED_DEVICE_FAMILY: "1,2"
     # DEVELOPMENT_TEAM lives here and not above, because a build setting outranks an xcconfig:
     # Signing.xcconfig reads the gitignored Signing.local.xcconfig, which holds the team identifier.
     configFiles:
@@ -123,11 +120,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: jp.hiroaki.bdbridge.tests
         SWIFT_VERSION: "6.0"
-        TARGETED_DEVICE_FAMILY: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES
-      configs:
-        Debug:
-          TARGETED_DEVICE_FAMILY: "1,2"
     configFiles:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig
@@ -145,11 +139,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: jp.hiroaki.bdbridge.uitests
         SWIFT_VERSION: "6.0"
-        TARGETED_DEVICE_FAMILY: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES
-      configs:
-        Debug:
-          TARGETED_DEVICE_FAMILY: "1,2"
     configFiles:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig
