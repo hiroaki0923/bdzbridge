@@ -483,11 +483,10 @@ final class DemoModeTests: XCTestCase {
         number.typeText("1234")
         app.buttons["登録する"].tap()
         XCTAssertTrue(app.navigationBars["テレビを追加"].waitForNonExistence(timeout: 20), "the sheet did not close")
-        // A row of a form reads as its name and its value, joined.
-        let connected = app.staticTexts["状態、接続済み"]
+        let connected = formRow(app, "状態", "接続済み")
         scroll(app, to: connected)
         XCTAssertTrue(connected.exists, "the demo's television was not said to be connected")
-        XCTAssertTrue(app.staticTexts["機種、KJ-SAMPLE"].exists, "the section did not say which television")
+        XCTAssertTrue(formRow(app, "機種", "KJ-SAMPLE").exists, "the section did not say which television")
         XCTAssertFalse(app.buttons["アドレスを入力して追加"].exists, "the section still offered to add one")
 
         // What it holds from the start, as the television's.
@@ -557,7 +556,7 @@ final class DemoModeTests: XCTestCase {
         app.tab(.settings).tap()
         find(app, add)
         XCTAssertTrue(add.exists, "the television's section did not go back to adding one")
-        XCTAssertFalse(app.staticTexts["機種、KJ-SAMPLE"].exists, "the demo's television stayed after the demo")
+        XCTAssertFalse(formRow(app, "機種", "KJ-SAMPLE").exists, "the demo's television stayed after the demo")
         // Held back while anything is under way with the recorder in play, as entering the demo is.
         let tryAgain = app.buttons["サンプルデータで試す"]
         scroll(app, to: tryAgain)
@@ -591,13 +590,13 @@ final class DemoModeTests: XCTestCase {
         let close = columnsClose(app)
         XCTAssertTrue(close.waitForExistence(timeout: 10), "the programme did not open")
         XCTAssertTrue(isBesideTheList(app, close), "the programme was not beside the guide: \(close.frame)")
-        XCTAssertTrue(app.staticTexts["放送、サンプルテレビ"].waitForExistence(timeout: 10), "the column was not the programme's")
+        XCTAssertTrue(formRow(app, "放送", "サンプルテレビ").waitForExistence(timeout: 10), "the column was not the programme's")
 
         let another = inView(app, "テレビみほん")
         another.tap()
-        XCTAssertTrue(app.staticTexts["放送、テレビみほん"].waitForExistence(timeout: 10),
+        XCTAssertTrue(formRow(app, "放送", "テレビみほん").waitForExistence(timeout: 10),
                       "the programme tapped next did not take the column")
-        XCTAssertFalse(app.staticTexts["放送、サンプルテレビ"].exists, "the first programme stayed in the column")
+        XCTAssertFalse(formRow(app, "放送", "サンプルテレビ").exists, "the first programme stayed in the column")
 
         close.tap()
         XCTAssertTrue(close.waitForNonExistence(timeout: 10), "the column did not close")
@@ -769,14 +768,28 @@ final class DemoModeTests: XCTestCase {
 
     /// On an iPad the search field, while it holds words, stands in the window's bar where the tabs were (iPadOS 27),
     /// and clearing it with its own button brings them back. Where the tabs stay away while the field is in use, words
-    /// or none (iPadOS 18), its キャンセル brings them back. An iPhone's tab bar stays under it.
+    /// or none (iPadOS 18), or stay under the keyboard the field keeps up (iPadOS 17, whose tabs are a bar at the
+    /// bottom, where a tap meant for a tab types a letter), its キャンセル brings them back. An iPhone's tab bar stays
+    /// under it.
     private func clearTheSearchOnAnIPad(_ app: XCUIApplication) {
         guard onAnIPad else { return }
         let clear = app.searchFields.firstMatch.buttons.firstMatch
         XCTAssertTrue(clear.waitForExistence(timeout: 10), "the search field had nothing to clear it with")
         clear.tap()
         let cancel = app.navigationBars.buttons["キャンセル"]
-        if !app.tab(.guide).waitForExistence(timeout: 2), cancel.exists { cancel.tap() }
+        if !canBeTapped(app.tab(.guide), within: 2), cancel.exists { cancel.tap() }
+    }
+
+    /// Whether an element comes to be there and uncovered, as a tap needs it, within so many seconds.
+    private func canBeTapped(_ element: XCUIElement, within seconds: TimeInterval) -> Bool {
+        let uncovered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND hittable == true"),
+                                                  object: element)
+        return XCTWaiter().wait(for: [uncovered], timeout: seconds) == .completed
+    }
+
+    /// A row of a form, which reads as its name and its value joined: by "、" from iOS 18, by ", " on iOS 17.
+    private func formRow(_ app: XCUIApplication, _ name: String, _ value: String) -> XCUIElement {
+        app.staticTexts.matching(NSPredicate(format: "label IN %@", [name + "、" + value, name + ", " + value])).firstMatch
     }
 
     /// The search's field, tapped and ready for words. Where the bar has no room for it beside the tabs, as an iPad's in
