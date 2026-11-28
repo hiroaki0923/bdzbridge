@@ -22,6 +22,12 @@ final class DemoModeTests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// A test turned to landscape leaves the iPad as the others expect it.
+    override func tearDown() {
+        if onAnIPad { XCUIDevice.shared.orientation = .portrait }
+        super.tearDown()
+    }
+
     func testTheDemoFillsTheAppAndEndingItLeavesNothingBehind() {
         let app = launchWithoutARecorder()
         startTheDemo(app)
@@ -96,9 +102,7 @@ final class DemoModeTests: XCTestCase {
         startTheDemo(app)
 
         app.tab(.search).tap()
-        let field = app.searchFields.firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
-        field.tap()
+        let field = openTheSearch(app)
         field.typeText("みほん花子")
 
         let detail = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "詳細：")).firstMatch
@@ -116,9 +120,7 @@ final class DemoModeTests: XCTestCase {
         startTheDemo(app)
 
         app.tab(.search).tap()
-        let field = app.searchFields.firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
-        field.tap()
+        let field = openTheSearch(app)
         // The return key puts the keyboard away, which otherwise covers the results.
         field.typeText("ひかりの街\n")
 
@@ -424,9 +426,7 @@ final class DemoModeTests: XCTestCase {
 
         // A programme's sheet starts at it, and another mode chosen there stays there.
         app.tab(.search).tap()
-        let field = app.searchFields.firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
-        field.tap()
+        let field = openTheSearch(app)
         field.typeText("遠い灯台")
         let result = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "遠い灯台")).firstMatch
         XCTAssertTrue(result.waitForExistence(timeout: 20), "the search found nothing")
@@ -498,9 +498,7 @@ final class DemoModeTests: XCTestCase {
 
         // A programme of the guide reserved on it, ahead of now: one under way could not have its repeat changed.
         app.tab(.search).tap()
-        let field = app.searchFields.firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
-        field.tap()
+        let field = openTheSearch(app)
         // The return key puts the keyboard away, which otherwise covers the tab bar.
         field.typeText("みほん自然紀行\n")
         let ahead = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND NOT label CONTAINS %@",
@@ -580,9 +578,12 @@ final class DemoModeTests: XCTestCase {
     // MARK: - an iPad's column
 
     /// On an iPad a programme of the guide opens in the column beside it, where an iPhone has a sheet over it. Another
-    /// programme tapped takes its place there, and its close closes it, leaving the guide as it was.
+    /// programme tapped takes its place there, and its close closes it, leaving the guide as it was. Tried in landscape,
+    /// where every iPad has room for the column beside the guide: a small iPad's portrait, the 10.2-inch's 810 points,
+    /// has it over the guide as the system's overlay, which a tap on the guide closes (`OpenRow`).
     func testOnAnIPadAProgrammeOpensBesideTheGuide() throws {
         try XCTSkipUnless(onAnIPad, "an iPhone opens a programme in a sheet")
+        XCUIDevice.shared.orientation = .landscapeLeft
         let app = launchWithoutARecorder()
         startTheDemo(app)
 
@@ -613,9 +614,7 @@ final class DemoModeTests: XCTestCase {
         startTheDemo(app)
 
         app.tab(.search).tap()
-        let field = app.searchFields.firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
-        field.tap()
+        let field = openTheSearch(app)
         field.typeText("みほん自然紀行\n")
         let ahead = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND NOT label CONTAINS %@",
                                                          "サンプル教育", "放送中")).firstMatch
@@ -708,9 +707,7 @@ final class DemoModeTests: XCTestCase {
         startTheDemo(app)
 
         app.tab(.search).tap()
-        let field = app.searchFields.firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 20), "the search field never appeared")
-        field.tap()
+        let field = openTheSearch(app)
         field.typeText("ひかりの街\n")
         let close = columnsClose(app)
         for (scope, title) in [("番組表", "番組"), ("予約", "予約"), ("録画", "録画")] {
@@ -747,11 +744,13 @@ final class DemoModeTests: XCTestCase {
         close.frame.maxX > app.windows.firstMatch.frame.maxX - 60
     }
 
-    /// The first row of the guide's list on the screen whose line under the title names this channel.
+    /// The first row of the guide's list on the screen whose line under the title names this channel. A row the list has
+    /// scrolled up under the demo's strip is hittable for all XCTest can tell, and a tap on it lands on the strip.
     private func inView(_ app: XCUIApplication, _ channel: String) -> XCUIElement {
         let lines = app.staticTexts.matching(labelContains(channel))
         XCTAssertTrue(lines.firstMatch.waitForExistence(timeout: 20), "the guide had no programme on \(channel)")
-        let shown = lines.allElementsBoundByIndex.first { $0.isHittable }
+        let strip = demoStrip(app).frame.maxY
+        let shown = lines.allElementsBoundByIndex.first { $0.isHittable && $0.frame.minY >= strip }
         XCTAssertNotNil(shown, "no programme on \(channel) was on the screen")
         return shown ?? lines.firstMatch
     }
@@ -769,12 +768,30 @@ final class DemoModeTests: XCTestCase {
     }
 
     /// On an iPad the search field, while it holds words, stands in the window's bar where the tabs were (iPadOS 27),
-    /// and clearing it with its own button brings them back. An iPhone's tab bar stays under it.
+    /// and clearing it with its own button brings them back. Where the tabs stay away while the field is in use, words
+    /// or none (iPadOS 18), its キャンセル brings them back. An iPhone's tab bar stays under it.
     private func clearTheSearchOnAnIPad(_ app: XCUIApplication) {
         guard onAnIPad else { return }
         let clear = app.searchFields.firstMatch.buttons.firstMatch
         XCTAssertTrue(clear.waitForExistence(timeout: 10), "the search field had nothing to clear it with")
         clear.tap()
+        let cancel = app.navigationBars.buttons["キャンセル"]
+        if !app.tab(.guide).waitForExistence(timeout: 2), cancel.exists { cancel.tap() }
+    }
+
+    /// The search's field, tapped and ready for words. Where the bar has no room for it beside the tabs, as an iPad's in
+    /// portrait under iPadOS 18, whose tabs float in the bar, the bar folds it into a magnifier named 検索, which brings
+    /// it out.
+    private func openTheSearch(_ app: XCUIApplication) -> XCUIElement {
+        let field = app.searchFields.firstMatch
+        let folded = app.navigationBars.buttons["検索"]
+        for _ in 0..<20 where !field.exists {
+            if folded.exists { folded.tap() }
+            _ = field.waitForExistence(timeout: 1)
+        }
+        XCTAssertTrue(field.exists, "the search field never appeared")
+        field.tap()
+        return field
     }
 
     /// Whether a picker's row shows this choice, which it gives as its label or as its value.
@@ -817,7 +834,10 @@ final class DemoModeTests: XCTestCase {
         let enabled = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: search)
         wait(for: [enabled], timeout: 30)
         search.tap()
+        // The rows found come under the search's own, which on a short screen -- any iPad's in landscape, a small one's
+        // in portrait -- is below the form's end, where they are not there to find until they have been scrolled to.
         let found = app.buttons.matching(labelContains(Self.demoTVHost)).firstMatch
+        scroll(app, to: found)
         XCTAssertTrue(found.waitForExistence(timeout: 20), "the demo's search did not list its television")
         XCTAssertTrue(found.label.contains("KJ-SAMPLE"), "the demo's television's row was \(found.label)")
         return found
