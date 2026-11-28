@@ -21,7 +21,7 @@ android {
         buildConfig = true
     }
 
-    // The release key lives outside the repository (README.md, リリース): a properties file named by
+    // The release key lives outside the repository (README.md, ビルド): a properties file named by
     // RECBRIDGE_HELPER_KEYS, or ~/.config/recbridge-helper/key.properties, with storeFile, storePassword,
     // keyAlias and keyPassword. Without one the release build comes out unsigned, for anyone to sign with
     // a key of their own.

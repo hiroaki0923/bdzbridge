@@ -4,7 +4,7 @@ local.properties
 .idea/
 *.iml
 .kotlin/
-# Signing material never goes in (README.md, リリース).
+# Signing material never goes in (README.md, ビルド).
 *.jks
 *.keystore
 key.properties
